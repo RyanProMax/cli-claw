@@ -1,0 +1,33 @@
+{
+  "name": "happyclaw-agent-runner",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Container-side agent runner for HappyClaw",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "*",
+    "cron-parser": "^5.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/riba2534/happyclaw.git",
+    "directory": "container/agent-runner"
+  },
+  "author": "riba2534",
+  "keywords": [
+    "claude-agent-sdk",
+    "agent-runner",
+    "mcp",
+    "happyclaw"
+  ]
+}

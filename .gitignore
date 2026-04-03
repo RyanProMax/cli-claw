@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Runtime data — databases, encrypted configs, sessions, IPC, env files, agent workspaces
+# All personal data, auto-created at startup, must not be committed.
+/data/
+/logs/
+
+# Legacy directories (migrated into data/ on first startup)
+/store/
+/groups/
+
+# Environment variables (may contain API keys and secrets)
+.env
+.env.*
+
+# Secrets — catch-all for key/cert files that may appear anywhere
+*.key
+*.pem
+*.keys.json
+
+# Database files outside store/ (safety net)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+
+# Bun lockfile（项目以 package-lock.json 为主 lockfile）
+bun.lock
+bun.lockb
+
+# Build cache
+.build-sentinel
+.docker-build-sentinel
+*.tsbuildinfo
+
+# Local tooling metadata
+.claude/
+.mcp.json
+/.omc/
+.trae/
+.coco/
+.agent/
+.agents/
+skills-lock.json
+--connect
+log/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+/log/
+nohup.out
