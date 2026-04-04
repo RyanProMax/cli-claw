@@ -21,6 +21,7 @@ import {
   normalizeAgentType,
   validateGroupRuntimeUpdate,
 } from '../group-runtime.js';
+import { getRuntimeBuildStatus, isRuntimeBuildStale } from '../runtime-build.js';
 import {
   isHostExecutionGroup,
   hasHostExecutionPermission,
@@ -841,6 +842,30 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         runtimeError === 'Cannot change execution mode of home containers'
           ? 403
           : 400,
+      );
+    }
+
+    if (runtimeBoundaryChanged && isRuntimeBuildStale()) {
+      const buildStatus = getRuntimeBuildStatus();
+      logger.warn(
+        {
+          jid,
+          folder: existing.folder,
+          previousAgentType: existing.agentType || 'claude',
+          nextAgentType,
+          previousExecutionMode: existing.executionMode || 'container',
+          nextExecutionMode,
+          buildStatus,
+        },
+        'Rejected workspace runtime change because backend process is stale',
+      );
+      return c.json(
+        {
+          error:
+            'Runtime change requires a backend restart because the current process is older than the on-disk build',
+          stale_build: true,
+        },
+        409,
       );
     }
 

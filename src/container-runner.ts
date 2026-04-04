@@ -52,6 +52,7 @@ import {
   writeRunLog,
   type CloseHandlerContext,
 } from './agent-output-parser.js';
+import { getRuntimeBuildLogFields } from './runtime-build.js';
 
 /**
  * Required env flags for settings.json — 每次容器/进程启动时强制写入，不可被用户覆盖。
@@ -478,6 +479,8 @@ export async function runContainerAgent(
   }
   const startTime = Date.now();
   const agentType = input.agentType || group.agentType || 'claude';
+  const selectedRunner = 'claude';
+  const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
   const groupDir = path.join(GROUPS_DIR, group.folder);
   mkdirForContainer(groupDir);
@@ -523,16 +526,20 @@ export async function runContainerAgent(
 
     logger.info(
       {
+        requestedAgentType: input.agentType || group.agentType || 'claude',
+        effectiveAgentType: agentType,
         group: group.name,
         folder: group.folder,
         chatJid: input.chatJid,
         agentType,
+        selectedRunner,
         executionMode: 'container',
         sessionId: input.sessionId || null,
         agentId: input.agentId || null,
         containerName,
         mountCount: mounts.length,
         isMain: input.isMain,
+        ...runtimeBuildLogFields,
       },
       'Spawning container agent',
     );
@@ -615,13 +622,27 @@ export async function runContainerAgent(
           filePrefix: 'container',
           identifier: containerName,
           logsDir,
-          input,
+          input: {
+            ...input,
+            agentType,
+            executionMode: 'container',
+            agentId: input.agentId,
+          },
           stdoutState,
           stderrState,
           onOutput,
           resolvePromise: resolve,
           startTime,
           timeoutMs,
+          agentIdentity: {
+            chatJid: input.chatJid,
+            groupFolder: group.folder,
+            agentType,
+            executionMode: 'container',
+            selectedRunner,
+            agentId: input.agentId || null,
+          },
+          runtimeBuildInfo: runtimeBuildLogFields,
           extraSummaryLines: [
             ``,
             `=== Mounts ===`,
@@ -986,6 +1007,8 @@ export async function runHostAgent(
     ...(process.env as Record<string, string>),
   };
   const agentType = group.agentType ?? 'claude';
+  const selectedRunner = agentType;
+  const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
   // ─── Provider Pool selection (host mode) ───
   const containerOverride = getContainerEnvConfig(group.folder);
@@ -1139,15 +1162,19 @@ export async function runHostAgent(
 
     logger.info(
       {
+        requestedAgentType: input.agentType || group.agentType || 'claude',
+        effectiveAgentType: agentType,
         group: group.name,
         folder: group.folder,
         chatJid: input.chatJid,
         agentType,
+        selectedRunner,
         executionMode: 'host',
         sessionId: input.sessionId || null,
         agentId: input.agentId || null,
         workingDir: groupDir,
         isMain: input.isMain,
+        ...runtimeBuildLogFields,
       },
       'Spawning host agent',
     );
@@ -1238,13 +1265,27 @@ export async function runHostAgent(
           filePrefix: 'host',
           identifier: processId,
           logsDir,
-          input,
+          input: {
+            ...input,
+            agentType,
+            executionMode: 'host',
+            agentId: input.agentId,
+          },
           stdoutState,
           stderrState,
           onOutput,
           resolvePromise: resolveOnce,
           startTime,
           timeoutMs,
+          agentIdentity: {
+            chatJid: input.chatJid,
+            groupFolder: group.folder,
+            agentType,
+            executionMode: 'host',
+            selectedRunner,
+            agentId: input.agentId || null,
+          },
+          runtimeBuildInfo: runtimeBuildLogFields,
           extraSummaryLines: [`Working Directory: ${groupDir}`],
           enrichError: (stderrContent, exitLabel) => {
             const missingPackageMatch = stderrContent.match(

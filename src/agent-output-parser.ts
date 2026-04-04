@@ -201,13 +201,40 @@ export interface CloseHandlerContext {
   /** containerName or processId */
   identifier: string;
   logsDir: string;
-  input: { prompt: string; sessionId?: string; isMain: boolean };
+  input: {
+    prompt: string;
+    sessionId?: string;
+    isMain: boolean;
+    chatJid?: string;
+    groupFolder?: string;
+    agentType?: string;
+    executionMode?: string;
+    agentId?: string;
+  };
   stdoutState: StdoutParserState;
   stderrState: StderrState;
   onOutput?: (output: ContainerOutput) => Promise<void>;
   resolvePromise: (output: ContainerOutput) => void;
   startTime: number;
   timeoutMs: number;
+  agentIdentity?: {
+    chatJid?: string;
+    groupFolder?: string;
+    agentType?: string;
+    executionMode?: string;
+    selectedRunner?: string;
+    agentId?: string | null;
+  };
+  runtimeBuildInfo?: {
+    backendPid: number;
+    backendStartedAt: string;
+    backendBuildLoaded: string;
+    backendBuildCurrent: string;
+    backendBuildStale: boolean;
+    agentRunnerBuildLoaded: string;
+    agentRunnerBuildCurrent: string;
+    agentRunnerBuildStale: boolean;
+  };
   /** Extra log lines for the "Input Summary" section (e.g. Mounts, Working Directory) */
   extraSummaryLines?: string[];
   /** Extra log lines for verbose/error section (e.g. Container Args, detailed Mounts) */
@@ -311,6 +338,36 @@ export function writeRunLog(
     `Prompt length: ${ctx.input.prompt.length} chars`,
     `Session ID: ${ctx.input.sessionId || 'new'}`,
   );
+  if (ctx.agentIdentity?.chatJid) {
+    logLines.push(`Chat JID: ${ctx.agentIdentity.chatJid}`);
+  }
+  if (ctx.agentIdentity?.groupFolder) {
+    logLines.push(`Group Folder: ${ctx.agentIdentity.groupFolder}`);
+  }
+  if (ctx.agentIdentity?.agentType) {
+    logLines.push(`Agent Type: ${ctx.agentIdentity.agentType}`);
+  }
+  if (ctx.agentIdentity?.executionMode) {
+    logLines.push(`Execution Mode: ${ctx.agentIdentity.executionMode}`);
+  }
+  if (ctx.agentIdentity?.selectedRunner) {
+    logLines.push(`Selected Runner: ${ctx.agentIdentity.selectedRunner}`);
+  }
+  if (ctx.agentIdentity?.agentId) {
+    logLines.push(`Agent ID: ${ctx.agentIdentity.agentId}`);
+  }
+  if (ctx.runtimeBuildInfo) {
+    logLines.push(
+      `Backend PID: ${ctx.runtimeBuildInfo.backendPid}`,
+      `Backend Started At: ${ctx.runtimeBuildInfo.backendStartedAt}`,
+      `Backend Build Loaded: ${ctx.runtimeBuildInfo.backendBuildLoaded}`,
+      `Backend Build Current: ${ctx.runtimeBuildInfo.backendBuildCurrent}`,
+      `Backend Build Stale: ${ctx.runtimeBuildInfo.backendBuildStale}`,
+      `Agent Runner Build Loaded: ${ctx.runtimeBuildInfo.agentRunnerBuildLoaded}`,
+      `Agent Runner Build Current: ${ctx.runtimeBuildInfo.agentRunnerBuildCurrent}`,
+      `Agent Runner Build Stale: ${ctx.runtimeBuildInfo.agentRunnerBuildStale}`,
+    );
+  }
   if (ctx.extraSummaryLines) {
     logLines.push(...ctx.extraSummaryLines);
   }

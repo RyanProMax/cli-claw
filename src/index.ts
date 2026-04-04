@@ -150,6 +150,7 @@ import {
   SubAgent,
 } from './types.js';
 import { logger } from './logger.js';
+import { getRuntimeBuildLogFields } from './runtime-build.js';
 import { resolveTaskOwner } from './task-utils.js';
 import {
   ensureAgentDirectories,
@@ -3337,16 +3338,22 @@ async function runAgent(
   try {
     const executionMode = group.executionMode || 'container';
     const agentType = group.agentType || 'claude';
+    const selectedRunner = executionMode === 'host' ? agentType : 'claude';
+    const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
     logger.info(
       {
+        requestedAgentType: agentType,
+        effectiveAgentType: agentType,
+        selectedRunner,
         chatJid,
-        folder: group.folder,
+        groupFolder: group.folder,
         agentType,
         executionMode,
         sessionId: sessionId || null,
         isHome,
         isAdminHome,
+        ...runtimeBuildLogFields,
       },
       'Dispatching workspace agent run',
     );
@@ -5373,6 +5380,29 @@ async function processAgentConversation(
   ipcWatcherManager?.watchGroup(effectiveGroup.folder);
   try {
     const executionMode = effectiveGroup.executionMode || 'container';
+    const agentType = effectiveGroup.agentType || 'claude';
+    const selectedRunner = executionMode === 'host' ? agentType : 'claude';
+    const runtimeBuildLogFields = getRuntimeBuildLogFields();
+
+    logger.info(
+      {
+        requestedAgentType: agentType,
+        effectiveAgentType: agentType,
+        selectedRunner,
+        chatJid,
+        virtualJid,
+        groupFolder: effectiveGroup.folder,
+        agentId,
+        agentName: agent.name,
+        executionMode,
+        sessionId: sessionId || null,
+        isHome,
+        isAdminHome,
+        ...runtimeBuildLogFields,
+      },
+      'Dispatching conversation agent run',
+    );
+
     const onProcessCb = (proc: ChildProcess, identifier: string) => {
       const containerName = executionMode === 'container' ? identifier : null;
       queue.registerProcess(
@@ -5391,7 +5421,7 @@ async function processAgentConversation(
       turnId: lastProcessed.id,
       groupFolder: effectiveGroup.folder,
       chatJid,
-      agentType: effectiveGroup.agentType || 'claude',
+      agentType,
       isMain: isAdminHome,
       isHome,
       isAdminHome,
