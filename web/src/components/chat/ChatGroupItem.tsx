@@ -146,7 +146,7 @@ export function ChatGroupItem({
                 重命名
               </DropdownMenuItem>
             )}
-            {!isHome && editable && onRuntimeSettings && (
+            {editable && onRuntimeSettings && (
               <DropdownMenuItem onClick={() => onRuntimeSettings(jid)}>
                 <Settings2 className="w-4 h-4" />
                 运行时设置

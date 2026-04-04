@@ -145,6 +145,7 @@ export function ChatPage() {
                     lastMessage={mainGroup.lastMessage}
                     isActive={currentGroup === mainGroup.jid} isHome
                     isRunning={runnerStates[mainGroup.jid] === 'running'} editable
+                    onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                     onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
                     onClearHistory={openClear}
                   />
@@ -280,6 +281,7 @@ export function ChatPage() {
           open={runtimeState.open}
           jid={runtimeState.jid}
           name={runtimeGroup.name}
+          isHome={!!runtimeGroup.is_home}
           currentAgentType={runtimeGroup.agent_type || 'claude'}
           currentExecutionMode={runtimeGroup.execution_mode || 'container'}
           onClose={() => setRuntimeState({ open: false, jid: '' })}

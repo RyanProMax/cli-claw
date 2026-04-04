@@ -2444,10 +2444,6 @@ export function ensureUserHomeGroup(
         patched.executionMode = 'host';
         changed = true;
       }
-      if (patched.agentType !== 'claude') {
-        patched.agentType = 'claude';
-        changed = true;
-      }
       if (changed) {
         setRegisteredGroup(jid, patched);
       }

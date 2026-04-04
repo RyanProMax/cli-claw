@@ -1,36 +1,38 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-  enforceAgentExecutionMode,
-  normalizeAgentType,
-} from '../src/group-runtime.js';
+import { validateGroupRuntimeUpdate } from '../src/group-runtime.js';
 
-describe('normalizeAgentType', () => {
-  test('defaults empty values to claude', () => {
-    expect(normalizeAgentType(undefined)).toBe('claude');
-    expect(normalizeAgentType(null)).toBe('claude');
-    expect(normalizeAgentType('')).toBe('claude');
+describe('validateGroupRuntimeUpdate', () => {
+  test('allows home workspaces to change agent when execution mode stays the same', () => {
+    expect(
+      validateGroupRuntimeUpdate({
+        isHome: true,
+        currentExecutionMode: 'host',
+        nextAgentType: 'codex',
+        nextExecutionMode: 'host',
+      }),
+    ).toBeNull();
   });
 
-  test('accepts codex explicitly', () => {
-    expect(normalizeAgentType('codex')).toBe('codex');
+  test('rejects execution mode changes for home workspaces', () => {
+    expect(
+      validateGroupRuntimeUpdate({
+        isHome: true,
+        currentExecutionMode: 'host',
+        nextAgentType: 'claude',
+        nextExecutionMode: 'container',
+      }),
+    ).toBe('Cannot change execution mode of home containers');
   });
 
-  test('falls back unknown values to claude', () => {
-    expect(normalizeAgentType('unknown')).toBe('claude');
-  });
-});
-
-describe('enforceAgentExecutionMode', () => {
-  test('allows claude in both execution modes', () => {
-    expect(enforceAgentExecutionMode('claude', 'host')).toBeNull();
-    expect(enforceAgentExecutionMode('claude', 'container')).toBeNull();
-  });
-
-  test('allows codex only in host mode', () => {
-    expect(enforceAgentExecutionMode('codex', 'host')).toBeNull();
-    expect(enforceAgentExecutionMode('codex', 'container')).toBe(
-      'Codex only supports host execution mode',
-    );
+  test('still enforces codex host-mode requirement', () => {
+    expect(
+      validateGroupRuntimeUpdate({
+        isHome: false,
+        currentExecutionMode: 'container',
+        nextAgentType: 'codex',
+        nextExecutionMode: 'container',
+      }),
+    ).toBe('Codex only supports host execution mode');
   });
 });

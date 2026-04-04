@@ -14,3 +14,22 @@ export function enforceAgentExecutionMode(
   }
   return null;
 }
+
+export function validateGroupRuntimeUpdate(options: {
+  isHome: boolean;
+  currentExecutionMode: ExecutionMode;
+  nextAgentType: AgentType;
+  nextExecutionMode: ExecutionMode;
+}): string | null {
+  if (
+    options.isHome &&
+    options.nextExecutionMode !== options.currentExecutionMode
+  ) {
+    return 'Cannot change execution mode of home containers';
+  }
+
+  return enforceAgentExecutionMode(
+    options.nextAgentType,
+    options.nextExecutionMode,
+  );
+}

@@ -245,6 +245,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
                           isRunning={runnerStates[mainGroup.jid] === 'running'} editable
                           onSelect={handleGroupSelect}
                           onRename={(jid, name) => setRenameState({ open: true, jid, name })}
+                          onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                           onClearHistory={openClear}
                         />
                       </div>
@@ -315,6 +316,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
             open={runtimeState.open}
             jid={runtimeState.jid}
             name={runtimeGroup.name}
+            isHome={!!runtimeGroup.is_home}
             currentAgentType={runtimeGroup.agent_type || 'claude'}
             currentExecutionMode={runtimeGroup.execution_mode || 'container'}
             onClose={() => setRuntimeState({ open: false, jid: '' })}

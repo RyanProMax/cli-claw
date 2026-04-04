@@ -18,6 +18,7 @@ import { DATA_DIR, GROUPS_DIR, isDockerAvailable } from '../config.js';
 import {
   enforceAgentExecutionMode,
   normalizeAgentType,
+  validateGroupRuntimeUpdate,
 } from '../group-runtime.js';
 import {
   isHostExecutionGroup,
@@ -721,20 +722,6 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  // 不允许修改 is_home=true 的主容器执行模式（主容器由 loadState 强制管理）
-  if (execution_mode !== undefined && existing.is_home) {
-    return c.json(
-      { error: 'Cannot change execution mode of home containers' },
-      403,
-    );
-  }
-  if (agent_type !== undefined && existing.is_home) {
-    return c.json(
-      { error: 'Cannot change agent type of home containers' },
-      403,
-    );
-  }
-
   // member 用户不允许使用 host 模式（安全限制）
   if (execution_mode === 'host' && !hasHostExecutionPermission(authUser)) {
     return c.json(
@@ -806,12 +793,19 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
       execution_mode !== undefined
         ? (execution_mode as ExecutionMode)
         : existing.executionMode || 'container';
-    const runtimeError = enforceAgentExecutionMode(
+    const runtimeError = validateGroupRuntimeUpdate({
+      isHome: !!existing.is_home,
+      currentExecutionMode: existing.executionMode || 'container',
       nextAgentType,
       nextExecutionMode,
-    );
+    });
     if (runtimeError) {
-      return c.json({ error: runtimeError }, 400);
+      return c.json(
+        { error: runtimeError },
+        runtimeError === 'Cannot change execution mode of home containers'
+          ? 403
+          : 400,
+      );
     }
 
     const updated: RegisteredGroup = {

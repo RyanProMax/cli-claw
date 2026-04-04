@@ -22,6 +22,7 @@ interface WorkspaceRuntimeDialogProps {
   open: boolean;
   jid: string;
   name: string;
+  isHome?: boolean;
   currentAgentType?: WorkspaceAgentType;
   currentExecutionMode?: WorkspaceExecutionMode;
   onClose: () => void;
@@ -31,6 +32,7 @@ export function WorkspaceRuntimeDialog({
   open,
   jid,
   name,
+  isHome = false,
   currentAgentType = 'claude',
   currentExecutionMode = 'container',
   onClose,
@@ -51,6 +53,7 @@ export function WorkspaceRuntimeDialog({
     agentType,
     executionMode,
   });
+  const executionModeLocked = isHome;
 
   const handleConfirm = async () => {
     setLoading(true);
@@ -127,14 +130,14 @@ export function WorkspaceRuntimeDialog({
           <div>
             <label className="block text-sm font-medium mb-2">执行模式</label>
             <div className="space-y-2">
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${agentType === 'codex' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent/50'}`}>
+              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${executionModeLocked || agentType === 'codex' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent/50'}`}>
                 <input
                   type="radio"
                   name="runtime_execution_mode"
                   value="container"
                   checked={normalized.executionMode === 'container'}
                   onChange={() => setExecutionMode('container')}
-                  disabled={agentType === 'codex'}
+                  disabled={executionModeLocked || agentType === 'codex'}
                   className="mt-0.5 accent-primary"
                 />
                 <div>
@@ -143,21 +146,21 @@ export function WorkspaceRuntimeDialog({
                     <span className="text-sm font-medium">Docker 模式</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    在隔离容器中运行
+                    {executionModeLocked ? '主工作区执行模式由系统按用户角色固定' : '在隔离容器中运行'}
                   </p>
                 </div>
               </label>
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${canHostExec ? 'cursor-pointer hover:bg-accent/50' : 'opacity-50 cursor-not-allowed'}`}>
+              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${executionModeLocked || !canHostExec ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent/50'}`}>
                 <input
                   type="radio"
                   name="runtime_execution_mode"
                   value="host"
                   checked={normalized.executionMode === 'host'}
                   onChange={() => {
-                    if (!canHostExec) return;
+                    if (executionModeLocked || !canHostExec) return;
                     setExecutionMode('host');
                   }}
-                  disabled={!canHostExec}
+                  disabled={executionModeLocked || !canHostExec}
                   className="mt-0.5 accent-primary"
                 />
                 <div>
@@ -166,12 +169,25 @@ export function WorkspaceRuntimeDialog({
                     <span className="text-sm font-medium">宿主机模式</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {canHostExec ? '直接在服务器上执行' : '需要管理员权限'}
+                    {executionModeLocked
+                      ? '主工作区执行模式由系统按用户角色固定'
+                      : canHostExec
+                        ? '直接在服务器上执行'
+                        : '需要管理员权限'}
                   </p>
                 </div>
               </label>
             </div>
           </div>
+
+          {isHome && (
+            <div className="flex items-start gap-2 p-2 bg-muted/60 border border-border rounded-lg">
+              <AlertTriangle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">
+                主工作区允许切换 Agent 基座，但执行模式由系统按用户角色固定。
+              </p>
+            </div>
+          )}
 
           {normalized.agentType === 'codex' && (
             <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
