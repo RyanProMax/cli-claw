@@ -133,9 +133,9 @@ Agent 在运行时可通过内置 MCP Server 与主进程通信：
 
 Agent 自主维护跨会话的持久记忆：
 
-- **用户全局记忆** — `data/groups/user-global/{userId}/AGENTS.md`，每个用户独立的全局记忆，所有会话可读
-- **会话记忆** — `data/groups/{folder}/AGENTS.md`，会话私有
-- **日期记忆** — `memory/YYYY-MM-DD.md`，时效性信息
+- **用户全局记忆** — `~/.cli-claw/groups/user-global/{userId}/AGENTS.md`，每个用户独立的全局记忆，所有会话可读
+- **会话记忆** — `~/.cli-claw/groups/{folder}/AGENTS.md`，会话私有
+- **日期记忆** — `~/.cli-claw/memory/{folder}/YYYY-MM-DD.md`，时效性信息
 - **对话归档** — PreCompact Hook 在上下文压缩前自动归档到 `conversations/`
 - **全文检索** — Web 界面在线编辑 + 搜索
 
@@ -432,7 +432,7 @@ flowchart TD
 
 ### 目录结构
 
-所有运行时数据统一在 `data/` 目录下，启动时自动创建，无需手动初始化。
+所有运行时数据统一在 `~/.cli-claw/` 目录下，启动时自动创建，无需手动初始化。
 
 ```
 cli-claw/
@@ -480,7 +480,7 @@ cli-claw/
 │   ├── default-groups.json       #   预注册群组
 │   └── mount-allowlist.json      #   容器挂载白名单
 │
-├── data/                         # 运行时数据（启动时自动创建）
+├── ~/.cli-claw/                  # 运行时数据根目录（启动时自动创建）
 │   ├── db/messages.db            #   SQLite 数据库（WAL 模式）
 │   ├── groups/{folder}/          #   会话工作目录（Agent 可读写）
 │   │   ├── downloads/{channel}/  #     IM 文件下载（feishu/telegram/qq，按日期分子目录）
@@ -490,6 +490,8 @@ cli-claw/
 │   ├── ipc/{folder}/             #   IPC 通道（input / messages / tasks）
 │   ├── env/{folder}/env          #   容器环境变量文件
 │   ├── memory/{folder}/          #   日期记忆
+│   ├── mcp-servers/{userId}/     #   用户 MCP Server 配置
+│   ├── avatars/                  #   用户头像缓存
 │   └── config/                   #   加密配置文件
 │
 └── Makefile                      # 常用命令

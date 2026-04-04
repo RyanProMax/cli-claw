@@ -11,7 +11,6 @@ import {
   CONTAINER_IMAGE,
   DATA_DIR,
   GROUPS_DIR,
-  STORE_DIR,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
   TIMEZONE,
@@ -21,9 +20,7 @@ import {
 import { interruptibleSleep } from './message-notifier.js';
 import {
   AGENT_MEMORY_TEMPLATE_FILENAME,
-  LEGACY_AGENT_MEMORY_FILENAME,
   getAgentMemoryPath,
-  migrateLegacyAgentMemoryFile,
 } from './project-memory.js';
 import {
   AvailableGroup,
@@ -1727,83 +1724,6 @@ interface SendMessageOptions {
   };
 }
 
-/**
- * One-time migration: copy system-level IM config → admin's per-user config.
- * Safe to call repeatedly — writes a flag file after first successful run.
- */
-function migrateSystemIMToPerUser(): void {
-  const flagFile = path.join(DATA_DIR, 'config', '.im-config-migrated');
-  if (fs.existsSync(flagFile)) return;
-
-  try {
-    // Find first admin user
-    const adminResult = listUsers({
-      status: 'active',
-      role: 'admin',
-      page: 1,
-      pageSize: 1,
-    });
-    const admin = adminResult.users[0];
-    if (!admin) {
-      // No admin yet (fresh install) — nothing to migrate
-      return;
-    }
-
-    let migratedFeishu = false;
-    let migratedTelegram = false;
-
-    // Feishu: copy system config → admin per-user (if admin has no per-user config)
-    const existingUserFeishu = getUserFeishuConfig(admin.id);
-    if (!existingUserFeishu) {
-      const { config: sysFeishu, source: feishuSource } =
-        getFeishuProviderConfigWithSource();
-      if (feishuSource !== 'none' && sysFeishu.appId && sysFeishu.appSecret) {
-        saveUserFeishuConfig(admin.id, {
-          appId: sysFeishu.appId,
-          appSecret: sysFeishu.appSecret,
-          enabled: sysFeishu.enabled,
-        });
-        migratedFeishu = true;
-      }
-    }
-
-    // Telegram: copy system config → admin per-user (if admin has no per-user config)
-    const existingUserTelegram = getUserTelegramConfig(admin.id);
-    if (!existingUserTelegram) {
-      const { config: sysTelegram, source: telegramSource } =
-        getTelegramProviderConfigWithSource();
-      if (telegramSource !== 'none' && sysTelegram.botToken) {
-        saveUserTelegramConfig(admin.id, {
-          botToken: sysTelegram.botToken,
-          proxyUrl: sysTelegram.proxyUrl,
-          enabled: sysTelegram.enabled,
-        });
-        migratedTelegram = true;
-      }
-    }
-
-    // Write flag file (even if nothing was migrated — to avoid re-checking)
-    fs.mkdirSync(path.dirname(flagFile), { recursive: true });
-    fs.writeFileSync(flagFile, new Date().toISOString() + '\n', 'utf-8');
-
-    if (migratedFeishu || migratedTelegram) {
-      logger.info(
-        {
-          adminId: admin.id,
-          feishu: migratedFeishu,
-          telegram: migratedTelegram,
-        },
-        'Migrated system-level IM config to admin per-user config',
-      );
-    }
-  } catch (err) {
-    logger.warn(
-      { err },
-      'Failed to migrate system-level IM config (non-fatal)',
-    );
-  }
-}
-
 function loadState(): void {
   // Load from SQLite
   const persistedTimestamp = getRouterState('last_timestamp') || '';
@@ -1950,10 +1870,6 @@ function loadState(): void {
       }
     }
   }
-
-  // Migrate shared global CLAUDE.md → per-user user-global directories
-  migrateGlobalMemoryToPerUser();
-  migrateLegacyWorkspaceMemoryFiles();
 
   // Initialize per-user global AGENTS.md from template for users missing it
   const templatePath = path.resolve(
@@ -6680,226 +6596,7 @@ async function connectUserIMChannels(
   return { feishu, telegram, qq, wechat, dingtalk };
 }
 
-function movePathWithFallback(src: string, dst: string): void {
-  try {
-    fs.renameSync(src, dst);
-  } catch (err: unknown) {
-    // Cross-device rename fallback.
-    if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-      fs.cpSync(src, dst, { recursive: true });
-      fs.rmSync(src, { recursive: true, force: true });
-      return;
-    }
-    throw err;
-  }
-}
-
-/**
- * One-shot migration: move legacy top-level directories into data/.
- * - store/messages.db* → data/db/messages.db*
- * - groups/            → data/groups/
- * Also supports partial migrations (old+new paths both exist).
- */
-function migrateDataDirectories(): void {
-  const projectRoot = process.cwd();
-
-  // 1. Migrate store/ → data/db/
-  const oldStoreDir = path.join(projectRoot, 'store');
-  if (fs.existsSync(oldStoreDir)) {
-    fs.mkdirSync(STORE_DIR, { recursive: true });
-    // Move messages.db and WAL files
-    for (const file of ['messages.db', 'messages.db-wal', 'messages.db-shm']) {
-      const src = path.join(oldStoreDir, file);
-      const dst = path.join(STORE_DIR, file);
-      if (fs.existsSync(src) && !fs.existsSync(dst)) {
-        movePathWithFallback(src, dst);
-        logger.info({ src, dst }, 'Migrated database file');
-      }
-    }
-    // Remove old store/ if empty
-    try {
-      fs.rmdirSync(oldStoreDir);
-    } catch {
-      // Not empty — leave it
-    }
-  }
-
-  // 2. Migrate groups/ → data/groups/
-  const oldGroupsDir = path.join(projectRoot, 'groups');
-  if (fs.existsSync(oldGroupsDir)) {
-    fs.mkdirSync(path.dirname(GROUPS_DIR), { recursive: true });
-    if (!fs.existsSync(GROUPS_DIR)) {
-      movePathWithFallback(oldGroupsDir, GROUPS_DIR);
-      logger.info(
-        { src: oldGroupsDir, dst: GROUPS_DIR },
-        'Migrated groups directory',
-      );
-    } else {
-      // Partial migration: move missing entries one-by-one.
-      const entries = fs.readdirSync(oldGroupsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        const src = path.join(oldGroupsDir, entry.name);
-        const dst = path.join(GROUPS_DIR, entry.name);
-        if (!fs.existsSync(dst)) {
-          movePathWithFallback(src, dst);
-          logger.info({ src, dst }, 'Migrated legacy group entry');
-        }
-      }
-      try {
-        fs.rmdirSync(oldGroupsDir);
-      } catch {
-        // Not empty — leave it
-      }
-    }
-  }
-}
-
-/**
- * One-shot migration: copy shared global CLAUDE.md → first admin's user-global dir.
- * Creates user-global directories for all existing users.
- * Idempotent via flag file.
- */
-function migrateGlobalMemoryToPerUser(): void {
-  const flagFile = path.join(DATA_DIR, 'config', '.memory-migration-v1-done');
-  if (fs.existsSync(flagFile)) return;
-
-  const oldGlobalMd = path.join(
-    GROUPS_DIR,
-    'global',
-    LEGACY_AGENT_MEMORY_FILENAME,
-  );
-  const userGlobalBase = path.join(GROUPS_DIR, 'user-global');
-
-  let migrationSucceeded = true;
-  let copiedLegacyGlobal = !fs.existsSync(oldGlobalMd);
-
-  // Find first admin user
-  try {
-    const result = listUsers({
-      role: 'admin',
-      status: 'active',
-      page: 1,
-      pageSize: 1,
-    });
-    const firstAdmin = result.users[0];
-
-    if (firstAdmin && fs.existsSync(oldGlobalMd)) {
-      const adminDir = path.join(userGlobalBase, firstAdmin.id);
-      fs.mkdirSync(adminDir, { recursive: true });
-      const target = getAgentMemoryPath(adminDir);
-      if (!fs.existsSync(target)) {
-        fs.copyFileSync(oldGlobalMd, target);
-        logger.info(
-          { userId: firstAdmin.id, src: oldGlobalMd, dst: target },
-          'Migrated global legacy CLAUDE.md to admin user-global AGENTS.md',
-        );
-      }
-      copiedLegacyGlobal = true;
-    } else if (!firstAdmin && fs.existsSync(oldGlobalMd)) {
-      migrationSucceeded = false;
-      logger.warn(
-        'No active admin found for legacy global memory migration; will retry on next startup',
-      );
-    }
-
-    // Create user-global dirs for all users
-    let page = 1;
-    const allUsers: Array<{ id: string }> = [];
-    while (true) {
-      const r = listUsers({ status: 'active', page, pageSize: 200 });
-      allUsers.push(...r.users);
-      if (allUsers.length >= r.total) break;
-      page++;
-    }
-    for (const u of allUsers) {
-      fs.mkdirSync(path.join(userGlobalBase, u.id), { recursive: true });
-    }
-  } catch (err) {
-    migrationSucceeded = false;
-    logger.warn({ err }, 'Global memory migration encountered an error');
-  }
-
-  if (!migrationSucceeded) {
-    logger.warn(
-      'Global memory migration incomplete; will retry on next startup',
-    );
-    return;
-  }
-
-  if (!copiedLegacyGlobal) {
-    logger.warn(
-      'Legacy global memory has not been copied; will retry on next startup',
-    );
-    return;
-  }
-
-  try {
-    fs.mkdirSync(path.dirname(flagFile), { recursive: true });
-    fs.writeFileSync(flagFile, new Date().toISOString());
-    logger.info('Global memory migration to per-user completed');
-  } catch (err) {
-    logger.warn({ err }, 'Failed to persist global memory migration flag');
-  }
-}
-
-function getWorkspaceRootForMemoryMigration(group: {
-  folder: string;
-  executionMode?: string;
-  customCwd?: string;
-}): string {
-  if (group.executionMode === 'host' && group.customCwd) {
-    return group.customCwd;
-  }
-  return path.join(GROUPS_DIR, group.folder);
-}
-
-function migrateLegacyWorkspaceMemoryFiles(): void {
-  const roots = new Set<string>();
-
-  for (const group of Object.values(getAllRegisteredGroups())) {
-    roots.add(getWorkspaceRootForMemoryMigration(group));
-  }
-
-  const userGlobalBase = path.join(GROUPS_DIR, 'user-global');
-  if (fs.existsSync(userGlobalBase)) {
-    for (const entry of fs.readdirSync(userGlobalBase, {
-      withFileTypes: true,
-    })) {
-      if (entry.isDirectory()) {
-        roots.add(path.join(userGlobalBase, entry.name));
-      }
-    }
-  }
-
-  let migratedCount = 0;
-  for (const root of roots) {
-    try {
-      const result = migrateLegacyAgentMemoryFile(root);
-      if (result.migrated) {
-        migratedCount += 1;
-        logger.info(
-          { root, path: result.path },
-          'Migrated legacy workspace CLAUDE.md to AGENTS.md',
-        );
-      }
-    } catch (err) {
-      logger.warn(
-        { err, root },
-        'Failed to migrate legacy workspace CLAUDE.md to AGENTS.md',
-      );
-    }
-  }
-
-  if (migratedCount > 0) {
-    logger.info(
-      { migratedCount },
-      'Completed legacy workspace memory migration',
-    );
-  }
-}
-
 async function main(): Promise<void> {
-  migrateDataDirectories();
   initDatabase();
   logger.info('Database initialized');
 
@@ -6941,9 +6638,6 @@ async function main(): Promise<void> {
 
   // WeChat iLink API domains bypass proxy (applied at startup, updated on config save)
   updateWeChatNoProxy(true);
-
-  // Migrate system-level IM config → admin's per-user config (one-time)
-  migrateSystemIMToPerUser();
 
   loadState();
 

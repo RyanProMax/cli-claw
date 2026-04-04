@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import os from 'os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -17,7 +18,7 @@ export const MOUNT_ALLOWLIST_PATH = path.resolve(
   'config',
   'mount-allowlist.json',
 );
-export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
+export const DATA_DIR = path.join(os.homedir(), '.cli-claw');
 export const STORE_DIR = path.join(DATA_DIR, 'db');
 export const GROUPS_DIR = path.join(DATA_DIR, 'groups');
 export const MAIN_GROUP_FOLDER = 'main';

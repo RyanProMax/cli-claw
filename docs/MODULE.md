@@ -4,7 +4,7 @@
 
 | 模块                      | 作用                                                        |
 | ------------------------- | ----------------------------------------------------------- |
-| `src/index.ts`            | 进程入口；启动迁移、消息轮询、容器/宿主机执行、流式输出汇总 |
+| `src/index.ts`            | 进程入口；消息轮询、容器/宿主机执行、流式输出汇总           |
 | `src/web.ts`              | Hono 应用、WebSocket、静态资源托管                          |
 | `src/db.ts`               | SQLite 数据层、用户/工作区/消息/任务/会话持久化             |
 | `src/group-queue.ts`      | 会话并发控制、任务优先级、重试与排队                        |
@@ -12,7 +12,7 @@
 | `src/runtime-config.ts`   | 系统配置、Provider 配置、加密存储、环境变量合成             |
 | `src/file-manager.ts`     | 文件读写边界、系统路径保护、路径安全                        |
 | `src/task-scheduler.ts`   | 定时任务调度、执行日志、工作区上下文解析                    |
-| `src/project-memory.ts`   | 项目内部记忆文件名与旧 `CLAUDE.md` 迁移 helper              |
+| `src/project-memory.ts`   | 项目内部记忆文件名与路径 helper                             |
 
 ## 主要路由
 

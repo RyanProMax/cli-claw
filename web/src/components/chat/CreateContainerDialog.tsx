@@ -299,7 +299,7 @@ export function CreateContainerDialog({
 
                 {executionMode === 'host' && (
                   <div className="pt-3">
-                    <DirectoryBrowser value={customCwd} onChange={setCustomCwd} placeholder="默认: data/groups/{folder}/" />
+                    <DirectoryBrowser value={customCwd} onChange={setCustomCwd} placeholder="默认: ~/.cli-claw/groups/{folder}/" />
                   </div>
                 )}
               </div>

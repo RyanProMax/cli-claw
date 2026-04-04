@@ -36,7 +36,7 @@ const workspaceConfigRoutes = new Hono<{ Variables: Variables }>();
 /**
  * Resolve the workspace root directory for a registered group.
  * Host mode with customCwd uses the real project directory;
- * otherwise falls back to data/groups/{folder}/.
+ * otherwise falls back to ~/.cli-claw/groups/{folder}/.
  */
 function getWorkspaceRoot(group: RegisteredGroup & { jid: string }): string {
   if (group.executionMode === 'host' && group.customCwd) {

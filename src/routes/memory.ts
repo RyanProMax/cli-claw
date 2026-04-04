@@ -66,6 +66,20 @@ function normalizeRelativePath(input: unknown): string {
   return normalized;
 }
 
+export function fromMemoryApiPath(
+  relativePath: string,
+  rootDir = DATA_DIR,
+): string {
+  return path.resolve(rootDir, relativePath);
+}
+
+export function toMemoryApiPath(
+  absolutePath: string,
+  rootDir = DATA_DIR,
+): string {
+  return path.relative(rootDir, absolutePath).replace(/\\/g, '/');
+}
+
 function resolveMemoryPath(
   relativePath: string,
   user: AuthUser,
@@ -73,7 +87,7 @@ function resolveMemoryPath(
   absolutePath: string;
   writable: boolean;
 } {
-  const absolute = path.resolve(process.cwd(), relativePath);
+  const absolute = fromMemoryApiPath(relativePath);
   const inGroups = isWithinRoot(absolute, GROUPS_DIR);
   const inMemoryData = isWithinRoot(absolute, MEMORY_DATA_DIR);
   const writable = inGroups || inMemoryData;
@@ -92,7 +106,7 @@ function resolveMemoryPath(
         throw new Error('Memory path out of allowed scope');
       }
     }
-    // data/groups/{folder}/... — check group ownership
+    // groups/{folder}/... — check group ownership
     else if (inGroups) {
       const relToGroups = path.relative(GROUPS_DIR, absolute);
       const folder = relToGroups.split(path.sep)[0];
@@ -100,7 +114,7 @@ function resolveMemoryPath(
         throw new Error('Memory path out of allowed scope');
       }
     }
-    // data/memory/{folder}/... — check group ownership
+    // memory/{folder}/... — check group ownership
     else if (inMemoryData) {
       const relToMemory = path.relative(MEMORY_DATA_DIR, absolute);
       const folder = relToMemory.split(path.sep)[0];
@@ -134,14 +148,10 @@ function classifyMemorySource(
 ): Pick<MemorySource, 'type' | 'label' | 'ownerName' | 'folder'> {
   const parts = relativePath.split('/');
 
-  // data/groups/user-global/{userId}/...
-  if (
-    parts[0] === 'data' &&
-    parts[1] === 'groups' &&
-    parts[2] === 'user-global'
-  ) {
-    const userId = parts[3] || 'unknown';
-    const name = parts.slice(4).join('/') || AGENT_MEMORY_FILENAME;
+  // groups/user-global/{userId}/...
+  if (parts[0] === 'groups' && parts[1] === 'user-global') {
+    const userId = parts[2] || 'unknown';
+    const name = parts.slice(3).join('/') || AGENT_MEMORY_FILENAME;
     const owner = getUserById(userId);
     const ownerLabel = owner ? owner.display_name || owner.username : userId;
 
@@ -159,10 +169,10 @@ function classifyMemorySource(
     };
   }
 
-  // data/memory/{folder}/...
-  if (parts[0] === 'data' && parts[1] === 'memory') {
-    const folder = parts[2] || 'unknown';
-    const name = parts.slice(3).join('/') || 'memory';
+  // memory/{folder}/...
+  if (parts[0] === 'memory') {
+    const folder = parts[1] || 'unknown';
+    const name = parts.slice(2).join('/') || 'memory';
     return {
       type: 'date',
       label: `${folder} / 日期记忆 / ${name}`,
@@ -170,15 +180,10 @@ function classifyMemorySource(
     };
   }
 
-  // data/groups/{folder}/conversations/...
-  if (
-    parts[0] === 'data' &&
-    parts[1] === 'groups' &&
-    parts.length >= 4 &&
-    parts[3] === 'conversations'
-  ) {
-    const folder = parts[2] || 'unknown';
-    const name = parts.slice(4).join('/');
+  // groups/{folder}/conversations/...
+  if (parts[0] === 'groups' && parts.length >= 3 && parts[2] === 'conversations') {
+    const folder = parts[1] || 'unknown';
+    const name = parts.slice(3).join('/');
     return {
       type: 'conversation',
       label: `${folder} / 对话归档 / ${name}`,
@@ -186,10 +191,10 @@ function classifyMemorySource(
     };
   }
 
-  // data/groups/{folder}/... (session memory)
-  if (parts[0] === 'data' && parts[1] === 'groups') {
-    const folder = parts[2] || 'unknown';
-    const name = parts.slice(3).join('/');
+  // groups/{folder}/... (session memory)
+  if (parts[0] === 'groups') {
+    const folder = parts[1] || 'unknown';
+    const name = parts.slice(2).join('/');
     return {
       type: 'session',
       label: `${folder} / ${name}`,
@@ -200,8 +205,8 @@ function classifyMemorySource(
   // Fallback
   return {
     type: 'session',
-    label: parts.slice(2).join('/'),
-    folder: parts[2] || undefined,
+    label: parts.join('/'),
+    folder: parts[1] || undefined,
   };
 }
 
@@ -239,10 +244,10 @@ const MEMORY_BLOCKED_DIRS = ['logs', '.claude', 'conversations'];
 
 function isBlockedMemoryPath(normalizedPath: string): boolean {
   const parts = normalizedPath.split('/');
-  // 路径格式: data/groups/{folder}/{subpath...} 或 data/memory/{folder}/{subpath...}
-  // 检查 data/groups/{folder}/ 下的系统子目录
-  if (parts[0] === 'data' && parts[1] === 'groups' && parts.length >= 4) {
-    const subPath = parts[3];
+  // 路径格式: groups/{folder}/{subpath...} 或 memory/{folder}/{subpath...}
+  // 检查 groups/{folder}/ 下的系统子目录
+  if (parts[0] === 'groups' && parts.length >= 3) {
+    const subPath = parts[2];
     if (MEMORY_BLOCKED_DIRS.includes(subPath)) return true;
   }
   return false;
@@ -367,7 +372,7 @@ function listMemorySources(user: AuthUser): MemorySource[] {
     }
   }
 
-  // 4. Scan data/memory/ (date memory files)
+  // 4. Scan memory/ (date memory files)
   if (fs.existsSync(MEMORY_DATA_DIR)) {
     const memFolders = fs.readdirSync(MEMORY_DATA_DIR, { withFileTypes: true });
     for (const d of memFolders) {
@@ -409,9 +414,7 @@ function listMemorySources(user: AuthUser): MemorySource[] {
     const inMemoryData = isWithinRoot(absolutePath, MEMORY_DATA_DIR);
     if (!inGroups && !inMemoryData) continue;
 
-    const relativePath = path
-      .relative(process.cwd(), absolutePath)
-      .replace(/\\/g, '/');
+    const relativePath = toMemoryApiPath(absolutePath);
     const exists = fs.existsSync(absolutePath);
     let updatedAt: string | null = null;
     let size = 0;
@@ -584,7 +587,7 @@ memoryRoutes.put('/file', authMiddleware, async (c) => {
 memoryRoutes.get('/global', authMiddleware, (c) => {
   try {
     const user = c.get('user') as AuthUser;
-    const userGlobalPath = `data/groups/user-global/${user.id}/${AGENT_MEMORY_FILENAME}`;
+    const userGlobalPath = `groups/user-global/${user.id}/${AGENT_MEMORY_FILENAME}`;
     return c.json(readMemoryFile(userGlobalPath, user));
   } catch (err) {
     logger.error({ err }, 'Failed to read user global memory');
@@ -610,7 +613,7 @@ memoryRoutes.put('/global', authMiddleware, async (c) => {
 
   try {
     const user = c.get('user') as AuthUser;
-    const userGlobalPath = `data/groups/user-global/${user.id}/${AGENT_MEMORY_FILENAME}`;
+    const userGlobalPath = `groups/user-global/${user.id}/${AGENT_MEMORY_FILENAME}`;
     return c.json(
       writeMemoryFile(userGlobalPath, validation.data.content, user),
     );

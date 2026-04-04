@@ -9,7 +9,7 @@ Cli Claw 是一个自托管、多用户的 AI Agent 协作系统。它接收 Web
 - `src/`：主服务，负责认证、路由、队列、定时任务、工作区管理、Memory API、MCP Server 配置和运行时存储。
 - `web/`：React 前端，负责聊天、设置、监控、Memory、任务、MCP Server 和用户管理界面。
 - `container/agent-runner/`：执行引擎，负责调用 Claude / Codex 运行时、流式事件、MCP 工具、上下文压缩和后台任务通知。
-- `data/`：运行时数据，包含数据库、工作区目录、用户全局记忆、日期记忆、会话缓存、IPC、环境变量和配置。
+- `~/.cli-claw/`：运行时数据根目录，包含数据库、工作区目录、用户全局记忆、日期记忆、会话缓存、IPC、环境变量和配置。
 
 ## 数据流
 

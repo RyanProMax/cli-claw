@@ -127,7 +127,7 @@ export function DirectoryBrowser({ value, onChange, placeholder }: DirectoryBrow
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder || '默认: data/groups/{folder}/'}
+          placeholder={placeholder || '默认: ~/.cli-claw/groups/{folder}/'}
           className="flex-1 text-sm"
         />
         <button

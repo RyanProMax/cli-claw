@@ -140,6 +140,15 @@ interface VolumeMount {
   readonly: boolean;
 }
 
+function requireWorkspaceOwner(group: RegisteredGroup, context: string): string {
+  if (!group.created_by) {
+    throw new Error(
+      `Workspace ${group.folder} is missing created_by; ${context} requires an owned workspace`,
+    );
+  }
+  return group.created_by;
+}
+
 /**
  * Create directory with 0o777 permissions for container volume mounts.
  * Fixes uid mismatch between host user and container node user (uid 1000),
@@ -212,25 +221,14 @@ function buildVolumeMounts(
 
   // Per-user global memory directory:
   // Each user gets their own user-global/{userId}/ mounted as /workspace/global
-  const ownerId = group.created_by;
-  if (ownerId) {
-    const userGlobalDir = path.join(GROUPS_DIR, 'user-global', ownerId);
-    mkdirForContainer(userGlobalDir);
-    mounts.push({
-      hostPath: userGlobalDir,
-      containerPath: '/workspace/global',
-      readonly: !group.is_home,
-    });
-  } else {
-    // Legacy fallback for rows without created_by.
-    const legacyGlobalDir = path.join(GROUPS_DIR, 'global');
-    mkdirForContainer(legacyGlobalDir);
-    mounts.push({
-      hostPath: legacyGlobalDir,
-      containerPath: '/workspace/global',
-      readonly: !isAdminHome,
-    });
-  }
+  const ownerId = requireWorkspaceOwner(group, 'container mounts');
+  const userGlobalDir = path.join(GROUPS_DIR, 'user-global', ownerId);
+  mkdirForContainer(userGlobalDir);
+  mounts.push({
+    hostPath: userGlobalDir,
+    containerPath: '/workspace/global',
+    readonly: !group.is_home,
+  });
 
   if (isAdminHome) {
     // Admin home gets the entire project root mounted
@@ -1027,16 +1025,10 @@ export async function runHostAgent(
     // 路径映射
     hostEnv['CLI_CLAW_WORKSPACE_GROUP'] = groupDir;
     // Per-user global memory
-    const ownerId = group.created_by;
-    if (ownerId) {
-      const userGlobalDir = path.join(GROUPS_DIR, 'user-global', ownerId);
-      fs.mkdirSync(userGlobalDir, { recursive: true });
-      hostEnv['CLI_CLAW_WORKSPACE_GLOBAL'] = userGlobalDir;
-    } else {
-      const legacyGlobalDir = path.join(GROUPS_DIR, 'global');
-      fs.mkdirSync(legacyGlobalDir, { recursive: true });
-      hostEnv['CLI_CLAW_WORKSPACE_GLOBAL'] = legacyGlobalDir;
-    }
+    const ownerId = requireWorkspaceOwner(group, 'host runtime');
+    const userGlobalDir = path.join(GROUPS_DIR, 'user-global', ownerId);
+    fs.mkdirSync(userGlobalDir, { recursive: true });
+    hostEnv['CLI_CLAW_WORKSPACE_GLOBAL'] = userGlobalDir;
     const memoryFolder = group.is_home
       ? group.folder
       : ownerHomeFolder || group.folder;

@@ -63,7 +63,7 @@ function loadMcpServersFromFile(
 
 /**
  * Load enabled MCP server configs for a user.
- * Reads data/mcp-servers/{userId}/servers.json.
+ * Reads ~/.cli-claw/mcp-servers/{userId}/servers.json.
  * All workspaces owned by this user share the same MCP server set.
  */
 export function loadUserMcpServers(

@@ -419,7 +419,7 @@ export class GroupQueue {
 
   /**
    * Resolve IPC input directory for a group state.
-   * Sub-agents use a nested path: data/ipc/{folder}/agents/{agentId}/input/
+   * Sub-agents use a nested path: ~/.cli-claw/ipc/{folder}/agents/{agentId}/input/
    */
   private resolveIpcInputDir(state: ActiveGroupState): string {
     if (state.taskRunId) {

@@ -131,7 +131,7 @@ function generateUserSummary(
   startTs: number,
   endTs: number,
 ): boolean {
-  // Output path: data/groups/user-global/{userId}/daily-summary/YYYY-MM-DD.md
+  // Output path: ~/.cli-claw/groups/user-global/{userId}/daily-summary/YYYY-MM-DD.md
   const summaryDir = path.join(
     deps.dataDir,
     'groups',
