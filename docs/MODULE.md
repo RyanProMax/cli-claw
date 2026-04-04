@@ -59,7 +59,7 @@
 
 ## 文档入口
 
-- 项目架构：`docs/ARCHITEXTURE.md`
+- 项目架构：`docs/ARCHITECTURE.md`
 - 持久化上下文：`docs/CONTEXT.md`
 - 模块索引：`docs/MODULE.md`
 - 工程规范：`docs/ENGINEERING.md`

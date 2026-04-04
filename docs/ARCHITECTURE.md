@@ -1,4 +1,4 @@
-# ARCHITEXTURE
+# ARCHITECTURE
 
 ## 定位
 

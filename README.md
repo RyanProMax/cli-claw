@@ -497,7 +497,7 @@ cli-claw/
 
 ### 开发指南
 
-工程协作入口见根目录 `AGENTS.md`。详细架构、持久化上下文、模块索引与工程规范见 `docs/ARCHITEXTURE.md`、`docs/CONTEXT.md`、`docs/MODULE.md`、`docs/ENGINEERING.md`。
+工程协作入口见根目录 `AGENTS.md`。详细架构、持久化上下文、模块索引与工程规范见 `docs/ARCHITECTURE.md`、`docs/CONTEXT.md`、`docs/MODULE.md`、`docs/ENGINEERING.md`。
 
 ```bash
 make dev              # 前后端并行启动（热更新）
