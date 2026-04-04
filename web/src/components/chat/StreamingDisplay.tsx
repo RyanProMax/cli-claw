@@ -8,7 +8,7 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 import { TodoProgressPanel } from './TodoProgressPanel';
 import { ToolActivityCard } from './ToolActivityCard';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
-import { formatRuntimeIdentityFooter } from '../../lib/runtimeIdentity';
+import { AssistantMetaFooter } from './AssistantMetaFooter';
 
 /** Render AskUserQuestion options as a visual card (read-only). */
 function AskUserQuestionCard({ toolInput }: { toolInput: Record<string, unknown> }) {
@@ -327,20 +327,6 @@ function StreamingContent({
   );
 }
 
-function RuntimeIdentityFooter({
-  streaming,
-}: {
-  streaming?: import('../../stores/chat').StreamingState;
-}) {
-  const footer = formatRuntimeIdentityFooter(streaming?.runtimeIdentity);
-  if (!footer) return null;
-  return (
-    <div className="mt-3 text-xs text-muted-foreground">
-      {footer}
-    </div>
-  );
-}
-
 interface StreamingDisplayProps {
   groupJid: string;
   isWaiting: boolean;
@@ -473,8 +459,6 @@ export function StreamingDisplay({ groupJid, isWaiting, senderName: senderNamePr
     streaming.recentEvents.length > 0 ||
     (streaming.todos && streaming.todos.length > 0)
   )) || hasTaskAgents;
-  const runtimeFooter = formatRuntimeIdentityFooter(streaming?.runtimeIdentity);
-
   // 仅在既不等待也无冻结数据时才隐藏
   if (!isWaiting && !hasStreamData) return null;
 
@@ -492,9 +476,11 @@ export function StreamingDisplay({ groupJid, isWaiting, senderName: senderNamePr
             <span className="w-1.5 h-1.5 bg-brand-400 rounded-full animate-bounce" />
             <span className="text-sm text-muted-foreground ml-1">正在思考...</span>
           </div>
-          {runtimeFooter && (
-            <div className="mt-2 text-xs text-muted-foreground">{runtimeFooter}</div>
-          )}
+          <AssistantMetaFooter
+            runtimeIdentity={streaming?.runtimeIdentity}
+            tokenUsage={streaming?.tokenUsage}
+            className="mt-2"
+          />
         </div>
       );
     }
@@ -521,9 +507,11 @@ export function StreamingDisplay({ groupJid, isWaiting, senderName: senderNamePr
                 <span className="w-2 h-2 bg-brand-400 rounded-full animate-bounce" />
                 <span className="text-sm text-muted-foreground ml-1">正在思考...</span>
               </div>
-              {runtimeFooter && (
-                <div className="mt-3 text-xs text-muted-foreground">{runtimeFooter}</div>
-              )}
+              <AssistantMetaFooter
+                runtimeIdentity={streaming?.runtimeIdentity}
+                tokenUsage={streaming?.tokenUsage}
+                className="mt-3"
+              />
             </div>
           </div>
         </div>
@@ -568,7 +556,11 @@ export function StreamingDisplay({ groupJid, isWaiting, senderName: senderNamePr
             />
           )}
 
-          <RuntimeIdentityFooter streaming={streaming} />
+          <AssistantMetaFooter
+            runtimeIdentity={streaming?.runtimeIdentity}
+            tokenUsage={streaming?.tokenUsage}
+            className="mt-3"
+          />
 
           {/* Task agent blocks */}
           {taskAgents.map((agent) => (
@@ -629,7 +621,11 @@ export function StreamingDisplay({ groupJid, isWaiting, senderName: senderNamePr
               />
             )}
 
-            <RuntimeIdentityFooter streaming={streaming} />
+            <AssistantMetaFooter
+              runtimeIdentity={streaming?.runtimeIdentity}
+              tokenUsage={streaming?.tokenUsage}
+              className="mt-3"
+            />
 
             {/* Task agent blocks */}
             {taskAgents.map((agent) => (

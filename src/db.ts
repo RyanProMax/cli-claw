@@ -32,6 +32,7 @@ import {
   MonthlyUsage,
   NewMessage,
   MessageCursor,
+  MessageHistoryCursor,
   MessageSourceKind,
   RedeemCode,
   RegisteredGroup,
@@ -2609,11 +2610,22 @@ export function unpinGroup(userId: string, jid: string): void {
  */
 export function getMessagesPage(
   chatJid: string,
-  before?: string,
+  before?: string | MessageHistoryCursor,
   limit = 50,
 ): Array<NewMessage & { is_from_me: boolean }> {
-  const sql = before
-    ? `
+  const normalizedBefore = normalizeHistoryCursor(before, chatJid);
+  const sql = normalizedBefore
+    ? normalizedBefore.precise
+      ? `
+      SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+             turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
+      FROM messages
+      WHERE chat_jid = ?
+        AND (timestamp < ? OR (timestamp = ? AND id < ?))
+      ORDER BY timestamp DESC, id DESC
+      LIMIT ?
+    `
+      : `
       SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
              turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
       FROM messages
@@ -2630,7 +2642,17 @@ export function getMessagesPage(
       LIMIT ?
     `;
 
-  const params = before ? [chatJid, before, limit] : [chatJid, limit];
+  const params = normalizedBefore
+    ? normalizedBefore.precise
+      ? [
+          chatJid,
+          normalizedBefore.timestamp,
+          normalizedBefore.timestamp,
+          normalizedBefore.id,
+          limit,
+        ]
+      : [chatJid, normalizedBefore.timestamp, limit]
+    : [chatJid, limit];
   const rows = db.prepare(sql).all(...params) as DbMessageRow[];
 
   return rows.map(mapDbMessageRow);
@@ -2642,21 +2664,76 @@ export function getMessagesPage(
  */
 export function getMessagesAfter(
   chatJid: string,
-  after: string,
+  after: string | MessageHistoryCursor,
   limit = 50,
 ): Array<NewMessage & { is_from_me: boolean }> {
+  const normalizedAfter = normalizeHistoryCursor(after, chatJid);
   const rows = db
     .prepare(
-      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+      normalizedAfter?.precise
+        ? `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+              turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
+       FROM messages
+       WHERE chat_jid = ?
+         AND (timestamp > ? OR (timestamp = ? AND id > ?))
+       ORDER BY timestamp ASC, id ASC
+       LIMIT ?`
+        : `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid = ? AND timestamp > ?
        ORDER BY timestamp ASC
        LIMIT ?`,
     )
-    .all(chatJid, after, limit) as DbMessageRow[];
+    .all(
+      ...(normalizedAfter?.precise
+        ? [
+            chatJid,
+            normalizedAfter.timestamp,
+            normalizedAfter.timestamp,
+            normalizedAfter.id,
+            limit,
+          ]
+        : [chatJid, normalizedAfter?.timestamp || '', limit]),
+    ) as DbMessageRow[];
 
   return rows.map(mapDbMessageRow);
+}
+
+interface NormalizedHistoryCursor {
+  timestamp: string;
+  chat_jid: string;
+  id: string;
+  precise: boolean;
+}
+
+function normalizeHistoryCursor(
+  cursor?: string | MessageHistoryCursor,
+  fallbackChatJid?: string,
+): NormalizedHistoryCursor | undefined {
+  if (!cursor) return undefined;
+  if (typeof cursor === 'string') {
+    return {
+      timestamp: cursor,
+      chat_jid: fallbackChatJid || '',
+      id: '',
+      precise: false,
+    };
+  }
+  const timestamp =
+    typeof cursor.timestamp === 'string' ? cursor.timestamp : undefined;
+  if (!timestamp) return undefined;
+  const id = typeof cursor.id === 'string' ? cursor.id : '';
+  const chat_jid =
+    typeof cursor.chat_jid === 'string'
+      ? cursor.chat_jid
+      : fallbackChatJid || '';
+  return {
+    timestamp,
+    chat_jid,
+    id,
+    precise: !!id && !!chat_jid,
+  };
 }
 
 /**
@@ -2664,15 +2741,28 @@ export function getMessagesAfter(
  */
 export function getMessagesPageMulti(
   chatJids: string[],
-  before?: string,
+  before?: string | MessageHistoryCursor,
   limit = 50,
 ): Array<NewMessage & { is_from_me: boolean }> {
   if (chatJids.length === 0) return [];
   if (chatJids.length === 1) return getMessagesPage(chatJids[0], before, limit);
 
+  const normalizedBefore = normalizeHistoryCursor(before);
   const placeholders = chatJids.map(() => '?').join(',');
-  const sql = before
-    ? `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+  const sql = normalizedBefore
+    ? normalizedBefore.precise
+      ? `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+              turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
+       FROM messages
+       WHERE chat_jid IN (${placeholders})
+         AND (
+           timestamp < ?
+           OR (timestamp = ? AND chat_jid < ?)
+           OR (timestamp = ? AND chat_jid = ? AND id < ?)
+         )
+       ORDER BY timestamp DESC, chat_jid DESC, id DESC
+       LIMIT ?`
+      : `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid IN (${placeholders}) AND timestamp < ?
@@ -2682,10 +2772,23 @@ export function getMessagesPageMulti(
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid IN (${placeholders})
-       ORDER BY timestamp DESC
+       ORDER BY timestamp DESC, chat_jid DESC, id DESC
        LIMIT ?`;
 
-  const params = before ? [...chatJids, before, limit] : [...chatJids, limit];
+  const params = normalizedBefore
+    ? normalizedBefore.precise
+      ? [
+          ...chatJids,
+          normalizedBefore.timestamp,
+          normalizedBefore.timestamp,
+          normalizedBefore.chat_jid,
+          normalizedBefore.timestamp,
+          normalizedBefore.chat_jid,
+          normalizedBefore.id,
+          limit,
+        ]
+      : [...chatJids, normalizedBefore.timestamp, limit]
+    : [...chatJids, limit];
   const rows = db.prepare(sql).all(...params) as DbMessageRow[];
 
   return rows.map(mapDbMessageRow);
@@ -2696,23 +2799,49 @@ export function getMessagesPageMulti(
  */
 export function getMessagesAfterMulti(
   chatJids: string[],
-  after: string,
+  after: string | MessageHistoryCursor,
   limit = 50,
 ): Array<NewMessage & { is_from_me: boolean }> {
   if (chatJids.length === 0) return [];
   if (chatJids.length === 1) return getMessagesAfter(chatJids[0], after, limit);
 
+  const normalizedAfter = normalizeHistoryCursor(after);
   const placeholders = chatJids.map(() => '?').join(',');
   const rows = db
     .prepare(
-      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+      normalizedAfter?.precise
+        ? `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+              turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
+       FROM messages
+       WHERE chat_jid IN (${placeholders})
+         AND (
+           timestamp > ?
+           OR (timestamp = ? AND chat_jid > ?)
+           OR (timestamp = ? AND chat_jid = ? AND id > ?)
+         )
+       ORDER BY timestamp ASC, chat_jid ASC, id ASC
+       LIMIT ?`
+        : `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid IN (${placeholders}) AND timestamp > ?
        ORDER BY timestamp ASC
        LIMIT ?`,
     )
-    .all(...chatJids, after, limit) as DbMessageRow[];
+    .all(
+      ...(normalizedAfter?.precise
+        ? [
+            ...chatJids,
+            normalizedAfter.timestamp,
+            normalizedAfter.timestamp,
+            normalizedAfter.chat_jid,
+            normalizedAfter.timestamp,
+            normalizedAfter.chat_jid,
+            normalizedAfter.id,
+            limit,
+          ]
+        : [...chatJids, normalizedAfter?.timestamp || '', limit]),
+    ) as DbMessageRow[];
 
   return rows.map(mapDbMessageRow);
 }

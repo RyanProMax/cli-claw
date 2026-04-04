@@ -119,6 +119,12 @@ export interface MessageCursor {
   id: string;
 }
 
+export interface MessageHistoryCursor {
+  timestamp: string;
+  chat_jid?: string;
+  id?: string;
+}
+
 export interface ScheduledTask {
   id: string;
   group_folder: string;

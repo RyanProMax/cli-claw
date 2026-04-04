@@ -1,7 +1,6 @@
 import { useState, memo, lazy, Suspense } from 'react';
 import { Copy, Check, ChevronDown, ChevronUp, Ellipsis, ImageDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Message } from '../../stores/chat';
 import { useAuthStore } from '../../stores/auth';
 import { EmojiAvatar } from '../common/EmojiAvatar';
@@ -10,7 +9,7 @@ import { MessageContextMenu } from './MessageContextMenu';
 import { ImageLightbox } from './ImageLightbox';
 import { mediumTap } from '../../hooks/useHaptic';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
-import { formatRuntimeIdentityFooter } from '../../lib/runtimeIdentity';
+import { AssistantMetaFooter } from './AssistantMetaFooter';
 
 const ShareImageDialog = lazy(() => import('./ShareImageDialog').then(m => ({ default: m.ShareImageDialog })));
 
@@ -54,96 +53,6 @@ function ReasoningBlock({ content }: { content: string }) {
           {content}
         </div>
       )}
-    </div>
-  );
-}
-
-/** Parse and display token usage for AI messages */
-function TokenUsageDisplay({ tokenUsageJson }: { tokenUsageJson: string }) {
-  const usage = (() => {
-    try {
-      return JSON.parse(tokenUsageJson) as {
-        inputTokens?: number;
-        outputTokens?: number;
-        cacheReadInputTokens?: number;
-        cacheCreationInputTokens?: number;
-        costUSD?: number;
-        durationMs?: number;
-        numTurns?: number;
-        modelUsage?: Record<string, { inputTokens: number; outputTokens: number; costUSD: number }>;
-      };
-    } catch {
-      return null;
-    }
-  })();
-
-  if (!usage) return null;
-
-  const models = usage.modelUsage ? Object.entries(usage.modelUsage) : [];
-  // 主模型 = 费用最高的（即用户指定的模型），内部模型不向用户展示
-  models.sort((a, b) => (b[1].costUSD || 0) - (a[1].costUSD || 0));
-  const primary = models.length > 0 ? models[0] : null;
-  const primaryInput = primary ? primary[1].inputTokens : (usage.inputTokens || 0);
-  const primaryOutput = primary ? primary[1].outputTokens : (usage.outputTokens || 0);
-  const totalTokens = primaryInput + primaryOutput;
-
-  const formatNum = (n: number): string => {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-    return String(n);
-  };
-
-  const summaryContent = (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-default">
-      <span>{formatNum(totalTokens)} tokens</span>
-      {usage.durationMs ? (
-        <>
-          <span className="opacity-40">·</span>
-          <span>{(usage.durationMs / 1000).toFixed(1)}s</span>
-        </>
-      ) : null}
-    </span>
-  );
-
-  const hasDetails = primary || (usage.cacheReadInputTokens || 0) > 0;
-
-  if (!hasDetails) {
-    return <div className="mt-1.5">{summaryContent}</div>;
-  }
-
-  return (
-    <div className="mt-1.5">
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>{summaryContent}</TooltipTrigger>
-          <TooltipContent side="bottom" align="start">
-            <div className="text-xs space-y-0.5">
-              {primary && <div className="opacity-70 font-medium mb-1">{primary[0]}</div>}
-              {primary && <div>In {formatNum(primaryInput)} / Out {formatNum(primaryOutput)}</div>}
-              {(usage.cacheReadInputTokens || 0) > 0 && (
-                <div className="opacity-70">
-                  Read {formatNum(usage.cacheReadInputTokens || 0)}
-                  {(usage.cacheCreationInputTokens || 0) > 0 && ` / Write ${formatNum(usage.cacheCreationInputTokens || 0)}`}
-                </div>
-              )}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    </div>
-  );
-}
-
-function RuntimeIdentityDisplay({
-  runtimeIdentity,
-}: {
-  runtimeIdentity?: Message['runtime_identity'];
-}) {
-  const footer = formatRuntimeIdentityFooter(runtimeIdentity);
-  if (!footer) return null;
-  return (
-    <div className="mt-1.5 text-xs text-muted-foreground">
-      {footer}
     </div>
   );
 }
@@ -351,11 +260,11 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
           </div>
         )}
 
-        {isAI && <RuntimeIdentityDisplay runtimeIdentity={message.runtime_identity} />}
-
-        {/* Token usage (compact mode) */}
-        {isAI && message.token_usage && (
-          <TokenUsageDisplay tokenUsageJson={message.token_usage} />
+        {isAI && (
+          <AssistantMetaFooter
+            runtimeIdentity={message.runtime_identity}
+            tokenUsage={message.token_usage}
+          />
         )}
 
         {lightboxState && (
@@ -568,12 +477,10 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
               </div>
             )}
 
-            <RuntimeIdentityDisplay runtimeIdentity={message.runtime_identity} />
-
-            {/* Token usage */}
-            {message.is_from_me && message.token_usage && (
-              <TokenUsageDisplay tokenUsageJson={message.token_usage} />
-            )}
+            <AssistantMetaFooter
+              runtimeIdentity={message.runtime_identity}
+              tokenUsage={message.token_usage}
+            />
           </div>
 
           {/* Action toolbar — below content, Claude-style */}

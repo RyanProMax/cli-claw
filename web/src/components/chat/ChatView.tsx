@@ -163,9 +163,8 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   // Load messages on group select
   const hasMessages = !!groupMessages;
   useEffect(() => {
-    if (groupJid && !hasMessages) {
-      loadMessages(groupJid);
-    }
+    if (!groupJid) return;
+    void loadMessages(groupJid);
   }, [groupJid, hasMessages, loadMessages]);
 
   // Poll for new messages — use setTimeout recursion to avoid request piling up
@@ -260,6 +259,9 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
     const unsub2 = wsManager.on('new_message', (data: any) => {
       if (data.chatJid === groupJid && data.message) {
         handleWsNewMessage(groupJid, data.message, data.agentId, data.source);
+        if (group?.is_home && data.message.chat_jid && data.message.chat_jid !== groupJid) {
+          void refreshMessages(groupJid);
+        }
       }
     });
     // WebSocket 消息校验失败时通知用户
@@ -282,7 +284,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
     });
     // agent_status 已提升到 AppLayout 全局监听
     return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
-  }, [groupJid, handleStreamEvent, handleWsNewMessage, handleStreamSnapshot]);
+  }, [group?.is_home, groupJid, handleStreamEvent, handleWsNewMessage, handleStreamSnapshot, refreshMessages]);
 
   const [scrollTrigger, setScrollTrigger] = useState(0);
 

@@ -14,6 +14,7 @@ import {
   getMessageIdentityKey,
   mergeMessagesChronologically,
 } from '../lib/messageIdentity';
+import { setHistoryCursorParams } from '../lib/messageHistoryCursor';
 
 export type { GroupInfo, AgentInfo };
 
@@ -73,6 +74,7 @@ export interface StreamingState {
   turnId?: string;
   sessionId?: string;
   runtimeIdentity?: RuntimeIdentity | null;
+  tokenUsage?: string;
   partialText: string;
   thinkingText: string;
   isThinking: boolean;
@@ -206,6 +208,7 @@ const DEFAULT_STREAMING_STATE: StreamingState = {
   turnId: undefined,
   sessionId: undefined,
   runtimeIdentity: null,
+  tokenUsage: undefined,
   partialText: '', thinkingText: '', isThinking: false,
   activeTools: [], activeHook: null, systemStatus: null, recentEvents: [],
 };
@@ -689,8 +692,18 @@ function applyStreamEvent(
       break;
     }
     case 'usage':
-      // Token usage is handled at handleStreamEvent level (direct message table update).
-      // No streaming state mutation needed.
+      if (event.usage) {
+        next.tokenUsage = JSON.stringify({
+          inputTokens: event.usage.inputTokens,
+          outputTokens: event.usage.outputTokens,
+          cacheReadInputTokens: event.usage.cacheReadInputTokens,
+          cacheCreationInputTokens: event.usage.cacheCreationInputTokens,
+          costUSD: event.usage.costUSD,
+          durationMs: event.usage.durationMs,
+          numTurns: event.usage.numTurns,
+          modelUsage: event.usage.modelUsage,
+        });
+      }
       break;
     case 'init':
       // Internal signal, no UI handling needed.
@@ -765,19 +778,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadMessages: async (jid: string, loadMore = false) => {
     const state = get();
     const existing = state.messages[jid] || [];
-    const before = loadMore && existing.length > 0 ? existing[0].timestamp : undefined;
+    const before = loadMore && existing.length > 0 ? existing[0] : undefined;
 
     try {
+      const params = new URLSearchParams({ limit: '50' });
+      setHistoryCursorParams(params, 'before', before);
       const data = await api.get<{ messages: Message[]; hasMore: boolean }>(
-        `/api/groups/${encodeURIComponent(jid)}/messages?${new URLSearchParams(
-          before ? { before: String(before), limit: '50' } : { limit: '50' }
-        )}`
+        `/api/groups/${encodeURIComponent(jid)}/messages?${params}`
       );
       // Messages come in DESC order from API, reverse to chronological for display
       const sorted = [...data.messages].reverse();
       set((s) => {
-        const merged = mergeMessagesChronologically(s.messages[jid] || [], sorted);
-        const latest = merged.length > 0 ? merged[merged.length - 1] : null;
+        // Non-paginated loads should trust backend truth and replace any stale
+        // local merged cache. This is especially important for home workspaces
+        // that aggregate sibling IM chats into a single timeline.
+        const nextMessages = loadMore
+          ? mergeMessagesChronologically(s.messages[jid] || [], sorted)
+          : sorted;
+        const latest =
+          nextMessages.length > 0 ? nextMessages[nextMessages.length - 1] : null;
         const shouldWait =
           !!latest &&
           latest.sender !== '__system__' &&
@@ -792,7 +811,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return {
           messages: {
             ...s.messages,
-            [jid]: merged,
+            [jid]: nextMessages,
           },
           waiting: nextWaiting,
           hasMore: { ...s.hasMore, [jid]: data.hasMore },
@@ -810,12 +829,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const state = get();
     const existing = state.messages[jid] || [];
-    const lastTs = existing.length > 0 ? existing[existing.length - 1].timestamp : undefined;
+    const lastMessage =
+      existing.length > 0 ? existing[existing.length - 1] : undefined;
 
     try {
       // Fetch messages newer than the last one we have
       const params = new URLSearchParams({ limit: '50' });
-      if (lastTs) params.set('after', lastTs);
+      setHistoryCursorParams(params, 'after', lastMessage);
 
       const data = await api.get<{ messages: Message[] }>(
         `/api/groups/${encodeURIComponent(jid)}/messages?${params}`
@@ -1946,14 +1966,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadAgentMessages: async (jid, agentId, loadMore = false) => {
     const existing = get().agentMessages[agentId] || [];
-    const before = loadMore && existing.length > 0 ? existing[0].timestamp : undefined;
+    const before = loadMore && existing.length > 0 ? existing[0] : undefined;
 
     try {
-      const params = new URLSearchParams(
-        before
-          ? { before: String(before), limit: '50', agentId }
-          : { limit: '50', agentId },
-      );
+      const params = new URLSearchParams({ limit: '50', agentId });
+      setHistoryCursorParams(params, 'before', before);
       const data = await api.get<{ messages: Message[]; hasMore: boolean }>(
         `/api/groups/${encodeURIComponent(jid)}/messages?${params}`,
       );
@@ -1996,11 +2013,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   refreshAgentMessages: async (jid, agentId) => {
     const existing = get().agentMessages[agentId] || [];
-    const lastTs = existing.length > 0 ? existing[existing.length - 1].timestamp : undefined;
+    const lastMessage =
+      existing.length > 0 ? existing[existing.length - 1] : undefined;
 
     try {
       const params = new URLSearchParams({ limit: '50', agentId });
-      if (lastTs) params.set('after', lastTs);
+      setHistoryCursorParams(params, 'after', lastMessage);
 
       const data = await api.get<{ messages: Message[] }>(
         `/api/groups/${encodeURIComponent(jid)}/messages?${params}`,

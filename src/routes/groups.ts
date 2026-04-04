@@ -12,6 +12,7 @@ import type {
   AuthUser,
   RegisteredGroup,
   ExecutionMode,
+  MessageHistoryCursor,
 } from '../types.js';
 import { checkGroupLimit } from '../billing.js';
 import { DATA_DIR, GROUPS_DIR, isDockerAvailable } from '../config.js';
@@ -88,6 +89,22 @@ import { broadcastNewMessage, invalidateAllowedUserCache } from '../web.js';
 import { getStreamingSession } from '../feishu-streaming-card.js';
 
 const execFileAsync = promisify(execFile);
+
+function readHistoryCursorQuery(
+  c: any,
+  prefix: 'before' | 'after',
+): string | MessageHistoryCursor | undefined {
+  const timestamp = c.req.query(prefix);
+  if (!timestamp) return undefined;
+  const id = c.req.query(`${prefix}_id`);
+  const chatJid = c.req.query(`${prefix}_chat_jid`);
+  if (!id) return timestamp;
+  return {
+    timestamp,
+    id,
+    ...(chatJid ? { chat_jid: chatJid } : {}),
+  };
+}
 
 /**
  * 检查 hostname 是否为内网地址（SSRF 防护）。
@@ -1372,8 +1389,8 @@ groupRoutes.get('/:jid/messages', authMiddleware, async (c) => {
     );
   }
 
-  const before = c.req.query('before');
-  const after = c.req.query('after');
+  const before = readHistoryCursorQuery(c, 'before');
+  const after = readHistoryCursorQuery(c, 'after');
   const agentIdParam = c.req.query('agentId');
   const limitRaw = parseInt(c.req.query('limit') || '50', 10);
   const limit = Math.min(

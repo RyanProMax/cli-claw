@@ -52,6 +52,7 @@ import { sanitizeFilename, generateFallbackName } from './utils.js';
 import { StreamEventProcessor } from './stream-processor.js';
 import { PREDEFINED_AGENTS } from './agent-definitions.js';
 import { createMcpTools } from './mcp-tools.js';
+import { readCodexCliConfig } from './codex-config.js';
 
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
 const WORKSPACE_GROUP =
@@ -75,6 +76,7 @@ const CODEX_REASONING_EFFORT =
   process.env.CODEX_REASONING_EFFORT ||
   process.env.REASONING_EFFORT ||
   '';
+const CODEX_CLI_CONFIG = readCodexCliConfig();
 
 const IPC_INPUT_DIR = path.join(WORKSPACE_IPC, 'input');
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
@@ -94,14 +96,113 @@ function normalizeRuntimeText(value: string | undefined): string | null {
   return trimmed || null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readStringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = record[key];
+  return typeof value === 'string' ? normalizeRuntimeText(value) : null;
+}
+
+function readCodexConfigOption(
+  options: unknown,
+  optionKey: string,
+): string | null {
+  if (Array.isArray(options)) {
+    for (const option of options) {
+      if (!isRecord(option)) continue;
+      const key =
+        readStringField(option, 'key') ??
+        readStringField(option, 'id') ??
+        readStringField(option, 'name');
+      if (key !== optionKey) continue;
+      const currentValue =
+        readStringField(option, 'currentValue') ??
+        readStringField(option, 'value') ??
+        readStringField(option, 'selectedValue');
+      if (currentValue) return currentValue;
+    }
+    return null;
+  }
+
+  if (isRecord(options)) {
+    const direct = options[optionKey];
+    if (typeof direct === 'string') {
+      return normalizeRuntimeText(direct);
+    }
+    if (isRecord(direct)) {
+      return (
+        readStringField(direct, 'currentValue') ??
+        readStringField(direct, 'value') ??
+        readStringField(direct, 'selectedValue')
+      );
+    }
+  }
+
+  return null;
+}
+
+function extractCodexRuntimeIdentity(
+  payload: unknown,
+): StreamRuntimeIdentity | null {
+  if (!isRecord(payload)) return null;
+
+  let model =
+    readStringField(payload, 'model') ??
+    readStringField(payload, 'currentModelId');
+  let reasoningEffort =
+    readStringField(payload, 'reasoning_effort') ??
+    readStringField(payload, 'model_reasoning_effort');
+
+  const models = isRecord(payload.models) ? payload.models : null;
+  const currentModelId = models
+    ? readStringField(models, 'currentModelId')
+    : null;
+
+  if ((!model || !reasoningEffort) && currentModelId) {
+    const [modelPart, effortPart] = currentModelId.split('/', 2);
+    model = model ?? normalizeRuntimeText(modelPart);
+    reasoningEffort = reasoningEffort ?? normalizeRuntimeText(effortPart);
+  }
+
+  const configOptions = payload.configOptions;
+  model =
+    model ??
+    readCodexConfigOption(configOptions, 'model') ??
+    readCodexConfigOption(payload.config, 'model');
+  reasoningEffort =
+    reasoningEffort ??
+    readCodexConfigOption(configOptions, 'reasoning_effort') ??
+    readCodexConfigOption(configOptions, 'model_reasoning_effort') ??
+    readCodexConfigOption(payload.config, 'reasoning_effort') ??
+    readCodexConfigOption(payload.config, 'model_reasoning_effort');
+
+  if (!model && !reasoningEffort) return null;
+
+  return {
+    agentType: 'codex',
+    model,
+    reasoningEffort,
+    supportsReasoningEffort: true,
+  };
+}
+
 function buildRuntimeIdentity(
   agentType: 'claude' | 'codex',
 ): StreamRuntimeIdentity {
   if (agentType === 'codex') {
     return {
       agentType: 'codex',
-      model: normalizeRuntimeText(CODEX_MODEL),
-      reasoningEffort: normalizeRuntimeText(CODEX_REASONING_EFFORT),
+      model:
+        normalizeRuntimeText(CODEX_MODEL) ??
+        normalizeRuntimeText(CODEX_CLI_CONFIG.model ?? undefined),
+      reasoningEffort:
+        normalizeRuntimeText(CODEX_REASONING_EFFORT) ??
+        normalizeRuntimeText(CODEX_CLI_CONFIG.reasoningEffort ?? undefined),
       supportsReasoningEffort: true,
     };
   }
@@ -1478,6 +1579,9 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       });
       sessionId = newSession.sessionId;
       latestSessionId = sessionId;
+      activeRuntimeIdentity =
+        extractCodexRuntimeIdentity(newSession) ??
+        activeRuntimeIdentity;
       if (
         newSession.modes?.availableModes?.some(
           (mode: SessionMode) => mode.id === 'auto',

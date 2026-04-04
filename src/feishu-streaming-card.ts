@@ -19,7 +19,10 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import { createHash } from 'crypto';
 import { logger } from './logger.js';
 import { optimizeMarkdownStyle } from './feishu-markdown-style.js';
-import { formatRuntimeIdentityFooter } from './runtime-identity.js';
+import {
+  formatAssistantMetaFooter,
+  type AssistantFooterTokenUsage,
+} from './assistant-meta-footer.js';
 import type { RuntimeIdentity } from './types.js';
 
 // ─── Types ────────────────────────────────────────────────────
@@ -320,6 +323,29 @@ export interface AuxiliaryState {
   recentEvents: Array<{ text: string }>;
 }
 
+function buildCollapsiblePanel(
+  title: string,
+  body: string,
+): Record<string, unknown> {
+  return {
+    tag: 'collapsible_panel',
+    expanded: false,
+    border: { color: 'grey-300', corner_radius: '6px' },
+    header: {
+      title: {
+        tag: 'plain_text',
+        text_color: 'grey',
+        text_size: 'notation',
+        content: title,
+      },
+      icon: { tag: 'standard_icon', token: 'right_outlined', color: 'grey' },
+      icon_position: 'right',
+      icon_expanded_angle: 90,
+    },
+    elements: [{ tag: 'markdown', content: body, text_size: 'notation' }],
+  };
+}
+
 /**
  * Build auxiliary markdown elements for the streaming card.
  * Returns elements to insert before and after the main text content.
@@ -328,8 +354,19 @@ function buildAuxiliaryElements(aux: AuxiliaryState): {
   before: Array<Record<string, unknown>>;
   after: Array<Record<string, unknown>>;
 } {
+  return buildAuxiliaryElementsForState(aux, 'streaming');
+}
+
+function buildAuxiliaryElementsForState(
+  aux: AuxiliaryState,
+  state: 'streaming' | 'completed' | 'aborted' | 'frozen',
+): {
+  before: Array<Record<string, unknown>>;
+  after: Array<Record<string, unknown>>;
+} {
   const before: Array<Record<string, unknown>> = [];
   const after: Array<Record<string, unknown>> = [];
+  const isStreamingLayout = state === 'streaming';
 
   // ① System Status
   if (aux.systemStatus) {
@@ -345,16 +382,24 @@ function buildAuxiliaryElements(aux: AuxiliaryState): {
     const truncated = aux.thinkingText.length > MAX_THINKING_CHARS
       ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
       : aux.thinkingText;
-    // Escape content for blockquote (each line gets "> " prefix)
-    const quoted = truncated
-      .split('\n')
-      .map((l) => `> ${l}`)
-      .join('\n');
-    before.push({
-      tag: 'markdown',
-      content: `💭 **Reasoning...**\n${quoted}`.slice(0, MAX_ELEMENT_CHARS),
-      text_size: 'notation',
-    });
+    if (isStreamingLayout) {
+      const quoted = truncated
+        .split('\n')
+        .map((l) => `> ${l}`)
+        .join('\n');
+      before.push({
+        tag: 'markdown',
+        content: `💭 **Reasoning...**\n${quoted}`.slice(0, MAX_ELEMENT_CHARS),
+        text_size: 'notation',
+      });
+    } else {
+      before.push(
+        buildCollapsiblePanel(
+          '💭 Thinking',
+          truncated.slice(0, MAX_ELEMENT_CHARS),
+        ),
+      );
+    }
   } else if (aux.isThinking) {
     before.push({
       tag: 'markdown',
@@ -390,11 +435,20 @@ function buildAuxiliaryElements(aux: AuxiliaryState): {
       }
       return `${icon} \`${tc.name}\` (${elapsed})${summary}`;
     });
-    before.push({
-      tag: 'markdown',
-      content: lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
-      text_size: 'notation',
-    });
+    if (isStreamingLayout) {
+      before.push({
+        tag: 'markdown',
+        content: lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
+        text_size: 'notation',
+      });
+    } else {
+      before.push(
+        buildCollapsiblePanel(
+          `${display.length} steps`,
+          lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
+        ),
+      );
+    }
   }
 
   // ④ Hook Status
@@ -420,16 +474,6 @@ function buildAuxiliaryElements(aux: AuxiliaryState): {
     before.push({
       tag: 'markdown',
       content: `${header}\n${items.join('\n')}${extra}`.slice(0, MAX_ELEMENT_CHARS),
-      text_size: 'notation',
-    });
-  }
-
-  // ⑦ Recent Events (call trace)
-  if (aux.recentEvents.length > 0) {
-    const lines = aux.recentEvents.map((e) => `- ${e.text}`);
-    after.push({
-      tag: 'markdown',
-      content: `📝 **调用轨迹**\n${lines.join('\n')}`.slice(0, MAX_ELEMENT_CHARS),
       text_size: 'notation',
     });
   }
@@ -522,7 +566,7 @@ function buildSchema2Card(
   const elements: Array<Record<string, unknown>> = [];
 
   if (auxiliaryState) {
-    const { before, after } = buildAuxiliaryElements(auxiliaryState);
+    const { before, after } = buildAuxiliaryElementsForState(auxiliaryState, state);
     elements.push(...before);
     elements.push(...contentElements);
     elements.push(...after);
@@ -545,6 +589,11 @@ function buildSchema2Card(
   if (footerNote) {
     elements.push({
       tag: 'markdown',
+      content: '---',
+      text_size: 'notation',
+    });
+    elements.push({
+      tag: 'markdown',
       content: footerNote,
       text_size: 'notation',
     });
@@ -565,24 +614,6 @@ function buildSchema2Card(
 }
 
 // ─── Usage Note Formatter ─────────────────────────────────────
-
-function formatUsageNote(usage: {
-  inputTokens: number;
-  outputTokens: number;
-  costUSD: number;
-  durationMs: number;
-  numTurns: number;
-}): string {
-  const fmt = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
-  const parts: string[] = [];
-  parts.push(`${fmt(usage.inputTokens)} / ${fmt(usage.outputTokens)} tokens`);
-  if (usage.costUSD > 0) parts.push(`$${usage.costUSD.toFixed(4)}`);
-  if (usage.durationMs > 0)
-    parts.push(`${(usage.durationMs / 1000).toFixed(1)}s`);
-  if (usage.numTurns > 1) parts.push(`${usage.numTurns} turns`);
-  return `💰 ${parts.join(' · ')}`;
-}
 
 // ─── Streaming Mode Card Builder ──────────────────────────────
 
@@ -1120,7 +1151,7 @@ class MultiCardManager {
     const { contentElements } = buildCardContent(text, splitCodeBlockSafe);
     const auxCount = auxiliaryState
       ? (() => {
-          const { before, after } = buildAuxiliaryElements(auxiliaryState);
+          const { before, after } = buildAuxiliaryElementsForState(auxiliaryState, state);
           return before.length + after.length;
         })()
       : 0;
@@ -1248,8 +1279,8 @@ export class StreamingCardController {
   private todos: Array<{ id: string; content: string; status: string }> | null = null;
   private recentEvents: Array<{ text: string }> = [];
   private stateVersion = 0;
-  private runtimeFooterNote: string | null = null;
-  private usageFooterNote: string | null = null;
+  private footerRuntimeIdentity: RuntimeIdentity | null = null;
+  private footerTokenUsage: AssistantFooterTokenUsage | null = null;
 
   constructor(opts: StreamingCardOptions) {
     this.client = opts.client;
@@ -1404,9 +1435,15 @@ export class StreamingCardController {
   }
 
   setRuntimeIdentity(identity?: RuntimeIdentity | null): void {
-    const nextNote = formatRuntimeIdentityFooter(identity) || null;
-    if (this.runtimeFooterNote === nextNote) return;
-    this.runtimeFooterNote = nextNote;
+    const nextIdentity = identity ?? null;
+    const unchanged =
+      this.footerRuntimeIdentity?.agentType === nextIdentity?.agentType &&
+      this.footerRuntimeIdentity?.model === nextIdentity?.model &&
+      this.footerRuntimeIdentity?.reasoningEffort === nextIdentity?.reasoningEffort &&
+      this.footerRuntimeIdentity?.supportsReasoningEffort ===
+        nextIdentity?.supportsReasoningEffort;
+    if (unchanged) return;
+    this.footerRuntimeIdentity = nextIdentity;
     this.stateVersion++;
     if (this.state === 'streaming') {
       this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
@@ -1499,9 +1536,21 @@ export class StreamingCardController {
   }): Promise<void> {
     if (this.state !== 'completed') return;
 
-    const note = formatUsageNote(usage);
-    if (!note) return;
-    this.usageFooterNote = note;
+    const nextUsage: AssistantFooterTokenUsage = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      costUSD: usage.costUSD,
+      durationMs: usage.durationMs,
+      numTurns: usage.numTurns,
+    };
+    const unchanged =
+      this.footerTokenUsage?.inputTokens === nextUsage.inputTokens &&
+      this.footerTokenUsage?.outputTokens === nextUsage.outputTokens &&
+      this.footerTokenUsage?.costUSD === nextUsage.costUSD &&
+      this.footerTokenUsage?.durationMs === nextUsage.durationMs &&
+      this.footerTokenUsage?.numTurns === nextUsage.numTurns;
+    if (unchanged) return;
+    this.footerTokenUsage = nextUsage;
 
     try {
       if (this.backendMode === 'streaming' && this.streamingBackend) {
@@ -1510,7 +1559,7 @@ export class StreamingCardController {
           'completed',
           '',
           undefined,
-          undefined,
+          this.getAuxiliaryState(),
           this.getFooterNote(),
         );
         // Skip if card was split during finalization — rebuilding a single card
@@ -1739,10 +1788,12 @@ export class StreamingCardController {
   }
 
   private getFooterNote(): string | undefined {
-    const notes = [this.runtimeFooterNote, this.usageFooterNote].filter(
-      (value): value is string => !!value,
+    return (
+      formatAssistantMetaFooter({
+        runtimeIdentity: this.footerRuntimeIdentity,
+        tokenUsage: this.footerTokenUsage,
+      }) || undefined
     );
-    return notes.length > 0 ? notes.join('\n') : undefined;
   }
 
   private getAuxiliaryState(): AuxiliaryState {
@@ -1878,12 +1929,13 @@ export class StreamingCardController {
 
       // 2. Build final card with optimizeMarkdownStyle
       const footerNote = this.getFooterNote();
+      const auxiliaryState = this.getAuxiliaryState();
       const cardJson = buildSchema2Card(
         this.accumulatedText,
         finalState,
         '',
         undefined,
-        undefined,
+        auxiliaryState,
         footerNote,
       );
       const cardSize = Buffer.byteLength(JSON.stringify(cardJson), 'utf-8');
@@ -1905,7 +1957,7 @@ export class StreamingCardController {
           finalState,
           '',
           undefined,
-          undefined,
+          this.getAuxiliaryState(),
           this.getFooterNote(),
         );
         await backend.updateCardFull(fallbackCard);
@@ -1926,6 +1978,7 @@ export class StreamingCardController {
     const { title } = extractTitleAndBody(this.accumulatedText);
     const chunks = splitCodeBlockSafe(this.accumulatedText, CARD_MD_LIMIT);
     const footerNote = this.getFooterNote();
+    const auxiliaryState = this.getAuxiliaryState();
 
     // How many chunks fit in the first card?
     const MAX_ELEMENTS_PER_CARD = 45;
@@ -1942,13 +1995,14 @@ export class StreamingCardController {
       firstCardState,
       '',
       title,
-      undefined,
+      auxiliaryState,
       chunks.length <= maxChunksFirst ? footerNote : undefined,
     );
     await backend.updateCardFull(frozenCard);
 
     // Create continuation cards
     let remaining = chunks.slice(maxChunksFirst);
+    let includeAuxiliaryInContinuation = false;
     while (remaining.length > 0) {
       const batch = remaining.slice(0, maxChunksFirst);
       remaining = remaining.slice(maxChunksFirst);
@@ -1960,12 +2014,13 @@ export class StreamingCardController {
         state,
         '(续) ',
         title,
-        undefined,
+        includeAuxiliaryInContinuation ? auxiliaryState : undefined,
         remaining.length === 0 ? footerNote : undefined,
       );
       await contCard.createCard(contCardJson);
       const newMsgId = await contCard.sendCard(this.chatId);
       this.onCardCreated?.(newMsgId);
+      includeAuxiliaryInContinuation = false;
     }
   }
 
@@ -1975,7 +2030,7 @@ export class StreamingCardController {
   ): Promise<void> {
     if (this.useCardKit && this.multiCard) {
       // CardKit v1 path — pass auxiliary state for rich display
-      const auxState = displayState === 'streaming' ? this.getAuxiliaryState() : undefined;
+      const auxState = this.getAuxiliaryState();
       try {
         await this.multiCard.commitContent(
           this.accumulatedText,
