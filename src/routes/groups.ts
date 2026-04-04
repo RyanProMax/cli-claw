@@ -7,9 +7,18 @@ import {
   GroupMemberAddSchema,
   ContainerEnvSchema,
 } from '../schemas.js';
-import type { AuthUser, RegisteredGroup, ExecutionMode } from '../types.js';
+import type {
+  AgentType,
+  AuthUser,
+  RegisteredGroup,
+  ExecutionMode,
+} from '../types.js';
 import { checkGroupLimit } from '../billing.js';
 import { DATA_DIR, GROUPS_DIR, isDockerAvailable } from '../config.js';
+import {
+  enforceAgentExecutionMode,
+  normalizeAgentType,
+} from '../group-runtime.js';
 import {
   isHostExecutionGroup,
   hasHostExecutionPermission,
@@ -140,6 +149,7 @@ interface GroupPayloadItem {
   name: string;
   folder: string;
   added_at: string;
+  agent_type: AgentType;
   kind: 'home' | 'feishu' | 'web';
   editable: boolean;
   deletable: boolean;
@@ -245,6 +255,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
       name: group.name,
       folder: group.folder,
       added_at: group.added_at,
+      agent_type: group.agentType || 'claude',
       kind: isHome ? 'home' : isWeb ? 'web' : 'feishu',
       editable: isWeb,
       deletable: isWeb && !isHome,
@@ -356,12 +367,26 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     return c.json({ error: 'Group name is required' }, 400);
   }
 
-  // If user didn't specify execution mode, pick based on Docker availability
-  const executionMode = validation.data.execution_mode || (await isDockerAvailable() ? 'container' : 'host');
+  const agentType = normalizeAgentType(validation.data.agent_type);
+  const executionMode =
+    validation.data.execution_mode ||
+    (agentType === 'codex'
+      ? 'host'
+      : (await isDockerAvailable())
+        ? 'container'
+        : 'host');
   const customCwd = validation.data.custom_cwd; // Schema already trims and converts empty to undefined
   const initSourcePath = validation.data.init_source_path;
   const initGitUrl = validation.data.init_git_url;
   const authUser = c.get('user') as AuthUser;
+
+  const runtimeError = enforceAgentExecutionMode(
+    agentType,
+    executionMode as ExecutionMode,
+  );
+  if (runtimeError) {
+    return c.json({ error: runtimeError }, 400);
+  }
 
   // Billing: check group limit
   const groupLimit = checkGroupLimit(authUser.id, authUser.role);
@@ -574,6 +599,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     name,
     folder,
     added_at: now,
+    agentType,
     executionMode: executionMode as ExecutionMode,
     customCwd: executionMode === 'host' ? customCwd : undefined,
     initSourcePath: executionMode !== 'host' ? initSourcePath : undefined,
@@ -641,6 +667,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       name: group.name,
       folder: group.folder,
       added_at: group.added_at,
+      agent_type: group.agentType || 'claude',
       execution_mode: group.executionMode || 'container',
       custom_cwd: hasHostExecutionPermission(authUser)
         ? group.customCwd
@@ -678,6 +705,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     name: rawName,
     is_pinned,
     activation_mode,
+    agent_type,
     execution_mode,
   } = validation.data;
   const name = rawName ? normalizeGroupName(rawName) : undefined;
@@ -687,6 +715,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     !name &&
     is_pinned === undefined &&
     activation_mode === undefined &&
+    agent_type === undefined &&
     execution_mode === undefined
   ) {
     return c.json({ error: 'No fields to update' }, 400);
@@ -698,6 +727,9 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
       { error: 'Cannot change execution mode of home containers' },
       403,
     );
+  }
+  if (agent_type !== undefined && existing.is_home) {
+    return c.json({ error: 'Cannot change agent type of home containers' }, 403);
   }
 
   // member 用户不允许使用 host 模式（安全限制）
@@ -713,6 +745,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     is_pinned !== undefined &&
     !name &&
     activation_mode === undefined &&
+    agent_type === undefined &&
     execution_mode === undefined;
   if (isPinOnly) {
     if (
@@ -756,12 +789,34 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
   }
 
   // Update registered group if name, activation_mode, or execution_mode changed
-  if (name || activation_mode !== undefined || execution_mode !== undefined) {
+  if (
+    name ||
+    activation_mode !== undefined ||
+    agent_type !== undefined ||
+    execution_mode !== undefined
+  ) {
+    const nextAgentType =
+      agent_type !== undefined
+        ? normalizeAgentType(agent_type)
+        : existing.agentType || 'claude';
+    const nextExecutionMode =
+      execution_mode !== undefined
+        ? (execution_mode as ExecutionMode)
+        : existing.executionMode || 'container';
+    const runtimeError = enforceAgentExecutionMode(
+      nextAgentType,
+      nextExecutionMode,
+    );
+    if (runtimeError) {
+      return c.json({ error: runtimeError }, 400);
+    }
+
     const updated: RegisteredGroup = {
       name: name || existing.name,
       folder: existing.folder,
       added_at: existing.added_at,
       containerConfig: existing.containerConfig,
+      agentType: nextAgentType,
       executionMode:
         execution_mode !== undefined
           ? (execution_mode as ExecutionMode)
@@ -1323,6 +1378,12 @@ groupRoutes.get('/:jid/env', authMiddleware, (c) => {
   const jid = c.req.param('jid');
   const group = getRegisteredGroup(jid);
   if (!group) return c.json({ error: 'Group not found' }, 404);
+  if ((group.agentType || 'claude') === 'codex') {
+    return c.json(
+      { error: 'This workspace uses Codex and does not support Claude env overrides' },
+      400,
+    );
+  }
 
   const user = c.get('user') as AuthUser;
   if (!canAccessGroup({ id: user.id, role: user.role }, group)) {
@@ -1352,6 +1413,12 @@ groupRoutes.put('/:jid/env', authMiddleware, async (c) => {
   const jid = c.req.param('jid');
   const group = getRegisteredGroup(jid);
   if (!group) return c.json({ error: 'Group not found' }, 404);
+  if ((group.agentType || 'claude') === 'codex') {
+    return c.json(
+      { error: 'This workspace uses Codex and does not support Claude env overrides' },
+      400,
+    );
+  }
 
   const envUser = c.get('user') as AuthUser;
   if (!canAccessGroup({ id: envUser.id, role: envUser.role }, group)) {

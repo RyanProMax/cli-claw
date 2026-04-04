@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.18.0",
     "@anthropic-ai/claude-agent-sdk": "*",
     "cron-parser": "^5.0.0",
     "zod": "^4.0.0"

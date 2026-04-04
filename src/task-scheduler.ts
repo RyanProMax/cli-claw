@@ -396,6 +396,7 @@ async function runTask(
         sessionId,
         groupFolder: workspace.folder,
         chatJid: workspace.jid,
+        agentType: workspaceGroup.agentType || 'claude',
         isMain: isAdminHome,
         isHome,
         isAdminHome,

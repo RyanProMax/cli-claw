@@ -9,6 +9,7 @@ import {
   AgentKind,
   AgentStatus,
   AuthAuditLog,
+  AgentType,
   AuthEventType,
   BalanceOperatorType,
   BalanceReferenceType,
@@ -622,6 +623,7 @@ export function initDatabase(): void {
     'execution_mode',
     "TEXT DEFAULT 'container'",
   );
+  ensureColumn('registered_groups', 'agent_type', "TEXT DEFAULT 'claude'");
   ensureColumn('registered_groups', 'custom_cwd', 'TEXT');
   ensureColumn('registered_groups', 'init_source_path', 'TEXT');
   ensureColumn('registered_groups', 'init_git_url', 'TEXT');
@@ -693,6 +695,7 @@ export function initDatabase(): void {
           folder TEXT NOT NULL,
           added_at TEXT NOT NULL,
           container_config TEXT,
+          agent_type TEXT DEFAULT 'claude',
           execution_mode TEXT DEFAULT 'container',
           custom_cwd TEXT,
           init_source_path TEXT,
@@ -700,7 +703,7 @@ export function initDatabase(): void {
           created_by TEXT,
           is_home INTEGER DEFAULT 0
         );
-        INSERT INTO registered_groups_new SELECT jid, name, folder, added_at, container_config, execution_mode, custom_cwd, NULL, NULL, NULL, 0 FROM registered_groups;
+        INSERT INTO registered_groups_new SELECT jid, name, folder, added_at, container_config, 'claude', execution_mode, custom_cwd, NULL, NULL, NULL, 0 FROM registered_groups;
         DROP TABLE registered_groups;
         ALTER TABLE registered_groups_new RENAME TO registered_groups;
       `);
@@ -744,6 +747,7 @@ export function initDatabase(): void {
       'folder',
       'added_at',
       'container_config',
+      'agent_type',
       'execution_mode',
       'custom_cwd',
       'init_source_path',
@@ -2196,6 +2200,7 @@ type RegisteredGroupRow = {
   folder: string;
   added_at: string;
   container_config: string | null;
+  agent_type: string | null;
   execution_mode: string | null;
   custom_cwd: string | null;
   init_source_path: string | null;
@@ -2212,6 +2217,10 @@ type RegisteredGroupRow = {
   selected_mcps: string | null;
 };
 
+function parseAgentType(raw: string | null): AgentType {
+  return raw === 'codex' ? 'codex' : 'claude';
+}
+
 /** Convert a raw DB row into a RegisteredGroup domain object. */
 function parseGroupRow(
   row: RegisteredGroupRow,
@@ -2224,6 +2233,7 @@ function parseGroupRow(
     containerConfig: row.container_config
       ? JSON.parse(row.container_config)
       : undefined,
+    agentType: parseAgentType(row.agent_type),
     executionMode: parseExecutionMode(row.execution_mode, `group ${row.jid}`),
     customCwd: row.custom_cwd ?? undefined,
     initSourcePath: row.init_source_path ?? undefined,
@@ -2265,14 +2275,15 @@ export function getRegisteredGroup(
 
 export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, agent_type, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
     group.folder,
     group.added_at,
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
+    group.agentType ?? 'claude',
     group.executionMode ?? 'container',
     group.customCwd ?? null,
     group.initSourcePath ?? null,
@@ -2423,6 +2434,10 @@ export function ensureUserHomeGroup(
         patched.executionMode = 'host';
         changed = true;
       }
+      if (patched.agentType !== 'claude') {
+        patched.agentType = 'claude';
+        changed = true;
+      }
       if (changed) {
         setRegisteredGroup(jid, patched);
       }
@@ -2437,6 +2452,7 @@ export function ensureUserHomeGroup(
     name,
     folder,
     added_at: now,
+    agentType: 'claude',
     executionMode: isAdmin ? 'host' : 'container',
     created_by: userId,
     is_home: true,
@@ -2729,6 +2745,7 @@ export function getGroupsByOwner(
     folder: string;
     added_at: string;
     container_config: string | null;
+    agent_type: string | null;
     execution_mode: string | null;
     custom_cwd: string | null;
     init_source_path: string | null;
@@ -2746,6 +2763,7 @@ export function getGroupsByOwner(
     containerConfig: row.container_config
       ? JSON.parse(row.container_config)
       : undefined,
+    agentType: parseAgentType(row.agent_type),
     executionMode: parseExecutionMode(row.execution_mode, `group ${row.jid}`),
     customCwd: row.custom_cwd ?? undefined,
     initSourcePath: row.init_source_path ?? undefined,

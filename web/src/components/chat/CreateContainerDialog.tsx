@@ -37,6 +37,7 @@ export function CreateContainerDialog({
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [agentType, setAgentType] = useState<'claude' | 'codex'>('claude');
   const [executionMode, setExecutionMode] = useState<'container' | 'host'>('container');
   const [customCwd, setCustomCwd] = useState('');
   const [initMode, setInitMode] = useState<'empty' | 'local' | 'git'>('empty');
@@ -49,6 +50,7 @@ export function CreateContainerDialog({
   const reset = () => {
     setName('');
     setAdvancedOpen(false);
+    setAgentType('claude');
     setExecutionMode('container');
     setCustomCwd('');
     setInitMode('empty');
@@ -68,6 +70,7 @@ export function CreateContainerDialog({
     setLoading(true);
     try {
       const options: Record<string, string> = {};
+      options.agent_type = agentType;
       if (executionMode === 'host') {
         options.execution_mode = 'host';
         if (customCwd.trim()) options.custom_cwd = customCwd.trim();
@@ -126,6 +129,51 @@ export function CreateContainerDialog({
               <div className="px-3 pb-3 space-y-3 border-t">
                 {/* Execution mode */}
                 <div className="pt-3">
+                  <label className="block text-sm font-medium mb-2">Agent 类型</label>
+                  <div className="space-y-2">
+                    <label className="flex items-start gap-3 p-2 rounded-lg border cursor-pointer hover:bg-accent/50 transition-colors">
+                      <input
+                        type="radio"
+                        name="agent_type"
+                        value="claude"
+                        checked={agentType === 'claude'}
+                        onChange={() => setAgentType('claude')}
+                        className="mt-0.5 accent-primary"
+                      />
+                      <div>
+                        <div className="text-sm font-medium">Claude</div>
+                        <p className="text-xs text-muted-foreground mt-0.5">完整支持 Docker 与宿主机两种执行模式</p>
+                      </div>
+                    </label>
+                    <label className={`flex items-start gap-3 p-2 rounded-lg border transition-colors ${canHostExec ? 'cursor-pointer hover:bg-accent/50' : 'opacity-50 cursor-not-allowed'}`}>
+                      <input
+                        type="radio"
+                        name="agent_type"
+                        value="codex"
+                        checked={agentType === 'codex'}
+                        onChange={() => {
+                          if (!canHostExec) return;
+                          setAgentType('codex');
+                          setExecutionMode('host');
+                          setInitMode('empty');
+                          setInitSourcePath('');
+                          setInitGitUrl('');
+                        }}
+                        disabled={!canHostExec}
+                        className="mt-0.5 accent-primary"
+                      />
+                      <div>
+                        <div className="text-sm font-medium">Codex</div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {canHostExec ? '当前版本仅支持宿主机模式，并复用服务器上的 codex 登录态' : '仅管理员可用，且仅支持宿主机模式'}
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Execution mode */}
+                <div className="pt-3">
                   <label className="block text-sm font-medium mb-2">执行模式</label>
                   <div className="space-y-2">
                     <label className="flex items-start gap-3 p-2 rounded-lg border cursor-pointer hover:bg-accent/50 transition-colors">
@@ -134,7 +182,12 @@ export function CreateContainerDialog({
                         name="execution_mode"
                         value="container"
                         checked={executionMode === 'container'}
-                        onChange={() => { setExecutionMode('container'); setCustomCwd(''); }}
+                        onChange={() => {
+                          setExecutionMode('container');
+                          setAgentType('claude');
+                          setCustomCwd('');
+                        }}
+                        disabled={agentType === 'codex'}
                         className="mt-0.5 accent-primary"
                       />
                       <div>
@@ -170,7 +223,7 @@ export function CreateContainerDialog({
                 </div>
 
                 {/* Container mode: workspace source */}
-                {executionMode === 'container' && (
+                {executionMode === 'container' && agentType === 'claude' && (
                   <div className="pt-1">
                     <label className="block text-sm font-medium mb-2">工作区来源</label>
                     <div className="space-y-2">
@@ -225,6 +278,14 @@ export function CreateContainerDialog({
                 {executionMode === 'host' && (
                   <>
                     <DirectoryBrowser value={customCwd} onChange={setCustomCwd} placeholder="默认: data/groups/{folder}/" />
+                    {agentType === 'codex' && (
+                      <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
+                        <AlertTriangle className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-sky-700 dark:text-sky-300">
+                          Codex 直接使用宿主机当前用户的全局 CLI 登录态。若未登录，请先在服务器执行 <code>codex login</code>。
+                        </p>
+                      </div>
+                    )}
                     <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
                       <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
                       <p className="text-xs text-amber-700 dark:text-amber-300">

@@ -115,16 +115,30 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   const currentUser = useAuthStore(s => s.user);
   const canUseTerminal = group?.execution_mode !== 'host';
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const isCodexWorkspace = group?.agent_type === 'codex';
 
   // Sidebar: members tab visibility
   const isHome = !!group?.is_home;
   const showMembersTab = (!!group?.is_shared || group?.member_role === 'owner') && !isHome;
-  const visibleTabs = SIDEBAR_TABS.filter(t => t.id !== 'members' || showMembersTab);
+  const visibleTabs = SIDEBAR_TABS.filter((t) => {
+    if (t.id === 'members') return showMembersTab;
+    if (isCodexWorkspace && (t.id === 'env' || t.id === 'skills')) return false;
+    return true;
+  });
 
   // Fallback: if current tab is hidden, reset to files
   useEffect(() => {
     if (sidebarTab === 'members' && !showMembersTab) setSidebarTab('files');
   }, [sidebarTab, showMembersTab]);
+
+  useEffect(() => {
+    if (isCodexWorkspace && (sidebarTab === 'env' || sidebarTab === 'skills')) {
+      setSidebarTab('files');
+    }
+    if (isCodexWorkspace && (mobilePanel === 'env' || mobilePanel === 'skills')) {
+      setMobilePanel('files');
+    }
+  }, [isCodexWorkspace, mobilePanel, sidebarTab]);
 
   // Fetch IM connection status for home groups
   const isOwnHome =
@@ -378,6 +392,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   };
 
   const openMobileEnv = () => {
+    if (isCodexWorkspace) return;
     setMobileActionsOpen(false);
     setMobilePanel('env');
   };
@@ -424,6 +439,14 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                 <span className="text-muted-foreground/40">·</span>
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${group.execution_mode === 'host' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800' : 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-800'}`}>
                   {group.execution_mode === 'host' ? '宿主机' : 'Docker'}
+                </span>
+              </>
+            )}
+            {!isWaiting && group.agent_type && (
+              <>
+                <span className="text-muted-foreground/40">·</span>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${group.agent_type === 'codex' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300 dark:border-violet-800'}`}>
+                  {group.agent_type === 'codex' ? 'Codex' : 'Claude'}
                 </span>
               </>
             )}
@@ -771,18 +794,22 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
             >
               工作区文件
             </button>
-            <button
-              onClick={openMobileEnv}
-              className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
-            >
-              环境变量
-            </button>
-            <button
-              onClick={() => { setMobileActionsOpen(false); setMobilePanel('skills'); }}
-              className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
-            >
-              工作区 Skills
-            </button>
+            {!isCodexWorkspace && (
+              <button
+                onClick={openMobileEnv}
+                className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
+              >
+                环境变量
+              </button>
+            )}
+            {!isCodexWorkspace && (
+              <button
+                onClick={() => { setMobileActionsOpen(false); setMobilePanel('skills'); }}
+                className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
+              >
+                工作区 Skills
+              </button>
+            )}
             <button
               onClick={() => { setMobileActionsOpen(false); setMobilePanel('mcp'); }}
               className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"

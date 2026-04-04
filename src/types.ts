@@ -34,12 +34,14 @@ export interface ContainerConfig {
 }
 
 export type ExecutionMode = 'container' | 'host';
+export type AgentType = 'claude' | 'codex';
 
 export interface RegisteredGroup {
   name: string;
   folder: string;
   added_at: string;
   containerConfig?: ContainerConfig;
+  agentType?: AgentType; // 默认 'claude'
   executionMode?: ExecutionMode; // 默认 'container'
   customCwd?: string; // 宿主机模式的自定义工作目录（绝对路径）
   initSourcePath?: string; // 容器模式下复制来源的宿主机绝对路径

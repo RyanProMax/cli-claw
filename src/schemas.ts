@@ -119,6 +119,7 @@ export const MessageCreateSchema = z
 
 export const GroupCreateSchema = z.object({
   name: z.string().min(1).max(MAX_GROUP_NAME_LEN),
+  agent_type: z.enum(['claude', 'codex']).optional(),
   execution_mode: z.enum(['container', 'host']).optional(),
   custom_cwd: z
     .string()
@@ -194,6 +195,7 @@ export const GroupPatchSchema = z.object({
   activation_mode: z
     .enum(['auto', 'always', 'when_mentioned', 'disabled'])
     .optional(),
+  agent_type: z.enum(['claude', 'codex']).optional(),
   execution_mode: z.enum(['container', 'host']).optional(),
 });
 

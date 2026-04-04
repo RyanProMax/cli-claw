@@ -32,7 +32,6 @@ import {
 } from '../db.js';
 import {
   getRegistrationConfig,
-  getClaudeProviderConfig,
   getEnabledProviders,
   getFeishuProviderConfigWithSource,
   getAppearanceConfig,
@@ -149,7 +148,7 @@ function buildSetupStatus() {
   const feishuConfigured = feishuSource !== 'none';
 
   return {
-    needsSetup: !claudeConfigured,
+    needsSetup: false,
     claudeConfigured,
     feishuConfigured,
   };

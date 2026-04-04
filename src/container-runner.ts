@@ -35,7 +35,12 @@ import { providerPool } from './provider-pool.js';
 import { isApiError } from './agent-output-parser.js';
 import type { ClaudeProviderConfig } from './runtime-config.js';
 import { loadUserMcpServers } from './mcp-utils.js';
-import { MessageSourceKind, RegisteredGroup, StreamEvent } from './types.js';
+import {
+  AgentType,
+  MessageSourceKind,
+  RegisteredGroup,
+  StreamEvent,
+} from './types.js';
 import {
   attachStderrHandler,
   attachStdoutHandler,
@@ -102,6 +107,7 @@ export interface ContainerInput {
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
+  agentType?: AgentType;
   /** @deprecated Use isHome + isAdminHome instead */
   isMain: boolean;
   turnId?: string;
@@ -461,6 +467,13 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
   ownerHomeFolder?: string,
 ): Promise<ContainerOutput> {
+  if ((group.agentType ?? 'claude') === 'codex') {
+    return {
+      status: 'error',
+      result: null,
+      error: 'Codex only supports host execution mode',
+    };
+  }
   const startTime = Date.now();
 
   const groupDir = path.join(GROUPS_DIR, group.folder);
@@ -961,37 +974,44 @@ export async function runHostAgent(
   const hostEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
   };
+  const agentType = group.agentType ?? 'claude';
 
   // ─── Provider Pool selection (host mode) ───
   const containerOverride = getContainerEnvConfig(group.folder);
-  const hostPoolResult = trySelectPoolProvider(group.folder);
+  const hostPoolResult =
+    agentType === 'claude' ? trySelectPoolProvider(group.folder) : null;
   const hostSelectedProfileId = hostPoolResult?.profileId ?? null;
-  const globalConfig = hostPoolResult?.resolved.config ?? getClaudeProviderConfig();
+  const globalConfig =
+    agentType === 'claude'
+      ? hostPoolResult?.resolved.config ?? getClaudeProviderConfig()
+      : null;
 
   try {
-    // 配置层环境变量
-    const envLines = buildContainerEnvLines(
-      globalConfig,
-      containerOverride,
-      hostPoolResult?.resolved.customEnv,
-    );
-    for (const line of envLines) {
-      const eqIdx = line.indexOf('=');
-      if (eqIdx > 0) {
-        hostEnv[line.slice(0, eqIdx)] = line.slice(eqIdx + 1);
+    if (agentType === 'claude' && globalConfig) {
+      // 配置层环境变量
+      const envLines = buildContainerEnvLines(
+        globalConfig,
+        containerOverride,
+        hostPoolResult?.resolved.customEnv,
+      );
+      for (const line of envLines) {
+        const eqIdx = line.indexOf('=');
+        if (eqIdx > 0) {
+          hostEnv[line.slice(0, eqIdx)] = line.slice(eqIdx + 1);
+        }
       }
-    }
 
-    // Write .credentials.json for OAuth credentials
-    const mergedConfig = mergeClaudeEnvConfig(globalConfig, containerOverride);
-    if (mergedConfig.claudeOAuthCredentials) {
-      try {
-        writeCredentialsFile(groupSessionsDir, mergedConfig);
-      } catch (err) {
-        logger.warn(
-          { folder: group.folder, err },
-          'Failed to write .credentials.json for host agent',
-        );
+      // Write .credentials.json for OAuth credentials
+      const mergedConfig = mergeClaudeEnvConfig(globalConfig, containerOverride);
+      if (mergedConfig.claudeOAuthCredentials) {
+        try {
+          writeCredentialsFile(groupSessionsDir, mergedConfig);
+        } catch (err) {
+          logger.warn(
+            { folder: group.folder, err },
+            'Failed to write .credentials.json for host agent',
+          );
+        }
       }
     }
 
@@ -1017,13 +1037,15 @@ export async function runHostAgent(
       memoryFolder,
     );
     hostEnv['HAPPYCLAW_WORKSPACE_IPC'] = groupIpcDir;
-    hostEnv['CLAUDE_CONFIG_DIR'] = groupSessionsDir;
-    // 让 SDK 捕获 CLI 的 stderr 输出，便于排查启动失败
-    hostEnv['DEBUG_CLAUDE_AGENT_SDK'] = '1';
-    // CLI 禁止 root 用户使用 --dangerously-skip-permissions，
-    // 通过 IS_SANDBOX 标记告知 CLI 当前运行在受控环境中以绕过此限制
-    if (typeof process.getuid === 'function' && process.getuid() === 0) {
-      hostEnv['IS_SANDBOX'] = '1';
+    if (agentType === 'claude') {
+      hostEnv['CLAUDE_CONFIG_DIR'] = groupSessionsDir;
+      // 让 SDK 捕获 CLI 的 stderr 输出，便于排查启动失败
+      hostEnv['DEBUG_CLAUDE_AGENT_SDK'] = '1';
+      // CLI 禁止 root 用户使用 --dangerously-skip-permissions，
+      // 通过 IS_SANDBOX 标记告知 CLI 当前运行在受控环境中以绕过此限制
+      if (typeof process.getuid === 'function' && process.getuid() === 0) {
+        hostEnv['IS_SANDBOX'] = '1';
+      }
     }
 
     // 6. 编译检查
@@ -1031,7 +1053,10 @@ export async function runHostAgent(
     const agentRunnerRoot = path.join(projectRoot, 'container', 'agent-runner');
     const agentRunnerNodeModules = path.join(agentRunnerRoot, 'node_modules');
     const agentRunnerDist = path.join(agentRunnerRoot, 'dist', 'index.js');
-    const requiredDeps = ['@anthropic-ai/claude-agent-sdk'];
+    const requiredDeps =
+      agentType === 'claude'
+        ? ['@anthropic-ai/claude-agent-sdk']
+        : ['@agentclientprotocol/sdk'];
     const missingDeps = requiredDeps.filter((dep) => {
       const depJson = path.join(
         agentRunnerNodeModules,
@@ -1058,6 +1083,18 @@ export async function runHostAgent(
       return hostModeSetupError(
         `agent-runner 未编译。请先执行：${setupBuildHint}`,
       );
+    }
+    if (agentType === 'codex') {
+      try {
+        execFileSync('codex', ['login', 'status'], {
+          stdio: 'ignore',
+          timeout: 10_000,
+        });
+      } catch {
+        return hostModeSetupError(
+          'Codex CLI 未登录。请先在服务器上执行：codex login',
+        );
+      }
     }
 
     // Auto-rebuild if dist is stale (src newer than dist)
@@ -1231,7 +1268,7 @@ export async function runHostAgent(
     });
 
     // ─── Provider Pool health reporting (host mode) ───
-    if (hostSelectedProfileId) {
+    if (agentType === 'claude' && hostSelectedProfileId) {
       if (hostResult.status === 'success' || hostResult.status === 'closed') {
         providerPool.reportSuccess(hostSelectedProfileId);
       } else if (
@@ -1245,7 +1282,7 @@ export async function runHostAgent(
     return hostResult;
   } finally {
     // Guarantee session release even if spawn/setup throws
-    if (hostSelectedProfileId) {
+    if (agentType === 'claude' && hostSelectedProfileId) {
       providerPool.releaseSession(hostSelectedProfileId);
     }
   }
