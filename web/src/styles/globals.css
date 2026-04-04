@@ -713,28 +713,40 @@ pre code.hljs {
   box-sizing: border-box;
 }
 
-.message-scroll-area {
-  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+:root {
+  --app-scrollbar-thumb: rgba(100, 116, 139, 0.38);
+  --app-scrollbar-thumb-hover: rgba(100, 116, 139, 0.6);
+  --app-scrollbar-track: transparent;
 }
 
-.message-scroll-area::-webkit-scrollbar {
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
   width: 10px;
+  height: 10px;
 }
 
-.message-scroll-area::-webkit-scrollbar-track {
-  background: transparent;
+*::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
 }
 
-.message-scroll-area::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.38);
+*::-webkit-scrollbar-thumb {
+  background: var(--app-scrollbar-thumb);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
-.message-scroll-area::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.6);
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
   background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 @layer base {

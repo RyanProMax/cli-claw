@@ -128,7 +128,7 @@ export function AgentTabBar({ agents, activeTab, onSelectTab, onDeleteAgent, onR
 
   return (
     <>
-      <div className="flex items-center gap-1 px-4 pt-1 pb-2 border-b border-border/40 overflow-x-auto scrollbar-none select-none">
+      <div className="flex items-center gap-1 px-4 pt-1 pb-2 border-b border-border/40 overflow-x-auto select-none">
         {/* Main conversation tab */}
         <div
           className={`${tabClass(activeTab === null)} flex items-center gap-1.5 group`}

@@ -1,66 +1,100 @@
 # MODULE
 
-## 后端核心
+## 模块索引
 
-| 模块                      | 作用                                                        |
-| ------------------------- | ----------------------------------------------------------- |
-| `src/index.ts`            | 进程入口；消息轮询、容器/宿主机执行、流式输出汇总           |
-| `src/web.ts`              | Hono 应用、WebSocket、静态资源托管                          |
-| `src/db.ts`               | SQLite 数据层、用户/工作区/消息/任务/会话持久化             |
-| `src/group-queue.ts`      | 会话并发控制、任务优先级、重试与排队                        |
-| `src/container-runner.ts` | Docker / host 执行、卷挂载、Agent 进程生命周期              |
-| `src/runtime-config.ts`   | 系统配置、Provider 配置、加密存储、环境变量合成             |
-| `src/file-manager.ts`     | 文件读写边界、系统路径保护、路径安全                        |
-| `src/task-scheduler.ts`   | 定时任务调度、执行日志、工作区上下文解析                    |
-| `src/project-memory.ts`   | 项目内部记忆文件名与路径 helper                             |
-
-## 主要路由
-
-| 路由文件                         | 作用                                                |
-| -------------------------------- | --------------------------------------------------- |
-| `src/routes/auth.ts`             | 登录、注册、会话、用户资料                          |
-| `src/routes/groups.ts`           | 工作区 CRUD、消息、运行时设置、共享成员             |
-| `src/routes/files.ts`            | 工作区文件管理                                      |
-| `src/routes/memory.ts`           | `AGENTS.md` / 日期记忆 / 对话归档的枚举、读写、搜索 |
-| `src/routes/tasks.ts`            | 定时任务与执行日志                                  |
-| `src/routes/config.ts`           | Provider、IM、外观、系统设置                        |
-| `src/routes/mcp-servers.ts`      | 用户级 MCP Server 配置                              |
-| `src/routes/workspace-config.ts` | 工作区 `.claude/` 配置、技能、MCP 元数据            |
-| `src/routes/admin.ts`            | 用户、邀请码、审计日志                              |
-
-## IM / 运行时适配
-
-| 模块                                                                  | 作用                      |
-| --------------------------------------------------------------------- | ------------------------- |
-| `src/im-manager.ts`                                                   | per-user IM 连接池        |
-| `src/feishu.ts` / `src/telegram.ts` / `src/qq.ts` / `src/dingtalk.ts` | 各渠道接入与消息适配      |
-| `src/message-attachments.ts`                                          | 图片/文件附件规范化       |
-| `src/agent-output-parser.ts`                                          | runner 输出解析与结果收尾 |
-
-## 前端
-
-| 区域                                   | 作用                                            |
-| -------------------------------------- | ----------------------------------------------- |
-| `web/src/pages/ChatPage.tsx`           | 主聊天页，串联消息、工作区、面板和 runtime 设置 |
-| `web/src/pages/MemoryPage.tsx`         | 记忆文件浏览、搜索、编辑                        |
-| `web/src/pages/SettingsPage.tsx`       | 系统/用户设置入口                               |
-| `web/src/components/chat/*`            | 聊天区、工作区菜单、创建/编辑对话框             |
-| `web/src/stores/chat.ts` / `groups.ts` | 聊天与工作区状态                                |
-| `web/src/lib/workspace-runtime.ts`     | `agent_type` / `execution_mode` 约束            |
-
-## Agent Runner
-
-| 模块                                              | 作用                                           |
-| ------------------------------------------------- | ---------------------------------------------- |
-| `container/agent-runner/src/index.ts`             | query 循环、流式事件、上下文压缩、memory flush |
-| `container/agent-runner/src/mcp-tools.ts`         | 内置 MCP 工具定义                              |
-| `container/agent-runner/src/stream-processor.ts`  | StreamEvent 汇总与工具状态跟踪                 |
-| `container/agent-runner/src/agent-definitions.ts` | 预定义子 Agent                                 |
-
-## 文档入口
-
-- 项目架构：`docs/ARCHITECTURE.md`
-- 持久化上下文：`docs/CONTEXT.md`
-- 模块索引：`docs/MODULE.md`
-- 工程规范：`docs/ENGINEERING.md`
-- 本地任务记录：`docs/.local/PLAN.md`（本地文件，不入库）
+```text
+.
+├── src/
+│   ├── index.ts                    # 进程入口；消息轮询、执行调度、流式输出汇总
+│   ├── web.ts                      # Hono 应用、WebSocket、静态资源托管
+│   ├── db.ts                       # SQLite 数据层、用户/工作区/消息/任务持久化
+│   ├── group-queue.ts              # 会话并发控制、重试与排队
+│   ├── container-runner.ts         # Docker / host 执行、卷挂载、Agent 生命周期
+│   ├── runtime-config.ts           # Provider / IM / 系统配置、密文存储、环境变量合成
+│   ├── runtime-build.ts            # 运行进程与已加载 dist 的 build 指纹
+│   ├── runtime-identity.ts         # 实际运行时 agent / model / effort 元数据
+│   ├── file-manager.ts             # 文件读写边界、系统路径保护、路径安全
+│   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区上下文解析
+│   ├── project-memory.ts           # 项目内部记忆文件名与路径 helper
+│   ├── im-manager.ts               # per-user IM 连接池
+│   ├── feishu.ts                   # 飞书接入与消息适配
+│   ├── telegram.ts                 # Telegram 接入与消息适配
+│   ├── qq.ts                       # QQ 接入与消息适配
+│   ├── dingtalk.ts                 # 钉钉接入与消息适配
+│   ├── wechat.ts                   # 企业微信接入与消息适配
+│   ├── message-attachments.ts      # 图片 / 文件附件规范化
+│   ├── agent-output-parser.ts      # runner 输出解析与结果收尾
+│   ├── assistant-meta-footer.ts    # 响应时长 / 模型 / cost 等 footer 聚合
+│   └── routes/
+│       ├── auth.ts                 # 登录、注册、会话、用户资料
+│       ├── groups.ts               # 工作区 CRUD、消息、运行时设置、共享成员
+│       ├── files.ts                # 工作区文件管理
+│       ├── memory.ts               # AGENTS / 日期记忆 / 对话归档的读写与搜索
+│       ├── tasks.ts                # 定时任务与执行日志
+│       ├── config.ts               # Provider、IM、外观、系统设置
+│       ├── mcp-servers.ts          # 用户级 MCP Server 配置
+│       ├── workspace-config.ts     # 工作区 .claude/ 配置、技能、MCP 元数据
+│       ├── skills.ts               # 技能浏览、安装、管理
+│       ├── agents.ts               # Agent 定义与管理接口
+│       ├── agent-definitions.ts    # 预定义 Agent 路由
+│       ├── usage.ts                # 用量与计费相关接口
+│       ├── billing.ts              # 账单与套餐接口
+│       ├── browse.ts               # 浏览器 / 网页能力相关接口
+│       ├── monitor.ts              # 监控与运行状态接口
+│       ├── bug-report.ts           # 问题反馈入口
+│       └── admin.ts                # 用户、邀请码、审计日志
+├── web/
+│   └── src/
+│       ├── pages/
+│       │   ├── ChatPage.tsx        # 主聊天页，串联消息、工作区、面板和 runtime 设置
+│       │   ├── MemoryPage.tsx      # 记忆文件浏览、搜索、编辑
+│       │   ├── SettingsPage.tsx    # 系统 / 用户设置入口
+│       │   ├── TasksPage.tsx       # 定时任务管理
+│       │   ├── SkillsPage.tsx      # 技能管理
+│       │   ├── McpServersPage.tsx  # MCP Server 配置
+│       │   ├── UsagePage.tsx       # 用量与成本查看
+│       │   ├── BillingPage.tsx     # 套餐与计费查看
+│       │   ├── MonitorPage.tsx     # 系统监控页
+│       │   └── UsersPage.tsx       # 管理员用户页
+│       ├── components/
+│       │   ├── chat/               # 聊天区、工作区菜单、消息与输入框
+│       │   ├── layout/             # 侧边栏、壳层、页面布局
+│       │   ├── common/             # 通用品牌、加载态、状态组件
+│       │   ├── groups/             # 工作区管理
+│       │   ├── settings/           # 设置面板
+│       │   ├── tasks/              # 任务相关 UI
+│       │   ├── skills/             # 技能相关 UI
+│       │   ├── monitor/            # 监控 UI
+│       │   ├── billing/            # 计费 UI
+│       │   ├── mcp-servers/        # MCP Server UI
+│       │   ├── users/              # 管理员用户 UI
+│       │   └── ui/                 # 基础设计系统组件
+│       ├── stores/
+│       │   ├── chat.ts             # 聊天状态、消息同步、流式更新
+│       │   └── groups.ts           # 工作区状态
+│       ├── lib/
+│       │   ├── workspace-runtime.ts    # agent_type / execution_mode 约束
+│       │   ├── assistantMetaFooter.ts  # Web 端 footer 文本拼装
+│       │   └── messageHistoryCursor.ts # 历史消息稳定游标
+│       └── styles/
+│           └── globals.css         # 全局主题、字体、滚动条与基础样式
+├── container/
+│   └── agent-runner/
+│       └── src/
+│           ├── index.ts            # query 循环、流式事件、上下文压缩、memory flush
+│           ├── mcp-tools.ts        # 内置 MCP 工具定义
+│           ├── stream-processor.ts # StreamEvent 汇总与工具状态跟踪
+│           ├── agent-definitions.ts# 预定义子 Agent
+│           ├── codex-config.ts     # Codex model / effort 配置解析
+│           └── types.ts            # runner 侧共享类型
+├── shared/
+│   ├── stream-event.ts             # 前后端与 runner 共用的 StreamEvent 定义
+│   └── assistant-meta-footer.ts    # 多端共享 footer 格式化
+└── docs/
+    ├── ARCHITECTURE.md             # 项目结构与核心数据流
+    ├── CONTEXT.md                  # 持久化架构约束与边界
+    ├── MODULE.md                   # 模块索引
+    ├── ENGINEERING.md              # 开发规范、验证与提交流程
+    ├── COMMAND.md                  # 当前支持的命令与入口差异
+    └── .local/PLAN.md              # 本地任务记录（不入库）
+```

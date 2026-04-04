@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync } from 'fs';
 import sharp from 'sharp';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -7,17 +7,23 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const publicDir = join(__dirname, '..', 'public', 'icons');
+const faviconPath = join(__dirname, '..', 'public', 'favicon.svg');
 
 const sizes = [48, 72, 96, 128, 144, 152, 192, 384, 512];
 
 async function generateIcons() {
-  // Try to use high-res source first, fallback to favicon.svg
-  const logo1024Path = join(publicDir, 'logo-1024.png');
-  const faviconPath = join(__dirname, '..', 'public', 'favicon.svg');
-  const sourcePath = existsSync(logo1024Path) ? logo1024Path : faviconPath;
+  console.log(`Using source: ${faviconPath}`);
+  const sourceBuffer = readFileSync(faviconPath);
 
-  console.log(`Using source: ${sourcePath}`);
-  const sourceBuffer = readFileSync(sourcePath);
+  const logo1024Path = join(publicDir, 'logo-1024.png');
+  console.log(`Generating ${logo1024Path}...`);
+
+  await sharp(sourceBuffer)
+    .resize(1024, 1024)
+    .png()
+    .toFile(logo1024Path);
+
+  console.log(`✓ Generated ${logo1024Path}`);
 
   // Generate standard icons
   for (const size of sizes) {

@@ -141,8 +141,8 @@ export function SettingsPage() {
       {/* Mobile horizontal tab bar */}
       <div
         ref={tabBarRef}
-        className="lg:hidden flex items-center gap-1 px-3 py-2 overflow-x-auto bg-background border-b border-border [touch-action:pan-x] [&::-webkit-scrollbar]:hidden"
-        style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+        className="lg:hidden flex items-center gap-1 px-3 py-2 overflow-x-auto bg-background border-b border-border [touch-action:pan-x]"
+        style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
       >
         {mobileTabs.map((tab) => {
           const isActive = activeTab === tab.key;
