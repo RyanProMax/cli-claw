@@ -190,7 +190,10 @@ function trySelectPoolProvider(
       resolved: { config: resolved.config, customEnv: resolved.customEnv },
     };
   } catch (err) {
-    logger.warn({ err }, 'Provider pool selection failed, falling back to active profile');
+    logger.warn(
+      { err },
+      'Provider pool selection failed, falling back to active profile',
+    );
     return null;
   }
 }
@@ -402,8 +405,9 @@ function buildVolumeMounts(
     readonly: true,
   });
 
-  // Admin's ~/.claude/ config: mount CLAUDE.md and rules/ into /workspace/
-  // so the SDK's directory traversal (cwd → root) discovers them at /workspace/ level.
+  // External Claude runtime contract: keep ~/.claude/CLAUDE.md and rules/
+  // mounted into /workspace/ so the SDK's directory traversal (cwd → root)
+  // can still discover upstream Claude config files.
   // Only for admin-created workspaces (ownerHomeFolder === 'main').
   const isCreatorAdmin = ownerHomeFolder === 'main';
   if (isCreatorAdmin) {
@@ -917,7 +921,9 @@ export async function runHostAgent(
   // 3. 写入 settings.json（合并模式，不覆盖已有用户配置）
   // Load user's global MCP servers (same logic as Docker mode).
   const settingsFile = path.join(groupSessionsDir, 'settings.json');
-  const hostMcpServers = group.created_by ? loadUserMcpServers(group.created_by) : {};
+  const hostMcpServers = group.created_by
+    ? loadUserMcpServers(group.created_by)
+    : {};
   ensureSettingsJson(settingsFile, hostMcpServers);
 
   // 4. Skills 自动链接到 session 目录
@@ -983,7 +989,7 @@ export async function runHostAgent(
   const hostSelectedProfileId = hostPoolResult?.profileId ?? null;
   const globalConfig =
     agentType === 'claude'
-      ? hostPoolResult?.resolved.config ?? getClaudeProviderConfig()
+      ? (hostPoolResult?.resolved.config ?? getClaudeProviderConfig())
       : null;
 
   try {
@@ -1002,7 +1008,10 @@ export async function runHostAgent(
       }
 
       // Write .credentials.json for OAuth credentials
-      const mergedConfig = mergeClaudeEnvConfig(globalConfig, containerOverride);
+      const mergedConfig = mergeClaudeEnvConfig(
+        globalConfig,
+        containerOverride,
+      );
       if (mergedConfig.claudeOAuthCredentials) {
         try {
           writeCredentialsFile(groupSessionsDir, mergedConfig);

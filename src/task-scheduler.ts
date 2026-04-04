@@ -102,7 +102,9 @@ function ensureTaskWorkspace(
     const oldDir = path.join(GROUPS_DIR, task.workspace_folder);
     try {
       fs.rmSync(oldDir, { recursive: true, force: true });
-    } catch { /* ignore if already gone */ }
+    } catch {
+      /* ignore if already gone */
+    }
   }
 
   const jid = `web:${crypto.randomUUID()}`;
@@ -176,9 +178,19 @@ export interface SchedulerDependencies {
     options?: { source?: string },
   ) => Promise<string | undefined | void>;
   broadcastStreamEvent?: (chatJid: string, event: StreamEvent) => void;
-  onWorkspaceCreated?: (jid: string, folder: string, name: string, userId?: string) => void;
+  onWorkspaceCreated?: (
+    jid: string,
+    folder: string,
+    name: string,
+    userId?: string,
+  ) => void;
   /** Store task prompt as a user-visible message in the workspace chat */
-  storePromptMessage?: (chatJid: string, senderId: string, senderName: string, text: string) => void;
+  storePromptMessage?: (
+    chatJid: string,
+    senderId: string,
+    senderName: string,
+    text: string,
+  ) => void;
   assistantName: string;
   dailySummaryDeps?: DailySummaryDeps;
 }
@@ -284,7 +296,10 @@ async function runTask(
   if (isBillingEnabled() && workspaceGroup.created_by) {
     const owner = getUserById(workspaceGroup.created_by);
     if (owner && owner.role !== 'admin') {
-      const accessResult = checkBillingAccessFresh(workspaceGroup.created_by, owner.role);
+      const accessResult = checkBillingAccessFresh(
+        workspaceGroup.created_by,
+        owner.role,
+      );
       if (!accessResult.allowed) {
         const reason = accessResult.reason || '当前账户不可用';
         logger.info(
@@ -304,7 +319,9 @@ async function runTask(
         });
         runningTaskIds.delete(task.id);
         // Still compute next run so the task isn't stuck (but preserve for manual runs)
-        const nextRun = options?.manualRun ? task.next_run : computeNextRun(task);
+        const nextRun = options?.manualRun
+          ? task.next_run
+          : computeNextRun(task);
         updateTaskAfterRun(task.id, nextRun, `Error: 计费限制: ${reason}`);
         return;
       }
@@ -331,9 +348,16 @@ async function runTask(
 
   // Store task prompt as a user message in workspace chat so it's visible in conversation
   if (deps.storePromptMessage) {
-    const owner = workspaceGroup.created_by ? getUserById(workspaceGroup.created_by) : null;
+    const owner = workspaceGroup.created_by
+      ? getUserById(workspaceGroup.created_by)
+      : null;
     const senderName = owner?.display_name || owner?.username || '定时任务';
-    deps.storePromptMessage(workspace.jid, owner?.id || 'system', senderName, task.prompt);
+    deps.storePromptMessage(
+      workspace.jid,
+      owner?.id || 'system',
+      senderName,
+      task.prompt,
+    );
   }
 
   let result: string | null = null;
@@ -384,7 +408,7 @@ async function runTask(
     const runAgent =
       executionMode === 'host' ? runHostAgent : runContainerAgent;
 
-    // Resolve owner's home folder for correct volume mounts (skills, memory, CLAUDE.md)
+    // Resolve owner's home folder for correct volume mounts (skills, memory, AGENTS.md)
     const ownerHomeFolder = workspaceGroup.created_by
       ? getUserHomeGroup(workspaceGroup.created_by)?.folder || workspace.folder
       : workspace.folder;
@@ -415,7 +439,10 @@ async function runTask(
       async (streamedOutput: ContainerOutput) => {
         // Broadcast stream events to WebSocket clients viewing the task workspace
         if (streamedOutput.status === 'stream' && streamedOutput.streamEvent) {
-          deps.broadcastStreamEvent?.(workspace.jid, streamedOutput.streamEvent);
+          deps.broadcastStreamEvent?.(
+            workspace.jid,
+            streamedOutput.streamEvent,
+          );
         }
         if (streamedOutput.result) {
           result = streamedOutput.result;
@@ -491,7 +518,12 @@ async function runTask(
   updateTaskAfterRun(task.id, nextRun, resultSummary);
 
   // Auto-cleanup once-task workspace after completion
-  if (task.schedule_type === 'once' && !options?.manualRun && task.workspace_jid && task.workspace_folder) {
+  if (
+    task.schedule_type === 'once' &&
+    !options?.manualRun &&
+    task.workspace_jid &&
+    task.workspace_folder
+  ) {
     setTimeout(() => {
       try {
         const groups = deps.registeredGroups();
@@ -499,10 +531,16 @@ async function runTask(
           deleteGroupData(task.workspace_jid!, task.workspace_folder!);
           delete groups[task.workspace_jid!];
           removeFlowArtifacts(task.workspace_folder!);
-          logger.info({ taskId: task.id, folder: task.workspace_folder }, 'Cleaned up once-task workspace');
+          logger.info(
+            { taskId: task.id, folder: task.workspace_folder },
+            'Cleaned up once-task workspace',
+          );
         }
       } catch (err) {
-        logger.error({ taskId: task.id, err }, 'Failed to cleanup once-task workspace');
+        logger.error(
+          { taskId: task.id, err },
+          'Failed to cleanup once-task workspace',
+        );
       }
     }, 60_000);
   }
@@ -536,7 +574,10 @@ async function runScriptTask(
     if (group?.created_by) {
       const owner = getUserById(group.created_by);
       if (owner && owner.role !== 'admin') {
-        const accessResult = checkBillingAccessFresh(group.created_by, owner.role);
+        const accessResult = checkBillingAccessFresh(
+          group.created_by,
+          owner.role,
+        );
         if (!accessResult.allowed) {
           const reason = accessResult.reason || '当前账户不可用';
           logger.info(
@@ -605,7 +646,9 @@ async function runScriptTask(
         ? `[脚本] 执行失败: ${error}${result ? `\n输出:\n${result.slice(0, 500)}` : ''}`
         : `[脚本] ${result!.slice(0, 1000)}`;
 
-      await deps.sendMessage(groupJid, `${deps.assistantName}: ${text}`, { source: 'scheduled_task' });
+      await deps.sendMessage(groupJid, `${deps.assistantName}: ${text}`, {
+        source: 'scheduled_task',
+      });
     }
 
     logger.info(
@@ -689,7 +732,10 @@ async function runGroupModeTask(
     });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    logger.error({ taskId: task.id, error }, 'Group-mode task injection failed');
+    logger.error(
+      { taskId: task.id, error },
+      'Group-mode task injection failed',
+    );
 
     logTaskRun({
       task_id: task.id,
@@ -723,7 +769,10 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   try {
     const cleaned = cleanupStaleRunningLogs();
     if (cleaned > 0) {
-      logger.info({ cleaned }, 'Cleaned up stale running task logs from previous session');
+      logger.info(
+        { cleaned },
+        'Cleaned up stale running task logs from previous session',
+      );
     }
   } catch (err) {
     logger.error({ err }, 'Failed to cleanup stale running task logs');
@@ -750,7 +799,10 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
       }
     }
     if (cleaned > 0) {
-      logger.info({ cleaned }, 'Cleaned up orphaned once-task workspaces from previous session');
+      logger.info(
+        { cleaned },
+        'Cleaned up orphaned once-task workspaces from previous session',
+      );
     }
   } catch (err) {
     logger.error({ err }, 'Failed to cleanup orphaned once-task workspaces');

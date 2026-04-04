@@ -299,7 +299,7 @@ function clearSessionJsonlFiles(folder: string, agentId?: string): void {
 }
 
 function resetWorkspaceForGroup(folder: string): void {
-  // 1. 清除工作目录（Agent 文件、CLAUDE.md、logs/ 等），然后重建空目录
+  // 1. 清除工作目录（Agent 文件、AGENTS.md、logs/ 等），然后重建空目录
   const groupDir = path.join(GROUPS_DIR, folder);
   fs.rmSync(groupDir, { recursive: true, force: true });
   fs.mkdirSync(groupDir, { recursive: true });
@@ -729,7 +729,10 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     );
   }
   if (agent_type !== undefined && existing.is_home) {
-    return c.json({ error: 'Cannot change agent type of home containers' }, 403);
+    return c.json(
+      { error: 'Cannot change agent type of home containers' },
+      403,
+    );
   }
 
   // member 用户不允许使用 host 模式（安全限制）
@@ -1380,7 +1383,10 @@ groupRoutes.get('/:jid/env', authMiddleware, (c) => {
   if (!group) return c.json({ error: 'Group not found' }, 404);
   if ((group.agentType || 'claude') === 'codex') {
     return c.json(
-      { error: 'This workspace uses Codex and does not support Claude env overrides' },
+      {
+        error:
+          'This workspace uses Codex and does not support Claude env overrides',
+      },
       400,
     );
   }
@@ -1415,7 +1421,10 @@ groupRoutes.put('/:jid/env', authMiddleware, async (c) => {
   if (!group) return c.json({ error: 'Group not found' }, 404);
   if ((group.agentType || 'claude') === 'codex') {
     return c.json(
-      { error: 'This workspace uses Codex and does not support Claude env overrides' },
+      {
+        error:
+          'This workspace uses Codex and does not support Claude env overrides',
+      },
       400,
     );
   }
@@ -1686,7 +1695,11 @@ groupRoutes.put('/:jid/mcp', authMiddleware, async (c) => {
   const selected_mcps = body.selected_mcps;
 
   // Validate mcp_mode
-  if (mcp_mode !== undefined && mcp_mode !== 'inherit' && mcp_mode !== 'custom') {
+  if (
+    mcp_mode !== undefined &&
+    mcp_mode !== 'inherit' &&
+    mcp_mode !== 'custom'
+  ) {
     return c.json({ error: 'Invalid mcp_mode' }, 400);
   }
 
@@ -1706,7 +1719,8 @@ groupRoutes.put('/:jid/mcp', authMiddleware, async (c) => {
   const updatedGroup: RegisteredGroup = {
     ...group,
     mcp_mode: mcp_mode ?? group.mcp_mode ?? 'inherit',
-    selected_mcps: selected_mcps !== undefined ? selected_mcps : group.selected_mcps,
+    selected_mcps:
+      selected_mcps !== undefined ? selected_mcps : group.selected_mcps,
   };
 
   setRegisteredGroup(jid, updatedGroup);

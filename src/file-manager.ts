@@ -24,7 +24,7 @@ export interface FileEntry {
 
 // 常量
 export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-const SYSTEM_PATHS = ['logs', 'CLAUDE.md', '.claude', 'conversations'];
+const SYSTEM_PATHS = ['logs', 'AGENTS.md', '.claude', 'conversations'];
 
 /**
  * 获取会话流的文件根目录
@@ -323,9 +323,21 @@ function calculateDirSize(dirPath: string, depth = 0): number {
 /** Remove all runtime artifacts for a group folder (workspace, sessions, ipc, env, memory). */
 export function removeFlowArtifacts(folder: string): void {
   fs.rmSync(path.join(GROUPS_DIR, folder), { recursive: true, force: true });
-  fs.rmSync(path.join(DATA_DIR, 'sessions', folder), { recursive: true, force: true });
-  fs.rmSync(path.join(DATA_DIR, 'ipc', folder), { recursive: true, force: true });
-  fs.rmSync(path.join(DATA_DIR, 'env', folder), { recursive: true, force: true });
-  fs.rmSync(path.join(DATA_DIR, 'memory', folder), { recursive: true, force: true });
+  fs.rmSync(path.join(DATA_DIR, 'sessions', folder), {
+    recursive: true,
+    force: true,
+  });
+  fs.rmSync(path.join(DATA_DIR, 'ipc', folder), {
+    recursive: true,
+    force: true,
+  });
+  fs.rmSync(path.join(DATA_DIR, 'env', folder), {
+    recursive: true,
+    force: true,
+  });
+  fs.rmSync(path.join(DATA_DIR, 'memory', folder), {
+    recursive: true,
+    force: true,
+  });
   deleteContainerEnvConfig(folder);
 }

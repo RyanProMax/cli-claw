@@ -16,14 +16,13 @@ import { getAllRegisteredGroups, getUserById } from '../db.js';
 import { logger } from '../logger.js';
 import { GROUPS_DIR, DATA_DIR } from '../config.js';
 import type { AuthUser } from '../types.js';
+import { AGENT_MEMORY_FILENAME } from '../project-memory.js';
 
 const memoryRoutes = new Hono<{ Variables: Variables }>();
 
 // --- Constants ---
 
 const USER_GLOBAL_DIR = path.join(GROUPS_DIR, 'user-global');
-const MAIN_MEMORY_DIR = path.join(GROUPS_DIR, 'main');
-const MAIN_MEMORY_FILE = path.join(MAIN_MEMORY_DIR, 'CLAUDE.md');
 const MEMORY_DATA_DIR = path.join(DATA_DIR, 'memory');
 const MAX_GLOBAL_MEMORY_LENGTH = 200_000;
 const MAX_MEMORY_FILE_LENGTH = 500_000;
@@ -142,7 +141,7 @@ function classifyMemorySource(
     parts[2] === 'user-global'
   ) {
     const userId = parts[3] || 'unknown';
-    const name = parts.slice(4).join('/') || 'CLAUDE.md';
+    const name = parts.slice(4).join('/') || AGENT_MEMORY_FILENAME;
     const owner = getUserById(userId);
     const ownerLabel = owner ? owner.display_name || owner.username : userId;
 
@@ -235,7 +234,7 @@ function readMemoryFile(
   };
 }
 
-// 记忆路径中禁止写入的系统子目录（CLAUDE.md 除外，它是记忆文件）
+// 记忆路径中禁止写入的系统子目录（AGENTS.md 除外，它是记忆文件）
 const MEMORY_BLOCKED_DIRS = ['logs', '.claude', 'conversations'];
 
 function isBlockedMemoryPath(normalizedPath: string): boolean {
@@ -262,7 +261,10 @@ function writeMemoryFile(
   if (isBlockedMemoryPath(normalized)) {
     throw new Error('Cannot write to system path');
   }
-  if (normalized.includes('user-global/') && normalized.endsWith('/HEARTBEAT.md')) {
+  if (
+    normalized.includes('user-global/') &&
+    normalized.endsWith('/HEARTBEAT.md')
+  ) {
     throw new Error('HEARTBEAT.md is read-only (auto-generated)');
   }
   if (Buffer.byteLength(content, 'utf-8') > MAX_MEMORY_FILE_LENGTH) {
@@ -285,7 +287,13 @@ function writeMemoryFile(
 }
 
 // Directories to skip when scanning group workspaces for memory files
-const WALK_SKIP_DIRS = new Set(['logs', '.claude', 'conversations', 'downloads', 'node_modules']);
+const WALK_SKIP_DIRS = new Set([
+  'logs',
+  '.claude',
+  'conversations',
+  'downloads',
+  'node_modules',
+]);
 
 function walkFiles(
   baseDir: string,
@@ -338,15 +346,15 @@ function listMemorySources(user: AuthUser): MemorySource[] {
   }
 
   // 1. User-global memory + heartbeat
-  files.add(path.join(USER_GLOBAL_DIR, user.id, 'CLAUDE.md'));
+  files.add(path.join(USER_GLOBAL_DIR, user.id, AGENT_MEMORY_FILENAME));
   const heartbeatPath = path.join(USER_GLOBAL_DIR, user.id, 'HEARTBEAT.md');
   if (fs.existsSync(heartbeatPath)) {
     files.add(heartbeatPath);
   }
 
-  // 2. Group CLAUDE.md files
+  // 2. Group AGENTS.md files
   for (const folder of accessibleFolders) {
-    files.add(path.join(GROUPS_DIR, folder, 'CLAUDE.md'));
+    files.add(path.join(GROUPS_DIR, folder, AGENT_MEMORY_FILENAME));
   }
 
   // 3. Scan group workspace directories (skips system dirs via WALK_SKIP_DIRS)
@@ -390,7 +398,9 @@ function listMemorySources(user: AuthUser): MemorySource[] {
         const fullPath = path.join(convDir, entry.name);
         if (isMemoryCandidateFile(fullPath)) files.add(fullPath);
       }
-    } catch { /* skip unreadable */ }
+    } catch {
+      /* skip unreadable */
+    }
   }
 
   const sources: MemorySource[] = [];
@@ -412,7 +422,8 @@ function listMemorySources(user: AuthUser): MemorySource[] {
     }
 
     const classified = classifyMemorySource(relativePath);
-    const writable = classified.type !== 'heartbeat' && classified.type !== 'conversation';
+    const writable =
+      classified.type !== 'heartbeat' && classified.type !== 'conversation';
     sources.push({
       path: relativePath,
       writable,
@@ -573,7 +584,7 @@ memoryRoutes.put('/file', authMiddleware, async (c) => {
 memoryRoutes.get('/global', authMiddleware, (c) => {
   try {
     const user = c.get('user') as AuthUser;
-    const userGlobalPath = `data/groups/user-global/${user.id}/CLAUDE.md`;
+    const userGlobalPath = `data/groups/user-global/${user.id}/${AGENT_MEMORY_FILENAME}`;
     return c.json(readMemoryFile(userGlobalPath, user));
   } catch (err) {
     logger.error({ err }, 'Failed to read user global memory');
@@ -599,7 +610,7 @@ memoryRoutes.put('/global', authMiddleware, async (c) => {
 
   try {
     const user = c.get('user') as AuthUser;
-    const userGlobalPath = `data/groups/user-global/${user.id}/CLAUDE.md`;
+    const userGlobalPath = `data/groups/user-global/${user.id}/${AGENT_MEMORY_FILENAME}`;
     return c.json(
       writeMemoryFile(userGlobalPath, validation.data.content, user),
     );

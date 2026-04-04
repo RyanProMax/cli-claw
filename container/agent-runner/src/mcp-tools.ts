@@ -39,8 +39,14 @@ function writeIpcFile(dir: string, data: object): string {
     fs.renameSync(tempPath, filepath);
   } catch (err) {
     // Clean up temp file on failure
-    try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
-    throw new Error(`IPC 写入失败 (${dir}): ${err instanceof Error ? err.message : String(err)}`);
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(
+      `IPC 写入失败 (${dir}): ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   return filename;
 }
@@ -104,7 +110,7 @@ function collectMemoryFiles(
         }
       } else if (entry.isFile()) {
         if (
-          entry.name === 'CLAUDE.md' ||
+          entry.name === 'AGENTS.md' ||
           MEMORY_EXTENSIONS.has(path.extname(entry.name))
         ) {
           out.push(fullPath);
@@ -522,7 +528,9 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
         // Validate schedule_value before writing IPC
         if (args.schedule_type === 'cron') {
           try {
-            CronExpressionParser.parse(args.schedule_value, { tz: process.env.TZ || 'Asia/Shanghai' });
+            CronExpressionParser.parse(args.schedule_value, {
+              tz: process.env.TZ || 'Asia/Shanghai',
+            });
           } catch {
             return {
               content: [
@@ -963,7 +971,7 @@ Use the skills panel in the UI to find the skill ID (directory name, e.g. "memor
 
 \u4ec5\u7528\u4e8e\u660e\u786e\u53ea\u8ddf\u5f53\u5929/\u77ed\u671f\u6709\u5173\u7684\u4fe1\u606f\uff1a\u4eca\u65e5\u9879\u76ee\u8fdb\u5c55\u3001\u4e34\u65f6\u6280\u672f\u51b3\u7b56\u3001\u5f85\u529e\u4e8b\u9879\u3001\u4f1a\u8bae\u8981\u70b9\u7b49\u3002
 
-**\u91cd\u8981**\uff1a\u4e0b\u6b21\u5bf9\u8bdd\u4ecd\u53ef\u80fd\u7528\u5230\u7684\u4fe1\u606f\uff08\u7528\u6237\u8eab\u4efd\u3001\u504f\u597d\u3001\u5e38\u7528\u9879\u76ee\u3001\u7528\u6237\u8bf4\u201c\u8bb0\u4f4f\u201d\u7684\u5185\u5bb9\uff09\u5e94\u76f4\u63a5\u7528 Edit \u5de5\u5177\u7f16\u8f91 /workspace/global/CLAUDE.md\uff0c\u4e0d\u8981\u7528\u6b64\u5de5\u5177\u3002`,
+**\u91cd\u8981**\uff1a\u4e0b\u6b21\u5bf9\u8bdd\u4ecd\u53ef\u80fd\u7528\u5230\u7684\u4fe1\u606f\uff08\u7528\u6237\u8eab\u4efd\u3001\u504f\u597d\u3001\u5e38\u7528\u9879\u76ee\u3001\u7528\u6237\u8bf4\u201c\u8bb0\u4f4f\u201d\u7684\u5185\u5bb9\uff09\u5e94\u76f4\u63a5\u7528 Edit \u5de5\u5177\u7f16\u8f91 /workspace/global/AGENTS.md\uff0c\u4e0d\u8981\u7528\u6b64\u5de5\u5177\u3002`,
         {
           content: z
             .string()
@@ -1078,7 +1086,7 @@ Use the skills panel in the UI to find the skill ID (directory name, e.g. "memor
   tools.push(
     tool(
       'memory_search',
-      `\u5728\u5de5\u4f5c\u533a\u7684\u8bb0\u5fc6\u6587\u4ef6\u4e2d\u641c\u7d22\uff08CLAUDE.md\u3001memory/\u3001conversations/ \u53ca\u5176\u4ed6 .md/.txt \u6587\u4ef6\uff09\u3002
+      `\u5728\u5de5\u4f5c\u533a\u7684\u8bb0\u5fc6\u6587\u4ef6\u4e2d\u641c\u7d22\uff08AGENTS.md\u3001memory/\u3001conversations/ \u53ca\u5176\u4ed6 .md/.txt \u6587\u4ef6\uff09\u3002
 \u8fd4\u56de\u6587\u4ef6\u8def\u5f84\u3001\u884c\u53f7\u548c\u4e0a\u4e0b\u6587\u7247\u6bb5\u3002\u8d85\u8fc7 512KB \u7684\u6587\u4ef6\u4f1a\u88ab\u8df3\u8fc7\u3002
 \u7528\u4e8e\u56de\u5fc6\u8fc7\u53bb\u7684\u51b3\u7b56\u3001\u504f\u597d\u3001\u9879\u76ee\u4e0a\u4e0b\u6587\u6216\u5bf9\u8bdd\u5386\u53f2\u3002`,
       {
@@ -1187,7 +1195,7 @@ Use the skills panel in the UI to find the skill ID (directory name, e.g. "memor
         file: z
           .string()
           .describe(
-            '\u76f8\u5bf9\u8def\u5f84\uff0c\u53ef\u5e26 :\u884c\u53f7\uff08\u5982 "CLAUDE.md:12"\u3001"[global] CLAUDE.md:8" \u6216 "[memory] 2026-01-15.md"\uff09',
+            '\u76f8\u5bf9\u8def\u5f84\uff0c\u53ef\u5e26 :\u884c\u53f7\uff08\u5982 "AGENTS.md:12"\u3001"[global] AGENTS.md:8" \u6216 "[memory] 2026-01-15.md"\uff09',
           ),
         from_line: z
           .number()

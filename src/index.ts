@@ -20,6 +20,12 @@ import {
 } from './config.js';
 import { interruptibleSleep } from './message-notifier.js';
 import {
+  AGENT_MEMORY_TEMPLATE_FILENAME,
+  LEGACY_AGENT_MEMORY_FILENAME,
+  getAgentMemoryPath,
+  migrateLegacyAgentMemoryFile,
+} from './project-memory.js';
+import {
   AvailableGroup,
   ContainerInput,
   ContainerOutput,
@@ -1947,12 +1953,13 @@ function loadState(): void {
 
   // Migrate shared global CLAUDE.md → per-user user-global directories
   migrateGlobalMemoryToPerUser();
+  migrateLegacyWorkspaceMemoryFiles();
 
-  // Initialize per-user global CLAUDE.md from template for users missing it
+  // Initialize per-user global AGENTS.md from template for users missing it
   const templatePath = path.resolve(
     process.cwd(),
     'config',
-    'global-claude-md.template.md',
+    AGENT_MEMORY_TEMPLATE_FILENAME,
   );
   if (fs.existsSync(templatePath)) {
     const template = fs.readFileSync(templatePath, 'utf-8');
@@ -1970,26 +1977,26 @@ function loadState(): void {
       for (const u of allUsers) {
         const userDir = path.join(userGlobalBase, u.id);
         fs.mkdirSync(userDir, { recursive: true });
-        const userClaudeMd = path.join(userDir, 'CLAUDE.md');
-        if (!fs.existsSync(userClaudeMd)) {
+        const userAgentMemory = getAgentMemoryPath(userDir);
+        if (!fs.existsSync(userAgentMemory)) {
           try {
-            fs.writeFileSync(userClaudeMd, template, { flag: 'wx' });
+            fs.writeFileSync(userAgentMemory, template, { flag: 'wx' });
             logger.info(
               { userId: u.id },
-              'Initialized user-global CLAUDE.md from template',
+              'Initialized user-global AGENTS.md from template',
             );
           } catch (err: unknown) {
             if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
               logger.warn(
                 { userId: u.id, err },
-                'Failed to initialize user-global CLAUDE.md',
+                'Failed to initialize user-global AGENTS.md',
               );
             }
           }
         }
       }
     } catch (err) {
-      logger.warn({ err }, 'Failed to initialize user-global CLAUDE.md files');
+      logger.warn({ err }, 'Failed to initialize user-global AGENTS.md files');
     }
   }
 
@@ -2751,9 +2758,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               text = buildOverflowPartialReply(text);
             }
             // auto_continue outputs that consist solely of system-maintenance
-            // acknowledgements (e.g. "OK", "已更新 CLAUDE.md") are suppressed from
+            // acknowledgements (e.g. "OK", "已更新 AGENTS.md") are suppressed from
             // IM delivery. These arise when the agent's session transcript contains
-            // memory-flush / CLAUDE.md-update context from the compaction pipeline
+            // memory-flush / AGENTS.md-update context from the compaction pipeline
             // and the agent echoes it back in the resumption query. Substantive
             // user-facing continuations (longer replies or actual task resumption)
             // pass through normally. See issue #275.
@@ -5253,7 +5260,7 @@ async function processAgentConversation(
         }
       }
       // Suppress system-maintenance noise from auto_continue outputs (issue #275).
-      // Short acknowledgements ("OK", "已更新 CLAUDE.md") that leak from the
+      // Short acknowledgements ("OK", "已更新 AGENTS.md") that leak from the
       // compaction pipeline are dropped; substantive continuations pass through.
       if (
         output.sourceKind === 'auto_continue' &&
@@ -5682,7 +5689,10 @@ async function processAgentConversation(
             partialReply,
             effectiveGroup.folder,
           );
-          logger.info({ replySourceImJid, textLen: partialReply.length }, 'agent partial reply ready');
+          logger.info(
+            { replySourceImJid, textLen: partialReply.length },
+            'agent partial reply ready',
+          );
           const imSent = await sendImWithRetry(
             replySourceImJid,
             partialReply,
@@ -6422,7 +6432,10 @@ function buildOnAgentMessage(): (baseChatJid: string, agentId: string) => void {
           { homeChatJid, agentId },
           'Agent IM restart: starting processAgentConversation',
         );
-        logger.info({ homeChatJid, agentId, taskId }, 'sub-agent task IPC received');
+        logger.info(
+          { homeChatJid, agentId, taskId },
+          'sub-agent task IPC received',
+        );
         try {
           await processAgentConversation(homeChatJid, agentId);
         } catch (err) {
@@ -6750,7 +6763,11 @@ function migrateGlobalMemoryToPerUser(): void {
   const flagFile = path.join(DATA_DIR, 'config', '.memory-migration-v1-done');
   if (fs.existsSync(flagFile)) return;
 
-  const oldGlobalMd = path.join(GROUPS_DIR, 'global', 'CLAUDE.md');
+  const oldGlobalMd = path.join(
+    GROUPS_DIR,
+    'global',
+    LEGACY_AGENT_MEMORY_FILENAME,
+  );
   const userGlobalBase = path.join(GROUPS_DIR, 'user-global');
 
   let migrationSucceeded = true;
@@ -6769,12 +6786,12 @@ function migrateGlobalMemoryToPerUser(): void {
     if (firstAdmin && fs.existsSync(oldGlobalMd)) {
       const adminDir = path.join(userGlobalBase, firstAdmin.id);
       fs.mkdirSync(adminDir, { recursive: true });
-      const target = path.join(adminDir, 'CLAUDE.md');
+      const target = getAgentMemoryPath(adminDir);
       if (!fs.existsSync(target)) {
         fs.copyFileSync(oldGlobalMd, target);
         logger.info(
           { userId: firstAdmin.id, src: oldGlobalMd, dst: target },
-          'Migrated global CLAUDE.md to admin user-global',
+          'Migrated global legacy CLAUDE.md to admin user-global AGENTS.md',
         );
       }
       copiedLegacyGlobal = true;
@@ -6822,6 +6839,62 @@ function migrateGlobalMemoryToPerUser(): void {
     logger.info('Global memory migration to per-user completed');
   } catch (err) {
     logger.warn({ err }, 'Failed to persist global memory migration flag');
+  }
+}
+
+function getWorkspaceRootForMemoryMigration(group: {
+  folder: string;
+  executionMode?: string;
+  customCwd?: string;
+}): string {
+  if (group.executionMode === 'host' && group.customCwd) {
+    return group.customCwd;
+  }
+  return path.join(GROUPS_DIR, group.folder);
+}
+
+function migrateLegacyWorkspaceMemoryFiles(): void {
+  const roots = new Set<string>();
+
+  for (const group of Object.values(getAllRegisteredGroups())) {
+    roots.add(getWorkspaceRootForMemoryMigration(group));
+  }
+
+  const userGlobalBase = path.join(GROUPS_DIR, 'user-global');
+  if (fs.existsSync(userGlobalBase)) {
+    for (const entry of fs.readdirSync(userGlobalBase, {
+      withFileTypes: true,
+    })) {
+      if (entry.isDirectory()) {
+        roots.add(path.join(userGlobalBase, entry.name));
+      }
+    }
+  }
+
+  let migratedCount = 0;
+  for (const root of roots) {
+    try {
+      const result = migrateLegacyAgentMemoryFile(root);
+      if (result.migrated) {
+        migratedCount += 1;
+        logger.info(
+          { root, path: result.path },
+          'Migrated legacy workspace CLAUDE.md to AGENTS.md',
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err, root },
+        'Failed to migrate legacy workspace CLAUDE.md to AGENTS.md',
+      );
+    }
+  }
+
+  if (migratedCount > 0) {
+    logger.info(
+      { migratedCount },
+      'Completed legacy workspace memory migration',
+    );
   }
 }
 
