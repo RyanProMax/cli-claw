@@ -82,13 +82,13 @@ export function LoginPage() {
             {/* Logo */}
           <div className="flex justify-center mb-6">
             <div className="w-16 h-16 rounded-2xl overflow-hidden mx-auto">
-              <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="HappyClaw" className="w-full h-full object-cover" />
+              <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="cli-claw" className="w-full h-full object-cover" />
             </div>
           </div>
 
           {/* Title */}
           <h1 className="text-2xl font-bold text-foreground text-center mb-2">
-            欢迎使用 HappyClaw
+            欢迎使用 cli-claw
           </h1>
           <p className="text-muted-foreground text-center mb-6">
             请登录以继续
@@ -150,7 +150,7 @@ export function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-sm text-muted-foreground mt-4">
-          HappyClaw - Powered by{' '}
+          cli-claw - Powered by{' '}
           <a href="https://github.com/riba2534" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80">
             riba2534
           </a>

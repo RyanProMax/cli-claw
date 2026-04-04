@@ -1,5 +1,5 @@
 /**
- * Mount Security Module for happyclaw
+ * Mount Security Module for cli-claw
  *
  * Validates additional mounts against an allowlist stored in the project config/ directory.
  *

@@ -28,7 +28,7 @@ const SCHEME_OPTIONS: { value: ColorScheme; label: string; preview: { bg: string
 ];
 
 const FONT_OPTIONS: { value: FontStyle; label: string; sample: string; fontFamily: string }[] = [
-  { value: 'default', label: 'HappyClaw', sample: 'Hello 你好', fontFamily: "'Inter Variable', system-ui, sans-serif" },
+  { value: 'default', label: 'cli-claw', sample: 'Hello 你好', fontFamily: "'Inter Variable', system-ui, sans-serif" },
   { value: 'anthropic', label: 'Anthropic', sample: 'Hello 你好', fontFamily: "Georgia, 'Noto Serif SC', serif" },
 ];
 

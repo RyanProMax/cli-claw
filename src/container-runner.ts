@@ -1,5 +1,5 @@
 /**
- * Container Runner for happyclaw
+ * Container Runner for cli-claw
  * Spawns agent execution in Docker container and handles IPC
  */
 import {
@@ -502,7 +502,7 @@ export async function runContainerAgent(
     const agentSuffix = input.agentId
       ? `-${input.agentId.replace(/[^a-zA-Z0-9-]/g, '-')}`
       : '';
-    const containerName = `happyclaw-${safeName}${agentSuffix}-${Date.now()}`;
+    const containerName = `cli-claw-${safeName}${agentSuffix}-${Date.now()}`;
     const containerArgs = buildContainerArgs(mounts, containerName);
 
     logger.debug(
@@ -1016,27 +1016,27 @@ export async function runHostAgent(
     }
 
     // 路径映射
-    hostEnv['HAPPYCLAW_WORKSPACE_GROUP'] = groupDir;
+    hostEnv['CLI_CLAW_WORKSPACE_GROUP'] = groupDir;
     // Per-user global memory
     const ownerId = group.created_by;
     if (ownerId) {
       const userGlobalDir = path.join(GROUPS_DIR, 'user-global', ownerId);
       fs.mkdirSync(userGlobalDir, { recursive: true });
-      hostEnv['HAPPYCLAW_WORKSPACE_GLOBAL'] = userGlobalDir;
+      hostEnv['CLI_CLAW_WORKSPACE_GLOBAL'] = userGlobalDir;
     } else {
       const legacyGlobalDir = path.join(GROUPS_DIR, 'global');
       fs.mkdirSync(legacyGlobalDir, { recursive: true });
-      hostEnv['HAPPYCLAW_WORKSPACE_GLOBAL'] = legacyGlobalDir;
+      hostEnv['CLI_CLAW_WORKSPACE_GLOBAL'] = legacyGlobalDir;
     }
     const memoryFolder = group.is_home
       ? group.folder
       : ownerHomeFolder || group.folder;
-    hostEnv['HAPPYCLAW_WORKSPACE_MEMORY'] = path.join(
+    hostEnv['CLI_CLAW_WORKSPACE_MEMORY'] = path.join(
       DATA_DIR,
       'memory',
       memoryFolder,
     );
-    hostEnv['HAPPYCLAW_WORKSPACE_IPC'] = groupIpcDir;
+    hostEnv['CLI_CLAW_WORKSPACE_IPC'] = groupIpcDir;
     if (agentType === 'claude') {
       hostEnv['CLAUDE_CONFIG_DIR'] = groupSessionsDir;
       // 让 SDK 捕获 CLI 的 stderr 输出，便于排查启动失败

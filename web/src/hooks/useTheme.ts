@@ -4,9 +4,9 @@ export type Theme = 'light' | 'dark' | 'system';
 export type ColorScheme = 'default' | 'orange' | 'neutral';
 export type FontStyle = 'default' | 'anthropic';
 
-const THEME_KEY = 'happyclaw-theme';
-const SCHEME_KEY = 'happyclaw-color-scheme';
-const FONT_KEY = 'happyclaw-font-style';
+const THEME_KEY = 'cli-claw-theme';
+const SCHEME_KEY = 'cli-claw-color-scheme';
+const FONT_KEY = 'cli-claw-font-style';
 const listeners = new Set<() => void>();
 
 function notify() { listeners.forEach((cb) => cb()); }

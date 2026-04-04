@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ChatGroupItem } from '../chat/ChatGroupItem';
 import { CreateContainerDialog } from '../chat/CreateContainerDialog';
 import { RenameDialog } from '../chat/RenameDialog';
+import { WorkspaceRuntimeDialog } from '../chat/WorkspaceRuntimeDialog';
 import { SkeletonCardList } from '@/components/common/Skeletons';
 import { cn } from '@/lib/utils';
 import { filterNavItems } from './nav-items';
@@ -44,6 +45,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
 
   const [createOpen, setCreateOpen] = useState(false);
   const [renameState, setRenameState] = useState({ open: false, jid: '', name: '' });
+  const [runtimeState, setRuntimeState] = useState({ open: false, jid: '' });
   const [deleteState, setDeleteState] = useState({ open: false, jid: '', name: '' });
   const [deleteLoading, setDeleteLoading] = useState(false);
   const { clearState, clearLoading, openClear, closeClear, handleClearConfirm } = useClearWorkspace();
@@ -85,6 +87,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
 
   const handleGroupSelect = (jid: string, folder: string) => { selectGroup(jid); navigate(`/chat/${folder}`); };
   const handleCreated = (jid: string, folder: string) => { selectGroup(jid); navigate(`/chat/${folder}`); };
+  const runtimeGroup = runtimeState.jid ? groups[runtimeState.jid] : undefined;
 
   const handleDeleteConfirm = async () => {
     setDeleteLoading(true);
@@ -123,6 +126,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
             editable={g.editable} deletable={g.deletable}
             onSelect={handleGroupSelect}
             onRename={(jid, name) => setRenameState({ open: true, jid, name })}
+            onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
             onClearHistory={openClear}
             onDelete={(jid, name) => setDeleteState({ open: true, jid, name })}
             onTogglePin={(jid) => togglePin(jid)}
@@ -138,7 +142,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
     <div className="h-full flex flex-shrink-0">
       <nav className="w-[4.5rem] h-full bg-muted/30 flex flex-col items-center py-3 gap-1 flex-shrink-0">
         <div className="w-11 h-11 rounded-xl overflow-hidden mb-3 flex-shrink-0">
-          <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="HappyClaw" className="w-full h-full object-cover" />
+          <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="cli-claw" className="w-full h-full object-cover" />
         </div>
 
         {navItems.map(({ path, icon: Icon, label }) => {
@@ -205,7 +209,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
       >
         <div className="w-[16.5rem] h-full flex flex-col bg-muted/30">
           <div className="flex items-center gap-2 px-4 pt-6 pb-3 mb-3 flex-shrink-0">
-            <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'HappyClaw'} className="h-10" />
+            <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'cli-claw'} className="h-10" />
             <div className="flex-1" />
             <button onClick={onToggleCollapse} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
               <PanelLeftClose className="w-4 h-4" />
@@ -261,6 +265,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
                             editable={g.editable} deletable={g.deletable}
                             onSelect={handleGroupSelect}
                             onRename={(jid, name) => setRenameState({ open: true, jid, name })}
+                            onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                             onClearHistory={openClear}
                             onDelete={(jid, name) => setDeleteState({ open: true, jid, name })}
                             onTogglePin={(jid) => togglePin(jid)}
@@ -305,6 +310,16 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
         <BugReportDialog open={showBugReport} onClose={() => setShowBugReport(false)} />
         <CreateContainerDialog open={createOpen} onClose={() => setCreateOpen(false)} onCreated={handleCreated} />
         <RenameDialog open={renameState.open} jid={renameState.jid} currentName={renameState.name} onClose={() => setRenameState({ open: false, jid: '', name: '' })} />
+        {runtimeGroup && (
+          <WorkspaceRuntimeDialog
+            open={runtimeState.open}
+            jid={runtimeState.jid}
+            name={runtimeGroup.name}
+            currentAgentType={runtimeGroup.agent_type || 'claude'}
+            currentExecutionMode={runtimeGroup.execution_mode || 'container'}
+            onClose={() => setRuntimeState({ open: false, jid: '' })}
+          />
+        )}
         <ConfirmDialog open={clearState.open} onClose={closeClear} onConfirm={handleClearConfirm} title="重建工作区" message={`确认重建「${clearState.name}」？不可撤销。`} confirmText="确认重建" confirmVariant="danger" loading={clearLoading} />
         <ConfirmDialog open={deleteState.open} onClose={() => setDeleteState({ open: false, jid: '', name: '' })} onConfirm={handleDeleteConfirm} title="删除工作区" message={`确认删除「${deleteState.name}」？不可撤销。`} confirmText="删除" confirmVariant="danger" loading={deleteLoading} />
     </TooltipProvider>

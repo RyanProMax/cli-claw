@@ -8,6 +8,7 @@ import { ChatView } from '../components/chat/ChatView';
 import { ChatGroupItem } from '../components/chat/ChatGroupItem';
 import { ConfirmDialog } from '../components/common';
 import { CreateContainerDialog } from '../components/chat/CreateContainerDialog';
+import { WorkspaceRuntimeDialog } from '../components/chat/WorkspaceRuntimeDialog';
 import { EmojiAvatar } from '../components/common/EmojiAvatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSwipeBack } from '../hooks/useSwipeBack';
@@ -20,6 +21,7 @@ export function ChatPage() {
   const { groups, currentGroup, selectGroup, loadGroups } = useChatStore();
   const { clearState, clearLoading, openClear, closeClear, handleClearConfirm } = useClearWorkspace();
   const [createOpen, setCreateOpen] = useState(false);
+  const [runtimeState, setRuntimeState] = useState({ open: false, jid: '' });
   const user = useAuthStore((s) => s.user);
   const appearance = useAuthStore((s) => s.appearance);
   const userInitial = (user?.display_name || user?.username || '?')[0].toUpperCase();
@@ -89,6 +91,7 @@ export function ChatPage() {
 
   const activeGroupJid = groupFolder ? routeGroupJid : currentGroup;
   const chatViewRef = useRef<HTMLDivElement>(null);
+  const runtimeGroup = runtimeState.jid ? groups[runtimeState.jid] : undefined;
 
   const handleBackToList = () => {
     navigate('/chat');
@@ -103,7 +106,7 @@ export function ChatPage() {
         <div className="block lg:hidden w-full overflow-y-auto">
           {/* Mobile header: horizontal logo + actions */}
           <div className="flex items-center gap-3 px-4 pt-5 pb-3">
-            <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'HappyClaw'} className="h-8" />
+            <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'cli-claw'} className="h-8" />
             <div className="flex-1" />
             <button
               onClick={() => setCreateOpen(true)}
@@ -160,6 +163,7 @@ export function ChatPage() {
                       isActive={currentGroup === g.jid} isHome={false} isPinned
                       isRunning={runnerStates[g.jid] === 'running'}
                       editable={g.editable}
+                      onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                       onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
                       onClearHistory={openClear}
                     />
@@ -184,6 +188,7 @@ export function ChatPage() {
                           isActive={currentGroup === g.jid} isHome={false}
                           isRunning={runnerStates[g.jid] === 'running'}
                           editable={g.editable}
+                          onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                           onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
                           onClearHistory={openClear}
                         />
@@ -211,6 +216,7 @@ export function ChatPage() {
                           isActive={currentGroup === g.jid} isHome={false}
                           isRunning={runnerStates[g.jid] === 'running'}
                           editable={g.editable}
+                          onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                           onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
                           onClearHistory={openClear}
                         />
@@ -222,7 +228,7 @@ export function ChatPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-64 px-4">
-              <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'HappyClaw'} className="h-12 mb-6" />
+              <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'cli-claw'} className="h-12 mb-6" />
               <p className="text-muted-foreground text-sm">暂无工作区</p>
             </div>
           )}
@@ -242,10 +248,10 @@ export function ChatPage() {
           <div className="text-center max-w-sm">
             {/* Logo */}
             <div className="w-16 h-16 rounded-2xl overflow-hidden mx-auto mb-6">
-              <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="HappyClaw" className="w-full h-full object-cover" />
+              <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="cli-claw" className="w-full h-full object-cover" />
             </div>
             <h2 className="text-xl font-semibold text-foreground mb-2">
-              欢迎使用 {appearance?.appName || 'HappyClaw'}
+              欢迎使用 {appearance?.appName || 'cli-claw'}
             </h2>
             <p className="text-muted-foreground text-sm">
               从左侧选择一个工作区开始对话
@@ -269,6 +275,16 @@ export function ChatPage() {
         onClose={() => setCreateOpen(false)}
         onCreated={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
       />
+      {runtimeGroup && (
+        <WorkspaceRuntimeDialog
+          open={runtimeState.open}
+          jid={runtimeState.jid}
+          name={runtimeGroup.name}
+          currentAgentType={runtimeGroup.agent_type || 'claude'}
+          currentExecutionMode={runtimeGroup.execution_mode || 'container'}
+          onClose={() => setRuntimeState({ open: false, jid: '' })}
+        />
+      )}
     </div>
   );
 }

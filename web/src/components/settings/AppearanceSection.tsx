@@ -89,7 +89,7 @@ export function AppearanceSection() {
         <div className="flex items-center gap-4">
           <EmojiAvatar emoji={aiAvatarEmoji} color={aiAvatarColor} fallbackChar={aiName} size="lg" />
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-foreground">{aiName || 'HappyClaw'}</div>
+            <div className="text-sm font-medium text-foreground">{aiName || 'cli-claw'}</div>
             <div className="text-xs text-muted-foreground mt-0.5">全局默认 · 用户可个人覆盖</div>
           </div>
         </div>
@@ -101,7 +101,7 @@ export function AppearanceSection() {
             value={aiName}
             onChange={(e) => setAiName(e.target.value)}
             maxLength={32}
-            placeholder="HappyClaw"
+            placeholder="cli-claw"
           />
         </div>
 

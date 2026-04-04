@@ -1,4 +1,4 @@
-# HappyClaw Agent Container
+# cli-claw Agent Container
 # Runs Claude Agent SDK in isolated Linux VM with full toolchain
 
 FROM node:22-slim

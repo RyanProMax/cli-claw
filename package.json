@@ -1,5 +1,5 @@
 {
-  "name": "happyclaw",
+  "name": "cli-claw",
   "version": "1.0.0",
   "description": "Personal Claude assistant. Lightweight, secure, customizable.",
   "type": "module",

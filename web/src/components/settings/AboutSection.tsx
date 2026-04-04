@@ -10,7 +10,7 @@ export function AboutSection() {
     <div className="space-y-6">
       {/* 项目信息 */}
       <div>
-        <h2 className="text-lg font-semibold text-foreground mb-1">HappyClaw</h2>
+        <h2 className="text-lg font-semibold text-foreground mb-1">cli-claw</h2>
         <p className="text-sm text-muted-foreground">自托管个人 AI Agent 系统</p>
       </div>
 

@@ -1,15 +1,15 @@
 #!/bin/bash
-# Build the HappyClaw agent container image
+# Build the cli-claw agent container image
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-IMAGE_NAME="happyclaw-agent"
+IMAGE_NAME="cli-claw-agent"
 TAG="${1:-latest}"
 
-echo "Building HappyClaw agent container image..."
+echo "Building cli-claw agent container image..."
 echo "Image: ${IMAGE_NAME}:${TAG}"
 
 # Build with Docker (CACHEBUST ensures claude-code is always latest)

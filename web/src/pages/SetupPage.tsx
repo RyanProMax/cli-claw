@@ -56,10 +56,10 @@ export function SetupPage() {
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
             <div className="w-16 h-16 rounded-2xl overflow-hidden">
-              <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="HappyClaw" className="w-full h-full object-cover" />
+              <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="cli-claw" className="w-full h-full object-cover" />
             </div>
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-1">HappyClaw 初始设置</h1>
+          <h1 className="text-2xl font-bold text-foreground mb-1">cli-claw 初始设置</h1>
           <p className="text-sm text-muted-foreground">先创建管理员账号，完成后进入后台继续配置飞书 Token 与 Claude Key</p>
         </div>
 

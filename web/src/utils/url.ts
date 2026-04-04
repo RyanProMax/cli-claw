@@ -45,7 +45,7 @@ export function replaceInApp(path: string): void {
   if (typeof window === 'undefined') return;
   const normalized = path.startsWith('/') ? path : `/${path}`;
   const fullPath = withBasePath(normalized);
-  if (window.__HAPPYCLAW_HASH_ROUTER__) {
+  if (window.__CLI_CLAW_HASH_ROUTER__) {
     // Hash router: 保留当前 pathname，用 hash 承载路由（含 APP_BASE）
     const target = `${window.location.origin}${window.location.pathname}#${fullPath}`;
     window.location.replace(target);

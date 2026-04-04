@@ -75,10 +75,10 @@ const DANGEROUS_ENV_VARS = new Set([
   'TMPDIR',
   'TEMP',
   'TMP',
-  // HappyClaw 内部路径映射
-  'HAPPYCLAW_WORKSPACE_GROUP',
-  'HAPPYCLAW_WORKSPACE_GLOBAL',
-  'HAPPYCLAW_WORKSPACE_IPC',
+  // cli-claw 内部路径映射
+  'CLI_CLAW_WORKSPACE_GROUP',
+  'CLI_CLAW_WORKSPACE_GLOBAL',
+  'CLI_CLAW_WORKSPACE_IPC',
   'CLAUDE_CONFIG_DIR',
 ]);
 const MAX_CUSTOM_ENV_ENTRIES = 50;
@@ -707,9 +707,7 @@ function fromStoredProfile(
     name: normalizeProfileName(stored.name),
     anthropicBaseUrl: normalizeBaseUrl(stored.anthropicBaseUrl),
     anthropicAuthToken: secrets.anthropicAuthToken,
-    anthropicModel: normalizeModel(
-      stored.anthropicModel ?? (stored as any).happyclawModel ?? '',
-    ),
+    anthropicModel: normalizeModel(stored.anthropicModel ?? ''),
     updatedAt: stored.updatedAt || null,
     customEnv: sanitizeCustomEnvMap(stored.customEnv || {}, {
       skipReservedClaudeKeys: true,
@@ -2510,18 +2508,7 @@ export function getContainerEnvConfig(folder: string): ContainerEnvConfig {
   const filePath = containerEnvPath(folder);
   try {
     if (fs.existsSync(filePath)) {
-      const stored = JSON.parse(
-        fs.readFileSync(filePath, 'utf-8'),
-      ) as ContainerEnvConfig & { happyclawModel?: string };
-      // Backward compat: migrate old field name
-      if (
-        stored.anthropicModel === undefined &&
-        stored.happyclawModel !== undefined
-      ) {
-        stored.anthropicModel = stored.happyclawModel;
-        delete stored.happyclawModel;
-      }
-      return stored;
+      return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as ContainerEnvConfig;
     }
   } catch (err) {
     logger.warn(
@@ -3675,4 +3662,3 @@ export function parseOAuthUsageBucket(v: unknown): OAuthUsageBucket | null {
     return null;
   return { utilization: obj.utilization, resets_at: obj.resets_at };
 }
-

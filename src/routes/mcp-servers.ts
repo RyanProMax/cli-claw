@@ -52,7 +52,7 @@ function getHostSyncManifestPath(userId: string): string {
 }
 
 function validateServerId(id: string): boolean {
-  return /^[\w\-]+$/.test(id) && id !== 'happyclaw';
+  return /^[\w\-]+$/.test(id) && id !== 'cli-claw';
 }
 
 async function readMcpServersFile(userId: string): Promise<McpServersFile> {
@@ -132,7 +132,7 @@ mcpServersRoutes.post('/', authMiddleware, async (c) => {
     return c.json(
       {
         error:
-          'Invalid server ID: must match /^[\\w\\-]+$/ and cannot be "happyclaw"',
+          'Invalid server ID: must match /^[\\w\\-]+$/ and cannot be "cli-claw"',
       },
       400,
     );

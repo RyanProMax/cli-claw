@@ -192,6 +192,7 @@ interface ChatState {
   deleteMessage: (jid: string, messageId: string) => Promise<boolean>;
   createFlow: (name: string, options?: { agent_type?: 'claude' | 'codex'; execution_mode?: 'container' | 'host'; custom_cwd?: string; init_source_path?: string; init_git_url?: string }) => Promise<{ jid: string; folder: string } | null>;
   renameFlow: (jid: string, name: string) => Promise<void>;
+  updateGroupRuntime: (jid: string, runtime: { agent_type: 'claude' | 'codex'; execution_mode: 'container' | 'host' }) => Promise<void>;
   togglePin: (jid: string) => Promise<void>;
   deleteFlow: (jid: string) => Promise<void>;
   handleStreamEvent: (chatJid: string, event: StreamEvent, agentId?: string) => void;
@@ -1140,6 +1141,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  updateGroupRuntime: async (jid: string, runtime: { agent_type: 'claude' | 'codex'; execution_mode: 'container' | 'host' }) => {
+    try {
+      await api.patch<{ success: boolean }>(`/api/groups/${encodeURIComponent(jid)}`, runtime);
+      set((s) => {
+        const group = s.groups[jid];
+        if (!group) return s;
+        return {
+          groups: {
+            ...s.groups,
+            [jid]: {
+              ...group,
+              agent_type: runtime.agent_type,
+              execution_mode: runtime.execution_mode,
+            },
+          },
+          error: null,
+        };
+      });
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
+  },
+
   togglePin: async (jid: string) => {
     const group = get().groups[jid];
     if (!group) return;
@@ -1371,7 +1396,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (typeof document === 'undefined' || !document.hidden) {
           showToast(`${desc} ${status}`, event.taskSummary);
         }
-        notifyIfHidden(`HappyClaw: ${desc} ${status}`, event.taskSummary);
+        notifyIfHidden(`cli-claw: ${desc} ${status}`, event.taskSummary);
       }
 
       // 不落入主对话 streaming

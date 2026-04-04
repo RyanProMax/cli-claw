@@ -2162,7 +2162,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (chatJid === 'web:main' && effectiveGroup.is_home) {
     for (let i = missedMessages.length - 1; i >= 0; i--) {
       const sender = missedMessages[i]?.sender;
-      if (!sender || sender === 'happyclaw-agent' || sender === '__system__')
+      if (!sender || sender === 'cli-claw-agent' || sender === '__system__')
         continue;
       const senderUser = getUserById(sender);
       if (senderUser?.status === 'active' && senderUser.role === 'admin') {
@@ -3533,7 +3533,7 @@ async function sendMessage(
     const persistedMsgId = storeMessageDirect(
       msgId,
       jid,
-      'happyclaw-agent',
+      'cli-claw-agent',
       ASSISTANT_NAME,
       text,
       timestamp,
@@ -3546,7 +3546,7 @@ async function sendMessage(
       {
         id: persistedMsgId,
         chat_jid: jid,
-        sender: 'happyclaw-agent',
+        sender: 'cli-claw-agent',
         sender_name: ASSISTANT_NAME,
         content: text,
         timestamp,
@@ -3627,7 +3627,7 @@ function saveInterruptedStreamingMessages(): void {
       storeMessageDirect(
         msgId,
         jid,
-        'happyclaw-agent',
+        'cli-claw-agent',
         ASSISTANT_NAME,
         interruptedText,
         timestamp,
@@ -3734,7 +3734,7 @@ function recoverStreamingBuffer(): void {
           storeMessageDirect(
             msgId,
             jid,
-            'happyclaw-agent',
+            'cli-claw-agent',
             ASSISTANT_NAME,
             interruptedText,
             timestamp,
@@ -4094,7 +4094,7 @@ function startIpcWatcher(): void {
                   const persistedImgMsgId = storeMessageDirect(
                     imgMsgId,
                     imgChatJid,
-                    'happyclaw-agent',
+                    'cli-claw-agent',
                     ASSISTANT_NAME,
                     displayText,
                     imgTimestamp,
@@ -4104,7 +4104,7 @@ function startIpcWatcher(): void {
                   broadcastNewMessage(imgChatJid, {
                     id: persistedImgMsgId,
                     chat_jid: imgChatJid,
-                    sender: 'happyclaw-agent',
+                    sender: 'cli-claw-agent',
                     sender_name: ASSISTANT_NAME,
                     content: displayText,
                     timestamp: imgTimestamp,
@@ -5152,7 +5152,7 @@ async function processAgentConversation(
             const persistedMsgId = storeMessageDirect(
               msgId,
               virtualChatJid,
-              'happyclaw-agent',
+              'cli-claw-agent',
               ASSISTANT_NAME,
               interruptedText,
               timestamp,
@@ -5172,7 +5172,7 @@ async function processAgentConversation(
               {
                 id: persistedMsgId,
                 chat_jid: virtualChatJid,
-                sender: 'happyclaw-agent',
+                sender: 'cli-claw-agent',
                 sender_name: ASSISTANT_NAME,
                 content: interruptedText,
                 timestamp,
@@ -5275,7 +5275,7 @@ async function processAgentConversation(
         const persistedMsgId = storeMessageDirect(
           msgId,
           virtualChatJid,
-          'happyclaw-agent',
+          'cli-claw-agent',
           ASSISTANT_NAME,
           text,
           timestamp,
@@ -5295,7 +5295,7 @@ async function processAgentConversation(
           {
             id: persistedMsgId,
             chat_jid: virtualChatJid,
-            sender: 'happyclaw-agent',
+            sender: 'cli-claw-agent',
             sender_name: ASSISTANT_NAME,
             content: text,
             timestamp,
@@ -5585,7 +5585,7 @@ async function processAgentConversation(
         const persistedMsgId = storeMessageDirect(
           msgId,
           virtualChatJid,
-          'happyclaw-agent',
+          'cli-claw-agent',
           ASSISTANT_NAME,
           interruptedText,
           timestamp,
@@ -5604,7 +5604,7 @@ async function processAgentConversation(
           {
             id: persistedMsgId,
             chat_jid: virtualChatJid,
-            sender: 'happyclaw-agent',
+            sender: 'cli-claw-agent',
             sender_name: ASSISTANT_NAME,
             content: interruptedText,
             timestamp,
@@ -5636,7 +5636,7 @@ async function processAgentConversation(
         const persistedMsgId = storeMessageDirect(
           msgId,
           virtualChatJid,
-          'happyclaw-agent',
+          'cli-claw-agent',
           ASSISTANT_NAME,
           partialReply,
           timestamp,
@@ -5655,7 +5655,7 @@ async function processAgentConversation(
           {
             id: persistedMsgId,
             chat_jid: virtualChatJid,
-            sender: 'happyclaw-agent',
+            sender: 'cli-claw-agent',
             sender_name: ASSISTANT_NAME,
             content: partialReply,
             timestamp,
@@ -5718,7 +5718,7 @@ async function processAgentConversation(
         storeMessageDirect(
           injectId,
           agent.spawned_from_jid,
-          'happyclaw-agent',
+          'cli-claw-agent',
           ASSISTANT_NAME,
           resultText,
           injectTs,
@@ -5727,7 +5727,7 @@ async function processAgentConversation(
         broadcastNewMessage(agent.spawned_from_jid, {
           id: injectId,
           chat_jid: agent.spawned_from_jid,
-          sender: 'happyclaw-agent',
+          sender: 'cli-claw-agent',
           sender_name: ASSISTANT_NAME,
           content: resultText,
           timestamp: injectTs,
@@ -5776,7 +5776,7 @@ async function startMessageLoop(): Promise<void> {
   }
   messageLoopRunning = true;
 
-  logger.info('happyclaw running');
+  logger.info('cli-claw running');
 
   while (!shuttingDown) {
     try {
@@ -6126,11 +6126,11 @@ async function ensureDockerRunning(): Promise<void> {
     }
   }
 
-  // Kill and clean up orphaned happyclaw containers from previous runs
+  // Kill and clean up orphaned cli-claw containers from previous runs
   try {
     const { stdout } = await execFileAsync(
       'docker',
-      ['ps', '--filter', 'name=happyclaw-', '--format', '{{.Names}}'],
+      ['ps', '--filter', 'name=cli-claw-', '--format', '{{.Names}}'],
       { timeout: 10000 },
     );
     const output = typeof stdout === 'string' ? stdout : String(stdout);
@@ -6162,7 +6162,7 @@ async function ensureDockerRunning(): Promise<void> {
  * are re-routed to the new user's home folder on first message receipt.
  *
  * In multi-bot setups where the same human talks to multiple bots (each owned
- * by a different HappyClaw user), re-routing is skipped — the chat stays with
+ * by a different cli-claw user), re-routing is skipped — the chat stays with
  * its original owner as long as that owner still has an active connection on
  * the **same channel type** (feishu/telegram/qq/wechat).
  */
@@ -6198,7 +6198,7 @@ function buildOnNewChat(
       //   1. Credential transfer: admin disables their Feishu channel, member
       //      enables the same appId → re-route chat to the new user.
       //   2. Multi-bot setup: same human talks to multiple bots, each owned by
-      //      a different HappyClaw user → do NOT re-route.
+      //      a different cli-claw user → do NOT re-route.
       //
       // Distinguish by checking whether the previous owner still has an active
       // connection on the SAME channel type.  Checking all channel types would
@@ -7874,6 +7874,6 @@ async function checkImBindingsHealth(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error({ err }, 'Failed to start happyclaw');
+  logger.error({ err }, 'Failed to start cli-claw');
   process.exit(1);
 });

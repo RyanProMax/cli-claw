@@ -72,7 +72,7 @@ function getWorkspaceSettingsPath(
 function getWorkspaceMcpMetaPath(
   group: RegisteredGroup & { jid: string },
 ): string {
-  return path.join(getWorkspaceClaudeDir(group), 'happyclaw-workspace.json');
+  return path.join(getWorkspaceClaudeDir(group), 'cli-claw-workspace.json');
 }
 
 // --- MCP Metadata Helpers ---

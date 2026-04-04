@@ -11,8 +11,8 @@ import { logger } from './logger.js';
 import type { ContainerOutput } from './container-runner.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
-export const OUTPUT_START_MARKER = '---HAPPYCLAW_OUTPUT_START---';
-export const OUTPUT_END_MARKER = '---HAPPYCLAW_OUTPUT_END---';
+export const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
+export const OUTPUT_END_MARKER = '---CLI_CLAW_OUTPUT_END---';
 
 // ─── Stdout Stream Parser ────────────────────────────────────────────
 

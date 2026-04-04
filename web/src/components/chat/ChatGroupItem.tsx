@@ -1,4 +1,4 @@
-import { MoreHorizontal, Pencil, Trash2, RotateCcw, Star, Pin, Timer } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, RotateCcw, Star, Pin, Timer, Settings2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,7 @@ export interface ChatGroupItemProps {
   deletable?: boolean;
   onSelect: (jid: string, folder: string) => void;
   onRename?: (jid: string, name: string) => void;
+  onRuntimeSettings?: (jid: string) => void;
   onClearHistory: (jid: string, name: string) => void;
   onDelete?: (jid: string, name: string) => void;
   onTogglePin?: (jid: string) => void;
@@ -46,6 +47,7 @@ export function ChatGroupItem({
   deletable,
   onSelect,
   onRename,
+  onRuntimeSettings,
   onClearHistory,
   onDelete,
   onTogglePin,
@@ -142,6 +144,12 @@ export function ChatGroupItem({
               <DropdownMenuItem onClick={() => onRename(jid, name)}>
                 <Pencil className="w-4 h-4" />
                 重命名
+              </DropdownMenuItem>
+            )}
+            {!isHome && editable && onRuntimeSettings && (
+              <DropdownMenuItem onClick={() => onRuntimeSettings(jid)}>
+                <Settings2 className="w-4 h-4" />
+                运行时设置
               </DropdownMenuItem>
             )}
             <DropdownMenuItem

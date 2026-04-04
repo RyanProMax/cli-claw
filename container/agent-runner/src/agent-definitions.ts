@@ -1,5 +1,5 @@
 /**
- * Predefined SubAgent definitions for HappyClaw.
+ * Predefined SubAgent definitions for cli-claw.
  *
  * These agents are registered via the SDK `agents` option in query(),
  * making them available as Task tool targets within the agent session.

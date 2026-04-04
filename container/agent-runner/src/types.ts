@@ -1,5 +1,5 @@
 /**
- * Shared types for HappyClaw Agent Runner.
+ * Shared types for cli-claw Agent Runner.
  *
  * These types are used across index.ts, stream-processor.ts, and mcp-tools.ts.
  */

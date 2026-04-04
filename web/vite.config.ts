@@ -44,8 +44,8 @@ export default defineConfig(({ command }) => {
             navigateFallback: `${APP_BASE}index.html`,
           },
           manifest: {
-            name: 'HappyClaw',
-            short_name: 'HappyClaw',
+            name: 'cli-claw',
+            short_name: 'cli-claw',
             description: 'Personal Claude Assistant',
             theme_color: '#0d9488',
             background_color: '#FAF9F5',

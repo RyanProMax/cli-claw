@@ -1,10 +1,10 @@
-# HappyClaw — AI 协作者指南
+# cli-claw — AI 协作者指南
 
 本文档帮助 AI 和工程协作者快速理解项目架构、关键机制与修改边界。
 
 ## 1. 项目定位
 
-HappyClaw 是一个自托管的多用户 AI Agent 系统：
+cli-claw 是一个自托管的多用户 AI Agent 系统：
 
 - **输入**：飞书 / Telegram / QQ / 钉钉 / Web 界面消息（每个用户可独立配置 IM 通道）
 - **执行**：Docker 容器或宿主机进程中运行 Claude Agent（基于 Claude Agent SDK），每个用户拥有独立主容器
@@ -571,12 +571,12 @@ scripts/                      # 构建辅助脚本
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `ASSISTANT_NAME` | `HappyClaw` | 助手名称 |
+| `ASSISTANT_NAME` | `cli-claw` | 助手名称 |
 | `WEB_PORT` | `3000` | 后端端口 |
 | `WEB_SESSION_SECRET` | 自动生成 | 会话签名密钥 |
 | `FEISHU_APP_ID` | - | 飞书应用 ID |
 | `FEISHU_APP_SECRET` | - | 飞书应用密钥 |
-| `CONTAINER_IMAGE` | `happyclaw-agent:latest` | Docker 镜像名称 |
+| `CONTAINER_IMAGE` | `cli-claw-agent:latest` | Docker 镜像名称 |
 | `CONTAINER_TIMEOUT` | `1800000`（30min） | 容器最大运行时间（可通过设置页覆盖） |
 | `CONTAINER_MAX_OUTPUT_SIZE` | `10485760`（10MB） | 单次输出最大字节（可通过设置页覆盖） |
 | `IDLE_TIMEOUT` | `1800000`（30min） | 容器空闲超时（可通过设置页覆盖） |
@@ -673,7 +673,7 @@ make clean         # 清理构建产物（dist/）
 make sync-types    # 同步 shared/ 下的类型定义到各子项目
 make update-sdk    # 更新 agent-runner 的 Claude Agent SDK 到最新版本
 make reset-init    # 重置为首装状态（清空数据库和配置，用于测试设置向导）
-make backup        # 备份运行时数据到 happyclaw-backup-{date}.tar.gz
+make backup        # 备份运行时数据到 cli-claw-backup-{date}.tar.gz
 make restore       # 从备份恢复数据（make restore 或 make restore FILE=xxx.tar.gz）
 make help          # 列出所有可用的 make 命令
 ```

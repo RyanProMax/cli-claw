@@ -1,5 +1,5 @@
 /**
- * HappyClaw Agent Runner
+ * cli-claw Agent Runner
  * Runs inside a container, receives config via stdin, outputs result to stdout
  *
  * Input protocol:
@@ -48,10 +48,10 @@ import { PREDEFINED_AGENTS } from './agent-definitions.js';
 import { createMcpTools } from './mcp-tools.js';
 
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
-const WORKSPACE_GROUP = process.env.HAPPYCLAW_WORKSPACE_GROUP || '/workspace/group';
-const WORKSPACE_GLOBAL = process.env.HAPPYCLAW_WORKSPACE_GLOBAL || '/workspace/global';
-const WORKSPACE_MEMORY = process.env.HAPPYCLAW_WORKSPACE_MEMORY || '/workspace/memory';
-const WORKSPACE_IPC = process.env.HAPPYCLAW_WORKSPACE_IPC || '/workspace/ipc';
+const WORKSPACE_GROUP = process.env.CLI_CLAW_WORKSPACE_GROUP || '/workspace/group';
+const WORKSPACE_GLOBAL = process.env.CLI_CLAW_WORKSPACE_GLOBAL || '/workspace/global';
+const WORKSPACE_MEMORY = process.env.CLI_CLAW_WORKSPACE_MEMORY || '/workspace/memory';
+const WORKSPACE_IPC = process.env.CLI_CLAW_WORKSPACE_IPC || '/workspace/ipc';
 
 // 模型配置：支持别名（opus/sonnet/haiku）或完整模型 ID
 // 别名自动解析为最新版本，如 opus → Opus 4.6
@@ -78,13 +78,13 @@ const DEFAULT_ALLOWED_TOOLS = [
   'TeamCreate', 'TeamDelete', 'SendMessage',
   'TodoWrite', 'ToolSearch', 'Skill',
   'NotebookEdit',
-  'mcp__happyclaw__*'
+  'mcp__cli-claw__*'
 ];
 
 const MEMORY_FLUSH_ALLOWED_TOOLS = [
-  'mcp__happyclaw__memory_search',
-  'mcp__happyclaw__memory_get',
-  'mcp__happyclaw__memory_append',
+  'mcp__cli-claw__memory_search',
+  'mcp__cli-claw__memory_get',
+  'mcp__cli-claw__memory_append',
   'Read',  // 读取全局 CLAUDE.md 当前内容
   'Edit',  // 编辑全局 CLAUDE.md（永久记忆）
 ];
@@ -97,13 +97,13 @@ const MEMORY_FLUSH_DISALLOWED_TOOLS = [
   'Task', 'TaskOutput', 'TaskStop',
   'TeamCreate', 'TeamDelete', 'SendMessage',
   'TodoWrite', 'ToolSearch', 'Skill', 'NotebookEdit',
-  'mcp__happyclaw__send_message',
-  'mcp__happyclaw__schedule_task',
-  'mcp__happyclaw__list_tasks',
-  'mcp__happyclaw__pause_task',
-  'mcp__happyclaw__resume_task',
-  'mcp__happyclaw__cancel_task',
-  'mcp__happyclaw__register_group',
+  'mcp__cli-claw__send_message',
+  'mcp__cli-claw__schedule_task',
+  'mcp__cli-claw__list_tasks',
+  'mcp__cli-claw__pause_task',
+  'mcp__cli-claw__resume_task',
+  'mcp__cli-claw__cancel_task',
+  'mcp__cli-claw__register_group',
 ];
 
 const IMAGE_MAX_DIMENSION = 8000; // Anthropic API 限制
@@ -334,8 +334,8 @@ async function readStdin(): Promise<string> {
   });
 }
 
-const OUTPUT_START_MARKER = '---HAPPYCLAW_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---HAPPYCLAW_OUTPUT_END---';
+const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---CLI_CLAW_OUTPUT_END---';
 
 function writeOutput(output: ContainerOutput): void {
   console.log(OUTPUT_START_MARKER);
@@ -620,7 +620,7 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
   lines.push('');
 
   for (const msg of messages) {
-    const sender = msg.role === 'user' ? 'User' : 'HappyClaw';
+    const sender = msg.role === 'user' ? 'User' : 'cli-claw';
     const content = msg.content.length > 2000
       ? msg.content.slice(0, 2000) + '...'
       : msg.content;
@@ -1653,7 +1653,7 @@ async function runQuery(
       includePartialMessages: true,
       mcpServers: {
         ...loadUserMcpServers(),     // 用户配置的 MCP（stdio/http/sse），SDK 原生支持
-        happyclaw: mcpServerConfig,  // 内置 SDK MCP 放最后，确保不被同名覆盖
+        'cli-claw': mcpServerConfig,  // 内置 SDK MCP 放最后，确保不被同名覆盖
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(isHome, isAdminHome, {
@@ -2022,7 +2022,7 @@ async function main(): Promise<void> {
     workspaceMemory: WORKSPACE_MEMORY,
   };
   const buildMcpServerConfig = () => createSdkMcpServer({
-    name: 'happyclaw',
+    name: 'cli-claw',
     version: '1.0.0',
     tools: createMcpTools(mcpToolsConfig),
   });
@@ -2046,7 +2046,7 @@ async function main(): Promise<void> {
     const scheduledTaskPrefixLines = [
       '[定时任务 - 以下内容由系统自动发送，并非来自用户或群组的直接消息。]',
       '',
-      '重要：你正在定时任务模式下运行。你的最终输出不会自动发送给用户。你必须使用 mcp__happyclaw__send_message 工具来发送消息，否则用户将收不到任何内容。',
+      '重要：你正在定时任务模式下运行。你的最终输出不会自动发送给用户。你必须使用 mcp__cli-claw__send_message 工具来发送消息，否则用户将收不到任何内容。',
       '',
       '注意：只在完成任务后调用一次 send_message 发送最终结果，不要发送中间状态或重复消息。',
     ];

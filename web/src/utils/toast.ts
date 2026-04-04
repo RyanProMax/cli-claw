@@ -3,7 +3,7 @@
 const MAX_TOASTS = 5;
 let container: HTMLDivElement | null = null;
 const BACKGROUND_TASK_NOTICE_TTL_MS = 15_000;
-const OWNER_KEY = 'happyclaw:bg-task-notice-owner';
+const OWNER_KEY = 'cli-claw:bg-task-notice-owner';
 const OWNER_STALE_MS = 120_000;
 const TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 let ownerTrackingBound = false;

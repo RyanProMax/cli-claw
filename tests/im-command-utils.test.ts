@@ -19,7 +19,7 @@ vi.mock('../src/db.js', () => ({
 }));
 
 vi.mock('../src/config.js', () => ({
-  DATA_DIR: '/tmp/happyclaw-test',
+  DATA_DIR: '/tmp/cli-claw-test',
 }));
 
 describe('resolveBoundChatTarget', () => {
