@@ -56,7 +56,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/riba2534/happyclaw.git",
+    "url": "git+https://github.com/RyanProMax/cli-claw.git",
     "directory": "web"
   },
   "author": "riba2534"

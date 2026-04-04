@@ -12,10 +12,7 @@ import { getClaudeProviderConfig } from '../runtime-config.js';
 import { sdkQuery } from '../sdk-query.js';
 import { logger } from '../logger.js';
 import { authMiddleware } from '../middleware/auth.js';
-import {
-  BugReportGenerateSchema,
-  BugReportSubmitSchema,
-} from '../schemas.js';
+import { BugReportGenerateSchema, BugReportSubmitSchema } from '../schemas.js';
 import type { AuthUser } from '../types.js';
 import { type Variables, getWebDeps } from '../web-context.js';
 
@@ -31,7 +28,11 @@ const COOLDOWN_MS = 60_000;
 const generateCooldowns = new Map<string, number>();
 const GENERATE_COOLDOWN_MS = 30_000;
 
-function checkCooldown(userId: string, map: Map<string, number> = cooldowns, cooldownMs: number = COOLDOWN_MS): string | null {
+function checkCooldown(
+  userId: string,
+  map: Map<string, number> = cooldowns,
+  cooldownMs: number = COOLDOWN_MS,
+): string | null {
   const last = map.get(userId);
   if (last) {
     const remaining = cooldownMs - (Date.now() - last);
@@ -72,20 +73,33 @@ async function checkCapabilities(): Promise<{
   ]);
   // Claude availability is determined by provider config, not CLI presence
   const providerConfig = getClaudeProviderConfig();
-  const claude = !!(providerConfig.anthropicApiKey || providerConfig.claudeCodeOauthToken || providerConfig.claudeOAuthCredentials);
+  const claude = !!(
+    providerConfig.anthropicApiKey ||
+    providerConfig.claudeCodeOauthToken ||
+    providerConfig.claudeOAuthCredentials
+  );
 
   // Get gh username if available
   let ghUsername: string | null = null;
   if (gh) {
     try {
-      const { stdout } = await execFileAsync('gh', ['api', 'user', '--jq', '.login'], { timeout: 5000 });
+      const { stdout } = await execFileAsync(
+        'gh',
+        ['api', 'user', '--jq', '.login'],
+        { timeout: 5000 },
+      );
       ghUsername = stdout.trim() || null;
     } catch {
       // gh available but can't get username
     }
   }
 
-  capCache = { ghAvailable: gh, ghUsername, claudeAvailable: claude, checkedAt: Date.now() };
+  capCache = {
+    ghAvailable: gh,
+    ghUsername,
+    claudeAvailable: claude,
+    checkedAt: Date.now(),
+  };
   return { ghAvailable: gh, ghUsername, claudeAvailable: claude };
 }
 
@@ -246,7 +260,9 @@ ${logs.slice(0, 3000)}
 }
 
 /** Try multiple strategies to extract JSON { title, body } from Claude output */
-function tryParseJsonOutput(raw: string): { title?: string; body?: string } | null {
+function tryParseJsonOutput(
+  raw: string,
+): { title?: string; body?: string } | null {
   const candidates: string[] = [];
 
   // Strategy 1: strip markdown fencing (greedy to handle nested backticks)
@@ -292,7 +308,11 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
   const user = c.get('user') as AuthUser;
 
   // Rate limiting — 30s cooldown per user for generate
-  const generateCooldownMsg = checkCooldown(user.id, generateCooldowns, GENERATE_COOLDOWN_MS);
+  const generateCooldownMsg = checkCooldown(
+    user.id,
+    generateCooldowns,
+    GENERATE_COOLDOWN_MS,
+  );
   if (generateCooldownMsg) {
     return c.json({ error: generateCooldownMsg }, 429);
   }
@@ -333,12 +353,19 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
   // Try Claude analysis
   const caps = await checkCapabilities();
   if (!caps.claudeAvailable) {
-    logger.info('bug-report: claude CLI not available, using fallback template');
+    logger.info(
+      'bug-report: claude CLI not available, using fallback template',
+    );
     const fallback = buildFallbackReport(description, systemInfo, logs);
     return c.json({ ...fallback, systemInfo });
   }
 
-  const prompt = buildGeneratePrompt(description, systemInfo, logs, screenshots?.length || 0);
+  const prompt = buildGeneratePrompt(
+    description,
+    systemInfo,
+    logs,
+    screenshots?.length || 0,
+  );
 
   try {
     logger.info(
@@ -365,7 +392,9 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
     }
 
     // Claude didn't return valid JSON, use raw output as body
-    logger.info('bug-report: claude output was not valid JSON, using as raw body');
+    logger.info(
+      'bug-report: claude output was not valid JSON, using as raw body',
+    );
     return c.json({
       title: `Bug: ${description.slice(0, 70)}`,
       body: result,
@@ -410,7 +439,10 @@ bugReportRoutes.post('/submit', authMiddleware, async (c) => {
   const caps = await checkCapabilities();
   if (caps.ghAvailable) {
     try {
-      logger.info({ userId: user.id }, 'bug-report: attempting gh issue create');
+      logger.info(
+        { userId: user.id },
+        'bug-report: attempting gh issue create',
+      );
       const result = await new Promise<string>((resolve, reject) => {
         const child = execFile(
           'gh',
@@ -418,7 +450,7 @@ bugReportRoutes.post('/submit', authMiddleware, async (c) => {
             'issue',
             'create',
             '--repo',
-            'riba2534/happyclaw',
+            'RyanProMax/cli-claw',
             '--title',
             title,
             '--body-file',
@@ -463,10 +495,11 @@ bugReportRoutes.post('/submit', authMiddleware, async (c) => {
   const maxBodyLen = 6000; // conservative limit for URL length
   const truncatedBody =
     fullBody.length > maxBodyLen
-      ? fullBody.slice(0, maxBodyLen) + '\n\n...(内容过长已截断，请补充完整信息)'
+      ? fullBody.slice(0, maxBodyLen) +
+        '\n\n...(内容过长已截断，请补充完整信息)'
       : fullBody;
 
-  const url = `https://github.com/riba2534/happyclaw/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(truncatedBody)}`;
+  const url = `https://github.com/RyanProMax/cli-claw/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(truncatedBody)}`;
 
   logger.info({ userId: user.id }, 'bug-report: returning pre-filled URL');
   cooldowns.set(user.id, Date.now());

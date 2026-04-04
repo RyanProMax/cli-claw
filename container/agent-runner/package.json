@@ -21,7 +21,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/riba2534/happyclaw.git",
+    "url": "git+https://github.com/RyanProMax/cli-claw.git",
     "directory": "container/agent-runner"
   },
   "author": "riba2534",

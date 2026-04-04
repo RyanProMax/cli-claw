@@ -1,18 +1,26 @@
 <p align="center">
-  <img src="web/public/icons/logo-1024.png" alt="cli-claw Logo" width="120" />
+  <img src="web/public/icons/logo-1024.png" alt="Cli Claw Logo" width="120" />
 </p>
 
-<h1 align="center">cli-claw</h1>
+<h1 align="center">Cli Claw</h1>
 
 <p align="center">
-  自托管的多用户本地 AI Agent 系统 — Powered By Claude Code.
+  Powered By Any Agent CLI.
+</p>
+
+<p align="center">
+  自托管的多用户本地 AI Agent 系统。
+</p>
+
+<p align="center">
+  Inspired by <a href="https://github.com/riba2534/happyclaw">riba2534/happyclaw</a>.
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-teal.svg?style=for-the-badge" alt="License" /></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/Node.js-%3E%3D20-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js" /></a>
   <img src="https://img.shields.io/badge/TypeScript-5.7-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
-  <a href="https://github.com/riba2534/happyclaw/stargazers"><img src="https://img.shields.io/github/stars/riba2534/happyclaw?style=for-the-badge&color=f5a623" alt="GitHub Stars" /></a>
+  <a href="https://github.com/RyanProMax/cli-claw/stargazers"><img src="https://img.shields.io/github/stars/RyanProMax/cli-claw?style=for-the-badge&color=f5a623" alt="GitHub Stars" /></a>
 </p>
 
 <p align="center">
@@ -49,11 +57,11 @@
 
 </details>
 
-## cli-claw 是什么
+## Cli Claw 是什么
 
-cli-claw 是一个基于 [Claude Agent SDK](https://github.com/anthropics/claude-code/tree/main/packages/claude-agent-sdk) 构建的自托管多用户 AI Agent 系统。它将完整的 Claude Code 运行时封装为可通过飞书、Telegram、QQ 和 Web 界面访问的服务，支持文件读写、终端操作、浏览器自动化、多轮推理及 MCP 工具生态。
+Cli Claw 是一个基于 [Claude Agent SDK](https://github.com/anthropics/claude-code/tree/main/packages/claude-agent-sdk) 构建的自托管多用户 AI Agent 系统。它将完整的 Claude Code 运行时封装为可通过飞书、Telegram、QQ 和 Web 界面访问的服务，支持文件读写、终端操作、浏览器自动化、多轮推理及 MCP 工具生态。
 
-核心设计原则：**不重新实现 Agent 能力，直接复用 Claude Code**。底层调用的是完整的 Claude Code CLI 运行时，而非 API Wrapper 或 Prompt Chain。Claude Code 的每次升级——新工具、更强的推理、更多的 MCP 支持——cli-claw 零适配自动受益。
+核心设计原则：**不重新实现 Agent 能力，直接复用 Claude Code**。底层调用的是完整的 Claude Code CLI 运行时，而非 API Wrapper 或 Prompt Chain。Claude Code 的每次升级，新工具、更强的推理、更多的 MCP 支持，Cli Claw 都能零适配受益。
 
 ### 关键特性
 
@@ -201,7 +209,7 @@ Agent 自主维护跨会话的持久记忆：
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/riba2534/happyclaw.git cli-claw
+git clone https://github.com/RyanProMax/cli-claw.git cli-claw
 cd cli-claw
 
 # 2. 一键启动（首次自动安装依赖 + 编译）
@@ -489,7 +497,7 @@ cli-claw/
 
 ### 开发指南
 
-工程协作入口见根目录 `AGENTS.md`。详细架构、模块索引与工程规范见 `docs/ARCHITECTURE_CONTEXT.md`、`docs/MODULE_INDEX.md`、`docs/ENGINEERING_RULES.md`。
+工程协作入口见根目录 `AGENTS.md`。详细架构、持久化上下文、模块索引与工程规范见 `docs/ARCHITEXTURE.md`、`docs/CONTEXT.md`、`docs/MODULE.md`、`docs/ENGINEERING.md`。
 
 ```bash
 make dev              # 前后端并行启动（热更新）
@@ -601,7 +609,7 @@ Commit message 使用简体中文，格式：`类型: 描述`
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=riba2534/happyclaw&type=date&legend=top-left)](https://www.star-history.com/#riba2534/happyclaw&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=RyanProMax/cli-claw&type=date&legend=top-left)](https://www.star-history.com/#RyanProMax/cli-claw&type=date&legend=top-left)
 
 ## 许可证
 

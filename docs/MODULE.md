@@ -1,4 +1,4 @@
-# Module Index
+# MODULE
 
 ## 后端核心
 
@@ -59,7 +59,8 @@
 
 ## 文档入口
 
-- 架构与边界：`docs/ARCHITECTURE_CONTEXT.md`
-- 模块索引：`docs/MODULE_INDEX.md`
-- 工程规范：`docs/ENGINEERING_RULES.md`
-- 本地任务记录：`docs/.local/README.md` 与 `docs/.local/PLAN.template.md`
+- 项目架构：`docs/ARCHITEXTURE.md`
+- 持久化上下文：`docs/CONTEXT.md`
+- 模块索引：`docs/MODULE.md`
+- 工程规范：`docs/ENGINEERING.md`
+- 本地任务记录：`docs/.local/PLAN.md`（本地文件，不入库）
