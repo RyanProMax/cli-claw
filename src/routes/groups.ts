@@ -173,6 +173,11 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
   const groups = getAllRegisteredGroups();
   const chats = new Map(getAllChats().map((chat) => [chat.jid, chat]));
   const isAdmin = hasHostExecutionPermission(user);
+  const isSharedAdminHomeGroup = (
+    jid: string,
+    group: RegisteredGroup,
+  ): boolean =>
+    isAdmin && !!group.is_home && jid === 'web:main' && group.folder === 'main';
   const homeFolders = new Set(
     Object.entries(groups)
       .filter(([jid, group]) => jid.startsWith('web:') && !!group.is_home)
@@ -187,6 +192,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
     const isHome = !!group.is_home;
     const isWeb = jid.startsWith('web:');
     const isHost = isHostExecutionGroup(group);
+    const isSharedAdminHome = isSharedAdminHomeGroup(jid, group);
 
     // Hide IM channels that belong to a home folder.
     // These are merged into the home conversation in UI and message APIs.
@@ -194,10 +200,14 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
 
     // Hide other users' home groups from the chat sidebar.
     // Each user only sees their own home container.
-    if (isHome && group.created_by !== user.id) continue;
+    if (isHome && group.created_by !== user.id && !isSharedAdminHome) continue;
 
     // Host execution groups require admin unless it's the user's own home group
-    if (isHost && !isAdmin && !(isHome && group.created_by === user.id))
+    if (
+      isHost &&
+      !isAdmin &&
+      !(isHome && (group.created_by === user.id || isSharedAdminHome))
+    )
       continue;
 
     // User isolation: all users only see their own groups + shared groups
@@ -249,6 +259,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
   for (const [jid, group] of visibleEntries) {
     const isHome = !!group.is_home;
     const isWeb = jid.startsWith('web:');
+    const isSharedAdminHome = isSharedAdminHomeGroup(jid, group);
 
     const latest = latestByJid.get(jid);
     const memberInfo = !isHome ? getMemberInfo(group.folder) : null;
@@ -270,7 +281,9 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
       execution_mode: group.executionMode || 'container',
       custom_cwd: isAdmin ? group.customCwd : undefined,
       is_home: isHome || undefined,
-      is_my_home: (isHome && group.created_by === user.id) || undefined,
+      is_my_home:
+        (isHome && (group.created_by === user.id || isSharedAdminHome)) ||
+        undefined,
       is_shared: isShared || undefined,
       member_role: memberInfo?.role ?? undefined,
       member_count: isShared ? memberInfo?.count : undefined,

@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getRegisteredGroup: vi.fn(),
+  getAllRegisteredGroups: vi.fn(),
+  getAllChats: vi.fn(),
+  getMessagesPageMulti: vi.fn(),
+  getGroupMembers: vi.fn(),
+  getUserPinnedGroups: vi.fn(),
   setRegisteredGroup: vi.fn(),
   updateChatName: vi.fn(),
   getJidsByFolder: vi.fn(),
@@ -43,6 +48,11 @@ vi.mock('../src/db.js', async () => {
   return {
     ...actual,
     getRegisteredGroup: mocks.getRegisteredGroup,
+    getAllRegisteredGroups: mocks.getAllRegisteredGroups,
+    getAllChats: mocks.getAllChats,
+    getMessagesPageMulti: mocks.getMessagesPageMulti,
+    getGroupMembers: mocks.getGroupMembers,
+    getUserPinnedGroups: mocks.getUserPinnedGroups,
     setRegisteredGroup: mocks.setRegisteredGroup,
     updateChatName: mocks.updateChatName,
     getJidsByFolder: mocks.getJidsByFolder,
@@ -107,6 +117,11 @@ describe('group runtime stale-build guard', () => {
     mocks.setRegisteredGroup.mockImplementation((jid: string, group: any) => {
       registeredGroups[jid] = group;
     });
+    mocks.getAllRegisteredGroups.mockImplementation(() => registeredGroups);
+    mocks.getAllChats.mockReturnValue([]);
+    mocks.getMessagesPageMulti.mockReturnValue([]);
+    mocks.getGroupMembers.mockReturnValue([]);
+    mocks.getUserPinnedGroups.mockReturnValue({});
     mocks.getJidsByFolder.mockReturnValue(['web:main']);
     mocks.listAgentsByJid.mockReturnValue([]);
     mocks.canAccessGroup.mockReturnValue(true);
@@ -202,5 +217,47 @@ describe('group runtime stale-build guard', () => {
     expect(registeredGroups['web:main'].agentType).toBe('codex');
     expect(mocks.stopGroup).toHaveBeenCalledWith('web:main', { force: true });
     expect(sessions.main).toBeUndefined();
+  });
+
+  test('includes shared admin web:main home workspace with its actual runtime in group list', async () => {
+    registeredGroups = {
+      'web:main': {
+        name: 'Main',
+        folder: 'main',
+        added_at: '2026-04-04T10:00:00.000Z',
+        created_by: 'admin-2',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+      },
+      'feishu:ops-room': {
+        name: 'Ops Room',
+        folder: 'main',
+        added_at: '2026-04-04T10:05:00.000Z',
+        created_by: 'admin-2',
+        is_home: false,
+        executionMode: 'host',
+      },
+    };
+    mocks.getRegisteredGroup.mockImplementation((jid: string) => registeredGroups[jid]);
+    mocks.getAllRegisteredGroups.mockImplementation(() => registeredGroups);
+    mocks.getJidsByFolder.mockImplementation((folder: string) =>
+      Object.keys(registeredGroups).filter((jid) => registeredGroups[jid]?.folder === folder),
+    );
+
+    const app = createApp();
+
+    const res = await app.request('/api/groups');
+
+    expect(res.status).toBe(200);
+    const payload = await res.json() as { groups: Record<string, any> };
+    expect(payload.groups['web:main']).toEqual(
+      expect.objectContaining({
+        agent_type: 'codex',
+        execution_mode: 'host',
+        is_home: true,
+        is_my_home: true,
+      }),
+    );
   });
 });
