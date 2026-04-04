@@ -17,6 +17,7 @@ import { checkGroupLimit } from '../billing.js';
 import { DATA_DIR, GROUPS_DIR, isDockerAvailable } from '../config.js';
 import {
   enforceAgentExecutionMode,
+  hasRuntimeBoundaryChange,
   normalizeAgentType,
   validateGroupRuntimeUpdate,
 } from '../group-runtime.js';
@@ -296,6 +297,35 @@ function clearSessionJsonlFiles(folder: string, agentId?: string): void {
     if (keep.has(entry)) continue;
     const fullPath = path.join(claudeDir, entry);
     fs.rmSync(fullPath, { recursive: true, force: true });
+  }
+}
+
+async function resetWorkspaceRuntimeState(
+  deps: NonNullable<ReturnType<typeof getWebDeps>>,
+  jid: string,
+  group: RegisteredGroup,
+): Promise<void> {
+  const siblingJids = getJidsByFolder(group.folder);
+  const agents = jid.startsWith('web:') ? listAgentsByJid(jid) : [];
+  const stopTargets = new Set<string>(siblingJids);
+
+  for (const agent of agents) {
+    stopTargets.add(`${jid}#agent:${agent.id}`);
+  }
+
+  await Promise.all(
+    [...stopTargets].map((targetJid) =>
+      deps.queue.stopGroup(targetJid, { force: true }),
+    ),
+  );
+
+  clearSessionJsonlFiles(group.folder);
+  deleteSession(group.folder);
+  delete deps.getSessions()[group.folder];
+
+  for (const agent of agents) {
+    clearSessionJsonlFiles(group.folder, agent.id);
+    deleteSession(group.folder, agent.id);
   }
 }
 
@@ -793,6 +823,12 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
       execution_mode !== undefined
         ? (execution_mode as ExecutionMode)
         : existing.executionMode || 'container';
+    const runtimeBoundaryChanged = hasRuntimeBoundaryChange({
+      currentAgentType: existing.agentType || 'claude',
+      currentExecutionMode: existing.executionMode || 'container',
+      nextAgentType,
+      nextExecutionMode,
+    });
     const runtimeError = validateGroupRuntimeUpdate({
       isHome: !!existing.is_home,
       currentExecutionMode: existing.executionMode || 'container',
@@ -836,6 +872,40 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     setRegisteredGroup(jid, updated);
     if (name) updateChatName(jid, name);
     deps.getRegisteredGroups()[jid] = updated;
+
+    if (runtimeBoundaryChanged) {
+      try {
+        await resetWorkspaceRuntimeState(deps, jid, updated);
+      } catch (err) {
+        logger.error(
+          {
+            jid,
+            folder: updated.folder,
+            previousAgentType: existing.agentType || 'claude',
+            nextAgentType,
+            previousExecutionMode: existing.executionMode || 'container',
+            nextExecutionMode,
+            err,
+          },
+          'Workspace runtime changed but failed to reset active runners',
+        );
+        return c.json(
+          { error: 'Workspace runtime updated, but failed to reset active sessions' },
+          500,
+        );
+      }
+      logger.info(
+        {
+          jid,
+          folder: updated.folder,
+          previousAgentType: existing.agentType || 'claude',
+          nextAgentType,
+          previousExecutionMode: existing.executionMode || 'container',
+          nextExecutionMode,
+        },
+        'Workspace runtime changed, reset active runners and sessions',
+      );
+    }
   }
 
   return c.json({ success: true, pinned_at });

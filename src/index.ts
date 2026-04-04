@@ -3336,6 +3336,20 @@ async function runAgent(
   ipcWatcherManager?.watchGroup(group.folder);
   try {
     const executionMode = group.executionMode || 'container';
+    const agentType = group.agentType || 'claude';
+
+    logger.info(
+      {
+        chatJid,
+        folder: group.folder,
+        agentType,
+        executionMode,
+        sessionId: sessionId || null,
+        isHome,
+        isAdminHome,
+      },
+      'Dispatching workspace agent run',
+    );
 
     const onProcessCb = (proc: ChildProcess, identifier: string) => {
       // 宿主机模式：containerName 传 null，走 process.kill() 路径
@@ -3362,7 +3376,7 @@ async function runAgent(
           turnId,
           groupFolder: group.folder,
           chatJid,
-          agentType: group.agentType || 'claude',
+          agentType,
           isMain: isAdminHome,
           isHome,
           isAdminHome,

@@ -33,3 +33,15 @@ export function validateGroupRuntimeUpdate(options: {
     options.nextExecutionMode,
   );
 }
+
+export function hasRuntimeBoundaryChange(options: {
+  currentAgentType: AgentType;
+  currentExecutionMode: ExecutionMode;
+  nextAgentType: AgentType;
+  nextExecutionMode: ExecutionMode;
+}): boolean {
+  return (
+    options.currentAgentType !== options.nextAgentType ||
+    options.currentExecutionMode !== options.nextExecutionMode
+  );
+}

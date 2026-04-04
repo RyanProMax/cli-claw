@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { validateGroupRuntimeUpdate } from '../src/group-runtime.js';
+import {
+  hasRuntimeBoundaryChange,
+  validateGroupRuntimeUpdate,
+} from '../src/group-runtime.js';
 
 describe('validateGroupRuntimeUpdate', () => {
   test('allows home workspaces to change agent when execution mode stays the same', () => {
@@ -34,5 +37,40 @@ describe('validateGroupRuntimeUpdate', () => {
         nextExecutionMode: 'container',
       }),
     ).toBe('Codex only supports host execution mode');
+  });
+});
+
+describe('hasRuntimeBoundaryChange', () => {
+  test('returns true when agent type changes', () => {
+    expect(
+      hasRuntimeBoundaryChange({
+        currentAgentType: 'claude',
+        currentExecutionMode: 'host',
+        nextAgentType: 'codex',
+        nextExecutionMode: 'host',
+      }),
+    ).toBe(true);
+  });
+
+  test('returns true when execution mode changes', () => {
+    expect(
+      hasRuntimeBoundaryChange({
+        currentAgentType: 'claude',
+        currentExecutionMode: 'container',
+        nextAgentType: 'claude',
+        nextExecutionMode: 'host',
+      }),
+    ).toBe(true);
+  });
+
+  test('returns false when runtime boundary stays the same', () => {
+    expect(
+      hasRuntimeBoundaryChange({
+        currentAgentType: 'claude',
+        currentExecutionMode: 'host',
+        nextAgentType: 'claude',
+        nextExecutionMode: 'host',
+      }),
+    ).toBe(false);
   });
 });

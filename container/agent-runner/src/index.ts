@@ -2354,7 +2354,10 @@ async function main(): Promise<void> {
   try {
     const stdinData = await readStdin();
     containerInput = JSON.parse(stdinData);
-    log(`Received input for group: ${containerInput.groupFolder}`);
+    const requestedAgentType = containerInput.agentType || 'claude';
+    log(
+      `Received input for group: ${containerInput.groupFolder}, chatJid: ${containerInput.chatJid}, agentType: ${requestedAgentType}, session: ${containerInput.sessionId || 'new'}`,
+    );
   } catch (err) {
     writeOutput({
       status: 'error',
@@ -2369,9 +2372,12 @@ async function main(): Promise<void> {
   const { isHome, isAdminHome } = normalizeHomeFlags(containerInput);
 
   if ((containerInput.agentType || 'claude') === 'codex') {
+    log('Selected runner: codex');
     await runCodexLoop(containerInput);
     forceExitWithSafetyNet(0);
   }
+
+  log('Selected runner: claude');
 
   // Create in-process SDK MCP server (replaces the stdio subprocess)
   const mcpToolsConfig = {

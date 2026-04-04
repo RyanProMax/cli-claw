@@ -477,6 +477,7 @@ export async function runContainerAgent(
     };
   }
   const startTime = Date.now();
+  const agentType = input.agentType || group.agentType || 'claude';
 
   const groupDir = path.join(GROUPS_DIR, group.folder);
   mkdirForContainer(groupDir);
@@ -523,6 +524,12 @@ export async function runContainerAgent(
     logger.info(
       {
         group: group.name,
+        folder: group.folder,
+        chatJid: input.chatJid,
+        agentType,
+        executionMode: 'container',
+        sessionId: input.sessionId || null,
+        agentId: input.agentId || null,
         containerName,
         mountCount: mounts.length,
         isMain: input.isMain,
@@ -1133,6 +1140,12 @@ export async function runHostAgent(
     logger.info(
       {
         group: group.name,
+        folder: group.folder,
+        chatJid: input.chatJid,
+        agentType,
+        executionMode: 'host',
+        sessionId: input.sessionId || null,
+        agentId: input.agentId || null,
         workingDir: groupDir,
         isMain: input.isMain,
       },
