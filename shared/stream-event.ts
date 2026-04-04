@@ -1,12 +1,9 @@
 /**
  * Canonical StreamEvent type definitions.
  *
- * This is the single source of truth. Build step copies this file to:
- *   - container/agent-runner/src/stream-event.types.ts
- *   - src/stream-event.types.ts
- *   - web/src/stream-event.types.ts
- *
- * DO NOT edit the copies directly -- edit this file and run `make build`.
+ * This is the single source of truth.
+ * Build step compiles this file to shared/dist/stream-event.{js,d.ts},
+ * and each runtime consumes those types through thin local wrappers.
  */
 
 export type StreamEventType =
@@ -17,6 +14,13 @@ export type StreamEventType =
   | 'todo_update'
   | 'usage'
   | 'status' | 'init';
+
+export interface StreamRuntimeIdentity {
+  agentType: 'claude' | 'codex';
+  model?: string | null;
+  reasoningEffort?: string | null;
+  supportsReasoningEffort?: boolean | null;
+}
 
 export interface StreamEvent {
   eventType: StreamEventType;
@@ -46,6 +50,7 @@ export interface StreamEvent {
   taskSummary?: string;
   isBackground?: boolean;
   isTeammate?: boolean;
+  runtimeIdentity?: StreamRuntimeIdentity | null;
   toolInput?: Record<string, unknown>;
   todos?: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed' }>;
   /** Token usage data emitted at query completion */

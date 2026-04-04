@@ -5,8 +5,10 @@
   "description": "Container-side agent runner for cli-claw",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js"
+    "build": "npm run build:shared && npm run build:runner",
+    "start": "node dist/index.js",
+    "build:shared": "tsc -p ../../shared/tsconfig.json",
+    "build:runner": "tsc"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.18.0",

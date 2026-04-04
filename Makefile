@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-web build build-backend build-web start \
+.PHONY: dev dev-backend dev-web build build-shared build-backend build-web start \
        typecheck typecheck-backend typecheck-web typecheck-agent-runner \
        format format-check install clean reset-init update-sdk ensure-latest-sdk sync-types \
        backup restore help _ensure-docker-image
@@ -38,23 +38,27 @@ dev-web: ## 仅启动前端
 
 # ─── Build ───────────────────────────────────────────────────
 
-build: sync-types ## 编译前后端及 agent-runner
+build: build-shared sync-types ## 编译前后端及 agent-runner
 	$(PKG) run build:all
 	@touch .build-sentinel
+
+build-shared: ## 编译 shared/ 单一定义产物
+	$(PKG) run build:shared
 
 build-backend: ## 仅编译后端
 	$(PKG) run build
 
-build-web: ## 仅编译前端
-	cd web && $(PKG) run build
+build-web: build-shared ## 仅编译前端
+	$(PKG) run build:web
 
 # ─── Production ──────────────────────────────────────────────
 
 start: ensure-latest-sdk ## 一键启动生产环境
 	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
 	@$(MAKE) _ensure-docker-image
+	@$(MAKE) build-shared
 	@NEED_SYNC=0; \
-	for target in src/stream-event.types.ts web/src/stream-event.types.ts container/agent-runner/src/stream-event.types.ts src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
+	for target in src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
 	  if [ ! -f "$$target" ] || [ -n "$$(find shared/ -newer "$$target" -name '*.ts' 2>/dev/null | head -1)" ]; then NEED_SYNC=1; break; fi; \
 	done; \
 	if [ "$$NEED_SYNC" = "1" ]; then echo "🔄 检测到 shared/ 类型变更，同步类型..."; $(MAKE) sync-types; fi
@@ -81,7 +85,7 @@ ifeq ($(HAS_BUN),1)
 	bun src/index.ts
 else
 	@NEED_SYNC=0; \
-	for target in src/stream-event.types.ts web/src/stream-event.types.ts container/agent-runner/src/stream-event.types.ts src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
+	for target in src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
 	  if [ ! -f "$$target" ] || [ -n "$$(find shared/ -newer "$$target" -name '*.ts' 2>/dev/null | head -1)" ]; then NEED_SYNC=1; break; fi; \
 	done; \
 	if [ "$$NEED_SYNC" = "1" ]; then echo "🔄 检测到 shared/ 类型变更，同步类型..."; $(MAKE) sync-types; fi
@@ -117,7 +121,7 @@ endif
 
 # ─── Quality ─────────────────────────────────────────────────
 
-typecheck: sync-types typecheck-backend typecheck-web typecheck-agent-runner ## 全量类型检查
+typecheck: build-shared sync-types typecheck-backend typecheck-web typecheck-agent-runner ## 全量类型检查
 	@./scripts/check-stream-event-sync.sh
 
 typecheck-backend:
@@ -141,7 +145,7 @@ format-check: ## 检查代码格式
 # ─── Docker Image ─────────────────────────────────────────────
 
 # Docker 镜像源文件：Dockerfile、entrypoint.sh、agent-runner 源码
-DOCKER_SRC := container/Dockerfile container/entrypoint.sh $(wildcard container/agent-runner/src/*.ts) $(wildcard container/agent-runner/prompts/*)
+DOCKER_SRC := container/Dockerfile container/entrypoint.sh container/agent-runner/package.json container/agent-runner/tsconfig.json $(wildcard container/agent-runner/src/*.ts) $(wildcard container/agent-runner/prompts/*) $(wildcard shared/*.ts) shared/tsconfig.json
 
 _ensure-docker-image: ## (内部) 检测 Docker 镜像是否需要构建/重建
 	@if command -v docker >/dev/null 2>&1; then \
@@ -167,7 +171,7 @@ _ensure-docker-image: ## (内部) 检测 Docker 镜像是否需要构建/重建
 
 # ─── Shared Types ────────────────────────────────────────────
 
-sync-types: ## 同步 shared/ 下的类型定义到各子项目
+sync-types: ## 同步 shared/ 下仍采用镜像复制的公共源
 	@./scripts/sync-stream-event.sh
 
 # ─── SDK ─────────────────────────────────────────────────────

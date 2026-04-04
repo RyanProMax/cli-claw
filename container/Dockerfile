@@ -101,7 +101,7 @@ ENV PATH="/home/node/.local/bin:${PATH}"
 WORKDIR /app
 
 # Copy package.json only — no lock file so "*" always resolves to latest SDK
-COPY agent-runner/package.json ./
+COPY container/agent-runner/package.json ./
 
 # CACHEBUST after COPY ensures both global and local npm install are cache-busted
 # (COPY caches on file content hash, which blocks ARG invalidation propagation)
@@ -130,17 +130,18 @@ RUN mkdir -p /opt/builtin-skills; \
     && ls /opt/builtin-skills/ \
     || echo "WARNING: Failed to fetch feishu-cli skills, skipping"
 
-# Copy source code
-COPY agent-runner/ ./
+# Copy source code and canonical shared definitions
+COPY container/agent-runner/ ./
+COPY shared/ /shared/
 
-# Build TypeScript
+# Build TypeScript (shared dist + agent-runner)
 RUN npm run build
 
 # Create workspace directories
 RUN mkdir -p /workspace/group /workspace/global /workspace/memory /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
 
 # Copy entrypoint script (runs as root, drops to node user via runuser)
-COPY entrypoint.sh /app/entrypoint.sh
+COPY container/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories

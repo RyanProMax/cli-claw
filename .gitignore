@@ -64,3 +64,4 @@ nohup.out
 
 # local
 .local/
+shared/dist/

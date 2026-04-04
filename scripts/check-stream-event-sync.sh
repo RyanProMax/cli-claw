@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Verify that all shared type copies are in sync with the canonical sources.
-# Returns non-zero if any copy diverges.
+# Verify that generated shared mirror files are in sync.
+# StreamEvent now builds from shared/dist and no longer uses copied mirrors.
 
 set -euo pipefail
 
@@ -24,26 +24,16 @@ check_sync() {
   done
 }
 
-# StreamEvent types
-check_sync "$ROOT/shared/stream-event.ts" \
-  "$ROOT/container/agent-runner/src/stream-event.types.ts" \
-  "$ROOT/src/stream-event.types.ts" \
-  "$ROOT/web/src/stream-event.types.ts"
-
 # Image detector
-check_sync "$ROOT/shared/image-detector.ts" \
-  "$ROOT/src/image-detector.ts" \
-  "$ROOT/container/agent-runner/src/image-detector.ts"
+check_sync "$ROOT/shared/image-detector.ts"   "$ROOT/src/image-detector.ts"   "$ROOT/container/agent-runner/src/image-detector.ts"
 
 # Channel prefixes
-check_sync "$ROOT/shared/channel-prefixes.ts" \
-  "$ROOT/src/channel-prefixes.ts" \
-  "$ROOT/container/agent-runner/src/channel-prefixes.ts"
+check_sync "$ROOT/shared/channel-prefixes.ts"   "$ROOT/src/channel-prefixes.ts"   "$ROOT/container/agent-runner/src/channel-prefixes.ts"
 
 if [ "$FAIL" -eq 0 ]; then
-  echo "All shared type copies are in sync."
+  echo "All mirrored shared files are in sync."
 else
   echo ""
-  echo "Fix: run 'make sync-types' to re-sync from shared/"
+  echo "Fix: run 'make sync-types' to re-sync mirrored files from shared/"
   exit 1
 fi
