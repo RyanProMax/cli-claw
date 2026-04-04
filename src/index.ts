@@ -146,6 +146,7 @@ import {
   MessageCursor,
   NewMessage,
   RegisteredGroup,
+  RuntimeIdentity,
   StreamEvent,
   SubAgent,
 } from './types.js';
@@ -198,6 +199,9 @@ export function feedStreamEventToCard(
   se: StreamEvent,
   accumulatedText: string,
 ): void {
+  if (se.runtimeIdentity) {
+    session.setRuntimeIdentity(se.runtimeIdentity);
+  }
   switch (se.eventType) {
     case 'text_delta':
       if (se.text) session.append(accumulatedText);
@@ -1722,6 +1726,7 @@ interface SendMessageOptions {
     sdkMessageUuid?: string;
     sourceKind?: ContainerOutput['sourceKind'];
     finalizationReason?: ContainerOutput['finalizationReason'];
+    runtimeIdentity?: RuntimeIdentity | null;
   };
 }
 
@@ -2325,6 +2330,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     | { status: 'success' | 'error' | 'closed'; error?: string }
     | undefined;
   let activeSessionId = getSession(effectiveGroup.folder) || undefined;
+  let activeRuntimeIdentity: RuntimeIdentity | null = null;
   try {
     output = await runAgent(
       effectiveGroup,
@@ -2336,6 +2342,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           if (result.newSessionId && result.status !== 'error') {
             activeSessionId = result.newSessionId;
           }
+          activeRuntimeIdentity =
+            result.streamEvent?.runtimeIdentity ||
+            result.runtimeIdentity ||
+            activeRuntimeIdentity;
           // 流式事件处理 - 广播 WebSocket + 持久化 SDK Task 生命周期到 DB
           if (result.status === 'stream' && result.streamEvent) {
             broadcastStreamEvent(chatJid, result.streamEvent);
@@ -2418,6 +2428,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                         result.streamEvent.sessionId || activeSessionId,
                       sourceKind: 'interrupt_partial',
                       finalizationReason: 'interrupted',
+                      runtimeIdentity: activeRuntimeIdentity,
                     },
                   });
                   sentReply = true;
@@ -2710,6 +2721,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               let streamingCardHandledIM = false;
               if (streamingSession?.isActive()) {
                 try {
+                  streamingSession.setRuntimeIdentity(activeRuntimeIdentity);
                   await streamingSession.complete(text);
                   streamingCardHandledIM = true;
                   // Streaming card replaced the normal sendMessage path,
@@ -2794,6 +2806,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   sdkMessageUuid: result.sdkMessageUuid,
                   sourceKind: result.sourceKind || 'sdk_final',
                   finalizationReason: result.finalizationReason || 'completed',
+                  runtimeIdentity: activeRuntimeIdentity,
                 },
               });
               lastSavedTurnId = effectiveTurnId;
@@ -2904,6 +2917,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             sessionId: activeSessionId,
             sourceKind: 'interrupt_partial',
             finalizationReason: 'interrupted',
+            runtimeIdentity: activeRuntimeIdentity,
           },
         });
         sentReply = true;
@@ -2933,6 +2947,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             sessionId: activeSessionId,
             sourceKind: 'interrupt_partial',
             finalizationReason: 'error',
+            runtimeIdentity: activeRuntimeIdentity,
           },
         });
         sentReply = true;
@@ -3500,6 +3515,7 @@ async function sendMessage(
         sdk_message_uuid: options.messageMeta?.sdkMessageUuid ?? null,
         source_kind: options.messageMeta?.sourceKind ?? null,
         finalization_reason: options.messageMeta?.finalizationReason ?? null,
+        runtime_identity: options.messageMeta?.runtimeIdentity ?? null,
       },
       undefined,
       options.source,
@@ -5049,6 +5065,7 @@ async function processAgentConversation(
   // Get or use agent-specific session
   const sessionId = getSession(effectiveGroup.folder, agentId) || undefined;
   let currentAgentSessionId = sessionId;
+  let currentAgentRuntimeIdentity: RuntimeIdentity | null = null;
 
   const wrappedOnOutput = async (output: ContainerOutput) => {
     // Track session
@@ -5056,6 +5073,10 @@ async function processAgentConversation(
       setSession(effectiveGroup.folder, output.newSessionId, agentId);
       currentAgentSessionId = output.newSessionId;
     }
+    currentAgentRuntimeIdentity =
+      output.streamEvent?.runtimeIdentity ||
+      output.runtimeIdentity ||
+      currentAgentRuntimeIdentity;
 
     // Stream events
     if (output.status === 'stream' && output.streamEvent) {
@@ -5108,6 +5129,7 @@ async function processAgentConversation(
                     output.streamEvent.sessionId || currentAgentSessionId,
                   sourceKind: 'interrupt_partial',
                   finalizationReason: 'interrupted',
+                  runtimeIdentity: currentAgentRuntimeIdentity,
                 },
               },
             );
@@ -5127,6 +5149,7 @@ async function processAgentConversation(
                 sdk_message_uuid: null,
                 source_kind: 'interrupt_partial',
                 finalization_reason: 'interrupted',
+                runtime_identity: currentAgentRuntimeIdentity,
               },
               agentId,
             );
@@ -5231,6 +5254,7 @@ async function processAgentConversation(
               sdkMessageUuid: output.sdkMessageUuid,
               sourceKind: output.sourceKind || 'sdk_final',
               finalizationReason: output.finalizationReason || 'completed',
+              runtimeIdentity: currentAgentRuntimeIdentity,
             },
           },
         );
@@ -5249,6 +5273,7 @@ async function processAgentConversation(
             sdk_message_uuid: output.sdkMessageUuid ?? null,
             source_kind: output.sourceKind || 'sdk_final',
             finalization_reason: output.finalizationReason || 'completed',
+            runtime_identity: currentAgentRuntimeIdentity,
           },
           agentId,
         );
@@ -5262,6 +5287,9 @@ async function processAgentConversation(
         let streamingCardHandledIM = false;
         if (agentStreamingSession?.isActive()) {
           try {
+            agentStreamingSession.setRuntimeIdentity(
+              currentAgentRuntimeIdentity,
+            );
             await agentStreamingSession.complete(text);
             streamingCardHandledIM = true;
           } catch (err) {
@@ -5563,6 +5591,7 @@ async function processAgentConversation(
               sessionId: currentAgentSessionId,
               sourceKind: 'interrupt_partial',
               finalizationReason: 'interrupted',
+              runtimeIdentity: currentAgentRuntimeIdentity,
             },
           },
         );
@@ -5581,6 +5610,7 @@ async function processAgentConversation(
             sdk_message_uuid: null,
             source_kind: 'interrupt_partial',
             finalization_reason: 'interrupted',
+            runtime_identity: currentAgentRuntimeIdentity,
           },
           agentId,
         );
@@ -5614,6 +5644,7 @@ async function processAgentConversation(
               sessionId: currentAgentSessionId,
               sourceKind: 'interrupt_partial',
               finalizationReason: 'error',
+              runtimeIdentity: currentAgentRuntimeIdentity,
             },
           },
         );
@@ -5632,6 +5663,7 @@ async function processAgentConversation(
             sdk_message_uuid: null,
             source_kind: 'interrupt_partial',
             finalization_reason: 'error',
+            runtime_identity: currentAgentRuntimeIdentity,
           },
           agentId,
         );

@@ -10,6 +10,7 @@ import { MessageContextMenu } from './MessageContextMenu';
 import { ImageLightbox } from './ImageLightbox';
 import { mediumTap } from '../../hooks/useHaptic';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
+import { formatRuntimeIdentityFooter } from '../../lib/runtimeIdentity';
 
 const ShareImageDialog = lazy(() => import('./ShareImageDialog').then(m => ({ default: m.ShareImageDialog })));
 
@@ -129,6 +130,20 @@ function TokenUsageDisplay({ tokenUsageJson }: { tokenUsageJson: string }) {
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
+    </div>
+  );
+}
+
+function RuntimeIdentityDisplay({
+  runtimeIdentity,
+}: {
+  runtimeIdentity?: Message['runtime_identity'];
+}) {
+  const footer = formatRuntimeIdentityFooter(runtimeIdentity);
+  if (!footer) return null;
+  return (
+    <div className="mt-1.5 text-xs text-muted-foreground">
+      {footer}
     </div>
   );
 }
@@ -335,6 +350,8 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
             )}
           </div>
         )}
+
+        {isAI && <RuntimeIdentityDisplay runtimeIdentity={message.runtime_identity} />}
 
         {/* Token usage (compact mode) */}
         {isAI && message.token_usage && (
@@ -551,6 +568,8 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
               </div>
             )}
 
+            <RuntimeIdentityDisplay runtimeIdentity={message.runtime_identity} />
+
             {/* Token usage */}
             {message.is_from_me && message.token_usage && (
               <TokenUsageDisplay tokenUsageJson={message.token_usage} />
@@ -616,8 +635,10 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
   );
 }, (prev, next) =>
   prev.message.id === next.message.id &&
+  prev.message.chat_jid === next.message.chat_jid &&
   prev.message.content === next.message.content &&
   prev.message.token_usage === next.message.token_usage &&
+  JSON.stringify(prev.message.runtime_identity ?? null) === JSON.stringify(next.message.runtime_identity ?? null) &&
   prev.showTime === next.showTime &&
   prev.thinkingContent === next.thinkingContent &&
   prev.isShared === next.isShared

@@ -6,7 +6,7 @@
 
 // Streaming event types (canonical source: shared/stream-event.ts)
 export type { StreamEventType, StreamEvent } from './stream-event.types.js';
-import type { StreamEvent } from './stream-event.types.js';
+import type { StreamEvent, StreamRuntimeIdentity } from './stream-event.types.js';
 
 export interface ContainerInput {
   prompt: string;
@@ -32,6 +32,7 @@ export interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  runtimeIdentity?: StreamRuntimeIdentity | null;
   streamEvent?: StreamEvent;
   turnId?: string;
   sessionId?: string;

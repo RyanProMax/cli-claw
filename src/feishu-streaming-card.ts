@@ -19,6 +19,8 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import { createHash } from 'crypto';
 import { logger } from './logger.js';
 import { optimizeMarkdownStyle } from './feishu-markdown-style.js';
+import { formatRuntimeIdentityFooter } from './runtime-identity.js';
+import type { RuntimeIdentity } from './types.js';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -1246,6 +1248,8 @@ export class StreamingCardController {
   private todos: Array<{ id: string; content: string; status: string }> | null = null;
   private recentEvents: Array<{ text: string }> = [];
   private stateVersion = 0;
+  private runtimeFooterNote: string | null = null;
+  private usageFooterNote: string | null = null;
 
   constructor(opts: StreamingCardOptions) {
     this.client = opts.client;
@@ -1399,6 +1403,16 @@ export class StreamingCardController {
     }
   }
 
+  setRuntimeIdentity(identity?: RuntimeIdentity | null): void {
+    const nextNote = formatRuntimeIdentityFooter(identity) || null;
+    if (this.runtimeFooterNote === nextNote) return;
+    this.runtimeFooterNote = nextNote;
+    this.stateVersion++;
+    if (this.state === 'streaming') {
+      this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+    }
+  }
+
   /**
    * Update a tool's input summary (displayed as parameter hint).
    */
@@ -1487,6 +1501,7 @@ export class StreamingCardController {
 
     const note = formatUsageNote(usage);
     if (!note) return;
+    this.usageFooterNote = note;
 
     try {
       if (this.backendMode === 'streaming' && this.streamingBackend) {
@@ -1496,7 +1511,7 @@ export class StreamingCardController {
           '',
           undefined,
           undefined,
-          note,
+          this.getFooterNote(),
         );
         // Skip if card was split during finalization — rebuilding a single card
         // would overwrite the first card with full text while continuation cards remain.
@@ -1506,7 +1521,7 @@ export class StreamingCardController {
       } else if (this.messageId || this.multiCard) {
         // For CardKit v1 / legacy: skip if multiCard has split content
         if (this.multiCard && this.multiCard.getCardCount() > 1) return;
-        await this.patchCard('completed', note);
+        await this.patchCard('completed');
       }
     } catch (err) {
       logger.debug(
@@ -1723,6 +1738,13 @@ export class StreamingCardController {
     });
   }
 
+  private getFooterNote(): string | undefined {
+    const notes = [this.runtimeFooterNote, this.usageFooterNote].filter(
+      (value): value is string => !!value,
+    );
+    return notes.length > 0 ? notes.join('\n') : undefined;
+  }
+
   private getAuxiliaryState(): AuxiliaryState {
     return {
       thinkingText: this.thinkingText,
@@ -1855,7 +1877,15 @@ export class StreamingCardController {
       await backend.disableStreamingMode();
 
       // 2. Build final card with optimizeMarkdownStyle
-      const cardJson = buildSchema2Card(this.accumulatedText, finalState);
+      const footerNote = this.getFooterNote();
+      const cardJson = buildSchema2Card(
+        this.accumulatedText,
+        finalState,
+        '',
+        undefined,
+        undefined,
+        footerNote,
+      );
       const cardSize = Buffer.byteLength(JSON.stringify(cardJson), 'utf-8');
 
       if (cardSize <= CARD_SIZE_LIMIT) {
@@ -1870,7 +1900,14 @@ export class StreamingCardController {
       // Fallback: truncate and try once more
       try {
         const truncated = this.accumulatedText.slice(0, 20000);
-        const fallbackCard = buildSchema2Card(truncated + '\n\n> ⚠️ 输出已截断', finalState);
+        const fallbackCard = buildSchema2Card(
+          truncated + '\n\n> ⚠️ 输出已截断',
+          finalState,
+          '',
+          undefined,
+          undefined,
+          this.getFooterNote(),
+        );
         await backend.updateCardFull(fallbackCard);
       } catch (fallbackErr) {
         logger.debug({ err: fallbackErr, chatId: this.chatId }, 'Streaming finalize truncated fallback also failed');
@@ -1888,6 +1925,7 @@ export class StreamingCardController {
     const backend = this.streamingBackend!;
     const { title } = extractTitleAndBody(this.accumulatedText);
     const chunks = splitCodeBlockSafe(this.accumulatedText, CARD_MD_LIMIT);
+    const footerNote = this.getFooterNote();
 
     // How many chunks fit in the first card?
     const MAX_ELEMENTS_PER_CARD = 45;
@@ -1899,7 +1937,14 @@ export class StreamingCardController {
 
     // Use finalState if all content fits in the first card, otherwise freeze
     const firstCardState = chunks.length <= maxChunksFirst ? finalState : 'frozen';
-    const frozenCard = buildSchema2Card(firstText, firstCardState, '', title);
+    const frozenCard = buildSchema2Card(
+      firstText,
+      firstCardState,
+      '',
+      title,
+      undefined,
+      chunks.length <= maxChunksFirst ? footerNote : undefined,
+    );
     await backend.updateCardFull(frozenCard);
 
     // Create continuation cards
@@ -1910,7 +1955,14 @@ export class StreamingCardController {
       const batchText = batch.join('\n\n');
       const state = remaining.length === 0 ? finalState : 'frozen';
       const contCard = new CardKitBackend(this.client);
-      const contCardJson = buildSchema2Card(batchText, state, '(续) ', title);
+      const contCardJson = buildSchema2Card(
+        batchText,
+        state,
+        '(续) ',
+        title,
+        undefined,
+        remaining.length === 0 ? footerNote : undefined,
+      );
       await contCard.createCard(contCardJson);
       const newMsgId = await contCard.sendCard(this.chatId);
       this.onCardCreated?.(newMsgId);
@@ -1925,7 +1977,12 @@ export class StreamingCardController {
       // CardKit v1 path — pass auxiliary state for rich display
       const auxState = displayState === 'streaming' ? this.getAuxiliaryState() : undefined;
       try {
-        await this.multiCard.commitContent(this.accumulatedText, displayState, auxState, footerNote);
+        await this.multiCard.commitContent(
+          this.accumulatedText,
+          displayState,
+          auxState,
+          footerNote || this.getFooterNote(),
+        );
         this.flushCtrl.markFlushed(this.accumulatedText.length);
         this.patchFailCount = 0;
       } catch (err) {
@@ -1940,7 +1997,11 @@ export class StreamingCardController {
       // Legacy message.patch path (no auxiliary content)
       if (!this.messageId) return;
 
-      const card = buildStreamingCard(this.accumulatedText, displayState, footerNote);
+      const card = buildStreamingCard(
+        this.accumulatedText,
+        displayState,
+        footerNote || this.getFooterNote(),
+      );
       const content = JSON.stringify(card);
 
       try {

@@ -4,7 +4,16 @@ import { wsManager } from '../api/ws';
 import { useFileStore } from './files';
 import { useAuthStore } from './auth';
 import { showToast, notifyIfHidden, shouldEmitBackgroundTaskNotice } from '../utils/toast';
-import type { GroupInfo, AgentInfo, AvailableImGroup } from '../types';
+import type {
+  GroupInfo,
+  AgentInfo,
+  AvailableImGroup,
+  RuntimeIdentity,
+} from '../types';
+import {
+  getMessageIdentityKey,
+  mergeMessagesChronologically,
+} from '../lib/messageIdentity';
 
 export type { GroupInfo, AgentInfo };
 
@@ -12,6 +21,7 @@ export interface Message {
   id: string;
   chat_jid: string;
   source_jid?: string;
+  runtime_identity?: RuntimeIdentity | null;
   sender: string;
   sender_name: string;
   content: string;
@@ -56,11 +66,13 @@ export interface StreamSnapshotData {
   todos?: Array<{ id: string; content: string; status: string }>;
   systemStatus: string | null;
   turnId?: string;
+  runtimeIdentity?: RuntimeIdentity | null;
 }
 
 export interface StreamingState {
   turnId?: string;
   sessionId?: string;
+  runtimeIdentity?: RuntimeIdentity | null;
   partialText: string;
   thinkingText: string;
   isThinking: boolean;
@@ -82,44 +94,6 @@ export interface StreamingState {
   interrupted?: boolean;
 }
 
-function mergeMessagesChronologically(
-  existing: Message[],
-  incoming: Message[],
-): Message[] {
-  const byId = new Map<string, Message>();
-  for (const m of existing) byId.set(m.id, m);
-  // Incoming messages are authoritative, but preserve reference if content unchanged
-  for (const m of incoming) {
-    const old = byId.get(m.id);
-    if (
-      !old ||
-      old.content !== m.content ||
-      old.timestamp !== m.timestamp ||
-      old.token_usage !== m.token_usage ||
-      old.turn_id !== m.turn_id ||
-      old.session_id !== m.session_id ||
-      old.sdk_message_uuid !== m.sdk_message_uuid ||
-      old.source_kind !== m.source_kind ||
-      old.finalization_reason !== m.finalization_reason
-    ) {
-      byId.set(m.id, m);
-    }
-  }
-  const result = Array.from(byId.values()).sort((a, b) => {
-    if (a.timestamp === b.timestamp) return a.id.localeCompare(b.id);
-    return a.timestamp.localeCompare(b.timestamp);
-  });
-  // Defensive: log when message count unexpectedly decreases
-  if (result.length < existing.length) {
-    const missingIds = existing.filter((m) => !byId.has(m.id)).map((m) => m.id);
-    console.warn(
-      '[mergeMessages] Message count decreased!',
-      { before: existing.length, after: result.length, incoming: incoming.length, missingIds },
-    );
-  }
-  return result;
-}
-
 const MAX_THINKING_CACHE_SIZE = 500;
 
 /** Evict oldest entries when cache exceeds capacity (relies on insertion order) */
@@ -138,7 +112,7 @@ function retainThinkingCacheForMessages(
 ): Record<string, string> {
   const aliveMessageIds = new Set<string>();
   for (const messages of Object.values(messagesByGroup)) {
-    for (const m of messages) aliveMessageIds.add(m.id);
+    for (const m of messages) aliveMessageIds.add(getMessageIdentityKey(m));
   }
 
   const next: Record<string, string> = {};
@@ -231,6 +205,7 @@ interface ChatState {
 const DEFAULT_STREAMING_STATE: StreamingState = {
   turnId: undefined,
   sessionId: undefined,
+  runtimeIdentity: null,
   partialText: '', thinkingText: '', isThinking: false,
   activeTools: [], activeHook: null, systemStatus: null, recentEvents: [],
 };
@@ -284,6 +259,7 @@ function saveStreamingToSession(chatJid: string, state: StreamingState | undefin
           todos: state.todos,
           systemStatus: state.systemStatus,
           turnId: state.turnId,
+          runtimeIdentity: state.runtimeIdentity,
           ts: Date.now(),
         };
       } else {
@@ -325,6 +301,7 @@ function restoreStreamingFromSession(chatJid: string): StreamingState | null {
       todos: entry.todos,
       systemStatus: entry.systemStatus || null,
       turnId: entry.turnId,
+      runtimeIdentity: entry.runtimeIdentity || null,
     };
   } catch { return null; }
 }
@@ -589,6 +566,7 @@ function applyStreamEvent(
 ): void {
   if (event.turnId) next.turnId = event.turnId;
   if (event.sessionId) next.sessionId = event.sessionId;
+  if (event.runtimeIdentity) next.runtimeIdentity = event.runtimeIdentity;
   switch (event.eventType) {
     case 'text_delta': {
       const combined = prev.partialText + (event.text || '');
@@ -879,7 +857,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   m.source_kind !== 'sdk_send_message',
               );
             if (lastAiMsg) {
-              nextThinkingCache = capThinkingCache({ ...s.thinkingCache, [lastAiMsg.id]: s.pendingThinking[jid] });
+              nextThinkingCache = capThinkingCache({
+                ...s.thinkingCache,
+                [getMessageIdentityKey(lastAiMsg)]: s.pendingThinking[jid],
+              });
               const { [jid]: _, ...restPending } = s.pendingThinking;
               nextPendingThinking = restPending;
             }
@@ -1575,6 +1556,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const msg: Message = {
       id: wsMsg.id,
       chat_jid: wsMsg.chat_jid || chatJid,
+      source_jid: wsMsg.source_jid ?? undefined,
+      runtime_identity: wsMsg.runtime_identity ?? null,
       sender: wsMsg.sender || '',
       sender_name: wsMsg.sender_name || '',
       content: wsMsg.content || '',
@@ -1663,7 +1646,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           waiting: { ...s.waiting, [chatJid]: false },
           streaming: nextStreaming,
           pendingThinking: nextPending,
-          ...(thinkingText ? { thinkingCache: capThinkingCache({ ...s.thinkingCache, [msg.id]: thinkingText }) } : {}),
+          ...(thinkingText
+            ? {
+                thinkingCache: capThinkingCache({
+                  ...s.thinkingCache,
+                  [getMessageIdentityKey(msg)]: thinkingText,
+                }),
+              }
+            : {}),
         };
       }
 
@@ -2188,6 +2178,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       todos: snapshot.todos,
       systemStatus: snapshot.systemStatus || null,
       turnId: snapshot.turnId,
+      runtimeIdentity: snapshot.runtimeIdentity || null,
     };
 
     if (agentId) {

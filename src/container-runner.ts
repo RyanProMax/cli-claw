@@ -39,6 +39,7 @@ import {
   AgentType,
   MessageSourceKind,
   RegisteredGroup,
+  RuntimeIdentity,
   StreamEvent,
 } from './types.js';
 import {
@@ -127,6 +128,7 @@ export interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  runtimeIdentity?: RuntimeIdentity | null;
   streamEvent?: StreamEvent;
   turnId?: string;
   sessionId?: string;

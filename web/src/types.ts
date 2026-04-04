@@ -1,3 +1,5 @@
+export type { RuntimeIdentity } from './lib/runtimeIdentity';
+
 export interface GroupInfo {
   name: string;
   folder: string;

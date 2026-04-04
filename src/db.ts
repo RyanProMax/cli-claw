@@ -35,6 +35,7 @@ import {
   MessageSourceKind,
   RedeemCode,
   RegisteredGroup,
+  RuntimeIdentity,
   ScheduledTask,
   SubAgent,
   TaskRunLog,
@@ -50,6 +51,10 @@ import {
   PermissionTemplateKey,
 } from './types.js';
 import { getDefaultPermissions, normalizePermissions } from './permissions.js';
+import {
+  parseRuntimeIdentity,
+  serializeRuntimeIdentity,
+} from './runtime-identity.js';
 
 let db: InstanceType<typeof Database>;
 
@@ -81,8 +86,8 @@ function stmts() {
       storeMessageInsert: db.prepare(
         `INSERT OR REPLACE INTO messages (
           id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me,
-          attachments, token_usage, turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          attachments, token_usage, runtime_identity, turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       insertUsageInsert: db.prepare(
         `INSERT INTO usage_records (id, user_id, group_folder, agent_id, message_id, model,
@@ -128,7 +133,7 @@ function stmts() {
          )`,
       ),
       getMessagesSince: db.prepare(
-        `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, attachments
+        `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, attachments
          FROM messages
          WHERE chat_jid = ? AND (timestamp > ? OR (timestamp = ? AND id > ?)) AND is_from_me = 0
          ORDER BY timestamp ASC, id ASC`,
@@ -146,7 +151,7 @@ function getNewMessagesStmt(jidCount: number): any {
   if (!s) {
     const placeholders = Array(jidCount).fill('?').join(',');
     s = db.prepare(
-      `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, attachments
+      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, attachments
        FROM messages
        WHERE (timestamp > ? OR (timestamp = ? AND id > ?))
          AND chat_jid IN (${placeholders})
@@ -165,6 +170,36 @@ interface StoredMessageMeta {
   sdkMessageUuid?: string | null;
   sourceKind?: MessageSourceKind | null;
   finalizationReason?: MessageFinalizationReason | null;
+  runtimeIdentity?: RuntimeIdentity | null;
+}
+
+interface DbMessageRow {
+  id: string;
+  chat_jid: string;
+  source_jid?: string;
+  runtime_identity?: string | null;
+  sender: string;
+  sender_name: string;
+  content: string;
+  timestamp: string;
+  is_from_me: number;
+  attachments?: string;
+  token_usage?: string;
+  turn_id?: string | null;
+  session_id?: string | null;
+  sdk_message_uuid?: string | null;
+  source_kind?: MessageSourceKind | null;
+  finalization_reason?: MessageFinalizationReason | null;
+}
+
+function mapDbMessageRow(
+  row: DbMessageRow,
+): NewMessage & { is_from_me: boolean } {
+  return {
+    ...row,
+    runtime_identity: parseRuntimeIdentity(row.runtime_identity),
+    is_from_me: row.is_from_me === 1,
+  };
 }
 
 function hasColumn(tableName: string, columnName: string): boolean {
@@ -244,6 +279,7 @@ export function initDatabase(): void {
       is_from_me INTEGER,
       attachments TEXT,
       token_usage TEXT,
+      runtime_identity TEXT,
       turn_id TEXT,
       session_id TEXT,
       sdk_message_uuid TEXT,
@@ -662,6 +698,7 @@ export function initDatabase(): void {
   ensureColumn('registered_groups', 'selected_mcps', 'TEXT');
   ensureColumn('registered_groups', 'activation_mode', "TEXT DEFAULT 'auto'");
   ensureColumn('messages', 'token_usage', 'TEXT');
+  ensureColumn('messages', 'runtime_identity', 'TEXT');
   ensureColumn('messages', 'turn_id', 'TEXT');
   ensureColumn('messages', 'session_id', 'TEXT');
   ensureColumn('messages', 'sdk_message_uuid', 'TEXT');
@@ -727,6 +764,7 @@ export function initDatabase(): void {
     'is_from_me',
     'attachments',
     'token_usage',
+    'runtime_identity',
   ]);
   assertSchema('scheduled_tasks', [
     'id',
@@ -1327,6 +1365,7 @@ export function storeMessageDirect(
     isFromMe ? 1 : 0,
     attachments ?? null,
     tokenUsage ?? null,
+    serializeRuntimeIdentity(meta?.runtimeIdentity),
     meta?.turnId ?? null,
     meta?.sessionId ?? null,
     meta?.sdkMessageUuid ?? null,
@@ -1798,9 +1837,12 @@ export function getNewMessages(
     cursor.id,
     ...jids,
   ) as NewMessage[];
-  const last = rows[rows.length - 1];
+  const messages = (rows as DbMessageRow[]).map((row) => ({
+    ...mapDbMessageRow(row),
+  }));
+  const last = messages[messages.length - 1];
   return {
-    messages: rows,
+    messages,
     newCursor: last ? { timestamp: last.timestamp, id: last.id } : cursor,
   };
 }
@@ -1809,12 +1851,13 @@ export function getMessagesSince(
   chatJid: string,
   cursor: MessageCursor,
 ): NewMessage[] {
-  return stmts().getMessagesSince.all(
+  const rows = stmts().getMessagesSince.all(
     chatJid,
     cursor.timestamp,
     cursor.timestamp,
     cursor.id,
-  ) as NewMessage[];
+  ) as DbMessageRow[];
+  return rows.map((row) => ({ ...row, runtime_identity: parseRuntimeIdentity(row.runtime_identity) }));
 }
 
 export function createTask(
@@ -2571,7 +2614,7 @@ export function getMessagesPage(
 ): Array<NewMessage & { is_from_me: boolean }> {
   const sql = before
     ? `
-      SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+      SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
              turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
       FROM messages
       WHERE chat_jid = ? AND timestamp < ?
@@ -2579,7 +2622,7 @@ export function getMessagesPage(
       LIMIT ?
     `
     : `
-      SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+      SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
              turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
       FROM messages
       WHERE chat_jid = ?
@@ -2588,14 +2631,9 @@ export function getMessagesPage(
     `;
 
   const params = before ? [chatJid, before, limit] : [chatJid, limit];
-  const rows = db.prepare(sql).all(...params) as Array<
-    NewMessage & { is_from_me: number }
-  >;
+  const rows = db.prepare(sql).all(...params) as DbMessageRow[];
 
-  return rows.map((row) => ({
-    ...row,
-    is_from_me: row.is_from_me === 1,
-  }));
+  return rows.map(mapDbMessageRow);
 }
 
 /**
@@ -2609,19 +2647,16 @@ export function getMessagesAfter(
 ): Array<NewMessage & { is_from_me: boolean }> {
   const rows = db
     .prepare(
-      `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid = ? AND timestamp > ?
        ORDER BY timestamp ASC
        LIMIT ?`,
     )
-    .all(chatJid, after, limit) as Array<NewMessage & { is_from_me: number }>;
+    .all(chatJid, after, limit) as DbMessageRow[];
 
-  return rows.map((row) => ({
-    ...row,
-    is_from_me: row.is_from_me === 1,
-  }));
+  return rows.map(mapDbMessageRow);
 }
 
 /**
@@ -2637,13 +2672,13 @@ export function getMessagesPageMulti(
 
   const placeholders = chatJids.map(() => '?').join(',');
   const sql = before
-    ? `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+    ? `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid IN (${placeholders}) AND timestamp < ?
        ORDER BY timestamp DESC
        LIMIT ?`
-    : `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+    : `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid IN (${placeholders})
@@ -2651,14 +2686,9 @@ export function getMessagesPageMulti(
        LIMIT ?`;
 
   const params = before ? [...chatJids, before, limit] : [...chatJids, limit];
-  const rows = db.prepare(sql).all(...params) as Array<
-    NewMessage & { is_from_me: number }
-  >;
+  const rows = db.prepare(sql).all(...params) as DbMessageRow[];
 
-  return rows.map((row) => ({
-    ...row,
-    is_from_me: row.is_from_me === 1,
-  }));
+  return rows.map(mapDbMessageRow);
 }
 
 /**
@@ -2675,21 +2705,16 @@ export function getMessagesAfterMulti(
   const placeholders = chatJids.map(() => '?').join(',');
   const rows = db
     .prepare(
-      `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid IN (${placeholders}) AND timestamp > ?
        ORDER BY timestamp ASC
        LIMIT ?`,
     )
-    .all(...chatJids, after, limit) as Array<
-    NewMessage & { is_from_me: number }
-  >;
+    .all(...chatJids, after, limit) as DbMessageRow[];
 
-  return rows.map((row) => ({
-    ...row,
-    is_from_me: row.is_from_me === 1,
-  }));
+  return rows.map(mapDbMessageRow);
 }
 
 /**
@@ -2724,21 +2749,16 @@ export function getMessagesByTimeRange(
   const endIso = new Date(endTs).toISOString();
   const rows = db
     .prepare(
-      `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments,
+      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments,
               turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid = ? AND timestamp >= ? AND timestamp < ?
        ORDER BY timestamp ASC
        LIMIT ?`,
     )
-    .all(chatJid, startIso, endIso, limit) as Array<
-    NewMessage & { is_from_me: number }
-  >;
+    .all(chatJid, startIso, endIso, limit) as DbMessageRow[];
 
-  return rows.map((row) => ({
-    ...row,
-    is_from_me: row.is_from_me === 1,
-  }));
+  return rows.map(mapDbMessageRow);
 }
 
 /**

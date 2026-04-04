@@ -45,6 +45,7 @@ import type {
   ParsedMessage,
   StreamEvent,
 } from './types.js';
+import type { StreamRuntimeIdentity } from './stream-event.types.js';
 export type { StreamEventType, StreamEvent } from './types.js';
 
 import { sanitizeFilename, generateFallbackName } from './utils.js';
@@ -65,6 +66,15 @@ const WORKSPACE_IPC = process.env.CLI_CLAW_WORKSPACE_IPC || '/workspace/ipc';
 // 别名自动解析为最新版本，如 opus → Opus 4.6
 // [1m] 后缀启用 1M 上下文窗口（CLI 内部 jG() 识别后缀，sM() 返回 1M 窗口）
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'opus[1m]';
+const CODEX_MODEL =
+  process.env.OPENAI_MODEL ||
+  process.env.CODEX_MODEL ||
+  '';
+const CODEX_REASONING_EFFORT =
+  process.env.OPENAI_REASONING_EFFORT ||
+  process.env.CODEX_REASONING_EFFORT ||
+  process.env.REASONING_EFFORT ||
+  '';
 
 const IPC_INPUT_DIR = path.join(WORKSPACE_IPC, 'input');
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
@@ -76,6 +86,32 @@ let hadCompaction = false;
 // Module-level session ID so SIGTERM handler can emit it before exit.
 // Updated in main() whenever a query returns a new session.
 let latestSessionId: string | undefined;
+let activeRuntimeIdentity: StreamRuntimeIdentity | null = null;
+
+function normalizeRuntimeText(value: string | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function buildRuntimeIdentity(
+  agentType: 'claude' | 'codex',
+): StreamRuntimeIdentity {
+  if (agentType === 'codex') {
+    return {
+      agentType: 'codex',
+      model: normalizeRuntimeText(CODEX_MODEL),
+      reasoningEffort: normalizeRuntimeText(CODEX_REASONING_EFFORT),
+      supportsReasoningEffort: true,
+    };
+  }
+  return {
+    agentType: 'claude',
+    model: normalizeRuntimeText(CLAUDE_MODEL),
+    reasoningEffort: null,
+    supportsReasoningEffort: false,
+  };
+}
 
 const DEFAULT_ALLOWED_TOOLS = [
   'Bash',
@@ -438,6 +474,20 @@ const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---CLI_CLAW_OUTPUT_END---';
 
 function writeOutput(output: ContainerOutput): void {
+  const runtimeIdentity = output.runtimeIdentity ?? activeRuntimeIdentity;
+  if (runtimeIdentity) {
+    output = {
+      ...output,
+      runtimeIdentity,
+      ...(output.streamEvent
+        ? {
+            streamEvent: output.streamEvent.runtimeIdentity
+              ? output.streamEvent
+              : { ...output.streamEvent, runtimeIdentity },
+          }
+        : {}),
+    };
+  }
   console.log(OUTPUT_START_MARKER);
   console.log(JSON.stringify(output));
   console.log(OUTPUT_END_MARKER);
@@ -2355,6 +2405,7 @@ async function main(): Promise<void> {
     const stdinData = await readStdin();
     containerInput = JSON.parse(stdinData);
     const requestedAgentType = containerInput.agentType || 'claude';
+    activeRuntimeIdentity = buildRuntimeIdentity(requestedAgentType);
     log(
       `Received input for group: ${containerInput.groupFolder}, chatJid: ${containerInput.chatJid}, agentType: ${requestedAgentType}, session: ${containerInput.sessionId || 'new'}, runnerPid: ${process.pid}`,
     );

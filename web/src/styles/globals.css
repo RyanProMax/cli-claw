@@ -713,6 +713,30 @@ pre code.hljs {
   box-sizing: border-box;
 }
 
+.message-scroll-area {
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+
+.message-scroll-area::-webkit-scrollbar {
+  width: 10px;
+}
+
+.message-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.38);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.message-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+  background-clip: padding-box;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

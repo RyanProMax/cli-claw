@@ -75,6 +75,7 @@ import {
 import { isSessionExpired } from './auth.js';
 import type {
   NewMessage,
+  RuntimeIdentity,
   WsMessageOut,
   WsMessageIn,
   AuthUser,
@@ -613,6 +614,7 @@ function setupWebSocket(server: any): WebSocketServer {
               todos: snap.todos,
               systemStatus: snap.systemStatus,
               turnId: snap.turnId,
+              runtimeIdentity: snap.runtimeIdentity ?? null,
             },
           } satisfies WsMessageOut));
         } catch { /* client not ready */ }
@@ -1366,6 +1368,7 @@ interface StreamingSnapshotEntry {
   todos?: Array<{ id: string; content: string; status: string }>;
   systemStatus: string | null;
   turnId?: string;
+  runtimeIdentity?: RuntimeIdentity | null;
   updatedAt: number;
 }
 
@@ -1405,6 +1408,7 @@ function updateStreamingSnapshot(normalizedJid: string, event: StreamEvent): voi
 
   snap.updatedAt = Date.now();
   if (event.turnId) snap.turnId = event.turnId;
+  if (event.runtimeIdentity) snap.runtimeIdentity = event.runtimeIdentity;
 
   switch (event.eventType) {
     case 'text_delta':

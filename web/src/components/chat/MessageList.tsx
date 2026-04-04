@@ -4,6 +4,7 @@ import { Message, useChatStore } from '../../stores/chat';
 import { useAuthStore } from '../../stores/auth';
 import { MessageBubble } from './MessageBubble';
 import { StreamingDisplay } from './StreamingDisplay';
+import { getMessageIdentityKey } from '../../lib/messageIdentity';
 import { EmojiAvatar } from '../common/EmojiAvatar';
 import { Loader2, ChevronUp, ChevronDown, AlertTriangle, Square, Code2, Zap, BookOpen, Wrench } from 'lucide-react';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
@@ -119,7 +120,7 @@ export function MessageList({ messages, loading, hasMore, onLoadMore, scrollTrig
         case 'divider': return `div-${index}`;
         case 'spawn': return `spawn-${index}`;
         case 'error': return `err-${index}`;
-        case 'message': return item.content.id;
+        case 'message': return getMessageIdentityKey(item.content);
       }
     },
     estimateSize: (index) => {
@@ -273,7 +274,7 @@ export function MessageList({ messages, loading, hasMore, onLoadMore, scrollTrig
     <div className="relative flex-1 overflow-hidden overflow-x-hidden">
       <div
         ref={parentRef}
-        className="h-full overflow-y-auto overflow-x-hidden py-6"
+        className="message-scroll-area h-full overflow-y-auto overflow-x-hidden py-6"
       >
         <div className={displayMode === 'compact' ? 'mx-auto px-4 min-w-0' : 'max-w-4xl mx-auto px-4 min-w-0'}>
         {loading && hasMore && (
@@ -409,7 +410,12 @@ export function MessageList({ messages, loading, hasMore, onLoadMore, scrollTrig
                 ref={virtualizer.measureElement}
                 data-index={virtualItem.index}
               >
-                <MessageBubble message={message} showTime={showTime} thinkingContent={thinkingCache[message.id]} isShared={isShared} />
+                <MessageBubble
+                  message={message}
+                  showTime={showTime}
+                  thinkingContent={thinkingCache[getMessageIdentityKey(message)]}
+                  isShared={isShared}
+                />
               </div>
             );
           })}

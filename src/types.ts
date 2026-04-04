@@ -36,6 +36,13 @@ export interface ContainerConfig {
 export type ExecutionMode = 'container' | 'host';
 export type AgentType = 'claude' | 'codex';
 
+export interface RuntimeIdentity {
+  agentType: AgentType;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  supportsReasoningEffort?: boolean | null;
+}
+
 export interface RegisteredGroup {
   name: string;
   folder: string;
@@ -70,6 +77,7 @@ export interface NewMessage {
   id: string;
   chat_jid: string;
   source_jid?: string;
+  runtime_identity?: RuntimeIdentity | null;
   sender: string;
   sender_name: string;
   content: string;
@@ -395,6 +403,7 @@ export type WsMessageOut =
         todos?: Array<{ id: string; content: string; status: string }>;
         systemStatus: string | null;
         turnId?: string;
+        runtimeIdentity?: RuntimeIdentity | null;
       };
     };
 

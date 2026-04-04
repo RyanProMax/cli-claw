@@ -18,6 +18,13 @@ export type StreamEventType =
   | 'usage'
   | 'status' | 'init';
 
+export interface StreamRuntimeIdentity {
+  agentType: 'claude' | 'codex';
+  model?: string | null;
+  reasoningEffort?: string | null;
+  supportsReasoningEffort?: boolean | null;
+}
+
 export interface StreamEvent {
   eventType: StreamEventType;
   /** Correlates all stream events for a single user turn. */
@@ -28,6 +35,7 @@ export interface StreamEvent {
   messageUuid?: string;
   /** Reserved — whether this event was synthesized locally rather than emitted directly by SDK semantics. */
   isSynthetic?: boolean;
+  runtimeIdentity?: StreamRuntimeIdentity | null;
   text?: string;
   toolName?: string;
   toolUseId?: string;
