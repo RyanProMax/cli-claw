@@ -517,7 +517,13 @@ export function createDingTalkConnection(
     const token = await getAccessToken();
     const robotCode = config.clientId;
     const msgParam = JSON.stringify({ content });
-    await batchSendToUser([senderStaffId], robotCode, token, 'sampleText', msgParam);
+    await batchSendToUser(
+      [senderStaffId],
+      robotCode,
+      token,
+      'sampleText',
+      msgParam,
+    );
   }
 
   /**
@@ -1017,7 +1023,13 @@ export function createDingTalkConnection(
       const token = await getAccessToken();
       // sampleImageMsg uses photoURL field (not mediaId) - DingTalk API quirk
       const msgParam = JSON.stringify({ photoURL: mediaId });
-      await batchSendToUser([userId], robotCode, token, 'sampleImageMsg', msgParam);
+      await batchSendToUser(
+        [userId],
+        robotCode,
+        token,
+        'sampleImageMsg',
+        msgParam,
+      );
       logger.info({ userId, mediaId, fileName }, 'DingTalk image message sent');
     } catch (err) {
       logger.error(
@@ -1409,7 +1421,11 @@ export function createDingTalkConnection(
           if (reply) {
             const plainText = markdownToPlainText(reply);
             if (data.sessionWebhook) {
-              await sendViaSessionWebhook(data.sessionWebhook, plainText, isGroup);
+              await sendViaSessionWebhook(
+                data.sessionWebhook,
+                plainText,
+                isGroup,
+              );
             }
             return;
           }
@@ -1495,7 +1511,9 @@ export function createDingTalkConnection(
         const originalProxy = axios.defaults?.proxy;
         if (axios.defaults) {
           axios.defaults.proxy = false;
-          logger.debug('Temporarily disabled axios global proxy for dingtalk-stream SDK');
+          logger.debug(
+            'Temporarily disabled axios global proxy for dingtalk-stream SDK',
+          );
         }
 
         // Create DWClient

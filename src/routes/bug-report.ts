@@ -6,6 +6,7 @@ import { promisify } from 'util';
 
 import { Hono } from 'hono';
 
+import { APP_ROOT, resolveAppPath } from '../app-root.js';
 import { DATA_DIR } from '../config.js';
 import { getUserHomeGroup } from '../db.js';
 import { getClaudeProviderConfig } from '../runtime-config.js';
@@ -108,7 +109,7 @@ async function checkCapabilities(): Promise<{
 function getVersion(): string {
   try {
     const pkg = JSON.parse(
-      fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8'),
+      fs.readFileSync(resolveAppPath('package.json'), 'utf-8'),
     );
     return pkg.version || 'unknown';
   } catch {
@@ -141,7 +142,7 @@ function sanitizeLogs(text: string): string {
   let result = text;
 
   // Replace absolute paths to project root and home directory with placeholders
-  const projectRoot = path.resolve(process.cwd());
+  const projectRoot = APP_ROOT;
   const homeDir = os.homedir();
   // Replace longer path first to avoid partial replacement
   if (projectRoot.startsWith(homeDir)) {

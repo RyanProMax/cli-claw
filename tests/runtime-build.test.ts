@@ -1,15 +1,64 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   createRuntimeBuildStatus,
+  getRuntimeBuildArtifactPaths,
   readBuildFingerprint,
 } from '../src/runtime-build.js';
 
+const ORIGINAL_CWD = process.cwd();
+const tempDirs: string[] = [];
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+);
+
+function makeTempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  process.chdir(ORIGINAL_CWD);
+  vi.resetModules();
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 describe('runtime build status', () => {
+  test('resolves artifact paths from the installed module root instead of launch cwd', async () => {
+    const launchCwd = makeTempDir('cli-claw-runtime-build-');
+    process.chdir(launchCwd);
+    vi.resetModules();
+
+    const runtimeBuild = await import('../src/runtime-build.js');
+
+    expect(runtimeBuild.getRuntimeBuildArtifactPaths()).toEqual({
+      backendBuildPath: path.join(REPO_ROOT, 'dist', 'index.js'),
+      backendPackagePath: path.join(REPO_ROOT, 'package.json'),
+      agentRunnerBuildPath: path.join(
+        REPO_ROOT,
+        'container',
+        'agent-runner',
+        'dist',
+        'index.js',
+      ),
+      agentRunnerPackagePath: path.join(
+        REPO_ROOT,
+        'container',
+        'agent-runner',
+        'package.json',
+      ),
+    });
+  });
+
   test('returns not stale when startup fingerprint matches current files', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-build-'));
     const backendPath = path.join(tempDir, 'backend.js');

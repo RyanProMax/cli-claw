@@ -4,6 +4,7 @@ import readline from 'readline';
 import { promisify } from 'util';
 
 import { Hono } from 'hono';
+import { resolveAppPath, resolvePackageDependency } from '../app-root.js';
 import type { Variables } from '../web-context.js';
 import { authMiddleware, systemConfigMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../types.js';
@@ -13,7 +14,11 @@ import {
   canAccessGroup,
   getWebDeps,
 } from '../web-context.js';
-import { getRegisteredGroup, getRouterState, hasContainerModeGroups } from '../db.js';
+import {
+  getRegisteredGroup,
+  getRouterState,
+  hasContainerModeGroups,
+} from '../db.js';
 import { CONTAINER_IMAGE } from '../config.js';
 import { getSystemSettings } from '../runtime-config.js';
 import { logger } from '../logger.js';
@@ -70,13 +75,15 @@ async function getLatestClaudeCodeVersion(): Promise<string | null> {
 /** Get host Claude Code version by running SDK's built-in cli.js --version */
 async function getHostClaudeCodeVersion(): Promise<string | null> {
   try {
-    const cliPath = path.resolve(
-      process.cwd(),
-      'container/agent-runner/node_modules/@anthropic-ai/claude-agent-sdk/cli.js',
+    const cliPath = resolvePackageDependency(
+      '@anthropic-ai/claude-agent-sdk/cli.js',
     );
     const { stdout } = await execFileAsync(
       'node',
-      ['-e', `process.argv = ['node', 'claude', '--version']; require('${cliPath}')`],
+      [
+        '-e',
+        `process.argv = ['node', 'claude', '--version']; require('${cliPath}')`,
+      ],
       { timeout: 10000 },
     );
     return stdout.trim() || null;
@@ -104,8 +111,12 @@ async function getContainerClaudeCodeVersion(): Promise<string | null> {
     const { stdout } = await execFileAsync(
       'docker',
       [
-        'run', '--rm', '--entrypoint', 'node',
-        CONTAINER_IMAGE, '-e',
+        'run',
+        '--rm',
+        '--entrypoint',
+        'node',
+        CONTAINER_IMAGE,
+        '-e',
         `process.argv = ['node', 'claude', '--version']; require('/app/node_modules/@anthropic-ai/claude-agent-sdk/cli.js')`,
       ],
       { timeout: 30000 },
@@ -308,7 +319,7 @@ monitorRoutes.post(
     }
 
     const authUser = c.get('user') as AuthUser;
-    const buildScript = path.resolve(process.cwd(), 'container', 'build.sh');
+    const buildScript = resolveAppPath('container', 'build.sh');
 
     buildState = {
       building: true,
@@ -324,7 +335,7 @@ monitorRoutes.post(
 
     // Spawn build process asynchronously
     const proc = spawn('bash', [buildScript], {
-      cwd: path.resolve(process.cwd(), 'container'),
+      cwd: resolveAppPath('container'),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

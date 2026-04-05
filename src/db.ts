@@ -3,6 +3,7 @@ import Database from './sqlite-compat.js';
 import fs from 'fs';
 import path from 'path';
 
+import { resolveAppPath } from './app-root.js';
 import { STORE_DIR, GROUPS_DIR } from './config.js';
 import { logger } from './logger.js';
 import {
@@ -1860,7 +1861,10 @@ export function getMessagesSince(
     cursor.timestamp,
     cursor.id,
   ) as DbMessageRow[];
-  return rows.map((row) => ({ ...row, runtime_identity: parseRuntimeIdentity(row.runtime_identity) }));
+  return rows.map((row) => ({
+    ...row,
+    runtime_identity: parseRuntimeIdentity(row.runtime_identity),
+  }));
 }
 
 export function createTask(
@@ -2526,8 +2530,7 @@ export function ensureUserHomeGroup(
   fs.mkdirSync(userGlobalDir, { recursive: true });
   const userAgentMemory = getAgentMemoryPath(userGlobalDir);
   if (!fs.existsSync(userAgentMemory)) {
-    const templatePath = path.resolve(
-      process.cwd(),
+    const templatePath = resolveAppPath(
       'config',
       AGENT_MEMORY_TEMPLATE_FILENAME,
     );

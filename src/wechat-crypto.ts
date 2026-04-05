@@ -76,13 +76,14 @@ export async function downloadAndDecryptMedia(
   const url = buildCdnDownloadUrl(encryptQueryParam, cdnBaseUrl);
   const key = parseAesKey(aesKeyBase64);
 
-  logger.debug({ url: url.slice(0, 120) }, 'Downloading encrypted media from CDN');
+  logger.debug(
+    { url: url.slice(0, 120) },
+    'Downloading encrypted media from CDN',
+  );
 
   const resp = await fetch(url, { signal: AbortSignal.timeout(60_000) });
   if (!resp.ok) {
-    throw new Error(
-      `CDN download failed: ${resp.status} ${resp.statusText}`,
-    );
+    throw new Error(`CDN download failed: ${resp.status} ${resp.statusText}`);
   }
 
   const ciphertext = Buffer.from(await resp.arrayBuffer());
@@ -115,16 +116,12 @@ export async function uploadBufferToCdn(params: {
       });
 
       if (!resp.ok) {
-        throw new Error(
-          `CDN upload failed: ${resp.status} ${resp.statusText}`,
-        );
+        throw new Error(`CDN upload failed: ${resp.status} ${resp.statusText}`);
       }
 
       const downloadParam = resp.headers.get('x-encrypted-param');
       if (!downloadParam) {
-        throw new Error(
-          'CDN upload response missing x-encrypted-param header',
-        );
+        throw new Error('CDN upload response missing x-encrypted-param header');
       }
 
       return { downloadParam };

@@ -346,9 +346,7 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
 
   // ─── File Download ─────────────────────────────────────────
 
-  async function downloadQQAttachment(
-    url: string,
-  ): Promise<Buffer | null> {
+  async function downloadQQAttachment(url: string): Promise<Buffer | null> {
     try {
       const buffer = await new Promise<Buffer>((resolve, reject) => {
         const doRequest = (reqUrl: string, redirectCount: number = 0) => {
@@ -427,7 +425,12 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
         const ext = IMAGE_EXT_MAP[imageMime] ?? '.jpg';
         const fileName = `qq_img_${msgId.slice(-8)}${ext}`;
         try {
-          const relPath = await saveDownloadedFile(groupFolder, 'qq', fileName, buffer);
+          const relPath = await saveDownloadedFile(
+            groupFolder,
+            'qq',
+            fileName,
+            buffer,
+          );
           if (relPath) content = `[图片: ${relPath}]\n${content}`.trim();
         } catch (err) {
           logger.warn({ err }, `Failed to save QQ ${logContext} image`);
@@ -439,14 +442,20 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
     }
 
     // Non-image file
-    const urlFilename = attachment.filename
-      || attachUrl.split('/').pop()?.split('?')[0]
-      || `qq_file_${msgId.slice(-8)}`;
+    const urlFilename =
+      attachment.filename ||
+      attachUrl.split('/').pop()?.split('?')[0] ||
+      `qq_file_${msgId.slice(-8)}`;
     const fileName = urlFilename.replace(/[^a-zA-Z0-9._\-\u4e00-\u9fff]/g, '_');
 
     if (groupFolder) {
       try {
-        const relPath = await saveDownloadedFile(groupFolder, 'qq', fileName, buffer);
+        const relPath = await saveDownloadedFile(
+          groupFolder,
+          'qq',
+          fileName,
+          buffer,
+        );
         if (relPath) content = `[文件: ${relPath}]\n${content}`.trim();
       } catch (err) {
         logger.warn({ err }, `Failed to save QQ ${logContext} file`);
@@ -757,7 +766,12 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
       let attachmentsJson: string | undefined;
       if (data.attachments?.length) {
         const result = await processQQAttachment(
-          data.attachments[0], msgId, jid, content, opts, 'c2c',
+          data.attachments[0],
+          msgId,
+          jid,
+          content,
+          opts,
+          'c2c',
         );
         content = result.content;
         attachmentsJson = result.attachmentsJson;
@@ -913,7 +927,12 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
       let attachmentsJson: string | undefined;
       if (data.attachments?.length) {
         const result = await processQQAttachment(
-          data.attachments[0], msgId, jid, content, opts, 'group',
+          data.attachments[0],
+          msgId,
+          jid,
+          content,
+          opts,
+          'group',
         );
         content = result.content;
         attachmentsJson = result.attachmentsJson;

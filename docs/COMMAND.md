@@ -4,6 +4,31 @@
 
 ## 概览
 
+Cli Claw 的“命令”分成两层：
+
+- 服务 launcher 命令：在 shell 里直接执行 `cli-claw ...`
+- 应用内命令：服务启动后，在 Web / IM 里输入 slash command
+
+统一命令注册表只覆盖第二层应用内命令；`cli-claw start` / `help` / `version` 不走 runtime command registry。
+
+## 服务 Launcher 命令
+
+以下命令由 npm 安装后的 `cli-claw` 二进制直接处理：
+
+| 命令 | 别名 | 作用 |
+| --- | --- | --- |
+| `cli-claw start` | - | 启动主服务，并把当前 shell 目录作为 host 工作区默认启动目录 |
+| `cli-claw help` | `cli-claw -h` / `cli-claw --help` | 查看 launcher 帮助 |
+| `cli-claw version` | `cli-claw -v` / `cli-claw --version` | 输出已安装版本 |
+
+说明：
+
+- launcher 命令发生在服务外部，不会路由到任何工作区。
+- `cli-claw start` 会先校验当前目录是否符合 host allowlist，再为缺失 `custom_cwd` 的 host 工作区物化默认值。
+- 这些命令与下文的 `/help`、`/model`、`/clear` 等应用内命令不是同一层协议。
+
+## 应用内命令概览
+
 Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实源：
 
 - IM slash command 分发

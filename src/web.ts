@@ -5,6 +5,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
 import { TerminalManager } from './terminal-manager.js';
+import { resolveAppPath } from './app-root.js';
 
 // Web context and shared utilities
 import {
@@ -249,7 +250,10 @@ function persistImmediateMessage(options: {
     timestamp,
     options.isFromMe,
     options.sourceKind
-      ? { attachments: options.attachments, meta: { sourceKind: options.sourceKind } }
+      ? {
+          attachments: options.attachments,
+          meta: { sourceKind: options.sourceKind },
+        }
       : { attachments: options.attachments },
   );
 
@@ -351,12 +355,17 @@ async function handleWebSlashCommand(options: {
     }
 
     try {
-      await executeSessionReset(options.chatJid, targetGroup.folder, {
-        queue: deps.queue,
-        sessions: deps.getSessions(),
-        broadcast: broadcastNewMessage,
-        setLastAgentTimestamp: deps.setLastAgentTimestamp,
-      }, options.agentId);
+      await executeSessionReset(
+        options.chatJid,
+        targetGroup.folder,
+        {
+          queue: deps.queue,
+          sessions: deps.getSessions(),
+          broadcast: broadcastNewMessage,
+          setLastAgentTimestamp: deps.setLastAgentTimestamp,
+        },
+        options.agentId,
+      );
     } catch (err) {
       logger.error({ chatJid: displayChatJid, err }, '/clear command failed');
       replyWithText('清除上下文失败，请稍后重试');
@@ -369,7 +378,8 @@ async function handleWebSlashCommand(options: {
     chatJid: displayChatJid,
     commandText: options.content,
     deps: {
-      getGroup: (jid) => deps!.getRegisteredGroups()[jid] ?? getRegisteredGroup(jid),
+      getGroup: (jid) =>
+        deps!.getRegisteredGroups()[jid] ?? getRegisteredGroup(jid),
       setGroup: (jid, group) => {
         setRegisteredGroup(jid, group);
         deps!.getRegisteredGroups()[jid] = group;
@@ -388,7 +398,9 @@ async function handleWebSlashCommand(options: {
     return { handled: true, messageId, timestamp };
   }
 
-  replyWithText(`当前 Web 入口不支持 /${parsed.name}，请使用 /help 查看当前可用命令`);
+  replyWithText(
+    `当前 Web 入口不支持 /${parsed.name}，请使用 /help 查看当前可用命令`,
+  );
   return { handled: true, messageId, timestamp };
 }
 
@@ -529,16 +541,11 @@ async function handleWebUserMessage(
   let pipedToActive = false;
   const images = toAgentImages(normalizedAttachments);
   const updateRoute = deps.updateReplyRoute;
-  const sendResult = deps.queue.sendMessage(
-    chatJid,
-    formatted,
-    images,
-    () => {
-      // IPC write succeeded — update reply route for home groups.
-      // Web messages have no IM source, so clear the IM route.
-      updateRoute?.(group.folder, null);
-    },
-  );
+  const sendResult = deps.queue.sendMessage(chatJid, formatted, images, () => {
+    // IPC write succeeded — update reply route for home groups.
+    // Web messages have no IM source, so clear the IM route.
+    updateRoute?.(group.folder, null);
+  });
   if (sendResult === 'sent') {
     pipedToActive = true;
   } else {
@@ -664,6 +671,8 @@ async function handleAgentConversationMessage(
 
 // --- Static Files ---
 
+const WEB_DIST_ROOT = resolveAppPath('web', 'dist');
+
 // 带 content hash 的静态资源：长期不可变缓存
 app.use(
   '/assets/*',
@@ -673,7 +682,7 @@ app.use(
       c.res.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
     }
   },
-  serveStatic({ root: './web/dist' }),
+  serveStatic({ root: WEB_DIST_ROOT }),
 );
 
 // SPA fallback：index.html / sw.js 等必须每次验证
@@ -698,7 +707,7 @@ app.use(
     }
   },
   serveStatic({
-    root: './web/dist',
+    root: WEB_DIST_ROOT,
     rewriteRequestPath: (p) => {
       // SPA fallback
       if (p.startsWith('/api') || p.startsWith('/ws')) return p;
@@ -760,7 +769,9 @@ function setupWebSocket(server: any): WebSocketServer {
   wss.on('connection', (ws, request: any) => {
     const sessionId = request?.__cliClawSessionId as string | undefined;
     logger.info('WebSocket client connected');
-    const connSession = sessionId ? getCachedSessionWithUser(sessionId) : undefined;
+    const connSession = sessionId
+      ? getCachedSessionWithUser(sessionId)
+      : undefined;
     wsClients.set(ws, {
       sessionId: sessionId || '',
       userId: connSession?.user_id || '',
@@ -779,7 +790,11 @@ function setupWebSocket(server: any): WebSocketServer {
           continue;
         }
         // Skip empty snapshots
-        if (!snap.partialText && snap.activeTools.length === 0 && snap.recentEvents.length === 0) {
+        if (
+          !snap.partialText &&
+          snap.activeTools.length === 0 &&
+          snap.recentEvents.length === 0
+        ) {
           continue;
         }
         // Strip #agent: suffix for ACL lookup (virtual JIDs not in registered_groups)
@@ -787,20 +802,24 @@ function setupWebSocket(server: any): WebSocketServer {
         const allowed = getGroupAllowedUserIds(baseJid);
         if (allowed === null || !allowed.has(userId)) continue;
         try {
-          ws.send(JSON.stringify({
-            type: 'stream_snapshot',
-            chatJid: jid,
-            snapshot: {
-              partialText: snap.partialText,
-              activeTools: snap.activeTools,
-              recentEvents: snap.recentEvents,
-              todos: snap.todos,
-              systemStatus: snap.systemStatus,
-              turnId: snap.turnId,
-              runtimeIdentity: snap.runtimeIdentity ?? null,
-            },
-          } satisfies WsMessageOut));
-        } catch { /* client not ready */ }
+          ws.send(
+            JSON.stringify({
+              type: 'stream_snapshot',
+              chatJid: jid,
+              snapshot: {
+                partialText: snap.partialText,
+                activeTools: snap.activeTools,
+                recentEvents: snap.recentEvents,
+                todos: snap.todos,
+                systemStatus: snap.systemStatus,
+                turnId: snap.turnId,
+                runtimeIdentity: snap.runtimeIdentity ?? null,
+              },
+            } satisfies WsMessageOut),
+          );
+        } catch {
+          /* client not ready */
+        }
       }
     }
 
@@ -817,12 +836,16 @@ function setupWebSocket(server: any): WebSocketServer {
         const allowed = getGroupAllowedUserIds(g.jid);
         if (allowed === null || !allowed.has(userId)) continue;
         try {
-          ws.send(JSON.stringify({
-            type: 'runner_state',
-            chatJid: jid,
-            state: 'running',
-          } satisfies WsMessageOut));
-        } catch { /* client not ready */ }
+          ws.send(
+            JSON.stringify({
+              type: 'runner_state',
+              chatJid: jid,
+              state: 'running',
+            } satisfies WsMessageOut),
+          );
+        } catch {
+          /* client not ready */
+        }
       }
     }
 
@@ -883,7 +906,10 @@ function setupWebSocket(server: any): WebSocketServer {
           if (!wsValidation.success) {
             sendWsError('消息格式无效', msg.chatJid);
             logger.warn(
-              { chatJid: msg.chatJid, issues: wsValidation.error.issues.map(i => i.message) },
+              {
+                chatJid: msg.chatJid,
+                issues: wsValidation.error.issues.map((i) => i.message),
+              },
               'WebSocket send_message validation failed',
             );
             return;
@@ -1269,10 +1295,7 @@ function safeBroadcast(
 
     const session = getCachedSessionWithUser(clientInfo.sessionId);
     const expired = !!session && isSessionExpired(session.expires_at);
-    const invalid =
-      !session ||
-      expired ||
-      session.status !== 'active';
+    const invalid = !session || expired || session.status !== 'active';
     if (invalid) {
       if (expired) {
         deleteUserSession(clientInfo.sessionId);
@@ -1495,14 +1518,25 @@ const MAX_SNAPSHOT_TEXT = 4000;
 const MAX_SNAPSHOT_EVENTS = 20;
 
 /** Push a recent event entry and truncate to MAX_SNAPSHOT_EVENTS. */
-function pushRecentEvent(snap: StreamingSnapshotEntry, event: { id: string; timestamp: number; text: string; kind: 'tool' | 'skill' | 'hook' | 'status' }): void {
+function pushRecentEvent(
+  snap: StreamingSnapshotEntry,
+  event: {
+    id: string;
+    timestamp: number;
+    text: string;
+    kind: 'tool' | 'skill' | 'hook' | 'status';
+  },
+): void {
   snap.recentEvents.push(event);
   if (snap.recentEvents.length > MAX_SNAPSHOT_EVENTS) {
     snap.recentEvents = snap.recentEvents.slice(-MAX_SNAPSHOT_EVENTS);
   }
 }
 
-function updateStreamingSnapshot(normalizedJid: string, event: StreamEvent): void {
+function updateStreamingSnapshot(
+  normalizedJid: string,
+  event: StreamEvent,
+): void {
   let snap = streamingSnapshots.get(normalizedJid);
 
   // Reset on new turn
@@ -1534,7 +1568,10 @@ function updateStreamingSnapshot(normalizedJid: string, event: StreamEvent): voi
           snap.partialText = snap.partialText.slice(-MAX_SNAPSHOT_TEXT);
         }
         // Accumulate full (non-truncated) text for shutdown persistence
-        streamingFullTexts.set(normalizedJid, (streamingFullTexts.get(normalizedJid) || '') + event.text);
+        streamingFullTexts.set(
+          normalizedJid,
+          (streamingFullTexts.get(normalizedJid) || '') + event.text,
+        );
       }
       break;
 
@@ -1558,15 +1595,20 @@ function updateStreamingSnapshot(normalizedJid: string, event: StreamEvent): voi
 
     case 'tool_use_end':
       if (event.toolUseId) {
-        snap.activeTools = snap.activeTools.filter(t => t.toolUseId !== event.toolUseId);
+        snap.activeTools = snap.activeTools.filter(
+          (t) => t.toolUseId !== event.toolUseId,
+        );
       }
       break;
 
     case 'tool_progress':
       if (event.toolUseId) {
-        const tool = snap.activeTools.find(t => t.toolUseId === event.toolUseId);
+        const tool = snap.activeTools.find(
+          (t) => t.toolUseId === event.toolUseId,
+        );
         if (tool) {
-          if (event.toolInputSummary) tool.toolInputSummary = event.toolInputSummary;
+          if (event.toolInputSummary)
+            tool.toolInputSummary = event.toolInputSummary;
         }
       }
       break;
@@ -1596,7 +1638,11 @@ function updateStreamingSnapshot(normalizedJid: string, event: StreamEvent): voi
 
     case 'todo_update':
       if (event.todos) {
-        snap.todos = event.todos.map(t => ({ id: t.id, content: t.content, status: t.status }));
+        snap.todos = event.todos.map((t) => ({
+          id: t.id,
+          content: t.content,
+          status: t.status,
+        }));
       }
       break;
   }
@@ -1650,7 +1696,11 @@ export function broadcastGroupCreated(
   userId?: string,
 ): void {
   const allowedUserIds = userId ? new Set([userId]) : undefined;
-  safeBroadcast({ type: 'group_created', jid, folder, name }, false, allowedUserIds);
+  safeBroadcast(
+    { type: 'group_created', jid, folder, name },
+    false,
+    allowedUserIds,
+  );
 }
 
 export function broadcastBillingUpdate(
@@ -1712,8 +1762,12 @@ export function broadcastRunnerState(
     streamingFullTexts.delete(jid);
     // Collect keys first, then delete (avoid mutating Map during iteration)
     const agentPrefix = jid + '#agent:';
-    const snapshotKeysToDelete = [...streamingSnapshots.keys()].filter(k => k.startsWith(agentPrefix));
-    const fullTextKeysToDelete = [...streamingFullTexts.keys()].filter(k => k.startsWith(agentPrefix));
+    const snapshotKeysToDelete = [...streamingSnapshots.keys()].filter((k) =>
+      k.startsWith(agentPrefix),
+    );
+    const fullTextKeysToDelete = [...streamingFullTexts.keys()].filter((k) =>
+      k.startsWith(agentPrefix),
+    );
     for (const key of snapshotKeysToDelete) streamingSnapshots.delete(key);
     for (const key of fullTextKeysToDelete) streamingFullTexts.delete(key);
   }

@@ -7,11 +7,15 @@
 ```text
 .
 ├── src/
-│   ├── index.ts                    # 进程入口；消息轮询、执行调度、流式输出汇总
+│   ├── cli.ts                      # npm 二进制入口；分发 start / help / version
+│   ├── index.ts                    # backend bootstrap；消息轮询、执行调度、流式输出汇总
+│   ├── app-root.ts                 # 安装位置 / 包根路径 / 启动目录解析
 │   ├── web.ts                      # Hono 应用、WebSocket、静态资源托管
 │   ├── db.ts                       # SQLite 数据层、用户/工作区/消息/任务持久化
 │   ├── group-queue.ts              # 会话并发控制、重试与排队
 │   ├── container-runner.ts         # Docker / host 执行、卷挂载、Agent 生命周期
+│   ├── group-runtime.ts            # 工作区 runtime 继承与边界约束
+│   ├── host-workspace-cwd.ts       # host 工作区 effective cwd 校验、物化与解析
 │   ├── runtime-config.ts           # Provider / IM / 系统配置、密文存储、环境变量合成
 │   ├── runtime-build.ts            # 运行进程与已加载 dist 的 build 指纹
 │   ├── runtime-identity.ts         # 实际运行时 agent / model / effort 元数据
@@ -100,7 +104,8 @@
 │   └── Handoff.md                  # 阻塞 / 换线程 / 跨会话交接模板
 ├── scripts/
 │   ├── validate.sh                 # 统一验证入口；串联测试、类型检查与构建
-│   └── review.sh                   # 机械化 review 辅助；语义审查仍按 RUNBOOKS/Review.md
+│   ├── review.sh                   # 机械化 review 辅助；语义审查仍按 RUNBOOKS/Review.md
+│   └── release-check.sh            # npm publish 前本地发布检查入口
 ├── .codex/
 │   └── agents/
 │       ├── reader.md               # 只读探索子角色

@@ -55,9 +55,7 @@ export async function executeSessionReset(
   deps: CommandDeps,
   agentId?: string,
 ): Promise<void> {
-  const targetJid = agentId
-    ? `${baseChatJid}#agent:${agentId}`
-    : baseChatJid;
+  const targetJid = agentId ? `${baseChatJid}#agent:${agentId}` : baseChatJid;
 
   if (agentId) {
     // Agent-specific reset: only stop the agent's virtual JID process

@@ -22,7 +22,9 @@ export function clearSessionJsonlFiles(folder: string, agentId?: string): void {
 
 export async function resetWorkspaceRuntimeState(
   deps: {
-    queue: { stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown> };
+    queue: {
+      stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown>;
+    };
     getSessions: () => Record<string, string>;
   },
   jid: string,

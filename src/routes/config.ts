@@ -73,7 +73,12 @@ import {
   saveUserDingTalkConfig,
   updateAllSessionCredentials,
 } from '../runtime-config.js';
-import type { ClaudeOAuthCredentials, CachedOAuthUsage, OAuthUsageResponse, OAuthUsageBucket } from '../runtime-config.js';
+import type {
+  ClaudeOAuthCredentials,
+  CachedOAuthUsage,
+  OAuthUsageResponse,
+  OAuthUsageBucket,
+} from '../runtime-config.js';
 import { parseOAuthUsageBucket } from '../runtime-config.js';
 import type { AuthUser, RegisteredGroup } from '../types.js';
 import { hasPermission } from '../permissions.js';
@@ -243,7 +248,10 @@ async function fetchOAuthUsage(providerId: string): Promise<CachedOAuthUsage> {
       if (!resp.ok) {
         // Return stale cache if available, otherwise throw
         if (cached) {
-          const stale: CachedOAuthUsage = { ...cached, error: `HTTP ${resp.status}` };
+          const stale: CachedOAuthUsage = {
+            ...cached,
+            error: `HTTP ${resp.status}`,
+          };
           usageCache.set(providerId, stale);
           return stale;
         }

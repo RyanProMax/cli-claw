@@ -23,7 +23,9 @@ export interface RuntimeCommandDeps {
   setGroup: (jid: string, group: RegisteredGroup) => void;
   getSiblingJids: (folder: string) => string[];
   getAgent: (agentId: string) => RuntimeCommandAgentLike | undefined;
-  queue: { stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown> };
+  queue: {
+    stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown>;
+  };
   getSessions: () => Record<string, string>;
 }
 
@@ -84,10 +86,7 @@ function findHomeWorkspaceJid(
 function resolveWorkspaceJid(
   sourceChatJid: string,
   sourceGroup: RegisteredGroup,
-  deps: Pick<
-    RuntimeCommandDeps,
-    'getAgent' | 'getGroup' | 'getSiblingJids'
-  >,
+  deps: Pick<RuntimeCommandDeps, 'getAgent' | 'getGroup' | 'getSiblingJids'>,
 ): string {
   if (sourceGroup.target_agent_id) {
     const agent = deps.getAgent(sourceGroup.target_agent_id);
@@ -122,10 +121,7 @@ function resolveEffectiveRuntimeGroup(
 
 export function resolveRuntimeWorkspaceTarget(
   chatJid: string,
-  deps: Pick<
-    RuntimeCommandDeps,
-    'getAgent' | 'getGroup' | 'getSiblingJids'
-  >,
+  deps: Pick<RuntimeCommandDeps, 'getAgent' | 'getGroup' | 'getSiblingJids'>,
 ): ResolvedRuntimeWorkspaceTarget | null {
   const sourceChatJid = stripVirtualChatJid(chatJid);
   const sourceGroup = deps.getGroup(sourceChatJid);
@@ -144,7 +140,9 @@ export function resolveRuntimeWorkspaceTarget(
   };
 }
 
-function formatRuntimeScopeLabel(target: ResolvedRuntimeWorkspaceTarget): string {
+function formatRuntimeScopeLabel(
+  target: ResolvedRuntimeWorkspaceTarget,
+): string {
   return target.workspaceGroup.name || target.effectiveGroup.folder;
 }
 
@@ -299,11 +297,7 @@ export async function executeRuntimeWorkspaceCommand(options: {
       }
       return {
         handled: true,
-        reply: await handleEffortCommand(
-          target,
-          options.deps,
-          parsed.argsText,
-        ),
+        reply: await handleEffortCommand(target, options.deps, parsed.argsText),
       };
     default:
       return { handled: false, reply: null };

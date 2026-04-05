@@ -66,11 +66,7 @@ export interface TelegramConnection {
     caption?: string,
     fileName?: string,
   ): Promise<void>;
-  sendFile(
-    chatId: string,
-    filePath: string,
-    fileName: string,
-  ): Promise<void>;
+  sendFile(chatId: string, filePath: string, fileName: string): Promise<void>;
   sendChatAction(chatId: string, action: 'typing'): Promise<void>;
   isConnected(): boolean;
 }
@@ -416,7 +412,8 @@ export function createTelegramConnection(
           }
           markSeen(msgId);
 
-          if (isStaleMessage(ctx.message.date, opts.ignoreMessagesBefore)) return;
+          if (isStaleMessage(ctx.message.date, opts.ignoreMessagesBefore))
+            return;
 
           const chatId = String(ctx.chat.id);
           const jid = `telegram:${chatId}`;
@@ -610,7 +607,8 @@ export function createTelegramConnection(
           if (isDuplicate(msgId)) return;
           markSeen(msgId);
 
-          if (isStaleMessage(ctx.message.date, opts.ignoreMessagesBefore)) return;
+          if (isStaleMessage(ctx.message.date, opts.ignoreMessagesBefore))
+            return;
 
           const chatId = String(ctx.chat.id);
           const jid = `telegram:${chatId}`;
@@ -754,7 +752,8 @@ export function createTelegramConnection(
           if (isDuplicate(msgId)) return;
           markSeen(msgId);
 
-          if (isStaleMessage(ctx.message.date, opts.ignoreMessagesBefore)) return;
+          if (isStaleMessage(ctx.message.date, opts.ignoreMessagesBefore))
+            return;
 
           const chatId = String(ctx.chat.id);
           const jid = `telegram:${chatId}`;

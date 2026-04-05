@@ -10,8 +10,10 @@ import {
   spawn,
 } from 'child_process';
 import fs from 'fs';
+import { createRequire } from 'module';
 import os from 'os';
 import path from 'path';
+import { APP_ROOT, LAUNCH_CWD, resolveAppPath } from './app-root.js';
 
 import { CONTAINER_IMAGE, DATA_DIR, GROUPS_DIR } from './config.js';
 import { logger } from './logger.js';
@@ -147,7 +149,10 @@ interface VolumeMount {
   readonly: boolean;
 }
 
-function requireWorkspaceOwner(group: RegisteredGroup, context: string): string {
+function requireWorkspaceOwner(
+  group: RegisteredGroup,
+  context: string,
+): string {
   if (!group.created_by) {
     throw new Error(
       `Workspace ${group.folder} is missing created_by; ${context} requires an owned workspace`,
@@ -224,7 +229,8 @@ function buildVolumeMounts(
   resolvedProvider?: ResolvedProvider,
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
-  const projectRoot = process.cwd();
+  const packageRoot = APP_ROOT;
+  const launchCwd = LAUNCH_CWD;
 
   // Per-user global memory directory:
   // Each user gets their own user-global/{userId}/ mounted as /workspace/global
@@ -238,9 +244,10 @@ function buildVolumeMounts(
   });
 
   if (isAdminHome) {
-    // Admin home gets the entire project root mounted
+    // Preserve the launch directory separately from packaged resources.
+    // Admin home continues to see the operator's startup cwd as /workspace/project.
     mounts.push({
-      hostPath: projectRoot,
+      hostPath: launchCwd,
       containerPath: '/workspace/project',
       readonly: false,
     });
@@ -297,7 +304,7 @@ function buildVolumeMounts(
 
   // Skills：以只读卷挂载宿主机目录（由 entrypoint 创建符号链接）
   // 用户的所有 skills 在其所有工作区中全量生效
-  const projectSkillsDir = path.join(projectRoot, 'container', 'skills');
+  const projectSkillsDir = path.join(packageRoot, 'container', 'skills');
   const userSkillsDir =
     mountUserSkills && ownerId ? path.join(DATA_DIR, 'skills', ownerId) : null;
 
@@ -399,7 +406,7 @@ function buildVolumeMounts(
   // Mount agent-runner source from host — recompiled on container startup.
   // Bypasses Docker 镜像构建缓存，确保代码变更生效。
   const agentRunnerSrc = path.join(
-    projectRoot,
+    packageRoot,
     'container',
     'agent-runner',
     'src',
@@ -818,6 +825,7 @@ export async function runHostAgent(
   onProcess: (proc: ChildProcess, identifier: string) => void,
   onOutput?: (output: ContainerOutput) => Promise<void>,
   ownerHomeFolder?: string,
+  options?: { executionCwd?: string },
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
   const setupInstallHint = 'npm --prefix container/agent-runner install';
@@ -828,36 +836,23 @@ export async function runHostAgent(
     error: message,
   });
 
-  // 1. 确定工作目录
-  const defaultGroupDir = path.join(GROUPS_DIR, group.folder);
-  if (!group.customCwd) {
-    fs.mkdirSync(defaultGroupDir, { recursive: true });
-    // 确保 group 目录是独立 git root，防止 Claude Code 向上找到父项目的 .git
-    const gitDir = path.join(defaultGroupDir, '.git');
-    if (!fs.existsSync(gitDir)) {
-      try {
-        execFileSync('git', ['init'], {
-          cwd: defaultGroupDir,
-          stdio: 'ignore',
-        });
-        logger.info(
-          { folder: group.folder },
-          'Initialized git repository for group',
-        );
-      } catch (err) {
-        // Non-fatal: agent still works, just reports wrong working directory
-        logger.warn(
-          { folder: group.folder, err },
-          'Failed to initialize git repository',
-        );
-      }
-    }
+  // 1. 确定存储目录与实际执行目录
+  const storageGroupDir = path.join(GROUPS_DIR, group.folder);
+  fs.mkdirSync(storageGroupDir, { recursive: true });
+
+  const initialExecutionCwd =
+    options?.executionCwd ||
+    (group.executionMode === 'host' ? group.customCwd : storageGroupDir);
+  if (!initialExecutionCwd) {
+    return hostModeSetupError(
+      'Host workspace is missing custom_cwd. Run cli-claw start from the target directory or set custom_cwd explicitly.',
+    );
   }
-  let groupDir = group.customCwd || defaultGroupDir;
-  if (!path.isAbsolute(groupDir)) {
-    return hostModeSetupError(`工作目录必须是绝对路径：${groupDir}`);
+  if (!path.isAbsolute(initialExecutionCwd)) {
+    return hostModeSetupError(`工作目录必须是绝对路径：${initialExecutionCwd}`);
   }
   // Resolve symlinks to prevent TOCTOU attacks
+  let groupDir = initialExecutionCwd;
   try {
     groupDir = fs.realpathSync(groupDir);
   } catch {
@@ -867,9 +862,9 @@ export async function runHostAgent(
     return hostModeSetupError(`工作目录不是目录：${groupDir}`);
   }
 
-  // Runtime allowlist validation for custom CWD (defense-in-depth: web.ts validates at creation,
+  // Runtime allowlist validation for host CWD (defense-in-depth: web.ts validates at creation,
   // but re-check here in case allowlist was tightened or path was injected via DB)
-  if (group.customCwd) {
+  if (group.executionMode === 'host') {
     const allowlist = loadMountAllowlist();
     if (
       allowlist &&
@@ -907,7 +902,7 @@ export async function runHostAgent(
     }
   }
 
-  fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(storageGroupDir, 'logs'), { recursive: true });
   fs.mkdirSync(path.join(DATA_DIR, 'memory', group.folder), {
     recursive: true,
   });
@@ -994,8 +989,7 @@ export async function runHostAgent(
     };
 
     // 项目级 skills
-    const projectRoot = process.cwd();
-    linkSkillEntries(path.join(projectRoot, 'container', 'skills'));
+    linkSkillEntries(resolveAppPath('container', 'skills'));
     // 用户级 skills（覆盖同名项目级）
     const ownerId = group.created_by;
     if (ownerId) {
@@ -1086,21 +1080,30 @@ export async function runHostAgent(
     }
 
     // 6. 编译检查
-    const projectRoot = process.cwd();
-    const agentRunnerRoot = path.join(projectRoot, 'container', 'agent-runner');
-    const agentRunnerNodeModules = path.join(agentRunnerRoot, 'node_modules');
+    const agentRunnerRoot = resolveAppPath('container', 'agent-runner');
+    const agentRunnerManifestPath = path.join(agentRunnerRoot, 'package.json');
     const agentRunnerDist = path.join(agentRunnerRoot, 'dist', 'index.js');
+    if (!fs.existsSync(agentRunnerManifestPath)) {
+      logger.error(
+        { group: group.name, agentRunnerRoot },
+        'Host agent preflight failed: packaged agent-runner manifest missing',
+      );
+      return hostModeSetupError(
+        '缺少 container/agent-runner 资源。当前安装不支持 packaged host-mode agent-runner，请改用源码仓库运行或补齐该目录后重试。',
+      );
+    }
     const requiredDeps =
       agentType === 'claude'
         ? ['@anthropic-ai/claude-agent-sdk']
         : ['@agentclientprotocol/sdk'];
+    const agentRunnerRequire = createRequire(agentRunnerManifestPath);
     const missingDeps = requiredDeps.filter((dep) => {
-      const depJson = path.join(
-        agentRunnerNodeModules,
-        ...dep.split('/'),
-        'package.json',
-      );
-      return !fs.existsSync(depJson);
+      try {
+        agentRunnerRequire.resolve(`${dep}/package.json`);
+        return false;
+      } catch {
+        return true;
+      }
     });
     if (missingDeps.length > 0) {
       const missing = missingDeps.join(', ');
@@ -1118,7 +1121,7 @@ export async function runHostAgent(
         'Host agent preflight failed: dist not found',
       );
       return hostModeSetupError(
-        `agent-runner 未编译。请先执行：${setupBuildHint}`,
+        `agent-runner 产物缺失。请先执行：${setupBuildHint}；若这是安装包环境，请确认包含 container/agent-runner/dist。`,
       );
     }
     if (agentType === 'codex') {
@@ -1185,7 +1188,7 @@ export async function runHostAgent(
       'Spawning host agent',
     );
 
-    const logsDir = path.join(groupDir, 'logs');
+    const logsDir = path.join(storageGroupDir, 'logs');
 
     const hostResult = await new Promise<ContainerOutput>((resolve) => {
       let settled = false;

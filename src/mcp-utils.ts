@@ -69,6 +69,11 @@ function loadMcpServersFromFile(
 export function loadUserMcpServers(
   userId: string,
 ): Record<string, Record<string, unknown>> {
-  const serversFile = path.join(DATA_DIR, 'mcp-servers', userId, 'servers.json');
+  const serversFile = path.join(
+    DATA_DIR,
+    'mcp-servers',
+    userId,
+    'servers.json',
+  );
   return loadMcpServersFromFile(serversFile);
 }

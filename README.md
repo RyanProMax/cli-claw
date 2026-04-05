@@ -66,15 +66,33 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
   - Claude Runtime：在 Web 设置向导中配置 Claude Provider
   - Codex Runtime：在宿主机执行 `codex login`
 
-### 安装启动
+### 从 npm 安装
+
+```bash
+npm install -g cli-claw
+cli-claw help
+cli-claw version
+cli-claw start
+```
+
+默认访问地址：`http://localhost:3000`
+
+外部 launcher 说明：
+
+- `cli-claw start` 启动服务。
+- `cli-claw help` / `-h` / `--help` 查看 launcher 帮助。
+- `cli-claw version` / `-v` / `--version` 查看已安装版本。
+- 应用自身资源从安装包根目录解析，不依赖你启动时的当前目录。
+- `cli-claw start` 会把“你启动命令时所在的目录”当作 host 工作区默认执行目录，并在缺失时物化到 `custom_cwd`。
+- 数据库存储、sessions、memory、logs、downloads 和工作区元数据仍保留在 `~/.cli-claw`，不会迁到启动目录。
+
+### 从源码启动
 
 ```bash
 git clone https://github.com/RyanProMax/cli-claw.git cli-claw
 cd cli-claw
 make start
 ```
-
-默认访问地址：`http://localhost:3000`
 
 首次进入后按设置向导完成：
 
@@ -91,18 +109,87 @@ make start
 ./container/build.sh
 ```
 
+这个命令是源码仓库相对路径，适用于 clone 后的开发 / 自建部署场景；不是在任意 launch cwd 下都可直接执行的全局命令。
+
 member 用户注册后默认会创建容器模式的主工作区；admin 主工作区默认使用宿主机模式。
 
+### 启动目录与数据目录
+
+- host 工作区的默认执行 / 文件根目录来自 `cli-claw start` 的启动目录。
+- 这个默认值会持久化到 `custom_cwd`，避免运行时依赖隐式内存 fallback。
+- 工作区拥有的存储路径不变，仍以 `~/.cli-claw/groups/{folder}` 和 `~/.cli-claw/*` 下的数据为准。
+
 ### 常用命令
+
+用户启动命令：
+
+```bash
+cli-claw help
+cli-claw version
+cli-claw start
+```
+
+仓库开发命令：
 
 ```bash
 make dev
 make build
 make typecheck
 make start
+npm run release:check
 ./scripts/validate.sh
 ./scripts/review.sh
 ```
+
+### 发布前检查
+
+维护者在执行 `npm publish` 前，建议按这个顺序完成：
+
+1. 先安装根仓库和子项目依赖：`make install`
+2. 确认版本号已更新：`package.json` / `npm version <patch|minor|major>`
+3. 确认 npm 身份与包权限可用：
+   - `npm whoami`
+   - 首次发布时确认 `cli-claw` 包名可用
+   - 后续发布时确认自己仍是 maintainer：`npm owner ls cli-claw`
+4. 跑本地发布检查：`npm run release:check`
+5. 手工检查 packlist 与体积是否符合预期：
+
+```bash
+npm --cache /tmp/cli-claw-npm-cache pack --dry-run
+```
+
+至少确认输出里仍包含：
+
+- `dist/`
+- `web/dist`
+- `shared/dist`
+- `container/agent-runner/dist`
+- `config/`
+- `README.md`
+- `LICENSE`
+
+同时留意 tarball 体积是否异常上涨。
+
+6. 做一次 tarball 安装 smoke，尽量使用临时 `HOME` 和临时 prefix，避免污染本机：
+
+```bash
+npm --cache /tmp/cli-claw-npm-cache pack
+TMP_HOME="$(mktemp -d)"
+TMP_PREFIX="$(mktemp -d)"
+HOME="$TMP_HOME" npm install -g --prefix "$TMP_PREFIX" ./cli-claw-<version>.tgz
+"$TMP_PREFIX/bin/cli-claw" help
+"$TMP_PREFIX/bin/cli-claw" version
+```
+
+如需再做一次短启动 smoke，可以在新的临时 `HOME` 下启动后手动停止：
+
+```bash
+HOME="$TMP_HOME" WEB_PORT=3310 "$TMP_PREFIX/bin/cli-claw" start
+```
+
+7. 最后执行：`npm publish`
+
+`npm run release:check` 会串联 `./scripts/validate.sh`、`./scripts/review.sh`、CLI 基础 smoke，以及带临时 cache 的 `npm pack --dry-run`，避免被本机 `~/.npm` 权限问题干扰；但它不替代 tarball 安装 smoke 和人为 packlist 审核。
 
 ### 端口
 
@@ -110,7 +197,7 @@ make start
 - 如需修改：
 
 ```bash
-WEB_PORT=8080 make start
+WEB_PORT=8080 cli-claw start
 ```
 
 ## 开发文档

@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
+import { pathToFileURL } from 'url';
 
 import { CronExpressionParser } from 'cron-parser';
 
@@ -17,6 +18,7 @@ import {
   isDockerAvailable,
   updateWeChatNoProxy,
 } from './config.js';
+import { LAUNCH_CWD, resolveAppPath } from './app-root.js';
 import { interruptibleSleep } from './message-notifier.js';
 import {
   AGENT_MEMORY_TEMPLATE_FILENAME,
@@ -113,9 +115,7 @@ import {
   resolveLocationInfo,
   type WorkspaceInfo,
 } from './im-command-utils.js';
-import {
-  executeRuntimeWorkspaceCommand,
-} from './runtime-command-handler.js';
+import { executeRuntimeWorkspaceCommand } from './runtime-command-handler.js';
 import { parseRuntimeCommand } from './runtime-command-registry.js';
 import { invalidateSessionCache, getWebDeps } from './web-context.js';
 import {
@@ -163,6 +163,10 @@ import {
 import { logger } from './logger.js';
 import { getRuntimeBuildLogFields } from './runtime-build.js';
 import { buildEffectiveGroupFromHomeSibling } from './group-runtime.js';
+import {
+  materializeHostWorkspaceDefaultCwd,
+  validateHostWorkspaceCwd,
+} from './host-workspace-cwd.js';
 import { resolveTaskOwner } from './task-utils.js';
 import {
   ensureAgentDirectories,
@@ -247,9 +251,7 @@ export function feedStreamEventToCard(
       break;
     case 'status':
       if (se.statusText && se.statusText !== 'interrupted') {
-        session.setSystemStatus(
-          normalizeStreamingStatusText(se.statusText),
-        );
+        session.setSystemStatus(normalizeStreamingStatusText(se.statusText));
       }
       break;
     case 'hook_started':
@@ -594,6 +596,34 @@ function resolveEffectiveGroup(group: RegisteredGroup): {
   }
 
   return { effectiveGroup: group, isHome: false };
+}
+
+/**
+ * Materialize the CLI launch cwd into any persisted host workspace missing customCwd.
+ * Keeps the host default explicit in the database instead of relying on an in-memory fallback.
+ */
+function reconcileHostWorkspaceDefaults(launchCwd: string): void {
+  for (const [jid, group] of Object.entries(registeredGroups)) {
+    const materialized = materializeHostWorkspaceDefaultCwd(group, {
+      launchCwd,
+      fieldLabel: 'CLI launch cwd',
+    });
+    if ('error' in materialized) {
+      throw new Error(materialized.error);
+    }
+    if (materialized.materialized) {
+      setRegisteredGroup(jid, materialized.group);
+      registeredGroups[jid] = materialized.group;
+      logger.info(
+        {
+          jid,
+          folder: materialized.group.folder,
+          customCwd: materialized.group.customCwd,
+        },
+        'Materialized host workspace custom cwd from CLI launch cwd',
+      );
+    }
+  }
 }
 
 /** Recursively search for a file by name in subdirectories (max 3 levels). */
@@ -1819,9 +1849,7 @@ function loadState(): void {
 
   // Auto-register default groups from config/default-groups.json
   const defaultGroupsPath = path.resolve(
-    process.cwd(),
-    'config',
-    'default-groups.json',
+    resolveAppPath('config', 'default-groups.json'),
   );
   if (fs.existsSync(defaultGroupsPath)) {
     try {
@@ -1907,11 +1935,19 @@ function loadState(): void {
     }
   }
 
+  try {
+    reconcileHostWorkspaceDefaults(LAUNCH_CWD);
+  } catch (err) {
+    logger.error(
+      { err, launchCwd: LAUNCH_CWD },
+      'Failed to materialize host workspace cwd defaults',
+    );
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+
   // Initialize per-user global AGENTS.md from template for users missing it
   const templatePath = path.resolve(
-    process.cwd(),
-    'config',
-    AGENT_MEMORY_TEMPLATE_FILENAME,
+    resolveAppPath('config', AGENT_MEMORY_TEMPLATE_FILENAME),
   );
   if (fs.existsSync(templatePath)) {
     const template = fs.readFileSync(templatePath, 'utf-8');
@@ -2435,9 +2471,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               result.streamEvent.statusText === 'interrupted'
             ) {
               streamInterrupted = true;
-              const provisionalUsage = buildProvisionalTokenUsage(
-                agentRunStartedAt,
-              );
+              const provisionalUsage =
+                buildProvisionalTokenUsage(agentRunStartedAt);
               // Skip if shutdown handler already saved this text (prevents duplicates)
               const inlineWebJid = chatJid.startsWith('web:')
                 ? chatJid
@@ -2934,7 +2969,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         if (hadError || !output || output.status === 'error') {
           await streamingSession.abort('处理出错').catch(() => {});
         } else if (wasInterrupted) {
-          const provisionalUsage = buildProvisionalTokenUsage(agentRunStartedAt);
+          const provisionalUsage =
+            buildProvisionalTokenUsage(agentRunStartedAt);
           await streamingSession
             .patchUsageNote({
               inputTokens: 0,
@@ -5199,9 +5235,8 @@ async function processAgentConversation(
             }
             const msgId = crypto.randomUUID();
             const timestamp = new Date().toISOString();
-            const serializedTokenUsage = serializeAssistantTokenUsage(
-              provisionalUsage,
-            );
+            const serializedTokenUsage =
+              serializeAssistantTokenUsage(provisionalUsage);
             ensureChatExists(virtualChatJid);
             const persistedMsgId = storeMessageDirect(
               msgId,
@@ -5688,9 +5723,8 @@ async function processAgentConversation(
       try {
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
-        const serializedTokenUsage = serializeAssistantTokenUsage(
-          provisionalUsage,
-        );
+        const serializedTokenUsage =
+          serializeAssistantTokenUsage(provisionalUsage);
         ensureChatExists(virtualChatJid);
         const persistedMsgId = storeMessageDirect(
           msgId,
@@ -5749,9 +5783,8 @@ async function processAgentConversation(
         const partialReply = buildInterruptedReply(agentStreamingAccText);
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
-        const serializedTokenUsage = serializeAssistantTokenUsage(
-          provisionalUsage,
-        );
+        const serializedTokenUsage =
+          serializeAssistantTokenUsage(provisionalUsage);
         ensureChatExists(virtualChatJid);
         const persistedMsgId = storeMessageDirect(
           msgId,
@@ -6830,7 +6863,7 @@ async function connectUserIMChannels(
   return { feishu, telegram, qq, wechat, dingtalk };
 }
 
-async function main(): Promise<void> {
+export async function startCliClaw(): Promise<void> {
   initDatabase();
   logger.info('Database initialized');
 
@@ -6874,6 +6907,18 @@ async function main(): Promise<void> {
   updateWeChatNoProxy(true);
 
   loadState();
+
+  const launchCwdValidation = validateHostWorkspaceCwd(LAUNCH_CWD, {
+    fieldLabel: 'CLI launch cwd',
+  });
+  if ('error' in launchCwdValidation) {
+    logger.error(
+      { launchCwd: LAUNCH_CWD, error: launchCwdValidation.error },
+      'Invalid CLI launch cwd for host workspace defaults',
+    );
+    throw new Error(launchCwdValidation.error);
+  }
+  const launchCwd = launchCwdValidation.cwd;
 
   // --- Channel reload helpers (hot-reload on config save) ---
 
@@ -7874,7 +7919,17 @@ async function checkImBindingsHealth(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  logger.error({ err }, 'Failed to start cli-claw');
-  process.exit(1);
-});
+export const main = startCliClaw;
+
+function isDirectExecution(moduleUrl: string): boolean {
+  const entryPath = process.argv[1];
+  if (!entryPath) return false;
+  return moduleUrl === pathToFileURL(path.resolve(entryPath)).href;
+}
+
+if (isDirectExecution(import.meta.url)) {
+  void startCliClaw().catch((err) => {
+    logger.error({ err }, 'Failed to start cli-claw');
+    process.exit(1);
+  });
+}

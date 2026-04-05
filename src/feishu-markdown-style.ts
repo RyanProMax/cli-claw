@@ -19,10 +19,7 @@
  * @param text - Raw Markdown text
  * @param cardVersion - Card schema version (1 = no <br>, 2 = with <br> spacing)
  */
-export function optimizeMarkdownStyle(
-  text: string,
-  cardVersion = 2,
-): string {
+export function optimizeMarkdownStyle(text: string, cardVersion = 2): string {
   try {
     let r = _optimizeMarkdownStyle(text, cardVersion);
     r = stripInvalidImageKeys(r);
@@ -57,27 +54,15 @@ function _optimizeMarkdownStyle(text: string, cardVersion = 2): string {
     // 4a. Non-table line followed by table line → add blank line
     r = r.replace(/^([^|\n].*)\n(\|.+\|)/gm, '$1\n\n$2');
     // 4b. Table block preceded by blank line → insert <br>
-    r = r.replace(
-      /\n\n((?:\|.+\|[^\S\n]*\n?)+)/g,
-      '\n\n<br>\n\n$1',
-    );
+    r = r.replace(/\n\n((?:\|.+\|[^\S\n]*\n?)+)/g, '\n\n<br>\n\n$1');
     // 4c. Table block trailing → append <br>
     r = r.replace(/((?:^\|.+\|[^\S\n]*\n?)+)/gm, '$1\n<br>\n');
     // 4d. Plain text before table: collapse extra blank lines
-    r = r.replace(
-      /^((?!#{4,5} )(?!\*\*).+)\n\n(<br>)\n\n(\|)/gm,
-      '$1\n$2\n$3',
-    );
+    r = r.replace(/^((?!#{4,5} )(?!\*\*).+)\n\n(<br>)\n\n(\|)/gm, '$1\n$2\n$3');
     // 4d2. Bold text before table
-    r = r.replace(
-      /^(\*\*.+)\n\n(<br>)\n\n(\|)/gm,
-      '$1\n$2\n\n$3',
-    );
+    r = r.replace(/^(\*\*.+)\n\n(<br>)\n\n(\|)/gm, '$1\n$2\n\n$3');
     // 4e. Plain text after table: collapse extra blank lines
-    r = r.replace(
-      /(\|[^\n]*\n)\n(<br>\n)((?!#{4,5} )(?!\*\*))/gm,
-      '$1$2$3',
-    );
+    r = r.replace(/(\|[^\n]*\n)\n(<br>\n)((?!#{4,5} )(?!\*\*))/gm, '$1$2$3');
 
     // ── 5. Restore code blocks with <br> wrapping ──────────────────
     codeBlocks.forEach((block, i) => {

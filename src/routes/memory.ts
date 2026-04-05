@@ -181,7 +181,11 @@ function classifyMemorySource(
   }
 
   // groups/{folder}/conversations/...
-  if (parts[0] === 'groups' && parts.length >= 3 && parts[2] === 'conversations') {
+  if (
+    parts[0] === 'groups' &&
+    parts.length >= 3 &&
+    parts[2] === 'conversations'
+  ) {
     const folder = parts[1] || 'unknown';
     const name = parts.slice(3).join('/');
     return {

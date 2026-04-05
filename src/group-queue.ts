@@ -186,7 +186,7 @@ export class GroupQueue {
     const isHost = this.isHostMode(groupJid);
     const systemCapacity = isHost
       ? this.activeHostProcessCount <
-          getSystemSettings().maxConcurrentHostProcesses
+        getSystemSettings().maxConcurrentHostProcesses
       : this.activeContainerCount < getSystemSettings().maxConcurrentContainers;
     if (!systemCapacity) return false;
 
@@ -564,7 +564,14 @@ export class GroupQueue {
   ): void {
     if (!state.groupFolder) return;
     try {
-      if (!this.hasRemainingIpcMessages(state.groupFolder, state.agentId, state.taskRunId)) return;
+      if (
+        !this.hasRemainingIpcMessages(
+          state.groupFolder,
+          state.agentId,
+          state.taskRunId,
+        )
+      )
+        return;
 
       if (state.agentId && this.onUnconsumedAgentIpcFn) {
         logger.warn(
@@ -596,7 +603,7 @@ export class GroupQueue {
         : path.join(DATA_DIR, 'ipc', groupFolder, 'input');
     try {
       const files = fs.readdirSync(inputDir);
-      return files.some(f => f.endsWith('.json'));
+      return files.some((f) => f.endsWith('.json'));
     } catch {
       return false;
     }
@@ -684,7 +691,6 @@ export class GroupQueue {
       return false;
     }
   }
-
 
   /**
    * Force-stop a group's active container and clear queued work.
@@ -940,7 +946,11 @@ export class GroupQueue {
       // Clean up stale sentinel files before clearing groupFolder/agentId
       if (state.groupFolder) {
         try {
-          this.cleanupIpcSentinels(state.groupFolder, state.agentId, state.taskRunId);
+          this.cleanupIpcSentinels(
+            state.groupFolder,
+            state.agentId,
+            state.taskRunId,
+          );
         } catch (err) {
           logger.warn({ groupJid, err }, 'Failed to clean up IPC sentinels');
         }
@@ -1032,7 +1042,11 @@ export class GroupQueue {
       // Clean up stale sentinel files before clearing groupFolder/agentId
       if (state.groupFolder) {
         try {
-          this.cleanupIpcSentinels(state.groupFolder, state.agentId, state.taskRunId);
+          this.cleanupIpcSentinels(
+            state.groupFolder,
+            state.agentId,
+            state.taskRunId,
+          );
         } catch (err) {
           logger.warn({ groupJid, err }, 'Failed to clean up IPC sentinels');
         }

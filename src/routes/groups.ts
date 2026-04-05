@@ -16,6 +16,7 @@ import type {
 } from '../types.js';
 import { checkGroupLimit } from '../billing.js';
 import { DATA_DIR, GROUPS_DIR, isDockerAvailable } from '../config.js';
+import { LAUNCH_CWD } from '../app-root.js';
 import {
   enforceAgentExecutionMode,
   hasRuntimeBoundaryChange,
@@ -23,12 +24,19 @@ import {
   validateGroupRuntimeUpdate,
 } from '../group-runtime.js';
 import {
+  materializeHostWorkspaceDefaultCwd,
+  validateHostWorkspaceCwd,
+} from '../host-workspace-cwd.js';
+import {
   getModelPresets,
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
   supportsReasoningEffort,
 } from '../runtime-command-registry.js';
-import { getRuntimeBuildStatus, isRuntimeBuildStale } from '../runtime-build.js';
+import {
+  getRuntimeBuildStatus,
+  isRuntimeBuildStale,
+} from '../runtime-build.js';
 import {
   isHostExecutionGroup,
   hasHostExecutionPermission,
@@ -454,6 +462,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   const initSourcePath = validation.data.init_source_path;
   const initGitUrl = validation.data.init_git_url;
   const authUser = c.get('user') as AuthUser;
+  let normalizedCustomCwd: string | undefined;
 
   const runtimeError = enforceAgentExecutionMode(
     agentType,
@@ -496,67 +505,16 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       );
     }
     if (customCwd) {
-      if (!path.isAbsolute(customCwd)) {
-        return c.json({ error: 'custom_cwd must be an absolute path' }, 400);
+      const validation = validateHostWorkspaceCwd(customCwd, {
+        fieldLabel: 'custom_cwd',
+      });
+      if ('error' in validation) {
+        return c.json(
+          { error: validation.error },
+          validation.error.includes('under an allowed root') ? 403 : 400,
+        );
       }
-
-      // 检查路径是否存在
-      let realPath: string;
-      try {
-        const stat = fs.statSync(customCwd);
-        if (!stat.isDirectory()) {
-          return c.json(
-            { error: 'custom_cwd must be an existing directory' },
-            400,
-          );
-        }
-        realPath = fs.realpathSync(customCwd);
-      } catch {
-        return c.json({ error: 'custom_cwd directory does not exist' }, 400);
-      }
-
-      // 白名单校验：检查路径是否在允许的根目录下
-      const allowlist = loadMountAllowlist();
-      if (
-        allowlist &&
-        allowlist.allowedRoots &&
-        allowlist.allowedRoots.length > 0
-      ) {
-        let allowed = false;
-        for (const root of allowlist.allowedRoots) {
-          const expandedRoot = root.path.startsWith('~')
-            ? path.join(
-                process.env.HOME || '/Users/user',
-                root.path.slice(root.path.startsWith('~/') ? 2 : 1),
-              )
-            : path.resolve(root.path);
-
-          let realRoot: string;
-          try {
-            realRoot = fs.realpathSync(expandedRoot);
-          } catch {
-            continue; // 允许的根目录不存在，跳过
-          }
-
-          const relative = path.relative(realRoot, realPath);
-          if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
-            allowed = true;
-            break;
-          }
-        }
-
-        if (!allowed) {
-          const allowedPaths = allowlist.allowedRoots
-            .map((r) => r.path)
-            .join(', ');
-          return c.json(
-            {
-              error: `custom_cwd must be under an allowed root. Allowed roots: ${allowedPaths}. Check config/mount-allowlist.json`,
-            },
-            403,
-          );
-        }
-      }
+      normalizedCustomCwd = validation.cwd;
     }
   } else if (customCwd) {
     return c.json({ error: 'custom_cwd is only valid for host mode' }, 400);
@@ -678,15 +636,23 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     executionMode: executionMode as ExecutionMode,
     model,
     reasoningEffort,
-    customCwd: executionMode === 'host' ? customCwd : undefined,
+    customCwd: executionMode === 'host' ? normalizedCustomCwd : undefined,
     initSourcePath: executionMode !== 'host' ? initSourcePath : undefined,
     initGitUrl: executionMode !== 'host' ? initGitUrl : undefined,
     created_by: authUser.id,
   };
 
-  setRegisteredGroup(jid, group);
+  const materializedGroup = materializeHostWorkspaceDefaultCwd(group, {
+    launchCwd: LAUNCH_CWD,
+    fieldLabel: 'CLI launch cwd',
+  });
+  if ('error' in materializedGroup) {
+    return c.json({ error: materializedGroup.error }, 500);
+  }
+
+  setRegisteredGroup(jid, materializedGroup.group);
   updateChatName(jid, name);
-  deps.getRegisteredGroups()[jid] = group;
+  deps.getRegisteredGroups()[jid] = materializedGroup.group;
 
   // Register creator as owner in group_members
   addGroupMember(folder, authUser.id, 'owner', authUser.id);
@@ -749,7 +715,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       model: group.model ?? null,
       reasoning_effort: group.reasoningEffort ?? null,
       custom_cwd: hasHostExecutionPermission(authUser)
-        ? group.customCwd
+        ? materializedGroup.group.customCwd
         : undefined,
       kind: 'web',
       editable: true,
@@ -882,7 +848,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     const nextModel =
       model !== undefined
         ? normalizeOptionalRuntimeModel(nextAgentType, model)
-        : existing.model ?? null;
+        : (existing.model ?? null);
     if (model !== undefined && model !== null && !nextModel) {
       return c.json(
         {
@@ -895,7 +861,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     const nextReasoningEffort =
       reasoning_effort !== undefined
         ? normalizeOptionalReasoningEffort(nextAgentType, reasoning_effort)
-        : existing.reasoningEffort ?? null;
+        : (existing.reasoningEffort ?? null);
     if (
       reasoning_effort !== undefined &&
       reasoning_effort !== null &&
@@ -986,18 +952,27 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
           : existing.activation_mode,
     };
 
-    setRegisteredGroup(jid, updated);
+    const materializedGroup = materializeHostWorkspaceDefaultCwd(updated, {
+      launchCwd: LAUNCH_CWD,
+      fieldLabel: 'CLI launch cwd',
+    });
+    if ('error' in materializedGroup) {
+      return c.json({ error: materializedGroup.error }, 500);
+    }
+    const persistedGroup = materializedGroup.group;
+
+    setRegisteredGroup(jid, persistedGroup);
     if (name) updateChatName(jid, name);
-    deps.getRegisteredGroups()[jid] = updated;
+    deps.getRegisteredGroups()[jid] = persistedGroup;
 
     if (runtimeSettingsChanged) {
       try {
-        await resetWorkspaceRuntimeState(deps, jid, updated);
+        await resetWorkspaceRuntimeState(deps, jid, persistedGroup);
       } catch (err) {
         logger.error(
           {
             jid,
-            folder: updated.folder,
+            folder: persistedGroup.folder,
             previousAgentType: existing.agentType || 'claude',
             nextAgentType,
             previousExecutionMode: existing.executionMode || 'container',
@@ -1011,25 +986,28 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
           'Workspace runtime changed but failed to reset active runners',
         );
         return c.json(
-          { error: 'Workspace runtime updated, but failed to reset active sessions' },
+          {
+            error:
+              'Workspace runtime updated, but failed to reset active sessions',
+          },
           500,
         );
       }
       logger.info(
         {
           jid,
-          folder: updated.folder,
-            previousAgentType: existing.agentType || 'claude',
-            nextAgentType,
-            previousExecutionMode: existing.executionMode || 'container',
-            nextExecutionMode,
-            previousModel: existing.model ?? null,
-            nextModel,
-            previousReasoningEffort: existing.reasoningEffort ?? null,
-            nextReasoningEffort,
-          },
-          'Workspace runtime changed, reset active runners and sessions',
-        );
+          folder: persistedGroup.folder,
+          previousAgentType: existing.agentType || 'claude',
+          nextAgentType,
+          previousExecutionMode: existing.executionMode || 'container',
+          nextExecutionMode,
+          previousModel: existing.model ?? null,
+          nextModel,
+          previousReasoningEffort: existing.reasoningEffort ?? null,
+          nextReasoningEffort,
+        },
+        'Workspace runtime changed, reset active runners and sessions',
+      );
     }
   }
 

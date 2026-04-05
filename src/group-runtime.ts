@@ -1,4 +1,5 @@
 import type { AgentType, ExecutionMode, RegisteredGroup } from './types.js';
+import { resolveEffectiveHostWorkspaceCwd } from './host-workspace-cwd.js';
 
 export function normalizeAgentType(raw: string | null | undefined): AgentType {
   if (raw === 'codex') return 'codex';
@@ -56,7 +57,7 @@ export function buildEffectiveGroupFromHomeSibling(
     executionMode: homeGroup.executionMode ?? group.executionMode,
     model: homeGroup.model ?? group.model,
     reasoningEffort: homeGroup.reasoningEffort ?? group.reasoningEffort,
-    customCwd: homeGroup.customCwd || group.customCwd,
+    customCwd: resolveEffectiveHostWorkspaceCwd(group, homeGroup),
     created_by: group.created_by || homeGroup.created_by,
     is_home: true,
   };

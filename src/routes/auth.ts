@@ -50,7 +50,11 @@ import {
 } from '../auth.js';
 import type { AuthUser, User, UserPublic } from '../types.js';
 import { logger } from '../logger.js';
-import { lastActiveCache, invalidateSessionCache, invalidateUserSessions } from '../web-context.js';
+import {
+  lastActiveCache,
+  invalidateSessionCache,
+  invalidateUserSessions,
+} from '../web-context.js';
 import {
   SESSION_COOKIE_NAME_SECURE,
   SESSION_COOKIE_NAME_PLAIN,
@@ -139,8 +143,7 @@ function buildSetupStatus() {
       !!p.claudeOAuthCredentials ||
       !!p.anthropicApiKey?.trim();
     const hasThirdParty = !!(
-      p.anthropicBaseUrl?.trim() &&
-      p.anthropicAuthToken?.trim()
+      p.anthropicBaseUrl?.trim() && p.anthropicAuthToken?.trim()
     );
     return hasOfficial || hasThirdParty;
   });

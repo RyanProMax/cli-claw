@@ -5,7 +5,10 @@
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { buildClaudeEnvLines, getClaudeProviderConfig } from './runtime-config.js';
+import {
+  buildClaudeEnvLines,
+  getClaudeProviderConfig,
+} from './runtime-config.js';
 import { logger } from './logger.js';
 
 // Mutex: process.env mutation is not re-entrant. Serialize concurrent calls
@@ -74,7 +77,10 @@ export async function sdkQuery(
 
     return result.trim() || null;
   } catch (err) {
-    logger.warn({ err: (err as Error).message?.slice(0, 200) }, 'sdkQuery failed');
+    logger.warn(
+      { err: (err as Error).message?.slice(0, 200) },
+      'sdkQuery failed',
+    );
     return null;
   } finally {
     clearTimeout(timer);

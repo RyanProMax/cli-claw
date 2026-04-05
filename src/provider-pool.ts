@@ -195,10 +195,7 @@ export class ProviderPool {
     health.consecutiveErrors += 1;
     health.lastErrorAt = Date.now();
 
-    if (
-      health.healthy &&
-      health.consecutiveErrors >= this.unhealthyThreshold
-    ) {
+    if (health.healthy && health.consecutiveErrors >= this.unhealthyThreshold) {
       health.healthy = false;
       health.unhealthySince = Date.now();
       logger.warn(

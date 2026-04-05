@@ -200,7 +200,10 @@ export const GroupPatchSchema = z.object({
   agent_type: z.enum(['claude', 'codex']).optional(),
   execution_mode: z.enum(['container', 'host']).optional(),
   model: z.string().max(128).nullable().optional(),
-  reasoning_effort: z.enum(['low', 'medium', 'high', 'xhigh']).nullable().optional(),
+  reasoning_effort: z
+    .enum(['low', 'medium', 'high', 'xhigh'])
+    .nullable()
+    .optional(),
 });
 
 export const LoginSchema = z.object({

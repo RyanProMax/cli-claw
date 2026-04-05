@@ -18,7 +18,8 @@ import type { AuthUser, RegisteredGroup } from '../types.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { GROUPS_DIR } from '../config.js';
 import { canAccessGroup } from '../web-context.js';
-import { getRegisteredGroup } from '../db.js';
+import { getJidsByFolder, getRegisteredGroup } from '../db.js';
+import { resolveEffectiveHostWorkspaceCwd } from '../host-workspace-cwd.js';
 import {
   parseFrontmatter,
   validateSkillId,
@@ -35,20 +36,47 @@ const workspaceConfigRoutes = new Hono<{ Variables: Variables }>();
 
 /**
  * Resolve the workspace root directory for a registered group.
- * Host mode with customCwd uses the real project directory;
- * otherwise falls back to ~/.cli-claw/groups/{folder}/.
+ * Host mode uses the effective host cwd contract; container mode keeps storage under ~/.cli-claw/groups/{folder}/.
  */
-function getWorkspaceRoot(group: RegisteredGroup & { jid: string }): string {
-  if (group.executionMode === 'host' && group.customCwd) {
-    return group.customCwd;
+export function getWorkspaceRoot(
+  group: RegisteredGroup & { jid: string },
+  homeGroup?: RegisteredGroup | null,
+): string {
+  if (group.executionMode === 'host') {
+    const effectiveCwd = resolveEffectiveHostWorkspaceCwd(
+      group,
+      homeGroup ?? undefined,
+    );
+    if (!effectiveCwd) {
+      throw new Error('Host workspace is missing custom_cwd');
+    }
+    return effectiveCwd;
   }
   return path.join(GROUPS_DIR, group.folder);
+}
+
+function findHomeSiblingGroup(
+  group: RegisteredGroup & { jid: string },
+): RegisteredGroup | undefined {
+  if (group.is_home) return undefined;
+
+  for (const jid of getJidsByFolder(group.folder)) {
+    const sibling = getRegisteredGroup(jid);
+    if (sibling?.is_home) {
+      return sibling;
+    }
+  }
+
+  return undefined;
 }
 
 function getWorkspaceClaudeDir(
   group: RegisteredGroup & { jid: string },
 ): string {
-  return path.join(getWorkspaceRoot(group), '.claude');
+  return path.join(
+    getWorkspaceRoot(group, findHomeSiblingGroup(group)),
+    '.claude',
+  );
 }
 
 function getWorkspaceSkillsDir(
@@ -209,7 +237,8 @@ workspaceConfigRoutes.get(
   authMiddleware,
   async (c) => {
     const group = resolveGroup(c);
-    if (!group) return c.json({ error: 'Group not found or access denied' }, 404);
+    if (!group)
+      return c.json({ error: 'Group not found or access denied' }, 404);
 
     const skillsDir = getWorkspaceSkillsDir(group);
     const skills = scanSkillDirectory(skillsDir, 'workspace');
@@ -223,7 +252,8 @@ workspaceConfigRoutes.post(
   authMiddleware,
   async (c) => {
     const group = resolveGroup(c);
-    if (!group) return c.json({ error: 'Group not found or access denied' }, 404);
+    if (!group)
+      return c.json({ error: 'Group not found or access denied' }, 404);
 
     const body = await c.req.json().catch(() => ({}));
     const pkg = typeof body.package === 'string' ? body.package.trim() : '';
@@ -245,16 +275,7 @@ workspaceConfigRoutes.post(
     try {
       await execFileAsync(
         'npx',
-        [
-          '-y',
-          'skills',
-          'add',
-          pkg,
-          '--global',
-          '--yes',
-          '-a',
-          'claude-code',
-        ],
+        ['-y', 'skills', 'add', pkg, '--global', '--yes', '-a', 'claude-code'],
         {
           timeout: 60_000,
           env: { ...process.env, HOME: tempHome },
@@ -328,7 +349,8 @@ workspaceConfigRoutes.patch(
   authMiddleware,
   async (c) => {
     const group = resolveGroup(c);
-    if (!group) return c.json({ error: 'Group not found or access denied' }, 404);
+    if (!group)
+      return c.json({ error: 'Group not found or access denied' }, 404);
 
     const id = c.req.param('id');
     if (!validateSkillId(id)) {
@@ -373,7 +395,8 @@ workspaceConfigRoutes.delete(
   authMiddleware,
   async (c) => {
     const group = resolveGroup(c);
-    if (!group) return c.json({ error: 'Group not found or access denied' }, 404);
+    if (!group)
+      return c.json({ error: 'Group not found or access denied' }, 404);
 
     const id = c.req.param('id');
     if (!validateSkillId(id)) {
@@ -405,7 +428,8 @@ workspaceConfigRoutes.get(
   authMiddleware,
   async (c) => {
     const group = resolveGroup(c);
-    if (!group) return c.json({ error: 'Group not found or access denied' }, 404);
+    if (!group)
+      return c.json({ error: 'Group not found or access denied' }, 404);
 
     const meta = readWorkspaceMeta(group);
     const settings = readWorkspaceSettings(group);
@@ -457,7 +481,8 @@ workspaceConfigRoutes.post(
   authMiddleware,
   async (c) => {
     const group = resolveGroup(c);
-    if (!group) return c.json({ error: 'Group not found or access denied' }, 404);
+    if (!group)
+      return c.json({ error: 'Group not found or access denied' }, 404);
 
     const body = await c.req.json().catch(() => ({}));
     const { id, command, args, env, description, type, url, headers } =
@@ -525,7 +550,8 @@ workspaceConfigRoutes.patch(
   authMiddleware,
   async (c) => {
     const group = resolveGroup(c);
-    if (!group) return c.json({ error: 'Group not found or access denied' }, 404);
+    if (!group)
+      return c.json({ error: 'Group not found or access denied' }, 404);
 
     const id = c.req.param('id');
     if (!/^[\w\-]+$/.test(id)) {
@@ -533,16 +559,15 @@ workspaceConfigRoutes.patch(
     }
 
     const body = await c.req.json().catch(() => ({}));
-    const { command, args, env, enabled, description, url, headers } =
-      body as {
-        command?: string;
-        args?: string[];
-        env?: Record<string, string>;
-        enabled?: boolean;
-        description?: string;
-        url?: string;
-        headers?: Record<string, string>;
-      };
+    const { command, args, env, enabled, description, url, headers } = body as {
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+      enabled?: boolean;
+      description?: string;
+      url?: string;
+      headers?: Record<string, string>;
+    };
 
     const meta = readWorkspaceMeta(group);
     let entry = meta.mcpServers[id];
@@ -596,7 +621,8 @@ workspaceConfigRoutes.delete(
   authMiddleware,
   async (c) => {
     const group = resolveGroup(c);
-    if (!group) return c.json({ error: 'Group not found or access denied' }, 404);
+    if (!group)
+      return c.json({ error: 'Group not found or access denied' }, 404);
 
     const id = c.req.param('id');
     if (!/^[\w\-]+$/.test(id)) {
@@ -609,8 +635,7 @@ workspaceConfigRoutes.delete(
 
     // Also remove from settings.json directly
     const settings = readWorkspaceSettings(group);
-    const settingsMcp =
-      (settings.mcpServers as Record<string, unknown>) || {};
+    const settingsMcp = (settings.mcpServers as Record<string, unknown>) || {};
     const hadSettings = id in settingsMcp;
 
     if (!hadMeta && !hadSettings) {

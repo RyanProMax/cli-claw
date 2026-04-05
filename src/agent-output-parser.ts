@@ -680,8 +680,9 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
     /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized)
   ) {
     const usageUrl =
-      normalized.match(/https:\/\/chatgpt\.com\/codex\/settings\/usage/i)?.[0] ||
-      'https://chatgpt.com/codex/settings/usage';
+      normalized.match(
+        /https:\/\/chatgpt\.com\/codex\/settings\/usage/i,
+      )?.[0] || 'https://chatgpt.com/codex/settings/usage';
     const retryAt = normalized.match(/try again at ([^.]+)\.?/i)?.[1]?.trim();
     return retryAt
       ? `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或在 ${retryAt} 后重试。`

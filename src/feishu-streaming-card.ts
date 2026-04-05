@@ -269,12 +269,14 @@ function buildCardContent(
 /** Schema 1.0: `action` container wrapping a button (used by legacy message.patch path) */
 const INTERRUPT_BUTTON = {
   tag: 'action',
-  actions: [{
-    tag: 'button',
-    text: { tag: 'plain_text', content: '⏹ 中断回复' },
-    type: 'danger',
-    value: { action: 'interrupt_stream' },
-  }],
+  actions: [
+    {
+      tag: 'button',
+      text: { tag: 'plain_text', content: '⏹ 中断回复' },
+      type: 'danger',
+      value: { action: 'interrupt_stream' },
+    },
+  ],
 } as const;
 
 /** Schema 2.0: standalone button (CardKit rejects `tag: 'action'` in v2 cards) */
@@ -451,9 +453,10 @@ function buildAuxiliaryElementsForState(
 
   // ② Thinking
   if (aux.thinkingText) {
-    const truncated = aux.thinkingText.length > MAX_THINKING_CHARS
-      ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
-      : aux.thinkingText;
+    const truncated =
+      aux.thinkingText.length > MAX_THINKING_CHARS
+        ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
+        : aux.thinkingText;
     if (isStreamingLayout) {
       const quoted = truncated
         .split('\n')
@@ -461,10 +464,11 @@ function buildAuxiliaryElementsForState(
         .join('\n');
       before.push({
         tag: 'markdown',
-        content: `💭 **${aux.isThinking ? 'Reasoning...' : 'Reasoning'}**\n${quoted}`.slice(
-          0,
-          MAX_ELEMENT_CHARS,
-        ),
+        content:
+          `💭 **${aux.isThinking ? 'Reasoning...' : 'Reasoning'}**\n${quoted}`.slice(
+            0,
+            MAX_ELEMENT_CHARS,
+          ),
         text_size: 'notation',
       });
     } else {
@@ -537,13 +541,22 @@ function buildAuxiliaryElementsForState(
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     const header = `📋 **${done}/${total} (${pct}%)**`;
     const items = aux.todos.slice(0, MAX_TODO_DISPLAY).map((t) => {
-      const icon = t.status === 'completed' ? '✅' : t.status === 'in_progress' ? '⏳' : '○';
+      const icon =
+        t.status === 'completed'
+          ? '✅'
+          : t.status === 'in_progress'
+            ? '⏳'
+            : '○';
       return `${icon} ${t.content}`;
     });
-    const extra = total > MAX_TODO_DISPLAY ? `\n... +${total - MAX_TODO_DISPLAY} 项` : '';
+    const extra =
+      total > MAX_TODO_DISPLAY ? `\n... +${total - MAX_TODO_DISPLAY} 项` : '';
     before.push({
       tag: 'markdown',
-      content: `${header}\n${items.join('\n')}${extra}`.slice(0, MAX_ELEMENT_CHARS),
+      content: `${header}\n${items.join('\n')}${extra}`.slice(
+        0,
+        MAX_ELEMENT_CHARS,
+      ),
       text_size: 'notation',
     });
   }
@@ -559,7 +572,10 @@ function buildStreamingCard(
   footerNote?: string,
   runtimeIdentity?: RuntimeIdentity | null,
 ): object {
-  const { title, contentElements: elements } = buildCardContent(text, splitAtParagraphs);
+  const { title, contentElements: elements } = buildCardContent(
+    text,
+    splitAtParagraphs,
+  );
 
   const noteMap = {
     streaming: '⏳ 生成中...',
@@ -633,7 +649,10 @@ function buildSchema2Card(
   const elements: Array<Record<string, unknown>> = [];
 
   if (auxiliaryState) {
-    const { before, after } = buildAuxiliaryElementsForState(auxiliaryState, state);
+    const { before, after } = buildAuxiliaryElementsForState(
+      auxiliaryState,
+      state,
+    );
     elements.push(...before);
     elements.push(...contentElements);
     elements.push(...after);
@@ -698,14 +717,24 @@ function buildStreamingModeCard(
     },
     body: {
       elements: [
-        { tag: 'markdown', content: '', element_id: ELEMENT_IDS.AUX_BEFORE, text_size: 'notation' },
+        {
+          tag: 'markdown',
+          content: '',
+          element_id: ELEMENT_IDS.AUX_BEFORE,
+          text_size: 'notation',
+        },
         {
           tag: 'markdown',
           content: initialText || '...',
           element_id: ELEMENT_IDS.MAIN_CONTENT,
           text_size: 'normal_text',
         },
-        { tag: 'markdown', content: '', element_id: ELEMENT_IDS.AUX_AFTER, text_size: 'notation' },
+        {
+          tag: 'markdown',
+          content: '',
+          element_id: ELEMENT_IDS.AUX_AFTER,
+          text_size: 'notation',
+        },
         {
           tag: 'button',
           text: { tag: 'plain_text', content: '⏹ 中断回复' },
@@ -714,7 +743,12 @@ function buildStreamingModeCard(
           element_id: ELEMENT_IDS.INTERRUPT_BTN,
         },
         ...buildRuntimeControlElements(runtimeIdentity),
-        { tag: 'markdown', content: '⏳ 生成中...', element_id: ELEMENT_IDS.STATUS_NOTE, text_size: 'notation' },
+        {
+          tag: 'markdown',
+          content: '⏳ 生成中...',
+          element_id: ELEMENT_IDS.STATUS_NOTE,
+          text_size: 'notation',
+        },
       ],
     },
   };
@@ -875,10 +909,7 @@ class CardKitBackend {
    * Send the card as a message (referencing card_id).
    * Returns the message_id.
    */
-  async sendCard(
-    chatId: string,
-    replyToMsgId?: string,
-  ): Promise<string> {
+  async sendCard(chatId: string, replyToMsgId?: string): Promise<string> {
     if (!this.cardId) {
       throw new Error('Cannot sendCard before createCard');
     }
@@ -1029,7 +1060,8 @@ class StreamingModeBackend {
     }
 
     const messageId = resp?.data?.message_id;
-    if (!messageId) throw new Error('No message_id in streaming sendCard response');
+    if (!messageId)
+      throw new Error('No message_id in streaming sendCard response');
 
     this._messageId = messageId;
     return messageId;
@@ -1045,9 +1077,10 @@ class StreamingModeBackend {
 
     // Truncate at 100K char limit (hint at end, slice adjusted for hint length)
     const truncHint = `\n\n> ⚠️ 输出已截断（超过 ${MAX_STREAMING_CONTENT} 字符）`;
-    const content = text.length > MAX_STREAMING_CONTENT
-      ? text.slice(0, MAX_STREAMING_CONTENT - truncHint.length) + truncHint
-      : text;
+    const content =
+      text.length > MAX_STREAMING_CONTENT
+        ? text.slice(0, MAX_STREAMING_CONTENT - truncHint.length) + truncHint
+        : text;
 
     const hash = quickHash(content);
     if (hash === this.lastMainHash) return;
@@ -1062,7 +1095,10 @@ class StreamingModeBackend {
       const code = err?.code ?? err?.response?.data?.code;
       // 200850 = streaming timeout, 300309 = streaming closed
       if (code === 200850 || code === 300309) {
-        logger.info({ code, cardId: this.cardId }, 'Streaming mode expired, re-enabling');
+        logger.info(
+          { code, cardId: this.cardId },
+          'Streaming mode expired, re-enabling',
+        );
         await this.enableStreamingMode();
         // Retry once
         await this.client.cardkit.v1.cardElement.content({
@@ -1086,7 +1122,10 @@ class StreamingModeBackend {
     if (!this.cardId) return;
 
     const hash = quickHash(content);
-    const hashField = elementId === ELEMENT_IDS.AUX_BEFORE ? 'lastAuxBeforeHash' : 'lastAuxAfterHash';
+    const hashField =
+      elementId === ELEMENT_IDS.AUX_BEFORE
+        ? 'lastAuxBeforeHash'
+        : 'lastAuxAfterHash';
     if (hash === this[hashField]) return;
 
     const element = JSON.stringify({
@@ -1153,7 +1192,6 @@ class StreamingModeBackend {
   }
 }
 
-
 // ─── Multi-Card Manager ───────────────────────────────────────
 
 class MultiCardManager {
@@ -1200,10 +1238,7 @@ class MultiCardManager {
       runtimeIdentity,
     );
     await card.createCard(cardJson);
-    const messageId = await card.sendCard(
-      this.chatId,
-      this.replyToMsgId,
-    );
+    const messageId = await card.sendCard(this.chatId, this.replyToMsgId);
     this.cards.push(card);
     this.cardIndex = 0;
     return messageId;
@@ -1233,15 +1268,20 @@ class MultiCardManager {
     const { contentElements } = buildCardContent(text, splitCodeBlockSafe);
     const auxCount = auxiliaryState
       ? (() => {
-          const { before, after } = buildAuxiliaryElementsForState(auxiliaryState, state);
+          const { before, after } = buildAuxiliaryElementsForState(
+            auxiliaryState,
+            state,
+          );
           return before.length + after.length;
         })()
       : 0;
-    const runtimeControlCount = buildRuntimeControlElements(runtimeIdentity).length;
-    const fixedCount = (state === 'streaming' ? 1 : 0)        // button
-                     + runtimeControlCount                     // runtime controls
-                     + (SCHEMA2_NOTE_MAP[state] ? 1 : 0)      // note
-                     + (footerNote ? 1 : 0);                   // footer
+    const runtimeControlCount =
+      buildRuntimeControlElements(runtimeIdentity).length;
+    const fixedCount =
+      (state === 'streaming' ? 1 : 0) + // button
+      runtimeControlCount + // runtime controls
+      (SCHEMA2_NOTE_MAP[state] ? 1 : 0) + // note
+      (footerNote ? 1 : 0); // footer
     const totalElements = contentElements.length + auxCount + fixedCount;
 
     if (totalElements > this.MAX_ELEMENTS && state === 'streaming') {
@@ -1382,7 +1422,8 @@ export class StreamingCardController {
   // Auxiliary display state
   private systemStatus: string | null = null;
   private activeHook: { hookName: string; hookEvent: string } | null = null;
-  private todos: Array<{ id: string; content: string; status: string }> | null = null;
+  private todos: Array<{ id: string; content: string; status: string }> | null =
+    null;
   private recentEvents: Array<{ text: string }> = [];
   private stateVersion = 0;
   private footerRuntimeIdentity: RuntimeIdentity | null = null;
@@ -1415,7 +1456,8 @@ export class StreamingCardController {
    * Get all messageIds across all cards (for multi-card cleanup).
    */
   getAllMessageIds(): string[] {
-    if (this.streamingBackend?.messageId) return [this.streamingBackend.messageId];
+    if (this.streamingBackend?.messageId)
+      return [this.streamingBackend.messageId];
     if (this.multiCard) return this.multiCard.getAllMessageIds();
     return this.messageId ? [this.messageId] : [];
   }
@@ -1429,7 +1471,10 @@ export class StreamingCardController {
       // Create card immediately with thinking placeholder
       this.state = 'creating';
       this.createInitialCard().catch((err) => {
-        logger.warn({ err, chatId: this.chatId }, 'Streaming card: initial create failed (thinking), will use fallback');
+        logger.warn(
+          { err, chatId: this.chatId },
+          'Streaming card: initial create failed (thinking), will use fallback',
+        );
         this.state = 'error';
         this.onFallback?.();
       });
@@ -1440,10 +1485,16 @@ export class StreamingCardController {
    * Signal that a tool has started executing.
    */
   startTool(toolId: string, toolName: string): void {
-    this.toolCalls.set(toolId, { name: toolName, status: 'running', startTime: Date.now() });
+    this.toolCalls.set(toolId, {
+      name: toolName,
+      status: 'running',
+      startTime: Date.now(),
+    });
     this.stateVersion++;
     if (this.state === 'streaming') {
-      this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
     }
   }
 
@@ -1457,7 +1508,9 @@ export class StreamingCardController {
       this.stateVersion++;
       this.purgeOldTools();
       if (this.state === 'streaming') {
-        this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+        this.backendMode === 'streaming'
+          ? this.scheduleAuxFlush()
+          : this.schedulePatch();
       }
     }
   }
@@ -1480,19 +1533,25 @@ export class StreamingCardController {
   appendThinking(text: string): void {
     this.thinkingText += text;
     if (this.thinkingText.length > MAX_THINKING_CHARS) {
-      this.thinkingText = '...' + this.thinkingText.slice(-(MAX_THINKING_CHARS - 3));
+      this.thinkingText =
+        '...' + this.thinkingText.slice(-(MAX_THINKING_CHARS - 3));
     }
     this.thinking = true;
     this.stateVersion++;
     if (this.state === 'idle') {
       this.state = 'creating';
       this.createInitialCard().catch((err) => {
-        logger.warn({ err, chatId: this.chatId }, 'Streaming card: initial create failed (thinking), will use fallback');
+        logger.warn(
+          { err, chatId: this.chatId },
+          'Streaming card: initial create failed (thinking), will use fallback',
+        );
         this.state = 'error';
         this.onFallback?.();
       });
     } else if (this.state === 'streaming') {
-      this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
     }
   }
 
@@ -1503,7 +1562,9 @@ export class StreamingCardController {
     this.systemStatus = status;
     this.stateVersion++;
     if (this.state === 'streaming') {
-      this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
     }
   }
 
@@ -1514,18 +1575,24 @@ export class StreamingCardController {
     this.activeHook = hook;
     this.stateVersion++;
     if (this.state === 'streaming') {
-      this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
     }
   }
 
   /**
    * Set the todo list for progress panel display.
    */
-  setTodos(todos: Array<{ id: string; content: string; status: string }>): void {
+  setTodos(
+    todos: Array<{ id: string; content: string; status: string }>,
+  ): void {
     this.todos = todos;
     this.stateVersion++;
     if (this.state === 'streaming') {
-      this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
     }
   }
 
@@ -1545,14 +1612,17 @@ export class StreamingCardController {
     const unchanged =
       this.footerRuntimeIdentity?.agentType === nextIdentity?.agentType &&
       this.footerRuntimeIdentity?.model === nextIdentity?.model &&
-      this.footerRuntimeIdentity?.reasoningEffort === nextIdentity?.reasoningEffort &&
+      this.footerRuntimeIdentity?.reasoningEffort ===
+        nextIdentity?.reasoningEffort &&
       this.footerRuntimeIdentity?.supportsReasoningEffort ===
         nextIdentity?.supportsReasoningEffort;
     if (unchanged) return;
     this.footerRuntimeIdentity = nextIdentity;
     this.stateVersion++;
     if (this.state === 'streaming') {
-      this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
     }
   }
 
@@ -1565,7 +1635,9 @@ export class StreamingCardController {
       tc.toolInputSummary = summary;
       this.stateVersion++;
       if (this.state === 'streaming') {
-        this.backendMode === 'streaming' ? this.scheduleAuxFlush() : this.schedulePatch();
+        this.backendMode === 'streaming'
+          ? this.scheduleAuxFlush()
+          : this.schedulePatch();
       }
     }
   }
@@ -1589,7 +1661,10 @@ export class StreamingCardController {
     if (this.state === 'idle') {
       this.state = 'creating';
       this.createInitialCard().catch((err) => {
-        logger.warn({ err, chatId: this.chatId }, 'Streaming card: initial create failed, will use fallback');
+        logger.warn(
+          { err, chatId: this.chatId },
+          'Streaming card: initial create failed, will use fallback',
+        );
         this.state = 'error';
         this.onFallback?.();
       });
@@ -1597,7 +1672,9 @@ export class StreamingCardController {
     }
 
     if (this.state === 'streaming') {
-      this.backendMode === 'streaming' ? this.scheduleTextFlush() : this.schedulePatch();
+      this.backendMode === 'streaming'
+        ? this.scheduleTextFlush()
+        : this.schedulePatch();
     }
     // If 'creating', the text will be picked up after creation completes
   }
@@ -1723,17 +1800,27 @@ export class StreamingCardController {
       this.accumulatedText += `\n\n---\n*${reason}*`;
     }
 
-    if (this.backendMode === 'streaming' && this.streamingBackend && wasActive) {
+    if (
+      this.backendMode === 'streaming' &&
+      this.streamingBackend &&
+      wasActive
+    ) {
       try {
         await this.finalizeStreamingCard('aborted');
       } catch (err) {
-        logger.debug({ err, chatId: this.chatId }, 'Streaming card: abort finalize failed');
+        logger.debug(
+          { err, chatId: this.chatId },
+          'Streaming card: abort finalize failed',
+        );
       }
     } else if ((this.messageId || this.multiCard) && wasActive) {
       try {
         await this.patchCard('aborted');
       } catch (err) {
-        logger.debug({ err, chatId: this.chatId }, 'Streaming card: abort patch failed');
+        logger.debug(
+          { err, chatId: this.chatId },
+          'Streaming card: abort patch failed',
+        );
       }
     }
   }
@@ -1884,11 +1971,17 @@ export class StreamingCardController {
       );
       if (this.backendMode === 'streaming' && this.streamingBackend) {
         this.finalizeStreamingCard(finalState).catch((err) => {
-          logger.debug({ err, chatId: this.chatId }, 'Failed to finalize streaming card after late creation');
+          logger.debug(
+            { err, chatId: this.chatId },
+            'Failed to finalize streaming card after late creation',
+          );
         });
       } else {
         this.patchCard(finalState).catch((err) => {
-          logger.debug({ err, chatId: this.chatId }, 'Failed to patch to final state after late creation');
+          logger.debug(
+            { err, chatId: this.chatId },
+            'Failed to patch to final state after late creation',
+          );
         });
       }
       return;
@@ -1901,7 +1994,9 @@ export class StreamingCardController {
 
     // If text accumulated while creating, schedule a flush/patch
     if (this.accumulatedText.length > 3) {
-      this.backendMode === 'streaming' ? this.scheduleTextFlush() : this.schedulePatch();
+      this.backendMode === 'streaming'
+        ? this.scheduleTextFlush()
+        : this.schedulePatch();
     }
   }
 
@@ -1919,7 +2014,8 @@ export class StreamingCardController {
 
     // Use effectiveLength so FlushController detects non-text state changes
     // (thinking, tool status, system status, etc.)
-    const effectiveLength = this.accumulatedText.length + this.stateVersion * 1000;
+    const effectiveLength =
+      this.accumulatedText.length + this.stateVersion * 1000;
     this.flushCtrl.schedule(effectiveLength, async () => {
       await this.patchCard('streaming');
     });
@@ -1966,7 +2062,12 @@ export class StreamingCardController {
       } catch (err) {
         this.patchFailCount++;
         logger.debug(
-          { err, chatId: this.chatId, failCount: this.patchFailCount, mode: 'streaming' },
+          {
+            err,
+            chatId: this.chatId,
+            failCount: this.patchFailCount,
+            mode: 'streaming',
+          },
           'Streaming content push failed',
         );
         if (this.patchFailCount >= this.maxPatchFailures) {
@@ -1996,8 +2097,14 @@ export class StreamingCardController {
       if (snapshot === this.lastAuxSnapshot) return;
 
       try {
-        await this.streamingBackend!.updateAuxiliary(ELEMENT_IDS.AUX_BEFORE, auxBefore);
-        await this.streamingBackend!.updateAuxiliary(ELEMENT_IDS.AUX_AFTER, auxAfter);
+        await this.streamingBackend!.updateAuxiliary(
+          ELEMENT_IDS.AUX_BEFORE,
+          auxBefore,
+        );
+        await this.streamingBackend!.updateAuxiliary(
+          ELEMENT_IDS.AUX_AFTER,
+          auxAfter,
+        );
         this.lastAuxSnapshot = snapshot;
       } catch (err) {
         // Auxiliary update failures do NOT count toward degradation
@@ -2086,7 +2193,10 @@ export class StreamingCardController {
         await this.splitOnFinalize(finalState);
       }
     } catch (err) {
-      logger.debug({ err, chatId: this.chatId }, 'Streaming finalize failed, trying truncated fallback');
+      logger.debug(
+        { err, chatId: this.chatId },
+        'Streaming finalize failed, trying truncated fallback',
+      );
       // Fallback: truncate and try once more
       try {
         const truncated = this.accumulatedText.slice(0, 20000);
@@ -2101,7 +2211,10 @@ export class StreamingCardController {
         );
         await backend.updateCardFull(fallbackCard);
       } catch (fallbackErr) {
-        logger.debug({ err: fallbackErr, chatId: this.chatId }, 'Streaming finalize truncated fallback also failed');
+        logger.debug(
+          { err: fallbackErr, chatId: this.chatId },
+          'Streaming finalize truncated fallback also failed',
+        );
       }
     }
   }
@@ -2128,7 +2241,8 @@ export class StreamingCardController {
     const firstText = firstChunks.join('\n\n');
 
     // Use finalState if all content fits in the first card, otherwise freeze
-    const firstCardState = chunks.length <= maxChunksFirst ? finalState : 'frozen';
+    const firstCardState =
+      chunks.length <= maxChunksFirst ? finalState : 'frozen';
     const frozenCard = buildSchema2Card(
       firstText,
       firstCardState,
@@ -2185,7 +2299,12 @@ export class StreamingCardController {
       } catch (err) {
         this.patchFailCount++;
         logger.debug(
-          { err, chatId: this.chatId, failCount: this.patchFailCount, mode: 'cardkit' },
+          {
+            err,
+            chatId: this.chatId,
+            failCount: this.patchFailCount,
+            mode: 'cardkit',
+          },
           'CardKit card update failed',
         );
         throw err;
@@ -2212,14 +2331,18 @@ export class StreamingCardController {
       } catch (err) {
         this.patchFailCount++;
         logger.debug(
-          { err, chatId: this.chatId, failCount: this.patchFailCount, mode: 'legacy' },
+          {
+            err,
+            chatId: this.chatId,
+            failCount: this.patchFailCount,
+            mode: 'legacy',
+          },
           'Streaming card patch failed',
         );
         throw err;
       }
     }
   }
-
 }
 
 // ─── MessageId → ChatJid Mapping ─────────────────────────────
@@ -2241,9 +2364,7 @@ export function registerMessageIdMapping(
 /**
  * Resolve a chatJid from a Feishu messageId.
  */
-export function resolveJidByMessageId(
-  messageId: string,
-): string | undefined {
+export function resolveJidByMessageId(messageId: string): string | undefined {
   return messageIdToChatJid.get(messageId);
 }
 
@@ -2335,8 +2456,5 @@ export async function abortAllStreamingSessions(
     }
   }
   activeSessions.clear();
-  logger.info(
-    { count: promises.length },
-    'All streaming sessions aborted',
-  );
+  logger.info({ count: promises.length }, 'All streaming sessions aborted');
 }

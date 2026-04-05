@@ -10,7 +10,12 @@ import type { Variables } from '../web-context.js';
 import type { AuthUser } from '../types.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { DATA_DIR } from '../config.js';
-import { getSystemSettings, saveSystemSettings, type SystemSettings } from '../runtime-config.js';
+import { resolveAppPath } from '../app-root.js';
+import {
+  getSystemSettings,
+  saveSystemSettings,
+  type SystemSettings,
+} from '../runtime-config.js';
 import {
   parseFrontmatter,
   validateSkillId,
@@ -82,7 +87,7 @@ function getGlobalSkillsDir(): string {
 }
 
 function getProjectSkillsDir(): string {
-  return path.resolve(process.cwd(), 'container', 'skills');
+  return resolveAppPath('container', 'skills');
 }
 
 function getHostSyncManifestPath(userId: string): string {
@@ -627,7 +632,10 @@ skillsRoutes.put('/sync-settings', authMiddleware, async (c) => {
   if (typeof body.autoSyncEnabled === 'boolean') {
     updates.skillAutoSyncEnabled = body.autoSyncEnabled;
   }
-  if (typeof body.autoSyncIntervalMinutes === 'number' && body.autoSyncIntervalMinutes >= 1) {
+  if (
+    typeof body.autoSyncIntervalMinutes === 'number' &&
+    body.autoSyncIntervalMinutes >= 1
+  ) {
     updates.skillAutoSyncIntervalMinutes = body.autoSyncIntervalMinutes;
   }
   const saved = saveSystemSettings(updates);
@@ -837,9 +845,10 @@ async function installSkillForUser(
  * Sync host-level skills (~/.claude/skills/) to a user's directory.
  * Standalone function usable from both the API route and the auto-sync timer.
  */
-async function syncHostSkillsForUser(
-  userId: string,
-): Promise<{ stats: { added: number; updated: number; deleted: number; skipped: number }; total: number }> {
+async function syncHostSkillsForUser(userId: string): Promise<{
+  stats: { added: number; updated: number; deleted: number; skipped: number };
+  total: number;
+}> {
   return withSkillInstallLock(async () => {
     const hostDir = getGlobalSkillsDir();
     const userDir = getUserSkillsDir(userId);
@@ -996,5 +1005,10 @@ skillsRoutes.post('/:id/reinstall', authMiddleware, async (c) => {
   return c.json({ success: true, installed: installResult.installed });
 });
 
-export { getUserSkillsDir, installSkillForUser, deleteSkillForUser, syncHostSkillsForUser };
+export {
+  getUserSkillsDir,
+  installSkillForUser,
+  deleteSkillForUser,
+  syncHostSkillsForUser,
+};
 export default skillsRoutes;

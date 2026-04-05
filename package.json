@@ -4,9 +4,33 @@
   "description": "Self-hosted multi-user AI agent platform powered by CLI runtimes.",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "cli-claw": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "config",
+    "shared",
+    "shared/dist",
+    "container/build.sh",
+    "container/Dockerfile",
+    "container/entrypoint.sh",
+    "container/skills",
+    "container/agent-runner/package.json",
+    "container/agent-runner/tsconfig.json",
+    "container/agent-runner/src",
+    "container/agent-runner/dist",
+    "container/agent-runner/prompts",
+    "web/dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "npm run build:shared && npm run build:backend",
-    "start": "node dist/index.js",
+    "build:release": "npm run build:all",
+    "prepack": "npm run build:release",
+    "release:check": "bash ./scripts/release-check.sh",
+    "start": "node dist/cli.js start",
     "dev": "tsx src/index.ts",
     "dev:bun": "bun src/index.ts",
     "reset:admin": "tsx src/reset-admin.ts",
@@ -24,6 +48,7 @@
     "typecheck:backend": "tsc --noEmit"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.18.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.85",
     "@hono/node-server": "^1.19.9",
     "@larksuiteoapi/node-sdk": "^1.58.0",

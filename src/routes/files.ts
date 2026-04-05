@@ -8,7 +8,8 @@ import {
 } from '../web-context.js';
 import type { AuthUser } from '../types.js';
 import type { RegisteredGroup } from '../types.js';
-import { getRegisteredGroup } from '../db.js';
+import { getJidsByFolder, getRegisteredGroup } from '../db.js';
+import { resolveEffectiveHostWorkspaceCwd } from '../host-workspace-cwd.js';
 import { logger } from '../logger.js';
 import {
   listFiles,
@@ -131,12 +132,42 @@ const SAFE_PREVIEW_MIME_TYPES = new Set([
 
 /**
  * 获取文件操作的根目录覆盖。
- * 宿主机模式下设置了 customCwd 时，文件面板以 customCwd 为根。
+ * 宿主机模式下以有效工作目录为根。
  */
-function getFileRootOverride(group: RegisteredGroup): string | undefined {
-  return group.executionMode === 'host' && group.customCwd
-    ? group.customCwd
-    : undefined;
+export function resolveFileRootOverride(
+  group: RegisteredGroup,
+  homeGroup?: RegisteredGroup | null,
+): string | undefined {
+  if (group.executionMode !== 'host') return undefined;
+  return resolveEffectiveHostWorkspaceCwd(group, homeGroup ?? undefined);
+}
+
+function findHomeSiblingGroup(
+  group: RegisteredGroup,
+): RegisteredGroup | undefined {
+  if (group.is_home) return undefined;
+
+  for (const jid of getJidsByFolder(group.folder)) {
+    const sibling = getRegisteredGroup(jid);
+    if (sibling?.is_home) {
+      return sibling;
+    }
+  }
+
+  return undefined;
+}
+
+function getRequiredFileRootOverride(
+  group: RegisteredGroup,
+): string | undefined {
+  const rootOverride = resolveFileRootOverride(
+    group,
+    findHomeSiblingGroup(group),
+  );
+  if (group.executionMode === 'host' && !rootOverride) {
+    throw new Error('Host workspace is missing custom_cwd');
+  }
+  return rootOverride;
 }
 
 function buildAttachmentContentDisposition(fileName: string): string {
@@ -238,7 +269,11 @@ fileRoutes.get('/:jid/files', authMiddleware, (c) => {
   }
 
   try {
-    const result = listFiles(group.folder, subPath, getFileRootOverride(group));
+    const result = listFiles(
+      group.folder,
+      subPath,
+      getRequiredFileRootOverride(group),
+    );
     return c.json(result);
   } catch (error) {
     logger.error({ err: error }, `Failed to list files for ${jid}`);
@@ -266,9 +301,8 @@ fileRoutes.post('/:jid/files', authMiddleware, async (c) => {
     );
   }
 
-  const rootOverride = getFileRootOverride(group);
-
   try {
+    const rootOverride = getRequiredFileRootOverride(group);
     const body = await c.req.parseBody({ all: true });
     const targetPath = (typeof body.path === 'string' ? body.path : '') || '';
     const files = body.files;
@@ -377,7 +411,7 @@ fileRoutes.post('/:jid/files/open-directory', authMiddleware, async (c) => {
     const absolutePath = validateAndResolvePath(
       group.folder,
       targetPath,
-      getFileRootOverride(group),
+      getRequiredFileRootOverride(group),
     );
 
     if (!fs.existsSync(absolutePath)) {
@@ -439,7 +473,7 @@ fileRoutes.get('/:jid/files/download/:path', authMiddleware, (c) => {
     const absolutePath = validateAndResolvePath(
       group.folder,
       relativePath,
-      getFileRootOverride(group),
+      getRequiredFileRootOverride(group),
     );
 
     if (!fs.existsSync(absolutePath)) {
@@ -540,7 +574,7 @@ fileRoutes.get('/:jid/files/preview/:path', authMiddleware, (c) => {
     const absolutePath = validateAndResolvePath(
       group.folder,
       relativePath,
-      getFileRootOverride(group),
+      getRequiredFileRootOverride(group),
     );
 
     if (!fs.existsSync(absolutePath)) {
@@ -606,7 +640,7 @@ fileRoutes.get('/:jid/files/content/:path', authMiddleware, (c) => {
   }
 
   try {
-    const rootOverride = getFileRootOverride(group);
+    const rootOverride = getRequiredFileRootOverride(group);
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
       'utf-8',
     );
@@ -669,7 +703,7 @@ fileRoutes.put('/:jid/files/content/:path', authMiddleware, async (c) => {
   }
 
   try {
-    const rootOverride = getFileRootOverride(group);
+    const rootOverride = getRequiredFileRootOverride(group);
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
       'utf-8',
     );
@@ -762,7 +796,7 @@ fileRoutes.delete('/:jid/files/:path', authMiddleware, (c) => {
   }
 
   try {
-    const rootOverride = getFileRootOverride(group);
+    const rootOverride = getRequiredFileRootOverride(group);
     // 解码 base64url 路径
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
       'utf-8',
@@ -821,7 +855,7 @@ fileRoutes.post('/:jid/directories', authMiddleware, async (c) => {
       group.folder,
       parentPath || '',
       name,
-      getFileRootOverride(group),
+      getRequiredFileRootOverride(group),
     );
 
     return c.json({ success: true });

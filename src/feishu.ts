@@ -310,8 +310,7 @@ function extractMessageContent(
     }
 
     if (messageType === 'sticker') {
-      const stickerDesc =
-        parsed.description || parsed.sticker_id || '表情包';
+      const stickerDesc = parsed.description || parsed.sticker_id || '表情包';
       return { text: `[表情包: ${stickerDesc}]` };
     }
 
@@ -334,8 +333,7 @@ function extractMessageContent(
 
     if (messageType === 'system') {
       const body = parsed.body || parsed.content || '';
-      const systemText =
-        typeof body === 'string' ? body : JSON.stringify(body);
+      const systemText = typeof body === 'string' ? body : JSON.stringify(body);
       return { text: `[系统消息: ${systemText.slice(0, 200)}]` };
     }
 
@@ -354,14 +352,10 @@ function extractMessageContent(
               parts.push(el.text);
             } else if (el.tag === 'a' && typeof el.text === 'string') {
               parts.push(`[${el.text}](${el.href || ''})`);
-            } else if (
-              el.tag === 'note' &&
-              Array.isArray(el.elements)
-            ) {
+            } else if (el.tag === 'note' && Array.isArray(el.elements)) {
               const noteText = el.elements
                 .filter(
-                  (n: any) =>
-                    n.tag === 'text' && typeof n.text === 'string',
+                  (n: any) => n.tag === 'text' && typeof n.text === 'string',
                 )
                 .map((n: any) => n.text)
                 .join('');
@@ -602,7 +596,11 @@ export function createFeishuConnection(
   let disconnectedSince: number | null = null;
   let healthTimer: NodeJS.Timeout | null = null;
 
-  function rememberChatProgress(chatId: string, createTimeMs: number, chatType?: string): void {
+  function rememberChatProgress(
+    chatId: string,
+    createTimeMs: number,
+    chatType?: string,
+  ): void {
     knownChatIds.add(chatId);
     if (chatType) chatTypeById.set(chatId, chatType);
     const prev = lastCreateTimeByChat.get(chatId) || 0;
@@ -829,9 +827,7 @@ export function createFeishuConnection(
   async function sendTextToChat(chatId: string, text: string): Promise<void> {
     if (!client) return;
     try {
-      const receive_id_type = chatId.startsWith('oc_')
-        ? 'chat_id'
-        : 'open_id';
+      const receive_id_type = chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
       await client.im.v1.message.create({
         params: { receive_id_type },
         data: {
@@ -1423,7 +1419,10 @@ export function createFeishuConnection(
           method: 'GET',
           url: '/open-apis/bot/v3/info/',
         });
-        const info = botInfoRes as { bot?: { open_id?: string }; data?: { bot?: { open_id?: string } } };
+        const info = botInfoRes as {
+          bot?: { open_id?: string };
+          data?: { bot?: { open_id?: string } };
+        };
         botOpenId = info?.bot?.open_id || info?.data?.bot?.open_id || '';
         if (botOpenId) {
           logger.info(
@@ -1774,8 +1773,7 @@ export function createFeishuConnection(
               | { image_key?: string; data?: { image_key?: string } }
               | null
               | undefined;
-            const imageKey =
-              uploadRes?.image_key ?? uploadRes?.data?.image_key;
+            const imageKey = uploadRes?.image_key ?? uploadRes?.data?.image_key;
             if (!imageKey) {
               logger.warn(
                 { chatId, localImagePath },
@@ -1928,8 +1926,7 @@ export function createFeishuConnection(
           | null
           | undefined;
 
-        const fileKey =
-          uploadResult?.file_key ?? uploadResult?.data?.file_key;
+        const fileKey = uploadResult?.file_key ?? uploadResult?.data?.file_key;
         if (!fileKey) {
           throw new Error('文件上传失败：未返回 file_key');
         }

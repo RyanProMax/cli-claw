@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { APP_ROOT } from './app-root.js';
 
 export interface BuildFingerprint {
   path: string;
@@ -42,21 +43,34 @@ export interface RuntimeBuildLogFields {
   agentRunnerBuildStale: boolean;
 }
 
-const BACKEND_BUILD_PATH = path.resolve(process.cwd(), 'dist', 'index.js');
-const BACKEND_PACKAGE_PATH = path.resolve(process.cwd(), 'package.json');
-const AGENT_RUNNER_BUILD_PATH = path.resolve(
-  process.cwd(),
-  'container',
-  'agent-runner',
-  'dist',
-  'index.js',
-);
-const AGENT_RUNNER_PACKAGE_PATH = path.resolve(
-  process.cwd(),
-  'container',
-  'agent-runner',
-  'package.json',
-);
+export interface RuntimeBuildArtifactPaths {
+  backendBuildPath: string;
+  backendPackagePath: string;
+  agentRunnerBuildPath: string;
+  agentRunnerPackagePath: string;
+}
+
+export function getRuntimeBuildArtifactPaths(
+  appRoot: string = APP_ROOT,
+): RuntimeBuildArtifactPaths {
+  return {
+    backendBuildPath: path.resolve(appRoot, 'dist', 'index.js'),
+    backendPackagePath: path.resolve(appRoot, 'package.json'),
+    agentRunnerBuildPath: path.resolve(
+      appRoot,
+      'container',
+      'agent-runner',
+      'dist',
+      'index.js',
+    ),
+    agentRunnerPackagePath: path.resolve(
+      appRoot,
+      'container',
+      'agent-runner',
+      'package.json',
+    ),
+  };
+}
 
 function readPackageVersion(packageJsonPath: string): string | null {
   try {
@@ -115,16 +129,17 @@ export function formatBuildFingerprintForLog(
 }
 
 export function createRuntimeBuildSnapshot(): RuntimeBuildSnapshot {
+  const artifactPaths = getRuntimeBuildArtifactPaths();
   return {
     pid: process.pid,
     startedAt: new Date().toISOString(),
     backend: readBuildFingerprint(
-      BACKEND_BUILD_PATH,
-      readPackageVersion(BACKEND_PACKAGE_PATH),
+      artifactPaths.backendBuildPath,
+      readPackageVersion(artifactPaths.backendPackagePath),
     ),
     agentRunner: readBuildFingerprint(
-      AGENT_RUNNER_BUILD_PATH,
-      readPackageVersion(AGENT_RUNNER_PACKAGE_PATH),
+      artifactPaths.agentRunnerBuildPath,
+      readPackageVersion(artifactPaths.agentRunnerPackagePath),
     ),
   };
 }
@@ -136,21 +151,26 @@ export function createRuntimeBuildStatus(
     agentRunner?: BuildFingerprint;
   } = {},
 ): RuntimeBuildStatus {
+  const artifactPaths = getRuntimeBuildArtifactPaths();
   const currentBackend =
     current.backend ||
     readBuildFingerprint(
-      BACKEND_BUILD_PATH,
-      snapshot.backend.version || readPackageVersion(BACKEND_PACKAGE_PATH),
+      artifactPaths.backendBuildPath,
+      snapshot.backend.version ||
+        readPackageVersion(artifactPaths.backendPackagePath),
     );
   const currentAgentRunner =
     current.agentRunner ||
     readBuildFingerprint(
-      AGENT_RUNNER_BUILD_PATH,
+      artifactPaths.agentRunnerBuildPath,
       snapshot.agentRunner.version ||
-        readPackageVersion(AGENT_RUNNER_PACKAGE_PATH),
+        readPackageVersion(artifactPaths.agentRunnerPackagePath),
     );
 
-  const backendStale = isBuildFingerprintStale(snapshot.backend, currentBackend);
+  const backendStale = isBuildFingerprintStale(
+    snapshot.backend,
+    currentBackend,
+  );
   const agentRunnerStale = isBuildFingerprintStale(
     snapshot.agentRunner,
     currentAgentRunner,

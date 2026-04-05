@@ -38,6 +38,7 @@ import {
   updateTaskWorkspace,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
+import { resolveEffectiveHostWorkspaceCwd } from './host-workspace-cwd.js';
 import { logger } from './logger.js';
 import { resolveTaskOwner } from './task-utils.js';
 import { removeFlowArtifacts } from './file-manager.js';
@@ -64,6 +65,33 @@ function resolveTargetGroupJid(
   const preferred =
     sameFolder.find(([jid]) => jid.startsWith('web:')) || sameFolder[0];
   return preferred?.[0] || '';
+}
+
+function resolveTaskSourceGroup(
+  task: ScheduledTask,
+  groups: Record<string, RegisteredGroup>,
+): RegisteredGroup | undefined {
+  const directSource = groups[task.chat_jid];
+  if (directSource && directSource.folder === task.group_folder) {
+    return directSource;
+  }
+
+  return (
+    Object.values(groups).find(
+      (group) => group.folder === task.group_folder && group.is_home,
+    ) ||
+    Object.values(groups).find((group) => group.folder === task.group_folder)
+  );
+}
+
+function findHomeSiblingGroup(
+  group: RegisteredGroup | undefined,
+  groups: Record<string, RegisteredGroup>,
+): RegisteredGroup | undefined {
+  if (!group || group.is_home) return undefined;
+  return Object.values(groups).find(
+    (candidate) => candidate.folder === group.folder && candidate.is_home,
+  );
 }
 
 function resolveTaskExecutionMode(
@@ -122,12 +150,20 @@ function ensureTaskWorkspace(
     (g) => g.folder === task.group_folder,
   );
   const ownerId = resolveTaskOwner(task, sourceGroup);
+  const sourceHomeGroup = findHomeSiblingGroup(
+    sourceGroup,
+    deps.registeredGroups(),
+  );
+  const sourceWorkspaceCwd = sourceGroup
+    ? resolveEffectiveHostWorkspaceCwd(sourceGroup, sourceHomeGroup)
+    : undefined;
 
   const group: RegisteredGroup = {
     name,
     folder,
     added_at: new Date().toISOString(),
     executionMode,
+    customCwd: executionMode === 'host' ? sourceWorkspaceCwd : undefined,
     created_by: ownerId,
   };
 
@@ -245,7 +281,7 @@ function isTaskStillActive(taskId: string, label?: string): boolean {
   return true;
 }
 
-async function runTask(
+export async function runTask(
   staleTask: ScheduledTask,
   deps: SchedulerDependencies,
   options?: RunTaskOptions,
@@ -327,6 +363,14 @@ async function runTask(
       }
     }
   }
+
+  const sourceWorkspaceGroup = resolveTaskSourceGroup(task, workspaceGroups);
+  const sourceWorkspaceCwd = sourceWorkspaceGroup
+    ? resolveEffectiveHostWorkspaceCwd(
+        sourceWorkspaceGroup,
+        findHomeSiblingGroup(sourceWorkspaceGroup, workspaceGroups),
+      )
+    : undefined;
 
   // Update tasks snapshot for container to read (filtered by group)
   const isHome = false; // Task workspaces are never home
@@ -460,6 +504,7 @@ async function runTask(
         }
       },
       ownerHomeFolder,
+      sourceWorkspaceCwd ? { executionCwd: sourceWorkspaceCwd } : undefined,
     );
 
     if (idleTimer) clearTimeout(idleTimer);
@@ -546,7 +591,7 @@ async function runTask(
   }
 }
 
-async function runScriptTask(
+export async function runScriptTask(
   staleTask: ScheduledTask,
   deps: SchedulerDependencies,
   groupJid: string,
@@ -604,6 +649,17 @@ async function runScriptTask(
     }
   }
 
+  const sourceWorkspaceGroup = resolveTaskSourceGroup(
+    task,
+    deps.registeredGroups(),
+  );
+  const sourceWorkspaceCwd = sourceWorkspaceGroup
+    ? resolveEffectiveHostWorkspaceCwd(
+        sourceWorkspaceGroup,
+        findHomeSiblingGroup(sourceWorkspaceGroup, deps.registeredGroups()),
+      )
+    : undefined;
+
   const groupDir = path.join(GROUPS_DIR, task.group_folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
@@ -629,6 +685,7 @@ async function runScriptTask(
     const scriptResult = await runScript(
       task.script_command,
       task.group_folder,
+      sourceWorkspaceCwd,
     );
 
     if (scriptResult.timedOut) {
