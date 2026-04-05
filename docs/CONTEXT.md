@@ -48,9 +48,20 @@
   - 对话归档：`~/.cli-claw/groups/{folder}/conversations/`
 - `.claude/`、`~/.claude/CLAUDE.md`、`~/.codex/config.toml` 属于外部运行时契约，不参与本项目内部记忆改名。
 
+## 执行协议文件
+
+- 仓库级执行协议放在 tracked 文件里：
+  - `AGENTS.md`
+  - `PLANS/_TEMPLATE.md`
+  - `RUNBOOKS/*.md`
+  - `.codex/agents/*.md`
+- 本地 active plan 统一使用 `PLANS/ACTIVE.md`，它是复杂任务执行期间的单一真相源，默认不入库。
+- `docs/.local/PLAN.md` 若仍存在，只能视为个人草稿，不再是正式执行协议的一部分。
+
 ## 持久化边界
 
 - 用户隔离优先：非 admin 只能访问自己的工作区、自己的 user-global 和授权共享工作区。
 - `groups/{folder}` 是工作区内容边界，`registered_groups` 是工作区入口边界；多个入口可以共享一个 `folder`，但不等于多个独立工作区。
 - `.claude/` 与 `~/.codex/` 下的 settings / skills / config 是运行时配置，不等同于项目内部记忆。
+- `.codex/agents/` 是仓库内受版本控制的 Codex 工作流角色定义，属于执行协议，不是项目记忆文件。
 - 修改消息路由、执行模式、Memory 路径、MCP 工具名或 docs 入口时，要同步更新 `AGENTS.md` 和对应 docs。

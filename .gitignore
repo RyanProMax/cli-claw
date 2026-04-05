@@ -64,4 +64,6 @@ nohup.out
 
 # local
 .local/
+PLANS/*
+!PLANS/_TEMPLATE.md
 shared/dist/

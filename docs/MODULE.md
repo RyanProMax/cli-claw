@@ -90,12 +90,26 @@
 ├── shared/
 │   ├── stream-event.ts             # 前后端与 runner 共用的 StreamEvent 定义
 │   └── assistant-meta-footer.ts    # 多端共享 footer 格式化
+├── PLANS/
+│   └── _TEMPLATE.md                # 复杂任务计划模板；本地执行时复制为 ACTIVE.md
+├── RUNBOOKS/
+│   ├── Implement.md                # 主 agent 实施循环、验证与 repair loop 约定
+│   ├── Review.md                   # Review gate 清单
+│   └── Handoff.md                  # 阻塞 / 换线程 / 跨会话交接模板
+├── scripts/
+│   ├── validate.sh                 # 统一验证入口；串联测试、类型检查与构建
+│   └── review.sh                   # 机械化 review 辅助；语义审查仍按 RUNBOOKS/Review.md
+├── .codex/
+│   └── agents/
+│       ├── reader.md               # 只读探索子角色
+│       ├── implementer.md          # 窄写入实施子角色
+│       ├── tester.md               # 验证 / 复现子角色
+│       └── reviewer.md             # 差异审查子角色
 └── docs/
     ├── ARCHITECTURE.md             # 项目结构与核心数据流
     ├── RUNTIME.md                  # Claude / Codex 运行时矩阵与约束
     ├── CONTEXT.md                  # 持久化架构约束与边界
     ├── MODULE.md                   # 模块索引
     ├── ENGINEERING.md              # 开发规范、验证与提交流程
-    ├── COMMAND.md                  # 当前支持的命令与入口差异
-    └── .local/PLAN.md              # 本地任务记录（不入库）
+    └── COMMAND.md                  # 当前支持的命令与入口差异
 ```

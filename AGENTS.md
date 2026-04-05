@@ -21,14 +21,44 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台：
 - 模块索引：`docs/MODULE.md`
 - 工程规范：`docs/ENGINEERING.md`
 - 指令说明：`docs/COMMAND.md`
-- 本地任务记录：`docs/.local/PLAN.md`（本地文件，不入库）
+- 计划模板：`PLANS/_TEMPLATE.md`
+- 当前任务计划：`PLANS/ACTIVE.md`（本地文件，不入库，是复杂任务执行的单一真相源）
+- 实施手册：`RUNBOOKS/Implement.md`
+- Review Gate：`RUNBOOKS/Review.md`
+- 交接手册：`RUNBOOKS/Handoff.md`
 
 ## 工作流
 
-1. 开始任务前先更新本地 `docs/.local/PLAN.md`，写清目标、范围、计划。
-2. 实施过程中若范围、方案或验证方式变化，及时回写 `PLAN.md`。
-3. 任务结束后再次更新 `PLAN.md`，补上结果、验证、遗留事项。
-4. 每完成一个任务立即提交一个英文 commit，格式建议：`type: summary`。
+### Codex 进入仓库后的读取顺序
+
+1. 先读本文件，再读 `docs/ENGINEERING.md`。
+2. 按任务类型补读相关上下文：架构看 `docs/ARCHITECTURE.md`，运行时看 `docs/RUNTIME.md`，记忆与目录约束看 `docs/CONTEXT.md`，模块定位看 `docs/MODULE.md`。
+3. 复杂任务开始编码前，必须读取并更新本地 `PLANS/ACTIVE.md`；若文件不存在，先基于 `PLANS/_TEMPLATE.md` 创建。
+4. 涉及执行、review、交接时，分别对照 `RUNBOOKS/Implement.md`、`RUNBOOKS/Review.md`、`RUNBOOKS/Handoff.md`。
+
+### 复杂任务执行协议
+
+1. 复杂任务必须先写 `PLANS/ACTIVE.md`，再开始编码；没有 active plan 不进入实现。
+2. `PLANS/ACTIVE.md` 是任务执行的单一真相源；目标、milestone、scope、验证、阻塞与 handoff 都以它为准。
+3. 一次只允许一个 milestone 处于 `in_progress`；未完成当前 milestone 前，不得并行推进下一个 milestone。
+4. 不允许隐式扩 scope；若目标、方案、验证方式或涉及文件发生变化，先更新 `PLANS/ACTIVE.md`，再继续实现。
+5. 每轮实现后都必须运行验证；验证失败时停留在当前 milestone 内修复，不得带着失败继续向后推进。
+6. 验证通过后还必须经过 review gate；只有 validation 和 review 都通过，当前 milestone 才能标记为 `done`。
+7. 连续修复仍失败、线程阻塞、需要换线程继续或要交给下一次 Codex 会话时，必须写 handoff，并回写到 `PLANS/ACTIVE.md`。
+8. 任务完成后必须更新 `PLANS/ACTIVE.md` 的结果与 handoff，再做最终提交；commit message 使用英文，建议格式 `type: summary`。
+
+### Subagent 约束
+
+- 只有在任务可以被拆成窄职责、低耦合、可并行的子问题时，才允许显式派生 subagents。
+- 不要把当前主路径上立即阻塞的工作直接丢给 subagent；主 agent 负责汇总、决策、最终改动与推进 milestone。
+- 不要为了“更忙”而派生 subagents；目录不清、scope 未锁定、验证标准未写清时，一律先留在主 agent。
+- 本阶段不引入 `.codex/skills/`；若未来补充仓库级 Codex skills，必须保持窄职责、可验证，并与 `RUNBOOKS/*` 协议保持一致。
+- 默认角色建议：
+  - `reader`：只读探索、定位上下文、输出摘要
+  - `implementer`：在明确写入边界内实施最小改动
+  - `tester`：复现、执行验证、汇总失败现象
+  - `reviewer`：按 review gate 审查 diff、风险与遗漏
+- subagent 输出必须结构化，至少包含：`summary`、`files`、`risks`、`next_action`。
 
 ## 编码与修改约束
 
@@ -50,6 +80,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台：
 
 ## 验证
 
+- 长任务默认按 `PLANS/ACTIVE.md` 中当前 milestone 的 `Validation` 执行；若仓库已提供统一入口，优先使用 `./scripts/validate.sh` 与 `./scripts/review.sh`。
 - 至少运行与改动直接相关的测试。
 - 涉及构建、类型或跨子项目改动时，补跑对应 `build` / `typecheck`。
 - 未验证的部分必须在收尾说明里明确指出。
@@ -150,12 +181,26 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台：
 ├── shared/
 │   ├── stream-event.ts             # 前后端与 runner 共用的 StreamEvent 定义
 │   └── assistant-meta-footer.ts    # 多端共享 footer 格式化
+├── PLANS/
+│   └── _TEMPLATE.md                # 复杂任务计划模板；本地执行时复制为 ACTIVE.md
+├── RUNBOOKS/
+│   ├── Implement.md                # 主 agent 实施循环、验证与 repair loop 约定
+│   ├── Review.md                   # Review gate 清单
+│   └── Handoff.md                  # 阻塞 / 换线程 / 跨会话交接模板
+├── scripts/
+│   ├── validate.sh                 # 统一验证入口；串联测试、类型检查与构建
+│   └── review.sh                   # 机械化 review 辅助；语义审查仍按 RUNBOOKS/Review.md
+├── .codex/
+│   └── agents/
+│       ├── reader.md               # 只读探索子角色
+│       ├── implementer.md          # 窄写入实施子角色
+│       ├── tester.md               # 验证 / 复现子角色
+│       └── reviewer.md             # 差异审查子角色
 └── docs/
     ├── ARCHITECTURE.md             # 项目结构与核心数据流
     ├── RUNTIME.md                  # Claude / Codex 运行时矩阵与约束
     ├── CONTEXT.md                  # 持久化架构约束与边界
     ├── MODULE.md                   # 模块索引
     ├── ENGINEERING.md              # 开发规范、验证与提交流程
-    ├── COMMAND.md                  # 当前支持的命令与入口差异
-    └── .local/PLAN.md              # 本地任务记录（不入库）
+    └── COMMAND.md                  # 当前支持的命令与入口差异
 ```

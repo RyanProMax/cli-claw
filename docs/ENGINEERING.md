@@ -2,10 +2,13 @@
 
 ## 工作流
 
-1. 开始任务前先更新本地 `docs/.local/PLAN.md`，写清目标、范围、计划。
-2. 实施过程中若范围、方案或验证方式变化，及时回写 `PLAN.md`。
-3. 任务结束后再次更新 `PLAN.md`，补上结果、验证、遗留事项。
-4. 每完成一个任务立即提交一个英文 commit，格式建议：`type: summary`。
+1. 复杂任务开始前先创建或更新本地 `PLANS/ACTIVE.md`；若文件不存在，先从 `PLANS/_TEMPLATE.md` 复制。
+2. `PLANS/ACTIVE.md` 是复杂任务执行的单一真相源；目标、milestone、scope、验证、阻塞与 handoff 都先回写这里。
+3. 一次只推进一个 milestone；未完成当前 milestone 前，不得隐式扩 scope 或提前推进下一项。
+4. 每轮实现后必须运行验证；验证失败时停留在当前 milestone 修复，不得跳过。
+5. 验证通过后仍需经过 review gate；只有 validation 和 review 都通过，milestone 才能标记为 `done`。
+6. 连续修复仍失败、当前线程阻塞、需要换线程继续或交接给下一个 Codex 会话时，必须写 handoff。
+7. 任务结束后更新 `PLANS/ACTIVE.md` 的结果与 handoff，再提交一个聚焦单任务的英文 commit，格式建议：`type: summary`。
 
 ## 编码与修改约束
 
@@ -27,6 +30,8 @@
 
 ## 验证
 
+- 优先执行当前 milestone 明确写出的验证命令；若仓库提供了统一入口，优先使用 `./scripts/validate.sh`。
+- milestone 完成前要补跑 `./scripts/review.sh` 或等价 review helper，再按 `RUNBOOKS/Review.md` 做语义审查。
 - 至少运行与改动直接相关的测试。
 - 涉及构建、类型或跨子项目改动时，补跑对应 `build` / `typecheck`。
 - 未验证的部分必须在收尾说明里明确指出。

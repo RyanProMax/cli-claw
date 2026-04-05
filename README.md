@@ -497,7 +497,24 @@ cli-claw/
 │
 ├── scripts/                      # 构建辅助脚本
 │   ├── sync-stream-event.sh      #   同步 shared/ 类型到各子项目
+│   ├── validate.sh               #   workflow 统一验证入口
+│   ├── review.sh                 #   workflow 机械化 review 辅助
 │   └── check-stream-event-sync.sh#   校验类型副本一致性
+│
+├── PLANS/                        # 长任务计划模板（实例计划默认本地保存）
+│   └── _TEMPLATE.md              #   active plan 模板
+│
+├── RUNBOOKS/                     # Codex 长任务执行手册
+│   ├── Implement.md              #   实施 / repair / validate / review 循环
+│   ├── Review.md                 #   Review Gate 清单
+│   └── Handoff.md                #   阻塞与跨会话交接模板
+│
+├── .codex/                       # 仓库内 Codex 协议文件
+│   └── agents/
+│       ├── reader.md             #   只读探索角色
+│       ├── implementer.md        #   窄写入实施角色
+│       ├── tester.md             #   验证 / 复现角色
+│       └── reviewer.md           #   差异审查角色
 │
 ├── config/                       # 项目配置
 │   ├── default-groups.json       #   预注册群组
@@ -530,6 +547,17 @@ cli-claw/
 
 工程协作入口见根目录 `AGENTS.md`。详细架构、运行时矩阵、持久化上下文、模块索引、工程规范与命令说明见 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/CONTEXT.md`、`docs/MODULE.md`、`docs/ENGINEERING.md`、`docs/COMMAND.md`。
 
+复杂任务默认采用仓库内置的长任务工作流：
+
+1. 先读 `AGENTS.md` 和相关 `docs/*`
+2. 基于 `PLANS/_TEMPLATE.md` 创建本地 `PLANS/ACTIVE.md`
+3. 按 milestone 推进，每轮都先验证、再过 `RUNBOOKS/Review.md` 的 review gate
+4. 遇到阻塞或换线程时，按 `RUNBOOKS/Handoff.md` 记录 handoff
+
+`PLANS/ACTIVE.md` 默认不入库；仓库只追踪模板、runbook、脚本和角色定义。
+
+当前阶段不引入仓库级 `.codex/skills/`；验证和 review 统一通过 `scripts/validate.sh`、`scripts/review.sh` 与 `RUNBOOKS/*` 协议驱动。
+
 ```bash
 make dev              # 前后端并行启动（热更新）
 make dev-backend      # 仅启动后端
@@ -542,6 +570,8 @@ make clean            # 清理构建产物
 make reset-init       # 重置为首装状态（清空数据库、配置、工作区、记忆、会话）
 make backup           # 备份运行时数据到 cli-claw-backup-{date}.tar.gz
 make restore          # 从备份恢复数据（make restore 或 make restore FILE=xxx.tar.gz）
+./scripts/validate.sh # workflow 统一验证入口
+./scripts/review.sh   # workflow 机械化 review 辅助
 ```
 
 | 服务           | 默认端口 | 说明                                            |
