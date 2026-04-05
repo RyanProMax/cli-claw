@@ -33,7 +33,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
   const showWorkspaceList = isChatRoute && !collapsed;
 
   const user = useAuthStore((s) => s.user);
-  const appearance = useAuthStore((s) => s.appearance);
   const billingEnabled = useBillingStore((s) => s.billingEnabled);
   const [showBugReport, setShowBugReport] = useState(false);
   const userInitial = (user?.display_name || user?.username || '?')[0].toUpperCase();
@@ -207,25 +206,21 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
         className="h-full overflow-hidden transition-[width] duration-200 ease-linear"
         style={{ width: panelWidth }}
       >
-        <div className="w-[16.5rem] h-full flex flex-col bg-muted/30">
-          <div className="flex items-center gap-2 px-4 pt-6 pb-3 mb-3 flex-shrink-0">
-            <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'cli-claw'} className="h-10" />
-            <div className="flex-1" />
-            <button onClick={onToggleCollapse} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
-              <PanelLeftClose className="w-4 h-4" />
-            </button>
-          </div>
+        <div className="w-[16.5rem] h-full flex flex-col bg-muted/30 py-4">
           {/* New workspace button */}
-          <div className="px-3 pb-2 flex-shrink-0">
+          <div className="px-3 py-2 flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              className="w-full justify-start gap-2 text-xs"
+              className="w-full justify-start gap-2 text-xs flex-1"
               onClick={() => setCreateOpen(true)}
             >
               <Plus className="w-3.5 h-3.5" />
               新工作区
             </Button>
+            <button onClick={onToggleCollapse} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+              <PanelLeftClose className="w-5 h-5" />
+            </button>
           </div>
 
               {/* Workspace list */}

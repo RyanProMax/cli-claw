@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  buildEffectiveGroupFromHomeSibling,
   hasRuntimeBoundaryChange,
   validateGroupRuntimeUpdate,
 } from '../src/group-runtime.js';
@@ -72,5 +73,72 @@ describe('hasRuntimeBoundaryChange', () => {
         nextExecutionMode: 'host',
       }),
     ).toBe(false);
+  });
+});
+
+describe('buildEffectiveGroupFromHomeSibling', () => {
+  test('inherits codex host runtime from the sibling home workspace', () => {
+    expect(
+      buildEffectiveGroupFromHomeSibling(
+        {
+          name: 'Feishu Ops',
+          folder: 'main',
+          added_at: '2026-04-05T10:00:00.000Z',
+          agentType: 'claude',
+          executionMode: 'container',
+          is_home: false,
+          created_by: 'admin-1',
+        },
+        {
+          name: 'Main',
+          folder: 'main',
+          added_at: '2026-04-05T09:00:00.000Z',
+          agentType: 'codex',
+          executionMode: 'host',
+          customCwd: '/srv/main',
+          created_by: 'admin-1',
+          is_home: true,
+        },
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        agentType: 'codex',
+        executionMode: 'host',
+        customCwd: '/srv/main',
+        is_home: true,
+        folder: 'main',
+        name: 'Feishu Ops',
+      }),
+    );
+  });
+
+  test('keeps explicit IM owner while inheriting the home runtime', () => {
+    expect(
+      buildEffectiveGroupFromHomeSibling(
+        {
+          name: 'Feishu Ops',
+          folder: 'main',
+          added_at: '2026-04-05T10:00:00.000Z',
+          created_by: 'member-1',
+          is_home: false,
+        },
+        {
+          name: 'Main',
+          folder: 'main',
+          added_at: '2026-04-05T09:00:00.000Z',
+          agentType: 'codex',
+          executionMode: 'host',
+          created_by: 'admin-1',
+          is_home: true,
+        },
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        created_by: 'member-1',
+        agentType: 'codex',
+        executionMode: 'host',
+        is_home: true,
+      }),
+    );
   });
 });

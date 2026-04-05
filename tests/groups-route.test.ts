@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   getRuntimeBuildStatus: vi.fn(),
   broadcastNewMessage: vi.fn(),
   invalidateAllowedUserCache: vi.fn(),
+  fsExistsSync: vi.fn(),
+  fsReaddirSync: vi.fn(),
+  fsRmSync: vi.fn(),
 }));
 
 vi.mock('../src/middleware/auth.js', () => ({
@@ -42,9 +45,8 @@ vi.mock('../src/middleware/auth.js', () => ({
 }));
 
 vi.mock('../src/db.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/db.js')>(
-    '../src/db.js',
-  );
+  const actual =
+    await vi.importActual<typeof import('../src/db.js')>('../src/db.js');
   return {
     ...actual,
     getRegisteredGroup: mocks.getRegisteredGroup,
@@ -85,6 +87,22 @@ vi.mock('../src/web.js', () => ({
   invalidateAllowedUserCache: mocks.invalidateAllowedUserCache,
 }));
 
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return {
+    ...actual,
+    default: {
+      ...actual.default,
+      existsSync: mocks.fsExistsSync,
+      readdirSync: mocks.fsReaddirSync,
+      rmSync: mocks.fsRmSync,
+    },
+    existsSync: mocks.fsExistsSync,
+    readdirSync: mocks.fsReaddirSync,
+    rmSync: mocks.fsRmSync,
+  };
+});
+
 import groupRoutes from '../src/routes/groups.js';
 
 function createApp() {
@@ -113,7 +131,9 @@ describe('group runtime stale-build guard', () => {
     };
     sessions = { main: 'session-1' };
 
-    mocks.getRegisteredGroup.mockImplementation((jid: string) => registeredGroups[jid]);
+    mocks.getRegisteredGroup.mockImplementation(
+      (jid: string) => registeredGroups[jid],
+    );
     mocks.setRegisteredGroup.mockImplementation((jid: string, group: any) => {
       registeredGroups[jid] = group;
     });
@@ -140,19 +160,46 @@ describe('group runtime stale-build guard', () => {
       getSessions: () => sessions,
     });
     mocks.isRuntimeBuildStale.mockReturnValue(false);
+    mocks.fsExistsSync.mockReturnValue(false);
+    mocks.fsReaddirSync.mockReturnValue([]);
+    mocks.fsRmSync.mockReturnValue(undefined);
     mocks.getRuntimeBuildStatus.mockReturnValue({
       pid: 1234,
       startedAt: '2026-04-04T10:00:00.000Z',
       stale: true,
       backend: {
         stale: true,
-        loaded: { path: '/tmp/backend', version: '1.0.0', exists: true, mtimeMs: 1, mtimeIso: '2026-04-04T10:00:00.000Z' },
-        current: { path: '/tmp/backend', version: '1.0.0', exists: true, mtimeMs: 2, mtimeIso: '2026-04-04T10:01:00.000Z' },
+        loaded: {
+          path: '/tmp/backend',
+          version: '1.0.0',
+          exists: true,
+          mtimeMs: 1,
+          mtimeIso: '2026-04-04T10:00:00.000Z',
+        },
+        current: {
+          path: '/tmp/backend',
+          version: '1.0.0',
+          exists: true,
+          mtimeMs: 2,
+          mtimeIso: '2026-04-04T10:01:00.000Z',
+        },
       },
       agentRunner: {
         stale: false,
-        loaded: { path: '/tmp/runner', version: '1.0.0', exists: true, mtimeMs: 1, mtimeIso: '2026-04-04T10:00:00.000Z' },
-        current: { path: '/tmp/runner', version: '1.0.0', exists: true, mtimeMs: 1, mtimeIso: '2026-04-04T10:00:00.000Z' },
+        loaded: {
+          path: '/tmp/runner',
+          version: '1.0.0',
+          exists: true,
+          mtimeMs: 1,
+          mtimeIso: '2026-04-04T10:00:00.000Z',
+        },
+        current: {
+          path: '/tmp/runner',
+          version: '1.0.0',
+          exists: true,
+          mtimeMs: 1,
+          mtimeIso: '2026-04-04T10:00:00.000Z',
+        },
       },
     });
   });
@@ -239,10 +286,14 @@ describe('group runtime stale-build guard', () => {
         executionMode: 'host',
       },
     };
-    mocks.getRegisteredGroup.mockImplementation((jid: string) => registeredGroups[jid]);
+    mocks.getRegisteredGroup.mockImplementation(
+      (jid: string) => registeredGroups[jid],
+    );
     mocks.getAllRegisteredGroups.mockImplementation(() => registeredGroups);
     mocks.getJidsByFolder.mockImplementation((folder: string) =>
-      Object.keys(registeredGroups).filter((jid) => registeredGroups[jid]?.folder === folder),
+      Object.keys(registeredGroups).filter(
+        (jid) => registeredGroups[jid]?.folder === folder,
+      ),
     );
 
     const app = createApp();
@@ -250,7 +301,7 @@ describe('group runtime stale-build guard', () => {
     const res = await app.request('/api/groups');
 
     expect(res.status).toBe(200);
-    const payload = await res.json() as { groups: Record<string, any> };
+    const payload = (await res.json()) as { groups: Record<string, any> };
     expect(payload.groups['web:main']).toEqual(
       expect.objectContaining({
         agent_type: 'codex',

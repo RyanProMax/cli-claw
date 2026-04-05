@@ -152,6 +152,7 @@ import {
 } from './types.js';
 import { logger } from './logger.js';
 import { getRuntimeBuildLogFields } from './runtime-build.js';
+import { buildEffectiveGroupFromHomeSibling } from './group-runtime.js';
 import { resolveTaskOwner } from './task-utils.js';
 import {
   ensureAgentDirectories,
@@ -574,13 +575,7 @@ function resolveEffectiveGroup(group: RegisteredGroup): {
     if (sibling && !registeredGroups[jid]) registeredGroups[jid] = sibling;
     if (sibling?.is_home) {
       return {
-        effectiveGroup: {
-          ...group,
-          executionMode: sibling.executionMode,
-          customCwd: sibling.customCwd || group.customCwd,
-          created_by: group.created_by || sibling.created_by,
-          is_home: true,
-        },
+        effectiveGroup: buildEffectiveGroupFromHomeSibling(group, sibling),
         isHome: true,
       };
     }

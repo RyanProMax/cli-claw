@@ -1,4 +1,4 @@
-import type { AgentType, ExecutionMode } from './types.js';
+import type { AgentType, ExecutionMode, RegisteredGroup } from './types.js';
 
 export function normalizeAgentType(raw: string | null | undefined): AgentType {
   if (raw === 'codex') return 'codex';
@@ -44,4 +44,18 @@ export function hasRuntimeBoundaryChange(options: {
     options.currentAgentType !== options.nextAgentType ||
     options.currentExecutionMode !== options.nextExecutionMode
   );
+}
+
+export function buildEffectiveGroupFromHomeSibling(
+  group: RegisteredGroup,
+  homeGroup: RegisteredGroup,
+): RegisteredGroup {
+  return {
+    ...group,
+    agentType: homeGroup.agentType ?? group.agentType,
+    executionMode: homeGroup.executionMode ?? group.executionMode,
+    customCwd: homeGroup.customCwd || group.customCwd,
+    created_by: group.created_by || homeGroup.created_by,
+    is_home: true,
+  };
 }
