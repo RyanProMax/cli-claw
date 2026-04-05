@@ -1501,23 +1501,38 @@ export class StreamingCardController {
    * Complete the streaming card with final text.
    */
   async complete(finalText: string): Promise<void> {
+    await this.finalize(finalText, 'completed');
+  }
+
+  /**
+   * Finalize the streaming card in an error / aborted state while preserving
+   * the final text as the visible body content.
+   */
+  async fail(finalText: string): Promise<void> {
+    await this.finalize(finalText, 'aborted');
+  }
+
+  private async finalize(
+    finalText: string,
+    finalState: 'completed' | 'aborted',
+  ): Promise<void> {
     if (this.state !== 'streaming' && this.state !== 'creating') return;
 
     const prevState = this.state;
     this.accumulatedText = finalText;
-    this.state = 'completed';
+    this.state = finalState;
     this.flushCtrl.dispose();
     this.textFlushCtrl?.dispose();
     this.auxFlushCtrl?.dispose();
 
     try {
       if (this.backendMode === 'streaming' && this.streamingBackend) {
-        await this.finalizeStreamingCard('completed');
+        await this.finalizeStreamingCard(finalState);
       } else if (this.messageId || this.multiCard) {
-        await this.patchCard('completed');
+        await this.patchCard(finalState);
       }
     } catch (err) {
-      // Revert state so abort() doesn't bail on the 'completed' check
+      // Revert state so abort() doesn't bail on the terminal-state check
       this.state = prevState;
       throw err;
     }

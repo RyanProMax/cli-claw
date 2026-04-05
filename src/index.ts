@@ -2717,7 +2717,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               if (streamingSession?.isActive()) {
                 try {
                   streamingSession.setRuntimeIdentity(activeRuntimeIdentity);
-                  await streamingSession.complete(text);
+                  if (result.finalizationReason === 'error') {
+                    await streamingSession.fail(text);
+                  } else {
+                    await streamingSession.complete(text);
+                  }
                   streamingCardHandledIM = true;
                   // Streaming card replaced the normal sendMessage path,
                   // so clear the ack reaction that would normally be cleared in sendMessage.
@@ -3438,7 +3442,7 @@ async function runAgent(
 
     if (output.status === 'error') {
       logger.error({ group: group.name, error: output.error }, 'Agent error');
-      if (output.result && wrappedOnOutput) {
+      if (output.result && wrappedOnOutput && !output.alreadyStreamedError) {
         try {
           await wrappedOnOutput(output);
         } catch (err) {
@@ -5285,7 +5289,11 @@ async function processAgentConversation(
             agentStreamingSession.setRuntimeIdentity(
               currentAgentRuntimeIdentity,
             );
-            await agentStreamingSession.complete(text);
+            if (output.finalizationReason === 'error') {
+              await agentStreamingSession.fail(text);
+            } else {
+              await agentStreamingSession.complete(text);
+            }
             streamingCardHandledIM = true;
           } catch (err) {
             logger.warn(

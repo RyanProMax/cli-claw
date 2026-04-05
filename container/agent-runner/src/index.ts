@@ -1677,15 +1677,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    const friendlyError = /auth_required|login/i.test(errorMessage)
-      ? 'Codex CLI 未登录。请先在服务器上执行：codex login'
-      : errorMessage;
-    writeOutput({
-      status: 'error',
-      result: null,
-      error: friendlyError,
-      newSessionId: sessionId,
-    });
+    writeOutput(buildVisibleRuntimeErrorOutput(errorMessage, sessionId));
     forceExitWithSafetyNet(1);
   } finally {
     acpProcess.kill('SIGTERM');
@@ -2502,6 +2494,57 @@ function forceExitWithSafetyNet(code: number): never {
   process.exit(code);
 }
 
+function formatCodexRuntimeError(errorMessage: string): string {
+  const normalized = errorMessage.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'Codex CLI 运行失败，请稍后重试。';
+
+  const isCodexRuntime =
+    activeRuntimeIdentity?.agentType === 'codex' ||
+    /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized) ||
+    /UsageLimitExceeded/i.test(normalized) ||
+    /codex/i.test(normalized);
+  if (!isCodexRuntime) return normalized;
+
+  if (
+    /auth_required|login required|please login|not logged in/i.test(
+      normalized,
+    )
+  ) {
+    return 'Codex CLI 未登录。请先在服务器上执行：codex login';
+  }
+
+  if (
+    /UsageLimitExceeded/i.test(normalized) ||
+    /purchase more credits/i.test(normalized) ||
+    /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized)
+  ) {
+    const usageUrl =
+      normalized.match(/https:\/\/chatgpt\.com\/codex\/settings\/usage/i)?.[0] ||
+      'https://chatgpt.com/codex/settings/usage';
+    const retryAt = normalized.match(/try again at ([^.]+)\.?/i)?.[1]?.trim();
+    return retryAt
+      ? `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或在 ${retryAt} 后重试。`
+      : `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或稍后重试。`;
+  }
+
+  return normalized;
+}
+
+function buildVisibleRuntimeErrorOutput(
+  errorMessage: string,
+  sessionId?: string,
+): ContainerOutput {
+  const friendlyError = formatCodexRuntimeError(errorMessage);
+  return {
+    status: 'error',
+    result: friendlyError,
+    error: friendlyError,
+    alreadyStreamedError: true,
+    finalizationReason: 'error',
+    ...(sessionId ? { newSessionId: sessionId } : {}),
+  };
+}
+
 async function main(): Promise<void> {
   let containerInput: ContainerInput;
 
@@ -2514,11 +2557,11 @@ async function main(): Promise<void> {
       `Received input for group: ${containerInput.groupFolder}, chatJid: ${containerInput.chatJid}, agentType: ${requestedAgentType}, session: ${containerInput.sessionId || 'new'}, runnerPid: ${process.pid}`,
     );
   } catch (err) {
-    writeOutput({
-      status: 'error',
-      result: null,
-      error: `Failed to parse input: ${err instanceof Error ? err.message : String(err)}`,
-    });
+    writeOutput(
+      buildVisibleRuntimeErrorOutput(
+        `Failed to parse input: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
     process.exit(1);
   }
 
@@ -2936,11 +2979,7 @@ async function main(): Promise<void> {
     // 不在 error output 中携带 sessionId：
     // 流式输出已通过 onOutput 回调传递了有效的 session 更新。
     // 如果这里携带的是 throw 前的旧 sessionId，会覆盖中间成功产生的新 session。
-    writeOutput({
-      status: 'error',
-      result: null,
-      error: errorMessage,
-    });
+    writeOutput(buildVisibleRuntimeErrorOutput(errorMessage));
     forceExitWithSafetyNet(1);
   }
 
@@ -3009,7 +3048,7 @@ process.on('uncaughtException', (err: unknown) => {
   console.error('Uncaught exception:', err);
   // 尝试输出结构化错误，让主进程能收到错误信息而非仅看到 exit code 1
   try {
-    writeOutput({ status: 'error', result: null, error: String(err) });
+    writeOutput(buildVisibleRuntimeErrorOutput(String(err), latestSessionId));
   } catch {
     /* ignore */
   }
@@ -3026,9 +3065,19 @@ process.on('unhandledRejection', (reason: unknown) => {
     return;
   }
   console.error('Unhandled rejection:', reason);
+  try {
+    writeOutput(buildVisibleRuntimeErrorOutput(String(reason), latestSessionId));
+  } catch {
+    /* ignore */
+  }
   process.exit(1);
 });
 main().catch((err) => {
   console.error('Fatal error in main():', err);
+  try {
+    writeOutput(buildVisibleRuntimeErrorOutput(String(err), latestSessionId));
+  } catch {
+    /* ignore */
+  }
   process.exit(1);
 });

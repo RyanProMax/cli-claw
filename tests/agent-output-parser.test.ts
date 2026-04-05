@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
-import { formatUserFacingRuntimeError } from '../src/agent-output-parser.ts';
+import {
+  createStderrState,
+  createStdoutParserState,
+  formatUserFacingRuntimeError,
+  handleNonZeroExit,
+} from '../src/agent-output-parser.ts';
 
 describe('formatUserFacingRuntimeError', () => {
   test('formats Codex usage-limit errors into a user-facing retry message', () => {
@@ -21,5 +26,53 @@ describe('formatUserFacingRuntimeError', () => {
     expect(formatUserFacingRuntimeError(stderr)).toBe(
       'Codex CLI 未登录。请先在服务器上执行：codex login',
     );
+  });
+
+  test('preserves an already-streamed error result on non-zero exit', async () => {
+    const stdoutState = createStdoutParserState();
+    stdoutState.lastErrorOutput = {
+      status: 'error',
+      result: 'Codex CLI 用量已用尽。请稍后重试。',
+      error: 'Codex CLI 用量已用尽。请稍后重试。',
+      finalizationReason: 'error',
+    };
+
+    let resolved: any = null;
+
+    const handled = handleNonZeroExit(
+      {
+        groupName: 'main',
+        label: 'Host Agent',
+        filePrefix: 'host',
+        identifier: '123',
+        logsDir: '/tmp',
+        input: {
+          prompt: 'hello',
+          isMain: true,
+        },
+        stdoutState,
+        stderrState: createStderrState(),
+        onOutput: async () => {},
+        resolvePromise: (output) => {
+          resolved = output;
+        },
+        startTime: Date.now(),
+        timeoutMs: 30_000,
+      },
+      1,
+      null,
+      50,
+      '/tmp/host.log',
+    );
+
+    expect(handled).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(resolved).toMatchObject({
+      status: 'error',
+      result: 'Codex CLI 用量已用尽。请稍后重试。',
+      alreadyStreamedError: true,
+      finalizationReason: 'error',
+    });
   });
 });

@@ -491,7 +491,7 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
             {assistantMetaFooter && (
               <span className="min-w-0 truncate">{assistantMetaFooter}</span>
             )}
-            <div className="ml-auto flex flex-shrink-0 items-center gap-0.5 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+            <div className="flex flex-shrink-0 items-center gap-0.5 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
               {assistantMetaFooter && (
                 <span className="px-0.5 text-muted-foreground/40">|</span>
               )}

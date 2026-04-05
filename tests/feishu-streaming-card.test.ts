@@ -42,4 +42,24 @@ describe('StreamingCardController footer caching', () => {
 
     controller.dispose();
   });
+
+  test('finalizes visible runtime errors in aborted state with the final text', async () => {
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+    });
+
+    (controller as any).state = 'streaming';
+    (controller as any).backendMode = 'legacy';
+    (controller as any).messageId = null;
+
+    await controller.fail('Codex CLI 用量已用尽。请稍后重试。');
+
+    expect((controller as any).state).toBe('aborted');
+    expect((controller as any).accumulatedText).toBe(
+      'Codex CLI 用量已用尽。请稍后重试。',
+    );
+
+    controller.dispose();
+  });
 });

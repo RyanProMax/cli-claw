@@ -129,6 +129,7 @@ export interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  alreadyStreamedError?: boolean;
   runtimeIdentity?: RuntimeIdentity | null;
   streamEvent?: StreamEvent;
   turnId?: string;

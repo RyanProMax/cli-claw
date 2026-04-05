@@ -22,6 +22,7 @@ export interface StdoutParserState {
   parseBuffer: string;
   newSessionId: string | undefined;
   outputChain: Promise<void>;
+  lastErrorOutput: ContainerOutput | null;
   hasSuccessOutput: boolean;
   /** True when agent emitted a { status: 'closed' } marker (exit due to _close sentinel). */
   hasClosedOutput: boolean;
@@ -44,6 +45,7 @@ export function createStdoutParserState(): StdoutParserState {
     parseBuffer: '',
     newSessionId: undefined,
     outputChain: Promise.resolve(),
+    lastErrorOutput: null,
     hasSuccessOutput: false,
     hasClosedOutput: false,
     hasInterruptedOutput: false,
@@ -111,6 +113,9 @@ export function attachStdoutHandler(
           }
           if (parsed.status === 'success') {
             state.hasSuccessOutput = true;
+          }
+          if (parsed.status === 'error') {
+            state.lastErrorOutput = parsed;
           }
           if (parsed.status === 'closed') {
             state.hasClosedOutput = true;
@@ -523,6 +528,18 @@ export function handleNonZeroExit(
   );
 
   const finalizeError = () => {
+    if (ctx.stdoutState.lastErrorOutput) {
+      const streamedError = ctx.stdoutState.lastErrorOutput;
+      ctx.resolvePromise({
+        ...streamedError,
+        result: streamedError.result ?? enriched.result,
+        error: streamedError.error || enriched.error,
+        finalizationReason:
+          streamedError.finalizationReason || ('error' as const),
+        alreadyStreamedError: true,
+      });
+      return;
+    }
     ctx.resolvePromise({
       status: 'error',
       result: enriched.result,

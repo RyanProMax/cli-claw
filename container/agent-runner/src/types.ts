@@ -32,6 +32,7 @@ export interface ContainerOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  alreadyStreamedError?: boolean;
   runtimeIdentity?: StreamRuntimeIdentity | null;
   streamEvent?: StreamEvent;
   turnId?: string;
