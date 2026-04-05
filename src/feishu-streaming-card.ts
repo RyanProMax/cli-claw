@@ -231,16 +231,28 @@ function buildCardContent(
 
   if (contentToRender.length > CARD_MD_LIMIT) {
     for (const chunk of splitFn(contentToRender, CARD_MD_LIMIT)) {
-      elements.push({ tag: 'markdown', content: chunk });
+      elements.push({
+        tag: 'markdown',
+        content: chunk,
+        text_size: 'normal_text',
+      });
     }
   } else if (contentToRender) {
     // Keep --- as markdown content instead of using { tag: 'hr' }
     // because Schema 2.0 (CardKit) does not support the hr tag.
-    elements.push({ tag: 'markdown', content: contentToRender });
+    elements.push({
+      tag: 'markdown',
+      content: contentToRender,
+      text_size: 'normal_text',
+    });
   }
 
   if (elements.length === 0) {
-    elements.push({ tag: 'markdown', content: text.trim() || '...' });
+    elements.push({
+      tag: 'markdown',
+      content: text.trim() || '...',
+      text_size: 'normal_text',
+    });
   }
 
   return { title, contentElements: elements };
@@ -378,7 +390,7 @@ function buildAuxiliaryElementsForState(
   }
 
   // ② Thinking
-  if (aux.isThinking && aux.thinkingText) {
+  if (aux.thinkingText) {
     const truncated = aux.thinkingText.length > MAX_THINKING_CHARS
       ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
       : aux.thinkingText;
@@ -389,7 +401,10 @@ function buildAuxiliaryElementsForState(
         .join('\n');
       before.push({
         tag: 'markdown',
-        content: `💭 **Reasoning...**\n${quoted}`.slice(0, MAX_ELEMENT_CHARS),
+        content: `💭 **${aux.isThinking ? 'Reasoning...' : 'Reasoning'}**\n${quoted}`.slice(
+          0,
+          MAX_ELEMENT_CHARS,
+        ),
         text_size: 'notation',
       });
     } else {
@@ -540,13 +555,6 @@ const SCHEMA2_NOTE_MAP: Record<Schema2State, string> = {
   frozen: '',
 };
 
-const SCHEMA2_HEADER_MAP: Record<Schema2State, string> = {
-  streaming: 'wathet',
-  completed: 'indigo',
-  aborted: 'orange',
-  frozen: 'grey',
-};
-
 function buildSchema2Card(
   text: string,
   state: Schema2State,
@@ -594,7 +602,7 @@ function buildSchema2Card(
     });
     elements.push({
       tag: 'markdown',
-      content: footerNote,
+      content: `*${footerNote}*`,
       text_size: 'notation',
     });
   }
@@ -604,10 +612,6 @@ function buildSchema2Card(
     config: {
       wide_screen_mode: true,
       summary: { content: displayTitle },
-    },
-    header: {
-      title: { tag: 'plain_text', content: displayTitle },
-      template: SCHEMA2_HEADER_MAP[state],
     },
     body: { elements },
   };
@@ -628,14 +632,15 @@ function buildStreamingModeCard(initialText: string): object {
       streaming_mode: true,
       streaming_config: STREAMING_CONFIG,
     },
-    header: {
-      title: { tag: 'plain_text', content: displayTitle },
-      template: 'wathet',
-    },
     body: {
       elements: [
         { tag: 'markdown', content: '', element_id: ELEMENT_IDS.AUX_BEFORE, text_size: 'notation' },
-        { tag: 'markdown', content: initialText || '...', element_id: ELEMENT_IDS.MAIN_CONTENT },
+        {
+          tag: 'markdown',
+          content: initialText || '...',
+          element_id: ELEMENT_IDS.MAIN_CONTENT,
+          text_size: 'normal_text',
+        },
         { tag: 'markdown', content: '', element_id: ELEMENT_IDS.AUX_AFTER, text_size: 'notation' },
         {
           tag: 'button',
@@ -1479,7 +1484,6 @@ export class StreamingCardController {
   append(text: string): void {
     this.accumulatedText = text;
     this.thinking = false; // Text arrived, no longer just thinking
-    this.thinkingText = ''; // Clear thinking text once real text arrives
 
     if (this.state === 'idle') {
       this.state = 'creating';
@@ -1539,8 +1543,9 @@ export class StreamingCardController {
   }
 
   /**
-   * Patch a completed card to append a usage note at the bottom.
-   * Called AFTER complete() because agent-runner emits usage after the final result.
+   * Patch a finalized card to append a usage note at the bottom.
+   * Called AFTER complete()/fail() because agent-runner may emit usage after
+   * the visible final text has already been rendered.
    */
   async patchUsageNote(usage: {
     inputTokens: number;
@@ -1565,16 +1570,18 @@ export class StreamingCardController {
     if (unchanged) return;
     this.footerTokenUsage = nextUsage;
 
-    // Some runtimes emit usage before the final completed card patch.
+    // Some runtimes emit usage before the final completed/aborted card patch.
     // Cache the usage immediately so complete()/finalize() can still render
     // the footer on the finished card.
-    if (this.state !== 'completed') return;
+    if (this.state !== 'completed' && this.state !== 'aborted') return;
+
+    const finalState = this.state;
 
     try {
       if (this.backendMode === 'streaming' && this.streamingBackend) {
         const cardJson = buildSchema2Card(
           this.accumulatedText,
-          'completed',
+          finalState,
           '',
           undefined,
           this.getAuxiliaryState(),
@@ -1588,7 +1595,7 @@ export class StreamingCardController {
       } else if (this.messageId || this.multiCard) {
         // For CardKit v1 / legacy: skip if multiCard has split content
         if (this.multiCard && this.multiCard.getCardCount() > 1) return;
-        await this.patchCard('completed');
+        await this.patchCard(finalState);
       }
     } catch (err) {
       logger.debug(

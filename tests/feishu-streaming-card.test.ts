@@ -62,4 +62,48 @@ describe('StreamingCardController footer caching', () => {
 
     controller.dispose();
   });
+
+  test('retains thinking transcript after text arrives so final cards can render it', () => {
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+    });
+
+    controller.appendThinking('first thought');
+    (controller as any).state = 'streaming';
+
+    controller.append('final answer');
+
+    expect((controller as any).thinkingText).toBe('first thought');
+
+    controller.dispose();
+  });
+
+  test('patches aborted cards when late usage arrives so interrupted footers can show time', async () => {
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+    });
+
+    (controller as any).state = 'aborted';
+    (controller as any).backendMode = 'legacy';
+    (controller as any).messageId = 'msg-1';
+
+    let patchedState: string | null = null;
+    (controller as any).patchCard = async (state: string) => {
+      patchedState = state;
+    };
+
+    await controller.patchUsageNote({
+      inputTokens: 0,
+      outputTokens: 0,
+      costUSD: 0,
+      durationMs: 3_400,
+      numTurns: 1,
+    });
+
+    expect(patchedState).toBe('aborted');
+
+    controller.dispose();
+  });
 });

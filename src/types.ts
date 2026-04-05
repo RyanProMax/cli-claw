@@ -83,6 +83,7 @@ export interface NewMessage {
   content: string;
   timestamp: string;
   attachments?: string;
+  token_usage?: string;
   turn_id?: string | null;
   session_id?: string | null;
   sdk_message_uuid?: string | null;

@@ -99,6 +99,12 @@ import {
   getStreamingSession,
   StreamingCardController,
 } from './feishu-streaming-card.js';
+import type { AssistantFooterTokenUsage } from './assistant-meta-footer.js';
+import {
+  buildProvisionalTokenUsage,
+  normalizeStreamingStatusText,
+  serializeAssistantTokenUsage,
+} from './streaming-runtime-meta.js';
 import {
   formatContextMessages,
   formatWorkspaceList,
@@ -237,7 +243,9 @@ export function feedStreamEventToCard(
       break;
     case 'status':
       if (se.statusText && se.statusText !== 'interrupted') {
-        session.setSystemStatus(se.statusText);
+        session.setSystemStatus(
+          normalizeStreamingStatusText(se.statusText),
+        );
       }
       break;
     case 'hook_started':
@@ -1722,6 +1730,7 @@ interface SendMessageOptions {
     sourceKind?: ContainerOutput['sourceKind'];
     finalizationReason?: ContainerOutput['finalizationReason'];
     runtimeIdentity?: RuntimeIdentity | null;
+    tokenUsage?: AssistantFooterTokenUsage | string | null;
   };
 }
 
@@ -2326,6 +2335,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     | undefined;
   let activeSessionId = getSession(effectiveGroup.folder) || undefined;
   let activeRuntimeIdentity: RuntimeIdentity | null = null;
+  const agentRunStartedAt = Date.now();
   try {
     output = await runAgent(
       effectiveGroup,
@@ -2399,6 +2409,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               result.streamEvent.statusText === 'interrupted'
             ) {
               streamInterrupted = true;
+              const provisionalUsage = buildProvisionalTokenUsage(
+                agentRunStartedAt,
+              );
               // Skip if shutdown handler already saved this text (prevents duplicates)
               const inlineWebJid = chatJid.startsWith('web:')
                 ? chatJid
@@ -2413,6 +2426,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 );
                 try {
                   if (streamingSession?.isActive()) {
+                    await streamingSession
+                      .patchUsageNote({
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        costUSD: 0,
+                        durationMs: provisionalUsage.durationMs ?? 0,
+                        numTurns: 1,
+                      })
+                      .catch(() => {});
                     await streamingSession.abort('已中断').catch(() => {});
                   }
                   lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
@@ -2424,6 +2446,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                       sourceKind: 'interrupt_partial',
                       finalizationReason: 'interrupted',
                       runtimeIdentity: activeRuntimeIdentity,
+                      tokenUsage: provisionalUsage,
                     },
                   });
                   sentReply = true;
@@ -2885,6 +2908,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         if (hadError || !output || output.status === 'error') {
           await streamingSession.abort('处理出错').catch(() => {});
         } else if (wasInterrupted) {
+          const provisionalUsage = buildProvisionalTokenUsage(agentRunStartedAt);
+          await streamingSession
+            .patchUsageNote({
+              inputTokens: 0,
+              outputTokens: 0,
+              costUSD: 0,
+              durationMs: provisionalUsage.durationMs ?? 0,
+              numTurns: 1,
+            })
+            .catch(() => {});
           await streamingSession.abort('已中断').catch(() => {});
         } else {
           streamingSession.dispose();
@@ -2903,6 +2936,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       shutdownSavedJids.has(webJidForShutdownCheck);
 
     if (wasInterrupted && !alreadySavedByShutdown) {
+      const provisionalUsage = buildProvisionalTokenUsage(agentRunStartedAt);
       const interruptedText = buildInterruptedReply(
         streamingAccumulatedText,
         streamingAccumulatedThinking,
@@ -2917,6 +2951,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             sourceKind: 'interrupt_partial',
             finalizationReason: 'interrupted',
             runtimeIdentity: activeRuntimeIdentity,
+            tokenUsage: provisionalUsage,
           },
         });
         sentReply = true;
@@ -2935,6 +2970,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       streamingAccumulatedText.trim()
     ) {
       try {
+        const provisionalUsage = buildProvisionalTokenUsage(agentRunStartedAt);
         const partialReply = buildInterruptedReply(
           streamingAccumulatedText,
           streamingAccumulatedThinking,
@@ -2947,6 +2983,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             sourceKind: 'interrupt_partial',
             finalizationReason: 'error',
             runtimeIdentity: activeRuntimeIdentity,
+            tokenUsage: provisionalUsage,
           },
         });
         sentReply = true;
@@ -3487,6 +3524,9 @@ async function sendMessage(
     // Persist assistant reply so Web polling can render it and clear waiting state.
     const msgId = crypto.randomUUID();
     const timestamp = new Date().toISOString();
+    const serializedTokenUsage = serializeAssistantTokenUsage(
+      options.messageMeta?.tokenUsage,
+    );
     ensureChatExists(jid);
     const persistedMsgId = storeMessageDirect(
       msgId,
@@ -3496,7 +3536,10 @@ async function sendMessage(
       text,
       timestamp,
       true,
-      { meta: options.messageMeta },
+      {
+        tokenUsage: serializedTokenUsage,
+        meta: options.messageMeta,
+      },
     );
 
     broadcastNewMessage(
@@ -3515,6 +3558,7 @@ async function sendMessage(
         source_kind: options.messageMeta?.sourceKind ?? null,
         finalization_reason: options.messageMeta?.finalizationReason ?? null,
         runtime_identity: options.messageMeta?.runtimeIdentity ?? null,
+        token_usage: serializedTokenUsage,
       },
       undefined,
       options.source,
@@ -5065,6 +5109,7 @@ async function processAgentConversation(
   const sessionId = getSession(effectiveGroup.folder, agentId) || undefined;
   let currentAgentSessionId = sessionId;
   let currentAgentRuntimeIdentity: RuntimeIdentity | null = null;
+  const agentConversationStartedAt = Date.now();
 
   const wrappedOnOutput = async (output: ContainerOutput) => {
     // Track session
@@ -5104,14 +5149,29 @@ async function processAgentConversation(
         output.streamEvent.statusText === 'interrupted'
       ) {
         agentStreamInterrupted = true;
+        const provisionalUsage = buildProvisionalTokenUsage(
+          agentConversationStartedAt,
+        );
         if (!cursorCommitted) {
           const interruptedText = buildInterruptedReply(agentStreamingAccText);
           try {
             if (agentStreamingSession?.isActive()) {
+              await agentStreamingSession
+                .patchUsageNote({
+                  inputTokens: 0,
+                  outputTokens: 0,
+                  costUSD: 0,
+                  durationMs: provisionalUsage.durationMs ?? 0,
+                  numTurns: 1,
+                })
+                .catch(() => {});
               await agentStreamingSession.abort('已中断').catch(() => {});
             }
             const msgId = crypto.randomUUID();
             const timestamp = new Date().toISOString();
+            const serializedTokenUsage = serializeAssistantTokenUsage(
+              provisionalUsage,
+            );
             ensureChatExists(virtualChatJid);
             const persistedMsgId = storeMessageDirect(
               msgId,
@@ -5122,6 +5182,7 @@ async function processAgentConversation(
               timestamp,
               true,
               {
+                tokenUsage: serializedTokenUsage,
                 meta: {
                   turnId: output.streamEvent.turnId || lastProcessed.id,
                   sessionId:
@@ -5149,6 +5210,7 @@ async function processAgentConversation(
                 source_kind: 'interrupt_partial',
                 finalization_reason: 'interrupted',
                 runtime_identity: currentAgentRuntimeIdentity,
+                token_usage: serializedTokenUsage,
               },
               agentId,
             );
@@ -5563,6 +5625,18 @@ async function processAgentConversation(
         if (hadError) {
           await agentStreamingSession.abort('处理出错').catch(() => {});
         } else if (wasInterrupted) {
+          const provisionalUsage = buildProvisionalTokenUsage(
+            agentConversationStartedAt,
+          );
+          await agentStreamingSession
+            .patchUsageNote({
+              inputTokens: 0,
+              outputTokens: 0,
+              costUSD: 0,
+              durationMs: provisionalUsage.durationMs ?? 0,
+              numTurns: 1,
+            })
+            .catch(() => {});
           await agentStreamingSession.abort('已中断').catch(() => {});
         } else {
           agentStreamingSession.dispose();
@@ -5575,10 +5649,16 @@ async function processAgentConversation(
 
     // ── 保存中断内容 ──
     if (wasInterrupted) {
+      const provisionalUsage = buildProvisionalTokenUsage(
+        agentConversationStartedAt,
+      );
       const interruptedText = buildInterruptedReply(agentStreamingAccText);
       try {
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
+        const serializedTokenUsage = serializeAssistantTokenUsage(
+          provisionalUsage,
+        );
         ensureChatExists(virtualChatJid);
         const persistedMsgId = storeMessageDirect(
           msgId,
@@ -5589,6 +5669,7 @@ async function processAgentConversation(
           timestamp,
           true,
           {
+            tokenUsage: serializedTokenUsage,
             meta: {
               turnId: lastProcessed.id,
               sessionId: currentAgentSessionId,
@@ -5614,6 +5695,7 @@ async function processAgentConversation(
             source_kind: 'interrupt_partial',
             finalization_reason: 'interrupted',
             runtime_identity: currentAgentRuntimeIdentity,
+            token_usage: serializedTokenUsage,
           },
           agentId,
         );
@@ -5629,9 +5711,15 @@ async function processAgentConversation(
     // ── 兜底：进程异常退出导致累积文本未持久化 ──
     if (!cursorCommitted && agentStreamingAccText.trim()) {
       try {
+        const provisionalUsage = buildProvisionalTokenUsage(
+          agentConversationStartedAt,
+        );
         const partialReply = buildInterruptedReply(agentStreamingAccText);
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
+        const serializedTokenUsage = serializeAssistantTokenUsage(
+          provisionalUsage,
+        );
         ensureChatExists(virtualChatJid);
         const persistedMsgId = storeMessageDirect(
           msgId,
@@ -5642,6 +5730,7 @@ async function processAgentConversation(
           timestamp,
           true,
           {
+            tokenUsage: serializedTokenUsage,
             meta: {
               turnId: lastProcessed.id,
               sessionId: currentAgentSessionId,
@@ -5667,6 +5756,7 @@ async function processAgentConversation(
             source_kind: 'interrupt_partial',
             finalization_reason: 'error',
             runtime_identity: currentAgentRuntimeIdentity,
+            token_usage: serializedTokenUsage,
           },
           agentId,
         );
