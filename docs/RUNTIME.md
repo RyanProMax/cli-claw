@@ -1,8 +1,10 @@
 # RUNTIME
 
+> 本文负责：运行时矩阵、`agentType` / `executionMode` 约束、runtime identity，以及外部运行时契约。工作区与持久化边界见 `docs/CONTEXT.md`。
+
 ## 概览
 
-Cli Claw 不把某一个 SDK 写死在主进程里。主进程只负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由 `container/agent-runner/` 按工作区运行时配置调用底层 CLI runtime。
+Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由 `container/agent-runner/` 按工作区运行时配置调用底层 CLI runtime。
 
 ## 运行时矩阵
 
@@ -15,7 +17,7 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程只负责多用户
 
 - 工作区的 `agentType` 决定底层 CLI runtime。
 - 工作区的 `executionMode` 决定 runtime 在宿主机还是 Docker 中运行。
-- 工作区 runtime 配置现在统一包括：
+- 工作区 runtime 配置统一包括：
   - `agentType`
   - `executionMode`
   - `model`
@@ -57,7 +59,7 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程只负责多用户
 
 ## 外部运行时契约
 
-项目内部记忆统一使用 `AGENTS.md`，但外部 CLI runtime 仍保留各自原生约定：
+项目内部长期记忆统一使用 `AGENTS.md`，但外部 CLI runtime 仍保留各自原生约定：
 
 - `~/.cli-claw/sessions/{folder}/.claude/`
   - Claude Runtime 的隔离会话目录
@@ -70,13 +72,8 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程只负责多用户
 
 仓库内还可以追踪与 Codex 工作流相关的角色文件，例如 `.codex/agents/*.md`。这些文件属于仓库执行协议，不等同于 `~/.codex/` 下的用户级配置。
 
-## 开发约束
+## 运行时变更约束
 
-- 新增或修改运行时时，必须同步更新：
-  - `AGENTS.md`
-  - `docs/ARCHITECTURE.md`
-  - `docs/CONTEXT.md`
-  - `docs/MODULE.md`
-  - 本文档
-- 不要把项目内部长期记忆文件重新命名回 `CLAUDE.md`；`AGENTS.md` 才是项目内统一记忆入口。
+- 新增或修改运行时时，必须同步更新相关 owner 文档，尤其是 `AGENTS.md`、`docs/ARCHITECTURE.md`、`docs/CONTEXT.md`、`docs/MODULE.md` 和本文档。
+- 不要把项目内部长期记忆文件重新命名回 `CLAUDE.md`；项目内统一记忆入口仍是 `AGENTS.md`。
 - 不要把某个运行时的专属约定误写成系统级通用规则。

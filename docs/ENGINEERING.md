@@ -1,5 +1,7 @@
 # ENGINEERING
 
+> 本文负责：实施流程、验证、review / commit 规则，以及什么时候必须同步文档。架构、运行时和持久化边界不在这里重复。
+
 ## 工作流
 
 1. 复杂任务开始前先创建或更新本地 `PLANS/ACTIVE.md`；若文件不存在，先从 `PLANS/_TEMPLATE.md` 复制。
@@ -8,29 +10,29 @@
 4. 每轮实现后必须运行验证；验证失败时停留在当前 milestone 修复，不得跳过。
 5. 验证通过后仍需经过 review gate；只有 validation 和 review 都通过，milestone 才能标记为 `done`。
 6. 连续修复仍失败、当前线程阻塞、需要换线程继续或交接给下一个 Codex 会话时，必须写 handoff。
-7. 任务结束后更新 `PLANS/ACTIVE.md` 的结果与 handoff，再提交一个聚焦单任务的英文 commit，格式建议：`type: summary`。
+7. 实施、review、handoff 的具体循环分别按 `RUNBOOKS/Implement.md`、`RUNBOOKS/Review.md`、`RUNBOOKS/Handoff.md` 执行。
 
-## 编码与修改约束
+## 修改约束
 
 - 先读上下文再改代码；优先沿用现有模块边界与命名风格。
 - 搜索优先用 `rg` / `rg --files`。
 - 手工修改代码或文档时优先用 `apply_patch`；避免用脚本粗暴重写整个文件。
 - 不回滚用户已有改动；遇到冲突先理解再兼容。
 - 禁止使用破坏性 git 命令（如 `reset --hard`、`checkout --`），除非用户明确要求。
-- 项目内部运行时记忆统一使用 `AGENTS.md`；`.claude/`、`~/.claude/CLAUDE.md`、`~/.codex/config.toml` 视为外部运行时契约。
+- 运行时、记忆和外部契约的细节分别见 `docs/RUNTIME.md` 与 `docs/CONTEXT.md`。
 
 ## 文档同步要求
 
-出现以下改动时，必须同步更新 `AGENTS.md` 或 `docs/`：
+出现以下改动时，必须更新对应 owner 文档，而不是在多个入口重复写一遍：
 
 - 架构分层、执行模式、消息流、权限边界变更
 - 工作区 / Memory / MCP / Skills / 运行时目录约定变更
 - 新增或重命名关键模块、页面、路由、核心 store
-- 影响协作入口、提交流程、验证方式的工程规则变更
+- 影响协作入口、提交流程、验证方式、review / handoff 流程的工程规则变更
 
 ## 验证
 
-- 优先执行当前 milestone 明确写出的验证命令；若仓库提供了统一入口，优先使用 `./scripts/validate.sh`。
+- 优先执行当前 milestone 明确写出的验证命令；若仓库提供统一入口，优先使用 `./scripts/validate.sh`。
 - milestone 完成前要补跑 `./scripts/review.sh` 或等价 review helper，再按 `RUNBOOKS/Review.md` 做语义审查。
 - 至少运行与改动直接相关的测试。
 - 涉及构建、类型或跨子项目改动时，补跑对应 `build` / `typecheck`。

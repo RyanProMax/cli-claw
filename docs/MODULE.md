@@ -1,5 +1,7 @@
 # MODULE
 
+> 本文负责：唯一维护的 repo tree / 模块清单。架构解释见 `docs/ARCHITECTURE.md`；运行时与持久化边界见 `docs/RUNTIME.md`、`docs/CONTEXT.md`。
+
 ## 模块索引
 
 ```text
@@ -106,9 +108,9 @@
 │       ├── tester.md               # 验证 / 复现子角色
 │       └── reviewer.md             # 差异审查子角色
 └── docs/
-    ├── ARCHITECTURE.md             # 项目结构与核心数据流
+    ├── ARCHITECTURE.md             # 系统分层与核心数据流
     ├── RUNTIME.md                  # Claude / Codex 运行时矩阵与约束
-    ├── CONTEXT.md                  # 持久化架构约束与边界
+    ├── CONTEXT.md                  # 工作区、记忆与持久化边界
     ├── MODULE.md                   # 模块索引
     ├── ENGINEERING.md              # 开发规范、验证与提交流程
     └── COMMAND.md                  # 当前支持的命令与入口差异
