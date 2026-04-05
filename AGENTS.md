@@ -1,16 +1,22 @@
 # Cli Claw
 
-Cli Claw 是一个多用户、自托管的 AI Agent 系统：
+Cli Claw 是一个多用户、自托管的 CLI Agent 平台：
 
 - `src/` 负责消息接入、权限、调度、存储与 Web API。
 - `web/` 是 React 前端与 PWA。
 - `container/agent-runner/` 负责实际 Agent 执行、工具调用与流式事件。
 
-项目内部运行时记忆统一使用工作区或用户目录下的 `AGENTS.md`；外部 Claude 生态的 `.claude/CLAUDE.md` 仍按原协议保留。
+当前运行时：
+
+- `claude`：Claude Agent SDK + Claude Code CLI
+- `codex`：Codex CLI + `codex-acp`
+
+项目内部运行时记忆统一使用工作区或用户目录下的 `AGENTS.md`；外部运行时生态的 `.claude/CLAUDE.md`、`~/.codex/config.toml` 等契约仍按各自原协议保留。
 
 ## 文档入口
 
 - 项目架构：`docs/ARCHITECTURE.md`
+- 运行时矩阵：`docs/RUNTIME.md`
 - 持久化上下文：`docs/CONTEXT.md`
 - 模块索引：`docs/MODULE.md`
 - 工程规范：`docs/ENGINEERING.md`
@@ -22,7 +28,7 @@ Cli Claw 是一个多用户、自托管的 AI Agent 系统：
 1. 开始任务前先更新本地 `docs/.local/PLAN.md`，写清目标、范围、计划。
 2. 实施过程中若范围、方案或验证方式变化，及时回写 `PLAN.md`。
 3. 任务结束后再次更新 `PLAN.md`，补上结果、验证、遗留事项。
-4. 每完成一个任务立即提交一个中文 commit，格式：`类型: 简述`。
+4. 每完成一个任务立即提交一个英文 commit，格式建议：`type: summary`。
 
 ## 编码与修改约束
 
@@ -31,7 +37,7 @@ Cli Claw 是一个多用户、自托管的 AI Agent 系统：
 - 手工修改代码或文档时优先用 `apply_patch`；避免用脚本粗暴重写整个文件。
 - 不回滚用户已有改动；遇到冲突先理解再兼容。
 - 禁止使用破坏性 git 命令（如 `reset --hard`、`checkout --`），除非用户明确要求。
-- 项目内部运行时记忆统一使用 `AGENTS.md`；`.claude/` 与 `~/.claude/CLAUDE.md` 视为外部运行时契约。
+- 项目内部运行时记忆统一使用 `AGENTS.md`；`.claude/`、`~/.claude/CLAUDE.md`、`~/.codex/config.toml` 视为外部运行时契约。
 
 ## 文档同步要求
 
@@ -50,7 +56,7 @@ Cli Claw 是一个多用户、自托管的 AI Agent 系统：
 
 ## 提交约定
 
-- commit message 使用简体中文。
+- commit message 使用英文。
 - 一次 commit 聚焦一个任务，避免把无关清理混进去。
 - 若任务涉及文档入口、架构边界或运行时记忆，commit 前确认 `AGENTS.md` / `docs/` 已同步。
 
@@ -146,6 +152,7 @@ Cli Claw 是一个多用户、自托管的 AI Agent 系统：
 │   └── assistant-meta-footer.ts    # 多端共享 footer 格式化
 └── docs/
     ├── ARCHITECTURE.md             # 项目结构与核心数据流
+    ├── RUNTIME.md                  # Claude / Codex 运行时矩阵与约束
     ├── CONTEXT.md                  # 持久化架构约束与边界
     ├── MODULE.md                   # 模块索引
     ├── ENGINEERING.md              # 开发规范、验证与提交流程

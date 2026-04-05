@@ -10,6 +10,7 @@ import { ImageLightbox } from './ImageLightbox';
 import { mediumTap } from '../../hooks/useHaptic';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
 import { AssistantMetaFooter } from './AssistantMetaFooter';
+import { formatAssistantMetaFooter } from '../../lib/assistantMetaFooter';
 
 const ShareImageDialog = lazy(() => import('./ShareImageDialog').then(m => ({ default: m.ShareImageDialog })));
 
@@ -91,6 +92,12 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
     : [];
   const images = attachments.filter((att) => att.type === 'image');
   const allImageSrcs = images.map((img) => `data:${img.mimeType || 'image/png'};base64,${img.data}`);
+  const assistantMetaFooter = !isUser
+    ? formatAssistantMetaFooter({
+        runtimeIdentity: message.runtime_identity,
+        tokenUsage: message.token_usage,
+      })
+    : null;
 
   // Check if content is empty (only whitespace) and we have images
   const hasOnlyImages = !message.content.trim() && images.length > 0;
@@ -477,38 +484,42 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
               </div>
             )}
 
-            <AssistantMetaFooter
-              runtimeIdentity={message.runtime_identity}
-              tokenUsage={message.token_usage}
-            />
           </div>
 
-          {/* Action toolbar — below content, Claude-style */}
-          <div className="flex items-center gap-0.5 mt-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={handleCopy}
-              className="h-7 px-2 rounded-md flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-foreground/5 text-xs cursor-pointer transition-colors"
-              title="复制"
-              aria-label="复制消息"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-            <button
-              onClick={() => setShowShareDialog(true)}
-              className="h-7 px-2 rounded-md flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-foreground/5 text-xs max-lg:hidden cursor-pointer transition-colors"
-              title="分享"
-              aria-label="生成分享图片"
-            >
-              <ImageDown className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={handleMenuButton}
-              className="h-7 px-2 rounded-md flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-foreground/5 text-xs cursor-pointer transition-colors"
-              title="更多"
-              aria-label="消息菜单"
-            >
-              <Ellipsis className="w-3.5 h-3.5" />
-            </button>
+          {/* Meta + action toolbar */}
+          <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground min-h-7">
+            {assistantMetaFooter && (
+              <span className="min-w-0 truncate">{assistantMetaFooter}</span>
+            )}
+            <div className="ml-auto flex flex-shrink-0 items-center gap-0.5 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+              {assistantMetaFooter && (
+                <span className="px-0.5 text-muted-foreground/40">|</span>
+              )}
+              <button
+                onClick={handleCopy}
+                className="h-7 px-2 rounded-md flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-foreground/5 text-xs cursor-pointer transition-colors"
+                title="复制"
+                aria-label="复制消息"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                onClick={() => setShowShareDialog(true)}
+                className="h-7 px-2 rounded-md flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-foreground/5 text-xs max-lg:hidden cursor-pointer transition-colors"
+                title="分享"
+                aria-label="生成分享图片"
+              >
+                <ImageDown className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleMenuButton}
+                className="h-7 px-2 rounded-md flex items-center gap-1 text-muted-foreground hover:text-foreground hover:bg-foreground/5 text-xs cursor-pointer transition-colors"
+                title="更多"
+                aria-label="消息菜单"
+              >
+                <Ellipsis className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </div>

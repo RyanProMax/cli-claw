@@ -1534,8 +1534,6 @@ export class StreamingCardController {
     durationMs: number;
     numTurns: number;
   }): Promise<void> {
-    if (this.state !== 'completed') return;
-
     const nextUsage: AssistantFooterTokenUsage = {
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
@@ -1551,6 +1549,11 @@ export class StreamingCardController {
       this.footerTokenUsage?.numTurns === nextUsage.numTurns;
     if (unchanged) return;
     this.footerTokenUsage = nextUsage;
+
+    // Some runtimes emit usage before the final completed card patch.
+    // Cache the usage immediately so complete()/finalize() can still render
+    // the footer on the finished card.
+    if (this.state !== 'completed') return;
 
     try {
       if (this.backendMode === 'streaming' && this.streamingBackend) {

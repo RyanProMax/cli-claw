@@ -5,7 +5,7 @@
 1. 开始任务前先更新本地 `docs/.local/PLAN.md`，写清目标、范围、计划。
 2. 实施过程中若范围、方案或验证方式变化，及时回写 `PLAN.md`。
 3. 任务结束后再次更新 `PLAN.md`，补上结果、验证、遗留事项。
-4. 每完成一个任务立即提交一个中文 commit，格式：`类型: 简述`。
+4. 每完成一个任务立即提交一个英文 commit，格式建议：`type: summary`。
 
 ## 编码与修改约束
 
@@ -14,7 +14,7 @@
 - 手工修改代码或文档时优先用 `apply_patch`；避免用脚本粗暴重写整个文件。
 - 不回滚用户已有改动；遇到冲突先理解再兼容。
 - 禁止使用破坏性 git 命令（如 `reset --hard`、`checkout --`），除非用户明确要求。
-- 项目内部运行时记忆统一使用 `AGENTS.md`；`.claude/` 与 `~/.claude/CLAUDE.md` 视为外部运行时契约。
+- 项目内部运行时记忆统一使用 `AGENTS.md`；`.claude/`、`~/.claude/CLAUDE.md`、`~/.codex/config.toml` 视为外部运行时契约。
 
 ## 文档同步要求
 
@@ -33,6 +33,6 @@
 
 ## 提交约定
 
-- commit message 使用简体中文。
+- commit message 使用英文。
 - 一次 commit 聚焦一个任务，避免把无关清理混进去。
 - 若任务涉及文档入口、架构边界或运行时记忆，commit 前确认 `AGENTS.md` / `docs/` 已同步。

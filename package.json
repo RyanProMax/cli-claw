@@ -1,7 +1,7 @@
 {
   "name": "cli-claw",
   "version": "1.0.0",
-  "description": "Personal Claude assistant. Lightweight, secure, customizable.",
+  "description": "Self-hosted multi-user AI agent platform powered by CLI runtimes.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -69,6 +69,7 @@
   "keywords": [
     "claude",
     "claude-code",
+    "codex",
     "ai-agent",
     "self-hosted",
     "feishu",

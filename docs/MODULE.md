@@ -92,6 +92,7 @@
 │   └── assistant-meta-footer.ts    # 多端共享 footer 格式化
 └── docs/
     ├── ARCHITECTURE.md             # 项目结构与核心数据流
+    ├── RUNTIME.md                  # Claude / Codex 运行时矩阵与约束
     ├── CONTEXT.md                  # 持久化架构约束与边界
     ├── MODULE.md                   # 模块索引
     ├── ENGINEERING.md              # 开发规范、验证与提交流程

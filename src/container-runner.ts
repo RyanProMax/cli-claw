@@ -47,6 +47,7 @@ import {
   attachStdoutHandler,
   createStderrState,
   createStdoutParserState,
+  formatUserFacingRuntimeError,
   handleNonZeroExit,
   handleSuccessClose,
   handleTimeoutClose,
@@ -1293,9 +1294,10 @@ export async function runHostAgent(
             const missingPackageMatch = stderrContent.match(
               /Cannot find package '([^']+)' imported from/u,
             );
-            const userFacingError = missingPackageMatch
-              ? `宿主机模式启动失败：缺少依赖 ${missingPackageMatch[1]}。请先执行：${setupInstallHint}`
-              : null;
+            const userFacingError =
+              (missingPackageMatch
+                ? `宿主机模式启动失败：缺少依赖 ${missingPackageMatch[1]}。请先执行：${setupInstallHint}`
+                : null) || formatUserFacingRuntimeError(stderrContent);
             return {
               result: userFacingError,
               error: `Host agent exited with ${exitLabel}: ${stderrContent.slice(-200)}`,

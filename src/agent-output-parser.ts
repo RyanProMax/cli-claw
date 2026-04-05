@@ -639,6 +639,41 @@ function parseLegacyOutput(ctx: CloseHandlerContext): void {
 
 // ─── API Error Classification ────────────────────────────────────────
 
+function normalizeRuntimeErrorText(stderr: string): string {
+  return stderr
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function formatUserFacingRuntimeError(stderr: string): string | null {
+  const normalized = normalizeRuntimeErrorText(stderr);
+  if (!normalized) return null;
+
+  if (
+    /Codex CLI 未登录/u.test(normalized) ||
+    /auth_required|login required|please login|not logged in/i.test(normalized)
+  ) {
+    return 'Codex CLI 未登录。请先在服务器上执行：codex login';
+  }
+
+  if (
+    /UsageLimitExceeded/i.test(normalized) ||
+    /purchase more credits/i.test(normalized) ||
+    /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized)
+  ) {
+    const usageUrl =
+      normalized.match(/https:\/\/chatgpt\.com\/codex\/settings\/usage/i)?.[0] ||
+      'https://chatgpt.com/codex/settings/usage';
+    const retryAt = normalized.match(/try again at ([^.]+)\.?/i)?.[1]?.trim();
+    return retryAt
+      ? `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或在 ${retryAt} 后重试。`
+      : `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或稍后重试。`;
+  }
+
+  return null;
+}
+
 /** Patterns that indicate an API-level error (provider issue, not user code bug) */
 const API_ERROR_PATTERNS = [
   /\bapi[_ ]?key\b.*\b(invalid|missing|expired|required)\b/i,

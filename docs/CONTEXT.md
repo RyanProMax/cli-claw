@@ -31,7 +31,9 @@
 
 ## 执行模型
 
-- 工作区分 `host` 与 `container` 两种执行模式；`codex` 仅允许 `host`。
+- 工作区分 `host` 与 `container` 两种执行模式；`agentType` 决定底层 CLI runtime。
+- `claude` 可运行在 `host` 或 `container`。
+- `codex` 仅允许 `host`。
 - `folder` 决定工作区文件根，`executionMode` 决定这个根如何被执行：
   - `container`：实际运行在容器里，默认工作区目录是 `~/.cli-claw/groups/{folder}`。
   - `host`：直接在宿主机执行；如果配置了 `customCwd`，运行根可落到外部目录，但 group 记录、会话、记忆和路由仍归属于原 `folder`。
@@ -44,11 +46,11 @@
   - 工作区记忆：`~/.cli-claw/groups/{folder}/AGENTS.md`
   - 时效性记忆：`~/.cli-claw/memory/{folder}/YYYY-MM-DD.md`
   - 对话归档：`~/.cli-claw/groups/{folder}/conversations/`
-- `.claude/` 与 `~/.claude/CLAUDE.md` 属于外部 Claude 运行时契约，不参与本项目内部记忆改名。
+- `.claude/`、`~/.claude/CLAUDE.md`、`~/.codex/config.toml` 属于外部运行时契约，不参与本项目内部记忆改名。
 
 ## 持久化边界
 
 - 用户隔离优先：非 admin 只能访问自己的工作区、自己的 user-global 和授权共享工作区。
 - `groups/{folder}` 是工作区内容边界，`registered_groups` 是工作区入口边界；多个入口可以共享一个 `folder`，但不等于多个独立工作区。
-- `.claude/` 下的 settings / skills / rules 是运行时配置，不等同于项目内部记忆。
+- `.claude/` 与 `~/.codex/` 下的 settings / skills / config 是运行时配置，不等同于项目内部记忆。
 - 修改消息路由、执行模式、Memory 路径、MCP 工具名或 docs 入口时，要同步更新 `AGENTS.md` 和对应 docs。
