@@ -67,6 +67,14 @@ export interface IMChannelConnectOpts {
   shouldProcessGroupMessage?: (chatJid: string) => boolean;
   /** 飞书流式卡片按钮中断回调 */
   onCardInterrupt?: (chatJid: string) => void;
+  /** 飞书流式卡片 runtime 修改回调 */
+  onCardRuntimeUpdate?: (
+    chatJid: string,
+    update: {
+      action: 'set_runtime_model' | 'set_runtime_effort';
+      value: string;
+    },
+  ) => Promise<string | null>;
 }
 
 export interface IMChannel {

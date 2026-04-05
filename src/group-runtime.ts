@@ -54,6 +54,8 @@ export function buildEffectiveGroupFromHomeSibling(
     ...group,
     agentType: homeGroup.agentType ?? group.agentType,
     executionMode: homeGroup.executionMode ?? group.executionMode,
+    model: homeGroup.model ?? group.model,
+    reasoningEffort: homeGroup.reasoningEffort ?? group.reasoningEffort,
     customCwd: homeGroup.customCwd || group.customCwd,
     created_by: group.created_by || homeGroup.created_by,
     is_home: true,

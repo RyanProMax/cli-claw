@@ -2,18 +2,44 @@
 
 ## 概览
 
-当前项目支持一组工作区与会话管理命令，但**不支持**通过聊天命令直接切换模型或 Agent。  
-`/model` 目前**未实现**；模型、Agent、执行模式的切换应通过工作区运行时设置完成。
+Cli Claw 现在维护一份统一命令注册表，作为以下入口的单一事实源：
 
-## 入口区别
+- IM slash command 分发
+- Web 输入框命令识别
+- `/help` 输出
+- 本文档
 
-### IM Slash Command
+命令最终是否可用，取决于：
 
-以下命令按 IM 会话语义实现，适用于绑定到工作区的飞书 / Telegram / QQ / 微信 / 钉钉等入口：
+- 当前入口：`im` / `web`
+- 当前工作区 runtime：`claude` / `codex`
+
+因此 `/help` 不是静态文档回显，而是按“当前入口 + 当前工作区 runtime”动态输出真正可执行的命令列表。
+
+## 全局可用命令
+
+以下命令在 IM 与 Web 都可直接识别：
 
 | 命令 | 别名 | 作用 |
 | --- | --- | --- |
+| `/help` | - | 查看当前入口、当前 runtime 下真正可用的命令 |
 | `/clear` | - | 清除当前工作区或当前绑定 Agent 的会话上下文 |
+| `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务 |
+| `/model <preset>` | - | 按当前 runtime 的 preset 切换当前工作区模型 |
+| `/effort <low\|medium\|high\|xhigh>` | - | 切换当前工作区思考强度；仅 `codex` 支持 |
+
+说明：
+
+- `/model` 与 `/effort` 都是“当前工作区级”设置，会持久化到工作区 runtime 配置。
+- `claude` 不支持 `reasoning_effort`；在该 runtime 下执行 `/effort` 会返回明确提示。
+- 飞书流式卡片底部也提供同一套模型 / 思考强度切换入口，行为与命令保持一致。
+
+## IM 专属命令
+
+以下命令仅在 IM 入口可用：
+
+| 命令 | 别名 | 作用 |
+| --- | --- | --- |
 | `/list` | `/ls` | 查看当前用户可访问的工作区与对话列表 |
 | `/status` | - | 查看当前工作区、运行状态与绑定信息摘要 |
 | `/recall` | `/rc` | 汇总当前工作区最近消息并生成回顾摘要 |
@@ -24,33 +50,41 @@
 | `/new <名称>` | - | 创建新工作区并把当前 IM 会话绑定过去 |
 | `/require_mention true` | - | 群聊里只有被 @ 时才响应 |
 | `/require_mention false` | - | 群聊里不需要 @ 也会响应 |
-| `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务 |
 
-### Web 直接识别
+## Web 入口说明
 
-Web 输入框目前只对以下命令做了前端 / WebSocket 层的直接识别：
+Web 输入框与 agent tab 现在直接识别统一命令注册表中的 Web 可用命令：
 
-| 命令 | 作用 |
-| --- | --- |
-| `/clear` | 直接重置当前工作区或当前 Agent 会话 |
-| `/sw <任务描述>` | 直接创建并行任务 |
-| `/spawn <任务描述>` | `/sw` 的别名 |
+- `/help`
+- `/clear`
+- `/sw`
+- `/spawn`
+- `/model`
+- `/effort`
 
-其余命令不要依赖 Web 输入框的“本地命令模式”；如果需要工作区绑定、位置查询、回顾摘要等能力，当前以 IM slash command 语义为准。
+如果在 Web 输入框输入了已知但当前入口不可用的命令（例如 `/bind`），系统会直接返回明确提示，而不会把它当普通消息交给 Agent。
 
-## 不支持的命令
+## 运行时相关命令
 
-### `/model`
+### `/model <preset>`
 
-当前**不支持** `/model`。  
-如果要修改实际执行模型 / Agent：
+- `claude` 预设：
+  - `opus[1m]`
+  - `opus`
+  - `sonnet[1m]`
+  - `sonnet`
+  - `haiku`
+- `codex` 预设：
+  - `gpt-5.4`
+  - `gpt-5.4-mini`
 
-1. 在工作区设置里切换 `Agent`
-2. 如有需要，再切换执行模式 `host` / `container`
-3. 保存后让新运行时接管后续对话
+### `/effort <low|medium|high|xhigh>`
 
-## 说明
+- 仅 `codex` 支持。
+- 当前工作区 runtime 不支持时，命令会返回明确提示，不会静默忽略。
+
+## 备注
 
 - `/sw` 与 `/spawn` 是同义命令。
 - `/bind` 目标里的 `agent短ID` 指 conversation agent 的短标识，不是工作区 folder。
-- `/require_mention` 主要影响 IM 群聊入口，对 Web 单聊无意义。
+- `/model` / `/effort` 的真实可用值以运行时命令注册表为准；本文档只同步当前内置 preset。

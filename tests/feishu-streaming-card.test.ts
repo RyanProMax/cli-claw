@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { StreamingCardController } from '../src/feishu-streaming-card.ts';
+import { formatToolStepLine } from '../src/tool-step-display.ts';
 
 describe('StreamingCardController footer caching', () => {
   test('caches usage before completion so final footer can still be rendered', async () => {
@@ -105,5 +106,11 @@ describe('StreamingCardController footer caching', () => {
     expect(patchedState).toBe('aborted');
 
     controller.dispose();
+  });
+
+  test('formats card tool steps as plain text lines', () => {
+    expect(formatToolStepLine('exec_command', 'ls -la')).toBe(
+      'exec_command · ls -la',
+    );
   });
 });

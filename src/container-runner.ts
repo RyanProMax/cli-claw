@@ -111,6 +111,8 @@ export interface ContainerInput {
   groupFolder: string;
   chatJid: string;
   agentType?: AgentType;
+  model?: string | null;
+  reasoningEffort?: string | null;
   /** @deprecated Use isHome + isAdminHome instead */
   isMain: boolean;
   turnId?: string;

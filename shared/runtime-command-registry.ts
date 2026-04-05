@@ -1,0 +1,252 @@
+export type RuntimeAgentType = 'claude' | 'codex';
+export type RuntimeCommandEntrypoint = 'im' | 'web';
+export type ReasoningEffortPreset = 'low' | 'medium' | 'high' | 'xhigh';
+
+const CLAUDE_MODEL_PRESETS = [
+  'opus[1m]',
+  'opus',
+  'sonnet[1m]',
+  'sonnet',
+  'haiku',
+] as const;
+
+const CODEX_MODEL_PRESETS = ['gpt-5.4', 'gpt-5.4-mini'] as const;
+
+const REASONING_EFFORT_PRESETS = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+] as const;
+
+export interface RuntimeCommandDefinition {
+  name: string;
+  aliases?: string[];
+  usage: string;
+  description: string;
+  availableEntrypoints: RuntimeCommandEntrypoint[];
+  availabilityByRuntime?: RuntimeAgentType[] | 'all';
+}
+
+export interface ParsedRuntimeCommand {
+  rawName: string;
+  name: string;
+  argsText: string;
+  args: string[];
+}
+
+export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
+  {
+    name: 'help',
+    usage: '/help',
+    description: '查看当前入口可用命令',
+    availableEntrypoints: ['im', 'web'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'clear',
+    usage: '/clear',
+    description: '清除当前工作区或会话上下文',
+    availableEntrypoints: ['im', 'web'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'list',
+    aliases: ['ls'],
+    usage: '/list',
+    description: '查看当前用户可访问的工作区与对话',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'status',
+    usage: '/status',
+    description: '查看当前工作区和运行状态摘要',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'recall',
+    aliases: ['rc'],
+    usage: '/recall',
+    description: '回顾当前工作区最近消息',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'where',
+    usage: '/where',
+    description: '查看当前聊天绑定位置',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'bind',
+    usage: '/bind <workspace>',
+    description: '绑定到指定工作区或会话',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'unbind',
+    usage: '/unbind',
+    description: '解除当前绑定',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'new',
+    usage: '/new <名称>',
+    description: '创建新工作区并绑定过去',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'require_mention',
+    usage: '/require_mention true|false',
+    description: '控制群聊中是否必须 @机器人',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'sw',
+    aliases: ['spawn'],
+    usage: '/sw <任务描述>',
+    description: '创建并行任务',
+    availableEntrypoints: ['im', 'web'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'model',
+    usage: '/model <preset>',
+    description: '切换当前工作区模型预设',
+    availableEntrypoints: ['im', 'web'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'effort',
+    usage: '/effort <low|medium|high|xhigh>',
+    description: '切换当前工作区思考强度',
+    availableEntrypoints: ['im', 'web'],
+    availabilityByRuntime: ['codex'],
+  },
+];
+
+function normalizeText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function supportsReasoningEffort(
+  agentType: RuntimeAgentType,
+): boolean {
+  return agentType === 'codex';
+}
+
+export function getModelPresets(agentType: RuntimeAgentType): string[] {
+  return agentType === 'codex'
+    ? [...CODEX_MODEL_PRESETS]
+    : [...CLAUDE_MODEL_PRESETS];
+}
+
+export function getReasoningEffortPresets(): ReasoningEffortPreset[] {
+  return [...REASONING_EFFORT_PRESETS];
+}
+
+export function normalizeModelPreset(
+  agentType: RuntimeAgentType,
+  rawValue: string,
+): string | null {
+  const normalized = normalizeText(rawValue);
+  const matched = getModelPresets(agentType).find(
+    (preset) => preset.toLowerCase() === normalized,
+  );
+  return matched ?? null;
+}
+
+export function normalizeReasoningEffortPreset(
+  rawValue: string,
+): ReasoningEffortPreset | null {
+  const normalized = normalizeText(rawValue);
+  return REASONING_EFFORT_PRESETS.find((preset) => preset === normalized) ?? null;
+}
+
+function isCommandAvailableForAgent(
+  command: RuntimeCommandDefinition,
+  agentType: RuntimeAgentType,
+): boolean {
+  if (
+    command.availabilityByRuntime === 'all' ||
+    !command.availabilityByRuntime
+  ) {
+    return true;
+  }
+  return command.availabilityByRuntime.includes(agentType);
+}
+
+export function findRuntimeCommand(
+  rawName: string,
+): RuntimeCommandDefinition | null {
+  const normalized = normalizeText(rawName);
+  if (!normalized) return null;
+  return (
+    RUNTIME_COMMANDS.find((command) => {
+      if (command.name === normalized) return true;
+      return command.aliases?.some((alias) => alias === normalized);
+    }) ?? null
+  );
+}
+
+export function parseRuntimeCommand(
+  text: string,
+): ParsedRuntimeCommand | null {
+  const trimmed = text.trim();
+  const body = trimmed.startsWith('/') ? trimmed.slice(1).trim() : trimmed;
+  if (!body) return null;
+
+  const [rawName = '', ...args] = body.split(/\s+/);
+  const command = findRuntimeCommand(rawName);
+  if (!command) return null;
+
+  return {
+    rawName,
+    name: command.name,
+    argsText: body.slice(rawName.length).trim(),
+    args,
+  };
+}
+
+export function isCommandAvailable(options: {
+  commandName: string;
+  entrypoint: RuntimeCommandEntrypoint;
+  agentType: RuntimeAgentType;
+}): boolean {
+  const command = findRuntimeCommand(options.commandName);
+  if (!command) return false;
+  return (
+    command.availableEntrypoints.includes(options.entrypoint) &&
+    isCommandAvailableForAgent(command, options.agentType)
+  );
+}
+
+export function getAvailableCommands(options: {
+  entrypoint: RuntimeCommandEntrypoint;
+  agentType: RuntimeAgentType;
+}): RuntimeCommandDefinition[] {
+  return RUNTIME_COMMANDS.filter(
+    (command) =>
+      command.availableEntrypoints.includes(options.entrypoint) &&
+      isCommandAvailableForAgent(command, options.agentType),
+  );
+}
+
+export function formatCommandHelp(options: {
+  entrypoint: RuntimeCommandEntrypoint;
+  agentType: RuntimeAgentType;
+}): string {
+  const commands = getAvailableCommands(options);
+  const lines = ['可用命令：'];
+  for (const command of commands) {
+    lines.push(`- ${command.usage}：${command.description}`);
+  }
+  return lines.join('\n');
+}

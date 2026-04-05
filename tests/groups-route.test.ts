@@ -311,4 +311,27 @@ describe('group runtime stale-build guard', () => {
       }),
     );
   });
+
+  test('persists workspace model and reasoning effort on patch', async () => {
+    const app = createApp();
+
+    const res = await app.request('/api/groups/web:main', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agent_type: 'codex',
+        model: 'gpt-5.4',
+        reasoning_effort: 'xhigh',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mocks.setRegisteredGroup).toHaveBeenCalledWith(
+      'web:main',
+      expect.objectContaining({
+        model: 'gpt-5.4',
+        reasoningEffort: 'xhigh',
+      }),
+    );
+  });
 });

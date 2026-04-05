@@ -665,6 +665,8 @@ export function initDatabase(): void {
     "TEXT DEFAULT 'container'",
   );
   ensureColumn('registered_groups', 'agent_type', "TEXT DEFAULT 'claude'");
+  ensureColumn('registered_groups', 'model', 'TEXT');
+  ensureColumn('registered_groups', 'reasoning_effort', 'TEXT');
   ensureColumn('registered_groups', 'custom_cwd', 'TEXT');
   ensureColumn('registered_groups', 'init_source_path', 'TEXT');
   ensureColumn('registered_groups', 'init_git_url', 'TEXT');
@@ -2256,6 +2258,8 @@ type RegisteredGroupRow = {
   container_config: string | null;
   agent_type: string | null;
   execution_mode: string | null;
+  model: string | null;
+  reasoning_effort: string | null;
   custom_cwd: string | null;
   init_source_path: string | null;
   init_git_url: string | null;
@@ -2289,6 +2293,8 @@ function parseGroupRow(
       : undefined,
     agentType: parseAgentType(row.agent_type),
     executionMode: parseExecutionMode(row.execution_mode, `group ${row.jid}`),
+    model: row.model ?? null,
+    reasoningEffort: row.reasoning_effort ?? null,
     customCwd: row.custom_cwd ?? undefined,
     initSourcePath: row.init_source_path ?? undefined,
     initGitUrl: row.init_git_url ?? undefined,
@@ -2329,8 +2335,8 @@ export function getRegisteredGroup(
 
 export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, agent_type, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, agent_type, execution_mode, model, reasoning_effort, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
@@ -2339,6 +2345,8 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
     group.agentType ?? 'claude',
     group.executionMode ?? 'container',
+    group.model ?? null,
+    group.reasoningEffort ?? null,
     group.customCwd ?? null,
     group.initSourcePath ?? null,
     group.initGitUrl ?? null,

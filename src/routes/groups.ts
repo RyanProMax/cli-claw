@@ -22,6 +22,12 @@ import {
   normalizeAgentType,
   validateGroupRuntimeUpdate,
 } from '../group-runtime.js';
+import {
+  getModelPresets,
+  normalizeModelPreset,
+  normalizeReasoningEffortPreset,
+  supportsReasoningEffort,
+} from '../runtime-command-registry.js';
 import { getRuntimeBuildStatus, isRuntimeBuildStale } from '../runtime-build.js';
 import {
   isHostExecutionGroup,
@@ -89,6 +95,26 @@ import { broadcastNewMessage, invalidateAllowedUserCache } from '../web.js';
 import { getStreamingSession } from '../feishu-streaming-card.js';
 
 const execFileAsync = promisify(execFile);
+
+function normalizeOptionalRuntimeModel(
+  agentType: AgentType,
+  rawValue: string | null | undefined,
+): string | null {
+  if (rawValue == null) return null;
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+  return normalizeModelPreset(agentType, trimmed);
+}
+
+function normalizeOptionalReasoningEffort(
+  agentType: AgentType,
+  rawValue: string | null | undefined,
+): string | null {
+  if (!supportsReasoningEffort(agentType) || rawValue == null) return null;
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+  return normalizeReasoningEffortPreset(trimmed);
+}
 
 function readHistoryCursorQuery(
   c: any,
@@ -170,6 +196,8 @@ interface GroupPayloadItem {
   folder: string;
   added_at: string;
   agent_type: AgentType;
+  model?: string | null;
+  reasoning_effort?: string | null;
   kind: 'home' | 'feishu' | 'web';
   editable: boolean;
   deletable: boolean;
@@ -287,6 +315,8 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
       folder: group.folder,
       added_at: group.added_at,
       agent_type: group.agentType || 'claude',
+      model: group.model ?? null,
+      reasoning_effort: group.reasoningEffort ?? null,
       kind: isHome ? 'home' : isWeb ? 'web' : 'feishu',
       editable: isWeb,
       deletable: isWeb && !isHome,
@@ -313,52 +343,11 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
 }
 
 import { removeFlowArtifacts } from '../file-manager.js';
+import {
+  clearSessionJsonlFiles,
+  resetWorkspaceRuntimeState,
+} from '../workspace-runtime-reset.js';
 export { removeFlowArtifacts };
-
-function clearSessionJsonlFiles(folder: string, agentId?: string): void {
-  const claudeDir = agentId
-    ? path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.claude')
-    : path.join(DATA_DIR, 'sessions', folder, '.claude');
-  if (!fs.existsSync(claudeDir)) return;
-
-  // 保留 settings.json，清除所有其他运行时文件和目录
-  const keep = new Set(['settings.json']);
-  const entries = fs.readdirSync(claudeDir);
-  for (const entry of entries) {
-    if (keep.has(entry)) continue;
-    const fullPath = path.join(claudeDir, entry);
-    fs.rmSync(fullPath, { recursive: true, force: true });
-  }
-}
-
-async function resetWorkspaceRuntimeState(
-  deps: NonNullable<ReturnType<typeof getWebDeps>>,
-  jid: string,
-  group: RegisteredGroup,
-): Promise<void> {
-  const siblingJids = getJidsByFolder(group.folder);
-  const agents = jid.startsWith('web:') ? listAgentsByJid(jid) : [];
-  const stopTargets = new Set<string>(siblingJids);
-
-  for (const agent of agents) {
-    stopTargets.add(`${jid}#agent:${agent.id}`);
-  }
-
-  await Promise.all(
-    [...stopTargets].map((targetJid) =>
-      deps.queue.stopGroup(targetJid, { force: true }),
-    ),
-  );
-
-  clearSessionJsonlFiles(group.folder);
-  deleteSession(group.folder);
-  delete deps.getSessions()[group.folder];
-
-  for (const agent of agents) {
-    clearSessionJsonlFiles(group.folder, agent.id);
-    deleteSession(group.folder, agent.id);
-  }
-}
 
 function resetWorkspaceForGroup(folder: string): void {
   // 1. 清除工作目录（Agent 文件、AGENTS.md、logs/ 等），然后重建空目录
@@ -437,6 +426,30 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       : (await isDockerAvailable())
         ? 'container'
         : 'host');
+  const model = normalizeOptionalRuntimeModel(agentType, validation.data.model);
+  if (validation.data.model && !model) {
+    return c.json(
+      {
+        error: `Unsupported ${agentType} model preset`,
+        presets: getModelPresets(agentType),
+      },
+      400,
+    );
+  }
+  const reasoningEffort = normalizeOptionalReasoningEffort(
+    agentType,
+    validation.data.reasoning_effort,
+  );
+  if (validation.data.reasoning_effort && !reasoningEffort) {
+    return c.json(
+      {
+        error: supportsReasoningEffort(agentType)
+          ? 'Unsupported reasoning_effort preset'
+          : `${agentType} does not support reasoning_effort`,
+      },
+      400,
+    );
+  }
   const customCwd = validation.data.custom_cwd; // Schema already trims and converts empty to undefined
   const initSourcePath = validation.data.init_source_path;
   const initGitUrl = validation.data.init_git_url;
@@ -663,6 +676,8 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     added_at: now,
     agentType,
     executionMode: executionMode as ExecutionMode,
+    model,
+    reasoningEffort,
     customCwd: executionMode === 'host' ? customCwd : undefined,
     initSourcePath: executionMode !== 'host' ? initSourcePath : undefined,
     initGitUrl: executionMode !== 'host' ? initGitUrl : undefined,
@@ -731,6 +746,8 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       added_at: group.added_at,
       agent_type: group.agentType || 'claude',
       execution_mode: group.executionMode || 'container',
+      model: group.model ?? null,
+      reasoning_effort: group.reasoningEffort ?? null,
       custom_cwd: hasHostExecutionPermission(authUser)
         ? group.customCwd
         : undefined,
@@ -769,6 +786,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     activation_mode,
     agent_type,
     execution_mode,
+    model,
+    reasoning_effort,
   } = validation.data;
   const name = rawName ? normalizeGroupName(rawName) : undefined;
 
@@ -778,7 +797,9 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     is_pinned === undefined &&
     activation_mode === undefined &&
     agent_type === undefined &&
-    execution_mode === undefined
+    execution_mode === undefined &&
+    model === undefined &&
+    reasoning_effort === undefined
   ) {
     return c.json({ error: 'No fields to update' }, 400);
   }
@@ -797,7 +818,9 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     !name &&
     activation_mode === undefined &&
     agent_type === undefined &&
-    execution_mode === undefined;
+    execution_mode === undefined &&
+    model === undefined &&
+    reasoning_effort === undefined;
   if (isPinOnly) {
     if (
       !canAccessGroup(
@@ -839,12 +862,14 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     unpinGroup(authUser.id, jid);
   }
 
-  // Update registered group if name, activation_mode, or execution_mode changed
+  // Update registered group if any editable field changed
   if (
     name ||
     activation_mode !== undefined ||
     agent_type !== undefined ||
-    execution_mode !== undefined
+    execution_mode !== undefined ||
+    model !== undefined ||
+    reasoning_effort !== undefined
   ) {
     const nextAgentType =
       agent_type !== undefined
@@ -854,12 +879,47 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
       execution_mode !== undefined
         ? (execution_mode as ExecutionMode)
         : existing.executionMode || 'container';
+    const nextModel =
+      model !== undefined
+        ? normalizeOptionalRuntimeModel(nextAgentType, model)
+        : existing.model ?? null;
+    if (model !== undefined && model !== null && !nextModel) {
+      return c.json(
+        {
+          error: `Unsupported ${nextAgentType} model preset`,
+          presets: getModelPresets(nextAgentType),
+        },
+        400,
+      );
+    }
+    const nextReasoningEffort =
+      reasoning_effort !== undefined
+        ? normalizeOptionalReasoningEffort(nextAgentType, reasoning_effort)
+        : existing.reasoningEffort ?? null;
+    if (
+      reasoning_effort !== undefined &&
+      reasoning_effort !== null &&
+      !nextReasoningEffort
+    ) {
+      return c.json(
+        {
+          error: supportsReasoningEffort(nextAgentType)
+            ? 'Unsupported reasoning_effort preset'
+            : `${nextAgentType} does not support reasoning_effort`,
+        },
+        400,
+      );
+    }
     const runtimeBoundaryChanged = hasRuntimeBoundaryChange({
       currentAgentType: existing.agentType || 'claude',
       currentExecutionMode: existing.executionMode || 'container',
       nextAgentType,
       nextExecutionMode,
     });
+    const runtimeSettingsChanged =
+      runtimeBoundaryChanged ||
+      (existing.model ?? null) !== nextModel ||
+      (existing.reasoningEffort ?? null) !== nextReasoningEffort;
     const runtimeError = validateGroupRuntimeUpdate({
       isHome: !!existing.is_home,
       currentExecutionMode: existing.executionMode || 'container',
@@ -909,6 +969,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         execution_mode !== undefined
           ? (execution_mode as ExecutionMode)
           : existing.executionMode,
+      model: nextModel,
+      reasoningEffort: nextReasoningEffort,
       customCwd: existing.customCwd,
       initSourcePath: existing.initSourcePath,
       initGitUrl: existing.initGitUrl,
@@ -928,7 +990,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     if (name) updateChatName(jid, name);
     deps.getRegisteredGroups()[jid] = updated;
 
-    if (runtimeBoundaryChanged) {
+    if (runtimeSettingsChanged) {
       try {
         await resetWorkspaceRuntimeState(deps, jid, updated);
       } catch (err) {
@@ -940,6 +1002,10 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
             nextAgentType,
             previousExecutionMode: existing.executionMode || 'container',
             nextExecutionMode,
+            previousModel: existing.model ?? null,
+            nextModel,
+            previousReasoningEffort: existing.reasoningEffort ?? null,
+            nextReasoningEffort,
             err,
           },
           'Workspace runtime changed but failed to reset active runners',
@@ -953,13 +1019,17 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         {
           jid,
           folder: updated.folder,
-          previousAgentType: existing.agentType || 'claude',
-          nextAgentType,
-          previousExecutionMode: existing.executionMode || 'container',
-          nextExecutionMode,
-        },
-        'Workspace runtime changed, reset active runners and sessions',
-      );
+            previousAgentType: existing.agentType || 'claude',
+            nextAgentType,
+            previousExecutionMode: existing.executionMode || 'container',
+            nextExecutionMode,
+            previousModel: existing.model ?? null,
+            nextModel,
+            previousReasoningEffort: existing.reasoningEffort ?? null,
+            nextReasoningEffort,
+          },
+          'Workspace runtime changed, reset active runners and sessions',
+        );
     }
   }
 

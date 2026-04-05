@@ -60,6 +60,14 @@ export interface ConnectOptions {
   shouldProcessGroupMessage?: (chatJid: string) => boolean;
   /** 飞书流式卡片按钮中断回调 */
   onCardInterrupt?: (chatJid: string) => void;
+  /** 飞书流式卡片 runtime 修改回调 */
+  onCardRuntimeUpdate?: (
+    chatJid: string,
+    update: {
+      action: 'set_runtime_model' | 'set_runtime_effort';
+      value: string;
+    },
+  ) => Promise<string | null>;
 }
 
 export interface FeishuChatInfo {
@@ -1355,6 +1363,38 @@ export function createFeishuConnection(
     }
   }
 
+  function extractCardActionValue(data: any): string | null {
+    const candidates = [
+      data?.action?.option?.value,
+      data?.action?.value?.selected_value,
+      data?.action?.value?.selectedValue,
+      data?.action?.value?.value,
+      data?.action?.form_value?.value,
+      data?.action?.formValue?.value,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+    return null;
+  }
+
+  async function sendCardActionReply(
+    chatJid: string | null | undefined,
+    text: string,
+  ): Promise<void> {
+    if (!chatJid || !text.trim()) return;
+    const chatId = chatJid.startsWith('feishu:') ? chatJid.slice(7) : null;
+    if (!chatId || !client) return;
+    try {
+      await connection.sendMessage(chatId, text.trim());
+    } catch (err) {
+      logger.debug({ err, chatJid }, 'Failed to send Feishu card action reply');
+    }
+  }
+
   const connection: FeishuConnection = {
     async connect(opts: ConnectOptions): Promise<boolean> {
       const { onReady } = opts;
@@ -1466,22 +1506,77 @@ export function createFeishuConnection(
           try {
             const action = data?.action?.value?.action;
             const messageId = data?.context?.open_message_id;
-            if (action !== 'interrupt_stream' || !messageId) return;
+            const mappedChatJid = messageId
+              ? resolveJidByMessageId(messageId)
+              : undefined;
 
-            const chatJid = resolveJidByMessageId(messageId);
-            if (!chatJid) {
-              logger.debug({ messageId }, 'Card action: no mapping for messageId');
+            if (action === 'interrupt_stream') {
+              if (!messageId || !mappedChatJid) {
+                logger.debug(
+                  { messageId },
+                  'Card action: interrupt ignored because mapping is missing',
+                );
+                return;
+              }
+
+              const session = getStreamingSession(mappedChatJid);
+              if (!session?.isActive()) {
+                logger.debug(
+                  { chatJid: mappedChatJid, messageId },
+                  'Card action: session not active',
+                );
+                return;
+              }
+
+              logger.info(
+                { chatJid: mappedChatJid, messageId },
+                'Card action: interrupt via button',
+              );
+              connectOptions?.onCardInterrupt?.(mappedChatJid);
               return;
             }
 
-            const session = getStreamingSession(chatJid);
-            if (!session?.isActive()) {
-              logger.debug({ chatJid, messageId }, 'Card action: session not active');
-              return;
-            }
+            if (
+              action === 'set_runtime_model' ||
+              action === 'set_runtime_effort'
+            ) {
+              const chatJid =
+                mappedChatJid ||
+                (typeof data?.context?.open_chat_id === 'string'
+                  ? `feishu:${data.context.open_chat_id}`
+                  : null);
+              if (!chatJid) {
+                logger.debug(
+                  { action, messageId },
+                  'Card action: runtime update ignored because chat mapping is missing',
+                );
+                return;
+              }
 
-            logger.info({ chatJid, messageId }, 'Card action: interrupt via button');
-            connectOptions?.onCardInterrupt?.(chatJid);
+              const selectedValue = extractCardActionValue(data);
+              if (!selectedValue) {
+                await sendCardActionReply(
+                  chatJid,
+                  '运行时切换失败：没有读取到要应用的预设值',
+                );
+                return;
+              }
+
+              logger.info(
+                { chatJid, action, selectedValue, messageId },
+                'Card action: updating workspace runtime',
+              );
+              const reply = await connectOptions?.onCardRuntimeUpdate?.(
+                chatJid,
+                {
+                  action,
+                  value: selectedValue,
+                },
+              );
+              if (reply) {
+                await sendCardActionReply(chatJid, reply);
+              }
+            }
           } catch (err) {
             logger.error({ err }, 'Error handling card action trigger');
           }

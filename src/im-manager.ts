@@ -75,6 +75,13 @@ export interface ConnectFeishuOptions {
   onBotRemovedFromGroup?: (chatJid: string) => void;
   shouldProcessGroupMessage?: (chatJid: string) => boolean;
   onCardInterrupt?: (chatJid: string) => void;
+  onCardRuntimeUpdate?: (
+    chatJid: string,
+    update: {
+      action: 'set_runtime_model' | 'set_runtime_effort';
+      value: string;
+    },
+  ) => Promise<string | null>;
 }
 
 class IMConnectionManager {
@@ -356,6 +363,7 @@ class IMConnectionManager {
       onBotRemovedFromGroup: options?.onBotRemovedFromGroup,
       shouldProcessGroupMessage: options?.shouldProcessGroupMessage,
       onCardInterrupt: options?.onCardInterrupt,
+      onCardRuntimeUpdate: options?.onCardRuntimeUpdate,
     });
   }
 

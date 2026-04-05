@@ -15,6 +15,7 @@ import {
   mergeMessagesChronologically,
 } from '../lib/messageIdentity';
 import { setHistoryCursorParams } from '../lib/messageHistoryCursor';
+import { formatToolStepLine } from '../lib/toolStepDisplay';
 
 export type { GroupInfo, AgentInfo };
 
@@ -168,7 +169,15 @@ interface ChatState {
   deleteMessage: (jid: string, messageId: string) => Promise<boolean>;
   createFlow: (name: string, options?: { agent_type?: 'claude' | 'codex'; execution_mode?: 'container' | 'host'; custom_cwd?: string; init_source_path?: string; init_git_url?: string }) => Promise<{ jid: string; folder: string } | null>;
   renameFlow: (jid: string, name: string) => Promise<void>;
-  updateGroupRuntime: (jid: string, runtime: { agent_type: 'claude' | 'codex'; execution_mode: 'container' | 'host' }) => Promise<void>;
+  updateGroupRuntime: (
+    jid: string,
+    runtime: {
+      agent_type: 'claude' | 'codex';
+      execution_mode: 'container' | 'host';
+      model?: string | null;
+      reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
+    },
+  ) => Promise<void>;
   togglePin: (jid: string) => Promise<void>;
   deleteFlow: (jid: string) => Promise<void>;
   handleStreamEvent: (chatJid: string, event: StreamEvent, agentId?: string) => void;
@@ -601,11 +610,14 @@ function applyStreamEvent(
         : [...prev.activeTools, tool];
 
       const isSkill = tool.toolName === 'Skill';
-      const label = isSkill
-        ? `技能 ${tool.skillName || 'unknown'}`
-        : `工具 ${tool.toolName}`;
-      const detail = tool.toolInputSummary ? ` (${tool.toolInputSummary})` : '';
-      next.recentEvents = pushEvent(prev.recentEvents, isSkill ? 'skill' : 'tool', `${label}${detail}`);
+      const summary = isSkill
+        ? tool.skillName
+        : tool.toolInputSummary;
+      next.recentEvents = pushEvent(
+        prev.recentEvents,
+        isSkill ? 'skill' : 'tool',
+        formatToolStepLine(tool.toolName, summary),
+      );
       break;
     }
     case 'tool_use_end':
@@ -613,13 +625,15 @@ function applyStreamEvent(
         const ended = prev.activeTools.find(t => t.toolUseId === event.toolUseId);
         next.activeTools = prev.activeTools.filter(t => t.toolUseId !== event.toolUseId);
         if (ended) {
-          const rawSec = (Date.now() - ended.startTime) / 1000;
-          const elapsedSec = rawSec % 1 === 0 ? rawSec.toFixed(0) : rawSec.toFixed(1);
           const isSkill = ended.toolName === 'Skill';
-          const label = isSkill
-            ? `技能 ${ended.skillName || 'unknown'}`
-            : `工具 ${ended.toolName}`;
-          next.recentEvents = pushEvent(prev.recentEvents, isSkill ? 'skill' : 'tool', `✓ ${label} (${elapsedSec}s)`);
+          const summary = isSkill
+            ? ended.skillName
+            : ended.toolInputSummary;
+          next.recentEvents = pushEvent(
+            prev.recentEvents,
+            isSkill ? 'skill' : 'tool',
+            formatToolStepLine(ended.toolName, summary),
+          );
         }
       } else {
         next.activeTools = [];
@@ -640,8 +654,8 @@ function applyStreamEvent(
             : t
         );
         if (skillNameResolved) {
-          const oldLabel = `技能 unknown`;
-          const newLabel = `技能 ${event.skillName}`;
+          const oldLabel = formatToolStepLine('Skill');
+          const newLabel = formatToolStepLine('Skill', event.skillName);
           next.recentEvents = prev.recentEvents.map(e =>
             e.kind === 'skill' && e.text.includes(oldLabel)
               ? { ...e, text: e.text.replace(oldLabel, newLabel) }
@@ -1142,7 +1156,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  updateGroupRuntime: async (jid: string, runtime: { agent_type: 'claude' | 'codex'; execution_mode: 'container' | 'host' }) => {
+  updateGroupRuntime: async (
+    jid: string,
+    runtime: {
+      agent_type: 'claude' | 'codex';
+      execution_mode: 'container' | 'host';
+      model?: string | null;
+      reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
+    },
+  ) => {
     try {
       await api.patch<{ success: boolean }>(`/api/groups/${encodeURIComponent(jid)}`, runtime);
       set((s) => {
@@ -1155,6 +1177,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ...group,
               agent_type: runtime.agent_type,
               execution_mode: runtime.execution_mode,
+              model: runtime.model ?? null,
+              reasoning_effort: runtime.reasoning_effort ?? null,
             },
           },
           error: null,

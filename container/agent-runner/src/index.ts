@@ -193,14 +193,17 @@ function extractCodexRuntimeIdentity(
 
 function buildRuntimeIdentity(
   agentType: 'claude' | 'codex',
+  requestedRuntime?: Pick<ContainerInput, 'model' | 'reasoningEffort'>,
 ): StreamRuntimeIdentity {
   if (agentType === 'codex') {
     return {
       agentType: 'codex',
       model:
+        normalizeRuntimeText(requestedRuntime?.model ?? undefined) ??
         normalizeRuntimeText(CODEX_MODEL) ??
         normalizeRuntimeText(CODEX_CLI_CONFIG.model ?? undefined),
       reasoningEffort:
+        normalizeRuntimeText(requestedRuntime?.reasoningEffort ?? undefined) ??
         normalizeRuntimeText(CODEX_REASONING_EFFORT) ??
         normalizeRuntimeText(CODEX_CLI_CONFIG.reasoningEffort ?? undefined),
       supportsReasoningEffort: true,
@@ -208,7 +211,9 @@ function buildRuntimeIdentity(
   }
   return {
     agentType: 'claude',
-    model: normalizeRuntimeText(CLAUDE_MODEL),
+    model:
+      normalizeRuntimeText(requestedRuntime?.model ?? undefined) ??
+      normalizeRuntimeText(CLAUDE_MODEL),
     reasoningEffort: null,
     supportsReasoningEffort: false,
   };
@@ -1416,9 +1421,25 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
   const acpCommand = process.env.CODEX_ACP_COMMAND?.trim() || 'npx';
   const acpArgs =
     acpCommand === 'npx' ? ['-y', '@zed-industries/codex-acp'] : [];
+  const acpEnv = {
+    ...process.env,
+    ...(containerInput.model
+      ? {
+          OPENAI_MODEL: containerInput.model,
+          CODEX_MODEL: containerInput.model,
+        }
+      : {}),
+    ...(containerInput.reasoningEffort
+      ? {
+          OPENAI_REASONING_EFFORT: containerInput.reasoningEffort,
+          CODEX_REASONING_EFFORT: containerInput.reasoningEffort,
+          REASONING_EFFORT: containerInput.reasoningEffort,
+        }
+      : {}),
+  };
   const acpProcess = spawn(acpCommand, acpArgs, {
     cwd: WORKSPACE_GROUP,
-    env: process.env,
+    env: acpEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -2028,7 +2049,7 @@ async function runQuery(
     const q = query({
       prompt: stream,
       options: {
-        model: CLAUDE_MODEL,
+        model: containerInput.model || CLAUDE_MODEL,
         cwd: WORKSPACE_GROUP,
         additionalDirectories: extraDirs,
         resume: sessionId,
@@ -2552,7 +2573,10 @@ async function main(): Promise<void> {
     const stdinData = await readStdin();
     containerInput = JSON.parse(stdinData);
     const requestedAgentType = containerInput.agentType || 'claude';
-    activeRuntimeIdentity = buildRuntimeIdentity(requestedAgentType);
+    activeRuntimeIdentity = buildRuntimeIdentity(requestedAgentType, {
+      model: containerInput.model ?? null,
+      reasoningEffort: containerInput.reasoningEffort ?? null,
+    });
     log(
       `Received input for group: ${containerInput.groupFolder}, chatJid: ${containerInput.chatJid}, agentType: ${requestedAgentType}, session: ${containerInput.sessionId || 'new'}, runnerPid: ${process.pid}`,
     );

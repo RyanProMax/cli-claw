@@ -113,6 +113,10 @@ import {
   resolveLocationInfo,
   type WorkspaceInfo,
 } from './im-command-utils.js';
+import {
+  executeRuntimeWorkspaceCommand,
+} from './runtime-command-handler.js';
+import { parseRuntimeCommand } from './runtime-command-registry.js';
 import { invalidateSessionCache, getWebDeps } from './web-context.js';
 import {
   getFeishuProviderConfigWithSource,
@@ -996,9 +1000,31 @@ async function handleCommand(
   chatJid: string,
   command: string,
 ): Promise<string | null> {
-  const parts = command.split(/\s+/);
-  const cmd = parts[0].toLowerCase();
-  const rawArgs = command.slice(parts[0].length).trim();
+  const parsed = parseRuntimeCommand(command);
+  if (!parsed) return null;
+
+  const cmd = parsed.name;
+  const rawArgs = parsed.argsText;
+
+  if (cmd === 'help' || cmd === 'model' || cmd === 'effort') {
+    const result = await executeRuntimeWorkspaceCommand({
+      entrypoint: 'im',
+      chatJid,
+      commandText: command,
+      deps: {
+        getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
+        setGroup: (jid, group) => {
+          setRegisteredGroup(jid, group);
+          registeredGroups[jid] = group;
+        },
+        getSiblingJids: getJidsByFolder,
+        getAgent,
+        queue,
+        getSessions: () => sessions,
+      },
+    });
+    return result.reply;
+  }
 
   switch (cmd) {
     case 'clear':
@@ -3435,6 +3461,8 @@ async function runAgent(
           groupFolder: group.folder,
           chatJid,
           agentType,
+          model: group.model ?? null,
+          reasoningEffort: group.reasoningEffort ?? null,
           isMain: isAdminHome,
           isHome,
           isAdminHome,
@@ -3453,6 +3481,8 @@ async function runAgent(
           turnId,
           groupFolder: group.folder,
           chatJid,
+          model: group.model ?? null,
+          reasoningEffort: group.reasoningEffort ?? null,
           isMain: isAdminHome,
           isHome,
           isAdminHome,
@@ -5515,6 +5545,8 @@ async function processAgentConversation(
       groupFolder: effectiveGroup.folder,
       chatJid,
       agentType,
+      model: effectiveGroup.model ?? null,
+      reasoningEffort: effectiveGroup.reasoningEffort ?? null,
       isMain: isAdminHome,
       isHome,
       isAdminHome,
@@ -6616,6 +6648,38 @@ function handleCardInterrupt(chatJid: string): void {
   }
 }
 
+async function handleCardRuntimeUpdate(
+  chatJid: string,
+  update: {
+    action: 'set_runtime_model' | 'set_runtime_effort';
+    value: string;
+  },
+): Promise<string> {
+  const commandText =
+    update.action === 'set_runtime_model'
+      ? `/model ${update.value}`
+      : `/effort ${update.value}`;
+
+  const result = await executeRuntimeWorkspaceCommand({
+    entrypoint: 'im',
+    chatJid,
+    commandText,
+    deps: {
+      getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
+      setGroup: (jid, group) => {
+        setRegisteredGroup(jid, group);
+        registeredGroups[jid] = group;
+      },
+      getSiblingJids: getJidsByFolder,
+      getAgent,
+      queue,
+      getSessions: () => sessions,
+    },
+  });
+
+  return result.reply ?? '运行时更新失败，请稍后重试';
+}
+
 /**
  * Connect IM channels for a specific user via imManager.
  * Reads the user's IM config and connects if enabled.
@@ -6671,6 +6735,7 @@ async function connectUserIMChannels(
         onBotRemovedFromGroup,
         shouldProcessGroupMessage,
         onCardInterrupt: handleCardInterrupt,
+        onCardRuntimeUpdate: handleCardRuntimeUpdate,
       },
     );
   }

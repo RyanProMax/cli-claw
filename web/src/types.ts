@@ -16,6 +16,8 @@ export interface GroupInfo {
   lastMessage?: string;
   lastMessageTime?: string;
   execution_mode?: 'container' | 'host';
+  model?: string | null;
+  reasoning_effort?: string | null;
   custom_cwd?: string;
   created_by?: string;
   pinned_at?: string;

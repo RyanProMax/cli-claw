@@ -65,6 +65,7 @@ import {
   getRegisteredGroup,
   getJidsByFolder,
   storeMessageDirect,
+  setRegisteredGroup,
   deleteUserSession,
   updateSessionLastActive,
   getGroupMembers,
@@ -94,6 +95,8 @@ import {
   normalizeImageAttachments,
   toAgentImages,
 } from './message-attachments.js';
+import { executeRuntimeWorkspaceCommand } from './runtime-command-handler.js';
+import { parseRuntimeCommand } from './runtime-command-registry.js';
 
 // --- App Setup ---
 
@@ -224,6 +227,171 @@ app.post('/api/messages', authMiddleware, async (c) => {
   });
 });
 
+function persistImmediateMessage(options: {
+  chatJid: string;
+  sender: string;
+  senderName: string;
+  content: string;
+  isFromMe: boolean;
+  attachments?: string;
+  sourceKind?: 'user_command';
+}): { messageId: string; timestamp: string } {
+  const messageId = crypto.randomUUID();
+  const timestamp = new Date().toISOString();
+
+  ensureChatExists(options.chatJid);
+  storeMessageDirect(
+    messageId,
+    options.chatJid,
+    options.sender,
+    options.senderName,
+    options.content,
+    timestamp,
+    options.isFromMe,
+    options.sourceKind
+      ? { attachments: options.attachments, meta: { sourceKind: options.sourceKind } }
+      : { attachments: options.attachments },
+  );
+
+  broadcastNewMessage(options.chatJid, {
+    id: messageId,
+    chat_jid: options.chatJid,
+    sender: options.sender,
+    sender_name: options.senderName,
+    content: options.content,
+    timestamp,
+    is_from_me: options.isFromMe,
+    attachments: options.attachments,
+    ...(options.sourceKind ? { source_kind: options.sourceKind } : {}),
+  });
+
+  return { messageId, timestamp };
+}
+
+async function handleWebSlashCommand(options: {
+  chatJid: string;
+  content: string;
+  userId: string;
+  displayName: string;
+  agentId?: string;
+  attachments?: Array<{ type: 'image'; data: string; mimeType?: string }>;
+}): Promise<
+  | { handled: false }
+  | {
+      handled: true;
+      messageId: string;
+      timestamp: string;
+    }
+> {
+  if (!deps) return { handled: false };
+
+  const parsed = parseRuntimeCommand(options.content);
+  if (!parsed) return { handled: false };
+
+  const displayChatJid = options.agentId
+    ? `${options.chatJid}#agent:${options.agentId}`
+    : options.chatJid;
+
+  const normalizedAttachments = normalizeImageAttachments(options.attachments, {
+    onMimeMismatch: ({ declaredMime, detectedMime }) => {
+      logger.warn(
+        {
+          chatJid: displayChatJid,
+          declaredMime,
+          detectedMime,
+        },
+        'Web command attachment MIME mismatch detected, using detected MIME',
+      );
+    },
+  });
+  const attachmentsStr =
+    normalizedAttachments.length > 0
+      ? JSON.stringify(normalizedAttachments)
+      : undefined;
+
+  const { messageId, timestamp } = persistImmediateMessage({
+    chatJid: displayChatJid,
+    sender: options.userId,
+    senderName: options.displayName,
+    content: options.content.trim(),
+    isFromMe: false,
+    attachments: attachmentsStr,
+    sourceKind: 'user_command',
+  });
+
+  const replyWithText = (text: string) => {
+    persistImmediateMessage({
+      chatJid: displayChatJid,
+      sender: 'cli-claw-agent',
+      senderName: ASSISTANT_NAME,
+      content: text,
+      isFromMe: true,
+    });
+  };
+
+  if (parsed.name === 'sw') {
+    if (deps.handleSpawnCommand && parsed.argsText) {
+      try {
+        await deps.handleSpawnCommand(displayChatJid, parsed.argsText);
+      } catch (err) {
+        logger.error({ chatJid: displayChatJid, err }, '/sw command failed');
+        replyWithText('并行任务创建失败，请稍后重试');
+      }
+    } else {
+      replyWithText('用法: /sw <任务描述>');
+    }
+    return { handled: true, messageId, timestamp };
+  }
+
+  if (parsed.name === 'clear') {
+    const targetGroup = getRegisteredGroup(options.chatJid);
+    if (!targetGroup) {
+      replyWithText('未找到当前工作区');
+      return { handled: true, messageId, timestamp };
+    }
+
+    try {
+      await executeSessionReset(options.chatJid, targetGroup.folder, {
+        queue: deps.queue,
+        sessions: deps.getSessions(),
+        broadcast: broadcastNewMessage,
+        setLastAgentTimestamp: deps.setLastAgentTimestamp,
+      }, options.agentId);
+    } catch (err) {
+      logger.error({ chatJid: displayChatJid, err }, '/clear command failed');
+      replyWithText('清除上下文失败，请稍后重试');
+    }
+    return { handled: true, messageId, timestamp };
+  }
+
+  const runtimeResult = await executeRuntimeWorkspaceCommand({
+    entrypoint: 'web',
+    chatJid: displayChatJid,
+    commandText: options.content,
+    deps: {
+      getGroup: (jid) => deps!.getRegisteredGroups()[jid] ?? getRegisteredGroup(jid),
+      setGroup: (jid, group) => {
+        setRegisteredGroup(jid, group);
+        deps!.getRegisteredGroups()[jid] = group;
+      },
+      getSiblingJids: getJidsByFolder,
+      getAgent,
+      queue: deps.queue,
+      getSessions: deps.getSessions,
+    },
+  });
+
+  if (runtimeResult.handled) {
+    if (runtimeResult.reply) {
+      replyWithText(runtimeResult.reply);
+    }
+    return { handled: true, messageId, timestamp };
+  }
+
+  replyWithText(`当前 Web 入口不支持 /${parsed.name}，请使用 /help 查看当前可用命令`);
+  return { handled: true, messageId, timestamp };
+}
+
 // --- handleWebUserMessage ---
 
 async function handleWebUserMessage(
@@ -252,6 +420,21 @@ async function handleWebUserMessage(
     const dbGroup = getRegisteredGroup(chatJid);
     if (!dbGroup) return { ok: false, status: 404, error: 'Group not found' };
     group = dbGroup;
+  }
+
+  const commandResult = await handleWebSlashCommand({
+    chatJid,
+    content,
+    attachments,
+    userId,
+    displayName,
+  });
+  if (commandResult.handled) {
+    return {
+      ok: true,
+      messageId: commandResult.messageId,
+      timestamp: commandResult.timestamp,
+    };
   }
 
   ensureChatExists(chatJid);
@@ -736,43 +919,15 @@ function setupWebSocket(server: any): WebSocketServer {
             }
           }
 
-          // ── /sw or /spawn command: spawn parallel task (checked before agent routing) ──
-          const swMatch = content.trim().match(/^\/(sw|spawn)\s+([\s\S]+)$/i);
-          if (swMatch && deps?.handleSpawnCommand) {
-            const spawnMessage = swMatch[2].trim();
-            if (spawnMessage) {
-              try {
-                // For agent tab, include agentId in chatJid so spawn resolves the right workspace
-                const effectiveChatJid = agentId
-                  ? `${chatJid}#agent:${agentId}`
-                  : chatJid;
-                // Store user's /sw message in the current chat so it's visible
-                const userMsgId = crypto.randomUUID();
-                const userMsgTs = new Date().toISOString();
-                ensureChatExists(effectiveChatJid);
-                storeMessageDirect(
-                  userMsgId, effectiveChatJid,
-                  session.user_id,
-                  session.display_name || session.username,
-                  content.trim(),
-                  userMsgTs,
-                  false,
-                  { meta: { sourceKind: 'user_command' } },
-                );
-                broadcastNewMessage(effectiveChatJid, {
-                  id: userMsgId, chat_jid: effectiveChatJid,
-                  sender: session.user_id,
-                  sender_name: session.display_name || session.username,
-                  content: content.trim(),
-                  timestamp: userMsgTs,
-                  is_from_me: false,
-                });
-
-                await deps.handleSpawnCommand(effectiveChatJid, spawnMessage);
-              } catch (err) {
-                logger.error({ chatJid, err }, '/sw command failed');
-              }
-            }
+          const commandResult = await handleWebSlashCommand({
+            chatJid,
+            content,
+            attachments,
+            userId: session.user_id,
+            displayName: session.display_name || session.username,
+            agentId,
+          });
+          if (commandResult.handled) {
             return;
           }
 
@@ -786,45 +941,6 @@ function setupWebSocket(server: any): WebSocketServer {
               session.display_name || session.username,
               attachments,
             );
-            return;
-          }
-
-          // ── /clear command: reset session without entering message pipeline ──
-          if (content.trim().toLowerCase() === '/clear' && deps) {
-            const targetGroup = getRegisteredGroup(chatJid);
-            if (targetGroup) {
-              try {
-                await executeSessionReset(chatJid, targetGroup.folder, {
-                  queue: deps.queue,
-                  sessions: deps.getSessions(),
-                  broadcast: broadcastNewMessage,
-                  setLastAgentTimestamp: deps.setLastAgentTimestamp,
-                });
-              } catch (err) {
-                logger.error({ chatJid, err }, '/clear command failed');
-                const errId = crypto.randomUUID();
-                const errTs = new Date().toISOString();
-                ensureChatExists(chatJid);
-                storeMessageDirect(
-                  errId,
-                  chatJid,
-                  '__system__',
-                  'system',
-                  'system_error:清除上下文失败，请稍后重试',
-                  errTs,
-                  true,
-                );
-                broadcastNewMessage(chatJid, {
-                  id: errId,
-                  chat_jid: chatJid,
-                  sender: '__system__',
-                  sender_name: 'system',
-                  content: 'system_error:清除上下文失败，请稍后重试',
-                  timestamp: errTs,
-                  is_from_me: true,
-                });
-              }
-            }
             return;
           }
 

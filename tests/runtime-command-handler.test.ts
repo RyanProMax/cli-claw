@@ -1,0 +1,135 @@
+import { describe, expect, test, vi } from 'vitest';
+
+vi.mock('../src/workspace-runtime-reset.ts', () => ({
+  resetWorkspaceRuntimeState: async (
+    deps: {
+      queue: { stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown> };
+    },
+    jid: string,
+  ) => {
+    await deps.queue.stopGroup(jid, { force: true });
+  },
+}));
+
+import {
+  executeRuntimeWorkspaceCommand,
+  resolveRuntimeWorkspaceTarget,
+} from '../src/runtime-command-handler.ts';
+import type { RegisteredGroup } from '../src/types.ts';
+
+function createDeps(groups: Record<string, RegisteredGroup>) {
+  const setGroup = vi.fn((jid: string, group: RegisteredGroup) => {
+    groups[jid] = group;
+  });
+  const stopGroup = vi.fn().mockResolvedValue(undefined);
+
+  return {
+    groups,
+    setGroup,
+    stopGroup,
+    deps: {
+      getGroup: (jid: string) => groups[jid],
+      setGroup,
+      getSiblingJids: (folder: string) =>
+        Object.keys(groups).filter((jid) => groups[jid]?.folder === folder),
+      getAgent: (agentId: string) =>
+        agentId === 'agent-1'
+          ? { id: agentId, chat_jid: 'web:proj-home', name: 'Planner' }
+          : undefined,
+      queue: {
+        stopGroup,
+      },
+      getSessions: () => ({ proj: 'session-1' }),
+    },
+  };
+}
+
+describe('runtime command handler', () => {
+  test('resolves IM chats to their home workspace runtime target', () => {
+    const { deps } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+      },
+      'feishu:room': {
+        name: 'Project Room',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+      },
+    });
+
+    const target = resolveRuntimeWorkspaceTarget('feishu:room', deps);
+
+    expect(target?.workspaceJid).toBe('web:proj-home');
+    expect(target?.effectiveGroup.agentType).toBe('codex');
+  });
+
+  test('updates workspace model presets through the shared handler', async () => {
+    const { deps, groups, setGroup, stopGroup } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+        model: 'gpt-5.4-mini',
+        reasoningEffort: 'medium',
+      },
+      'feishu:room': {
+        name: 'Project Room',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+      },
+    });
+
+    const result = await executeRuntimeWorkspaceCommand({
+      entrypoint: 'im',
+      chatJid: 'feishu:room',
+      commandText: '/model gpt-5.4',
+      deps,
+    });
+
+    expect(result).toEqual({
+      handled: true,
+      reply: '已将当前工作区模型切换为 gpt-5.4',
+    });
+    expect(setGroup).toHaveBeenCalledWith(
+      'web:proj-home',
+      expect.objectContaining({ model: 'gpt-5.4' }),
+    );
+    expect(groups['web:proj-home']?.model).toBe('gpt-5.4');
+    expect(stopGroup).toHaveBeenCalledWith('web:proj-home', { force: true });
+  });
+
+  test('returns a clear unsupported message for /effort on claude workspaces', async () => {
+    const { deps, setGroup } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'claude',
+        executionMode: 'host',
+        model: 'sonnet',
+      },
+    });
+
+    const result = await executeRuntimeWorkspaceCommand({
+      entrypoint: 'web',
+      chatJid: 'web:proj-home',
+      commandText: '/effort xhigh',
+      deps,
+    });
+
+    expect(result).toEqual({
+      handled: true,
+      reply: 'claude 不支持 /effort，可继续使用 /model 切换模型',
+    });
+    expect(setGroup).not.toHaveBeenCalled();
+  });
+});

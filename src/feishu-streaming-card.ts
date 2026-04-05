@@ -24,6 +24,12 @@ import {
   type AssistantFooterTokenUsage,
 } from './assistant-meta-footer.js';
 import type { RuntimeIdentity } from './types.js';
+import {
+  getModelPresets,
+  getReasoningEffortPresets,
+  supportsReasoningEffort,
+} from './runtime-command-registry.js';
+import { formatToolStepLine } from './tool-step-display.js';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -279,6 +285,68 @@ const INTERRUPT_BUTTON_V2 = {
   value: { action: 'interrupt_stream' },
 } as const;
 
+function buildRuntimeSelectElement(options: {
+  action: 'set_runtime_model' | 'set_runtime_effort';
+  placeholder: string;
+  values: string[];
+}): Record<string, unknown> {
+  return {
+    tag: 'select_static',
+    placeholder: {
+      tag: 'plain_text',
+      content: options.placeholder,
+    },
+    value: {
+      action: options.action,
+    },
+    options: options.values.map((value) => ({
+      text: {
+        tag: 'plain_text',
+        content: value,
+      },
+      value,
+    })),
+  };
+}
+
+function buildRuntimeControlElements(
+  runtimeIdentity?: RuntimeIdentity | null,
+): Array<Record<string, unknown>> {
+  const agentType = runtimeIdentity?.agentType;
+  if (agentType !== 'claude' && agentType !== 'codex') return [];
+
+  const modelPlaceholder = runtimeIdentity?.model
+    ? `模型: ${runtimeIdentity.model}`
+    : '切换模型';
+  const elements: Array<Record<string, unknown>> = [
+    buildRuntimeSelectElement({
+      action: 'set_runtime_model',
+      placeholder: modelPlaceholder,
+      values: getModelPresets(agentType),
+    }),
+  ];
+
+  if (supportsReasoningEffort(agentType)) {
+    elements.push(
+      buildRuntimeSelectElement({
+        action: 'set_runtime_effort',
+        placeholder: runtimeIdentity?.reasoningEffort
+          ? `思考强度: ${runtimeIdentity.reasoningEffort}`
+          : '切换思考强度',
+        values: getReasoningEffortPresets(),
+      }),
+    );
+  } else {
+    elements.push({
+      tag: 'markdown',
+      content: '思考强度: 当前 runtime 不支持',
+      text_size: 'notation',
+    });
+  }
+
+  return elements;
+}
+
 // ─── Streaming Mode Constants ─────────────────────────────────
 
 const ELEMENT_IDS = {
@@ -305,14 +373,6 @@ interface ToolCallState {
   status: 'running' | 'complete' | 'error';
   startTime: number;
   toolInputSummary?: string;
-}
-
-function formatElapsed(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const sec = ms / 1000;
-  if (sec < 60) return `${sec.toFixed(1)}s`;
-  const min = Math.floor(sec / 60);
-  return `${min}m ${Math.floor(sec % 60)}s`;
 }
 
 // ─── Auxiliary State & Builder ────────────────────────────────
@@ -424,7 +484,6 @@ function buildAuxiliaryElementsForState(
   }
 
   // ③ Active Tools (running first, then recent completed, max MAX_TOOL_DISPLAY)
-  const now = Date.now();
   const running: Array<[string, ToolCallState]> = [];
   const completed: Array<[string, ToolCallState]> = [];
   for (const [id, tc] of aux.toolCalls) {
@@ -439,16 +498,12 @@ function buildAuxiliaryElementsForState(
 
   if (display.length > 0) {
     const lines = display.map(([, tc]) => {
-      const icon = tc.status === 'running' ? '🔄' : tc.status === 'complete' ? '✅' : '❌';
-      const elapsed = formatElapsed(now - tc.startTime);
-      let summary = '';
-      if (tc.toolInputSummary) {
-        const s = tc.toolInputSummary.length > MAX_TOOL_SUMMARY_CHARS
+      const summary = tc.toolInputSummary
+        ? tc.toolInputSummary.length > MAX_TOOL_SUMMARY_CHARS
           ? tc.toolInputSummary.slice(0, MAX_TOOL_SUMMARY_CHARS) + '...'
-          : tc.toolInputSummary;
-        summary = `  ${s}`;
-      }
-      return `${icon} \`${tc.name}\` (${elapsed})${summary}`;
+          : tc.toolInputSummary
+        : undefined;
+      return formatToolStepLine(tc.name, summary);
     });
     if (isStreamingLayout) {
       before.push({
@@ -502,6 +557,7 @@ function buildStreamingCard(
   text: string,
   state: 'streaming' | 'completed' | 'aborted',
   footerNote?: string,
+  runtimeIdentity?: RuntimeIdentity | null,
 ): object {
   const { title, contentElements: elements } = buildCardContent(text, splitAtParagraphs);
 
@@ -519,6 +575,8 @@ function buildStreamingCard(
   if (state === 'streaming') {
     elements.push(INTERRUPT_BUTTON);
   }
+
+  elements.push(...buildRuntimeControlElements(runtimeIdentity));
 
   if (noteMap[state]) {
     elements.push({
@@ -562,6 +620,7 @@ function buildSchema2Card(
   overrideTitle?: string,
   auxiliaryState?: AuxiliaryState,
   footerNote?: string,
+  runtimeIdentity?: RuntimeIdentity | null,
 ): object {
   const { title, contentElements } = buildCardContent(
     text,
@@ -585,6 +644,8 @@ function buildSchema2Card(
   if (state === 'streaming') {
     elements.push(INTERRUPT_BUTTON_V2);
   }
+
+  elements.push(...buildRuntimeControlElements(runtimeIdentity));
 
   if (SCHEMA2_NOTE_MAP[state]) {
     elements.push({
@@ -621,7 +682,10 @@ function buildSchema2Card(
 
 // ─── Streaming Mode Card Builder ──────────────────────────────
 
-function buildStreamingModeCard(initialText: string): object {
+function buildStreamingModeCard(
+  initialText: string,
+  runtimeIdentity?: RuntimeIdentity | null,
+): object {
   const { title } = extractTitleAndBody(initialText);
   const displayTitle = title || '...';
   return {
@@ -649,6 +713,7 @@ function buildStreamingModeCard(initialText: string): object {
           value: { action: 'interrupt_stream' },
           element_id: ELEMENT_IDS.INTERRUPT_BTN,
         },
+        ...buildRuntimeControlElements(runtimeIdentity),
         { tag: 'markdown', content: '⏳ 生成中...', element_id: ELEMENT_IDS.STATUS_NOTE, text_size: 'notation' },
       ],
     },
@@ -1120,9 +1185,20 @@ class MultiCardManager {
    * Create the first card and send it as a message.
    * Returns the initial messageId.
    */
-  async initialize(initialText: string): Promise<string> {
+  async initialize(
+    initialText: string,
+    runtimeIdentity?: RuntimeIdentity | null,
+  ): Promise<string> {
     const card = new CardKitBackend(this.client);
-    const cardJson = buildSchema2Card(initialText, 'streaming');
+    const cardJson = buildSchema2Card(
+      initialText,
+      'streaming',
+      '',
+      undefined,
+      undefined,
+      undefined,
+      runtimeIdentity,
+    );
     await card.createCard(cardJson);
     const messageId = await card.sendCard(
       this.chatId,
@@ -1149,6 +1225,7 @@ class MultiCardManager {
     state: 'streaming' | 'completed' | 'aborted',
     auxiliaryState?: AuxiliaryState,
     footerNote?: string,
+    runtimeIdentity?: RuntimeIdentity | null,
   ): Promise<void> {
     const titlePrefix = this.cardIndex > 0 ? '(续) ' : '';
 
@@ -1160,14 +1237,16 @@ class MultiCardManager {
           return before.length + after.length;
         })()
       : 0;
+    const runtimeControlCount = buildRuntimeControlElements(runtimeIdentity).length;
     const fixedCount = (state === 'streaming' ? 1 : 0)        // button
+                     + runtimeControlCount                     // runtime controls
                      + (SCHEMA2_NOTE_MAP[state] ? 1 : 0)      // note
                      + (footerNote ? 1 : 0);                   // footer
     const totalElements = contentElements.length + auxCount + fixedCount;
 
     if (totalElements > this.MAX_ELEMENTS && state === 'streaming') {
       // Need to split: freeze current card and create a new one
-      await this.splitToNewCard(text);
+      await this.splitToNewCard(text, runtimeIdentity);
       return;
     }
 
@@ -1175,12 +1254,20 @@ class MultiCardManager {
     const currentCard = this.cards[this.cards.length - 1];
     if (!currentCard) return;
 
-    const cardJson = buildSchema2Card(text, state, titlePrefix, undefined, auxiliaryState, footerNote);
+    const cardJson = buildSchema2Card(
+      text,
+      state,
+      titlePrefix,
+      undefined,
+      auxiliaryState,
+      footerNote,
+      runtimeIdentity,
+    );
 
     // Byte size check (Feishu limit ~30KB, use 25KB safety margin)
     const cardSize = Buffer.byteLength(JSON.stringify(cardJson), 'utf-8');
     if (cardSize > CARD_SIZE_LIMIT && state === 'streaming') {
-      await this.splitToNewCard(text);
+      await this.splitToNewCard(text, runtimeIdentity);
       return;
     }
 
@@ -1190,7 +1277,10 @@ class MultiCardManager {
   /**
    * Split content across cards when element limit is reached.
    */
-  private async splitToNewCard(text: string): Promise<void> {
+  private async splitToNewCard(
+    text: string,
+    runtimeIdentity?: RuntimeIdentity | null,
+  ): Promise<void> {
     const currentCard = this.cards[this.cards.length - 1];
     if (!currentCard) return;
 
@@ -1207,7 +1297,15 @@ class MultiCardManager {
     const titlePrefix = this.cardIndex > 0 ? '(续) ' : '';
 
     // Freeze current card with consistent title
-    const frozenCard = buildSchema2Card(frozenText, 'frozen', titlePrefix, consistentTitle);
+    const frozenCard = buildSchema2Card(
+      frozenText,
+      'frozen',
+      titlePrefix,
+      consistentTitle,
+      undefined,
+      undefined,
+      runtimeIdentity,
+    );
     await currentCard.updateCard(frozenCard);
 
     // Create new card for remaining content
@@ -1222,6 +1320,9 @@ class MultiCardManager {
       'streaming',
       newTitlePrefix,
       consistentTitle,
+      undefined,
+      undefined,
+      runtimeIdentity,
     );
     await newCard.createCard(newCardJson);
     // New card is sent as a fresh message (not reply)
@@ -1586,6 +1687,7 @@ export class StreamingCardController {
           undefined,
           this.getAuxiliaryState(),
           this.getFooterNote(),
+          this.footerRuntimeIdentity,
         );
         // Skip if card was split during finalization — rebuilding a single card
         // would overwrite the first card with full text while continuation cards remain.
@@ -1650,7 +1752,10 @@ export class StreamingCardController {
     // ── Level 0: Try streaming mode (cardElement.content typewriter) ──
     try {
       const backend = new StreamingModeBackend(this.client);
-      const cardJson = buildStreamingModeCard(initialText);
+      const cardJson = buildStreamingModeCard(
+        initialText,
+        this.footerRuntimeIdentity,
+      );
       await backend.createCard(cardJson);
       const messageId = await backend.sendCard(this.chatId, this.replyToMsgId);
 
@@ -1687,7 +1792,10 @@ export class StreamingCardController {
         this.replyToMsgId,
         this.onCardCreated,
       );
-      const messageId = await this.multiCard.initialize(initialText);
+      const messageId = await this.multiCard.initialize(
+        initialText,
+        this.footerRuntimeIdentity,
+      );
 
       this.messageId = messageId;
       this.backendMode = 'v1';
@@ -1722,7 +1830,12 @@ export class StreamingCardController {
   }
 
   private async createLegacyCard(initialText: string): Promise<void> {
-    const card = buildStreamingCard(initialText, 'streaming');
+    const card = buildStreamingCard(
+      initialText,
+      'streaming',
+      undefined,
+      this.footerRuntimeIdentity,
+    );
     const content = JSON.stringify(card);
 
     try {
@@ -1984,6 +2097,7 @@ export class StreamingCardController {
           undefined,
           this.getAuxiliaryState(),
           this.getFooterNote(),
+          this.footerRuntimeIdentity,
         );
         await backend.updateCardFull(fallbackCard);
       } catch (fallbackErr) {
@@ -2022,6 +2136,7 @@ export class StreamingCardController {
       title,
       auxiliaryState,
       chunks.length <= maxChunksFirst ? footerNote : undefined,
+      this.footerRuntimeIdentity,
     );
     await backend.updateCardFull(frozenCard);
 
@@ -2041,6 +2156,7 @@ export class StreamingCardController {
         title,
         includeAuxiliaryInContinuation ? auxiliaryState : undefined,
         remaining.length === 0 ? footerNote : undefined,
+        this.footerRuntimeIdentity,
       );
       await contCard.createCard(contCardJson);
       const newMsgId = await contCard.sendCard(this.chatId);
@@ -2062,6 +2178,7 @@ export class StreamingCardController {
           displayState,
           auxState,
           footerNote || this.getFooterNote(),
+          this.footerRuntimeIdentity,
         );
         this.flushCtrl.markFlushed(this.accumulatedText.length);
         this.patchFailCount = 0;
@@ -2081,6 +2198,7 @@ export class StreamingCardController {
         this.accumulatedText,
         displayState,
         footerNote || this.getFooterNote(),
+        this.footerRuntimeIdentity,
       );
       const content = JSON.stringify(card);
 
