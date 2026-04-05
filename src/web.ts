@@ -97,7 +97,11 @@ import {
   toAgentImages,
 } from './message-attachments.js';
 import { executeRuntimeWorkspaceCommand } from './runtime-command-handler.js';
-import { parseRuntimeCommand } from './runtime-command-registry.js';
+import {
+  formatUnknownRuntimeCommandReply,
+  parseRuntimeCommand,
+  parseSlashCommandCandidate,
+} from './runtime-command-registry.js';
 
 // --- App Setup ---
 
@@ -289,8 +293,10 @@ async function handleWebSlashCommand(options: {
 > {
   if (!deps) return { handled: false };
 
+  const slashCandidate = parseSlashCommandCandidate(options.content);
+  if (!slashCandidate) return { handled: false };
+
   const parsed = parseRuntimeCommand(options.content);
-  if (!parsed) return { handled: false };
 
   const displayChatJid = options.agentId
     ? `${options.chatJid}#agent:${options.agentId}`
@@ -332,6 +338,11 @@ async function handleWebSlashCommand(options: {
       isFromMe: true,
     });
   };
+
+  if (!parsed) {
+    replyWithText(formatUnknownRuntimeCommandReply(slashCandidate.rawName));
+    return { handled: true, messageId, timestamp };
+  }
 
   if (parsed.name === 'sw') {
     if (deps.handleSpawnCommand && parsed.argsText) {

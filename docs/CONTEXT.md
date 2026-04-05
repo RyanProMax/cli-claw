@@ -41,7 +41,7 @@
 ## Host 工作区 cwd 约定
 
 - `customCwd` 是 host 工作区的执行 / 文件根目录字段，字段名保持不变。
-- `cli-claw start` 会把启动命令所在目录校验后物化到所有缺失 `customCwd` 的 host 工作区，避免运行时依赖隐式全局 fallback。
+- `cli-claw start`（由 npm 包 `cli-claw-kit` 提供）会把启动命令所在目录校验后物化到所有缺失 `customCwd` 的 host 工作区，避免运行时依赖隐式全局 fallback。
 - 同一个 `folder` 下的非 home 入口，如果自身未单独覆盖，会沿用 sibling home workspace 的有效 host cwd。
 - 即使 host 工作区把执行根目录指向外部仓库，持久化归属仍然按 `folder` 键控，留在 `~/.cli-claw`。
 

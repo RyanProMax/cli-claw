@@ -116,7 +116,11 @@ import {
   type WorkspaceInfo,
 } from './im-command-utils.js';
 import { executeRuntimeWorkspaceCommand } from './runtime-command-handler.js';
-import { parseRuntimeCommand } from './runtime-command-registry.js';
+import {
+  formatUnknownRuntimeCommandReply,
+  parseRuntimeCommand,
+  parseSlashCommandCandidate,
+} from './runtime-command-registry.js';
 import { invalidateSessionCache, getWebDeps } from './web-context.js';
 import {
   getFeishuProviderConfigWithSource,
@@ -1030,8 +1034,13 @@ async function handleCommand(
   chatJid: string,
   command: string,
 ): Promise<string | null> {
+  const slashCandidate = parseSlashCommandCandidate(command);
+  if (!slashCandidate) return null;
+
   const parsed = parseRuntimeCommand(command);
-  if (!parsed) return null;
+  if (!parsed) {
+    return formatUnknownRuntimeCommandReply(slashCandidate.rawName);
+  }
 
   const cmd = parsed.name;
   const rawArgs = parsed.argsText;

@@ -494,7 +494,7 @@ export function createTelegramConnection(
           updateChatName(jid, chatName);
           opts.onNewChat(jid, chatName);
 
-          // ── 斜杠指令：拦截已知 /xxx 命令，不进入消息流 ──
+          // ── 斜杠指令：交给 onCommand 决定是否拦截，不进入普通消息流 ──
           // Telegram 群聊中会追加 @BotUsername，需要去掉
           const tgSlashMatch = text
             .trim()
@@ -511,7 +511,7 @@ export function createTelegramConnection(
               const reply = await opts.onCommand(jid, cmdBody);
               if (reply) {
                 await ctx.reply(reply);
-                return; // 已知命令，拦截
+                return; // 已由 onCommand 处理并回复
               }
               // reply 为 null 表示未知命令，继续作为普通消息处理
             } catch (err) {

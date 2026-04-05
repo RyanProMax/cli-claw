@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 type CliCommand = 'start' | 'version' | 'help';
 
@@ -61,6 +61,32 @@ export function formatHelpText(_version: string): string {
   return HELP_TEXT;
 }
 
+export function isExecutedAsCliEntry(
+  argvEntry: string | undefined,
+  entryModuleUrl: string,
+): boolean {
+  if (!argvEntry) {
+    return false;
+  }
+
+  const normalizedEntryModuleUrl = (() => {
+    try {
+      return pathToFileURL(fs.realpathSync(fileURLToPath(entryModuleUrl))).href;
+    } catch {
+      return entryModuleUrl;
+    }
+  })();
+
+  try {
+    return (
+      pathToFileURL(fs.realpathSync(argvEntry)).href ===
+      normalizedEntryModuleUrl
+    );
+  } catch {
+    return pathToFileURL(argvEntry).href === normalizedEntryModuleUrl;
+  }
+}
+
 async function loadBackendStart(): Promise<() => Promise<void> | void> {
   const mod = (await import('./index.js')) as Record<string, unknown>;
   const candidate =
@@ -114,10 +140,7 @@ export async function main(
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+if (isExecutedAsCliEntry(process.argv[1], import.meta.url)) {
   void main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

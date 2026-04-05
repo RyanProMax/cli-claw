@@ -1,10 +1,24 @@
-import { describe, expect, test, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   formatHelpText,
+  isExecutedAsCliEntry,
   parseCliArgs,
   runCli,
 } from '../src/cli.js';
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe('parseCliArgs', () => {
   test('recognizes start, help, and version entry points', () => {
@@ -71,5 +85,41 @@ describe('runCli', () => {
     expect(exitCode).toBe(0);
     expect(stdout).toHaveBeenCalledTimes(1);
     expect(stdout).toHaveBeenCalledWith('1.2.3');
+  });
+});
+
+describe('isExecutedAsCliEntry', () => {
+  test('treats symlinked launcher paths as the same entry module', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-cli-test-'));
+    tempDirs.push(tempDir);
+
+    const entryPath = path.join(tempDir, 'dist', 'cli.js');
+    const launcherPath = path.join(tempDir, 'bin', 'cli-claw');
+
+    fs.mkdirSync(path.dirname(entryPath), { recursive: true });
+    fs.mkdirSync(path.dirname(launcherPath), { recursive: true });
+    fs.writeFileSync(entryPath, '#!/usr/bin/env node\n');
+    fs.symlinkSync(entryPath, launcherPath);
+
+    expect(
+      isExecutedAsCliEntry(launcherPath, pathToFileURL(entryPath).href),
+    ).toBe(true);
+  });
+
+  test('rejects unrelated launchers', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-cli-test-'));
+    tempDirs.push(tempDir);
+
+    const entryPath = path.join(tempDir, 'dist', 'cli.js');
+    const otherPath = path.join(tempDir, 'bin', 'other-cli');
+
+    fs.mkdirSync(path.dirname(entryPath), { recursive: true });
+    fs.mkdirSync(path.dirname(otherPath), { recursive: true });
+    fs.writeFileSync(entryPath, '#!/usr/bin/env node\n');
+    fs.writeFileSync(otherPath, '#!/usr/bin/env node\n');
+
+    expect(
+      isExecutedAsCliEntry(otherPath, pathToFileURL(entryPath).href),
+    ).toBe(false);
   });
 });

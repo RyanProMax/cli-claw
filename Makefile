@@ -28,7 +28,11 @@ dev: ## 启动前后端（首次自动安装依赖和构建容器镜像）
 	@$(MAKE) _ensure-docker-image
 	@$(PKG) --prefix container/agent-runner run build --silent 2>/dev/null || $(PKG) --prefix container/agent-runner run build
 	@echo "🚀 使用 $(PKG) 启动..."
-	$(PKG) run dev:all
+ifeq ($(HAS_BUN),1)
+	npx concurrently --timestamp-format "yyyy-MM-dd HH:mm:ss.SSS" -n backend,frontend -c blue,green "bun start" "cd web && bun run dev"
+else
+	npx concurrently --timestamp-format "yyyy-MM-dd HH:mm:ss.SSS" -n backend,frontend -c blue,green "$(RUNNER)" "cd web && npm run dev"
+endif
 
 dev-backend: ## 仅启动后端（bun 直接跑 TS，node 用 tsx）
 	$(RUNNER)
@@ -39,14 +43,14 @@ dev-web: ## 仅启动前端
 # ─── Build ───────────────────────────────────────────────────
 
 build: build-shared sync-types ## 编译前后端及 agent-runner
-	$(PKG) run build:all
+	$(PKG) run build
 	@touch .build-sentinel
 
 build-shared: ## 编译 shared/ 单一定义产物
 	$(PKG) run build:shared
 
 build-backend: ## 仅编译后端
-	$(PKG) run build
+	$(PKG) run build:backend
 
 build-web: build-shared ## 仅编译前端
 	$(PKG) run build:web

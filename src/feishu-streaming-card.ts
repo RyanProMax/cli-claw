@@ -697,6 +697,24 @@ function buildSchema2Card(
   };
 }
 
+export function buildStaticReplyCard(
+  text: string,
+  options: {
+    footerNote?: string;
+    runtimeIdentity?: RuntimeIdentity | null;
+  } = {},
+): object {
+  return buildSchema2Card(
+    text,
+    'completed',
+    '',
+    undefined,
+    undefined,
+    options.footerNote,
+    options.runtimeIdentity,
+  );
+}
+
 // ─── Usage Note Formatter ─────────────────────────────────────
 
 // ─── Streaming Mode Card Builder ──────────────────────────────

@@ -18,6 +18,7 @@ import { notifyNewImMessage } from './message-notifier.js';
 import { broadcastNewMessage } from './web.js';
 import { detectImageMimeType } from './image-detector.js';
 import {
+  buildStaticReplyCard,
   resolveJidByMessageId,
   getStreamingSession,
 } from './feishu-streaming-card.js';
@@ -108,8 +109,6 @@ export interface FeishuConnection {
 
 // ─── Shared Helpers (pure functions, no instance state) ────────
 
-// Max characters per markdown element in Feishu cards
-const CARD_MD_LIMIT = 4000;
 // Feishu card allows at most 5 markdown tables; beyond this, skip card and use post+md directly
 const CARD_TABLE_LIMIT = 5;
 const FEISHU_WS_READY_STATE_OPEN = 1;
@@ -411,34 +410,6 @@ function extractMessageContent(
 }
 
 /**
- * Split long text at paragraph boundaries to fit within card element limits.
- */
-function splitAtParagraphs(text: string, maxLen: number): string[] {
-  if (text.length <= maxLen) return [text];
-
-  const chunks: string[] = [];
-  let remaining = text;
-
-  while (remaining.length > maxLen) {
-    // Prefer splitting at double newline (paragraph break)
-    let idx = remaining.lastIndexOf('\n\n', maxLen);
-    if (idx < maxLen * 0.3) {
-      // Fallback to single newline
-      idx = remaining.lastIndexOf('\n', maxLen);
-    }
-    if (idx < maxLen * 0.3) {
-      // Hard split as last resort
-      idx = maxLen;
-    }
-    chunks.push(remaining.slice(0, idx).trim());
-    remaining = remaining.slice(idx).trim();
-  }
-  if (remaining) chunks.push(remaining);
-
-  return chunks;
-}
-
-/**
  * Map file extension to Feishu file type.
  */
 function getFileType(
@@ -478,86 +449,7 @@ function buildPostMdFallback(text: string): string {
 }
 
 function buildInteractiveCard(text: string): object {
-  const optimized = optimizeMarkdownStyle(text, 2);
-  const lines = text.split('\n');
-  let title = '';
-  let bodyStartIdx = 0;
-
-  // Extract title from first heading if present (use original text for title)
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    if (/^#{1,3}\s+/.test(lines[i])) {
-      title = lines[i].replace(/^#+\s*/, '').trim();
-      bodyStartIdx = i + 1;
-    }
-    break;
-  }
-
-  // Apply optimizeMarkdownStyle to body (title was already extracted from original)
-  const optimizedLines = optimized.split('\n');
-  // Skip lines corresponding to the title in optimized text
-  let optimizedBody: string;
-  if (bodyStartIdx > 0) {
-    // Find the first non-empty line in optimized text and skip it (it's the demoted title)
-    let skipIdx = 0;
-    for (let i = 0; i < optimizedLines.length; i++) {
-      if (!optimizedLines[i].trim()) continue;
-      skipIdx = i + 1;
-      break;
-    }
-    optimizedBody = optimizedLines.slice(skipIdx).join('\n').trim();
-  } else {
-    optimizedBody = optimized.trim();
-  }
-
-  // Generate title if no heading found — use first line preview
-  if (!title) {
-    const firstLine = (lines.find((l) => l.trim()) || '')
-      .replace(/[*_`#\[\]]/g, '')
-      .trim();
-    title =
-      firstLine.length > 40
-        ? firstLine.slice(0, 37) + '...'
-        : firstLine || 'Reply';
-  }
-
-  // Build card elements
-  const elements: Array<Record<string, unknown>> = [];
-  const contentToRender = optimizedBody || optimized.trim();
-
-  if (contentToRender.length > CARD_MD_LIMIT) {
-    // Long content: split into multiple markdown elements
-    const chunks = splitAtParagraphs(contentToRender, CARD_MD_LIMIT);
-    for (const chunk of chunks) {
-      elements.push({ tag: 'markdown', content: chunk });
-    }
-  } else if (contentToRender) {
-    // Split by horizontal rules for visual sections
-    const sections = contentToRender.split(/\n-{3,}\n/);
-    for (let i = 0; i < sections.length; i++) {
-      if (i > 0) elements.push({ tag: 'hr' });
-      const s = sections[i].trim();
-      if (s) elements.push({ tag: 'markdown', content: s });
-    }
-  }
-
-  // Ensure at least one element
-  if (elements.length === 0) {
-    elements.push({ tag: 'markdown', content: optimized.trim() });
-  }
-
-  return {
-    schema: '2.0',
-    config: {
-      wide_screen_mode: true,
-      summary: { content: title },
-    },
-    header: {
-      title: { tag: 'plain_text', content: title },
-      template: 'indigo',
-    },
-    body: { elements },
-  };
+  return buildStaticReplyCard(text);
 }
 
 // ─── Factory Function ──────────────────────────────────────────
@@ -1025,7 +917,7 @@ export function createFeishuConnection(
     const timestamp = new Date(resolvedCreateTimeMs).toISOString();
     rememberChatProgress(chatId, resolvedCreateTimeMs, chatType);
 
-    // ── 斜杠指令：拦截已知 /xxx 命令，不进入消息流 ──
+    // ── 斜杠指令：交给 onCommand 决定是否拦截，不进入普通消息流 ──
     // 群聊中 @机器人 后跟斜杠命令，mention 替换后文本为 "@botname /cmd"，
     // 需要先 strip 掉开头的 @mention 前缀再匹配
     const textForSlash = text?.trim().replace(/^@\S+\s+/, '') ?? '';
@@ -1049,7 +941,7 @@ export function createFeishuConnection(
         );
         if (reply) {
           await sendTextToChat(chatId, reply);
-          return; // 已知命令，拦截
+          return; // 已由 onCommand 处理并回复
         }
         // reply 为 null 表示未知命令，继续作为普通消息处理
       } catch (err) {

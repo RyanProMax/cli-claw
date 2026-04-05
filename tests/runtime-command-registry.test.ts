@@ -2,9 +2,12 @@ import { describe, expect, test } from 'vitest';
 
 import {
   formatCommandHelp,
+  formatUnknownRuntimeCommandReply,
   getModelPresets,
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
+  parseSlashCommandCandidate,
+  parseRuntimeCommand,
   supportsReasoningEffort,
 } from '../src/runtime-command-registry.ts';
 
@@ -58,5 +61,20 @@ describe('runtime command registry', () => {
       'haiku',
     ]);
     expect(getModelPresets('codex')).toEqual(['gpt-5.4', 'gpt-5.4-mini']);
+  });
+
+  test('extracts unknown slash commands without treating them as valid runtime commands', () => {
+    expect(parseSlashCommandCandidate('/statis')).toEqual({
+      rawName: 'statis',
+      argsText: '',
+      args: [],
+    });
+    expect(parseRuntimeCommand('/statis')).toBeNull();
+  });
+
+  test('formats a stable reply for unsupported slash commands', () => {
+    expect(formatUnknownRuntimeCommandReply('statis')).toBe(
+      '不支持的命令 /statis，请使用 /help 查看当前可用命令',
+    );
   });
 });

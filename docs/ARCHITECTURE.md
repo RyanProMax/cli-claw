@@ -8,7 +8,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 
 ## 分层
 
-- `src/cli.ts`：外部 launcher，负责 `cli-claw start` / `help` / `version` 参数分发。
+- `src/cli.ts`：外部 launcher，负责 npm 包 `cli-claw-kit` 安装后的 `cli-claw start` / `help` / `version` 参数分发。
 - `src/app-root.ts`：安装包根目录、launch cwd 与应用资源定位的边界解析。
 - `src/index.ts`：主服务 bootstrap，负责接入消息、队列调度、持久化、WebSocket 推送和系统协调。
 - `src/container-runner.ts`：执行编排层，负责选择宿主机进程或 Docker 容器，并管理 runner 生命周期。

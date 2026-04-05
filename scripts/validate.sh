@@ -22,9 +22,3 @@ make typecheck
 
 echo "==> Running npm run build"
 npm run build
-
-echo "==> Running npm run build:web"
-npm run build:web
-
-echo "==> Running agent-runner build"
-npm --prefix container/agent-runner run build:runner

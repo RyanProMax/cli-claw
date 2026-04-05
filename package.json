@@ -1,6 +1,6 @@
 {
-  "name": "cli-claw",
-  "version": "1.0.1",
+  "name": "cli-claw-kit",
+  "version": "0.0.1",
   "description": "Self-hosted multi-user AI agent platform powered by CLI runtimes.",
   "type": "module",
   "main": "dist/index.js",
@@ -26,25 +26,18 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run build:shared && npm run build:backend",
-    "build:release": "npm run build:all",
-    "prepack": "npm run build:release",
+    "build": "npm run build:shared && npm run build:backend && npm run build:web && npm --prefix container/agent-runner run build:runner",
+    "prepack": "npm run build",
     "release:check": "bash ./scripts/release-check.sh",
-    "start": "node dist/cli.js start",
-    "dev": "tsx src/index.ts",
-    "dev:bun": "bun src/index.ts",
+    "start": "bun src/index.ts",
     "reset:admin": "tsx src/reset-admin.ts",
     "typecheck": "npm run build:shared && npm run typecheck:backend",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "vitest",
-    "dev:all": "npx concurrently --timestamp-format \"yyyy-MM-dd HH:mm:ss.SSS\" -n backend,frontend -c blue,green \"npm run dev\" \"npm run dev:web\"",
-    "dev:web": "cd web && npm run dev",
-    "build:web": "npm run build:shared && npm run build:web:local",
-    "build:all": "npm run build:shared && npm run build:backend && npm run build:web:local && npm --prefix container/agent-runner run build:runner",
+    "build:web": "npm --prefix web run build",
     "build:shared": "tsc -p shared/tsconfig.json",
     "build:backend": "tsc",
-    "build:web:local": "cd web && npm run build",
     "typecheck:backend": "tsc --noEmit"
   },
   "dependencies": {

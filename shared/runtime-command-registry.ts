@@ -35,6 +35,12 @@ export interface ParsedRuntimeCommand {
   args: string[];
 }
 
+export interface ParsedSlashCommandCandidate {
+  rawName: string;
+  argsText: string;
+  args: string[];
+}
+
 export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
   {
     name: 'help',
@@ -196,11 +202,35 @@ export function findRuntimeCommand(
   );
 }
 
+export function parseSlashCommandCandidate(
+  text: string,
+): ParsedSlashCommandCandidate | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('/')) return null;
+
+  const body = trimmed.slice(1).trim();
+  if (!body) return null;
+
+  const [rawName = '', ...args] = body.split(/\s+/);
+  if (!/^[a-z_][a-z0-9_-]*$/i.test(rawName)) return null;
+
+  return {
+    rawName,
+    argsText: body.slice(rawName.length).trim(),
+    args,
+  };
+}
+
 export function parseRuntimeCommand(
   text: string,
 ): ParsedRuntimeCommand | null {
+  const slashCandidate = parseSlashCommandCandidate(text);
   const trimmed = text.trim();
-  const body = trimmed.startsWith('/') ? trimmed.slice(1).trim() : trimmed;
+  const body = slashCandidate
+    ? trimmed.slice(1).trim()
+    : trimmed.startsWith('/')
+      ? trimmed.slice(1).trim()
+      : trimmed;
   if (!body) return null;
 
   const [rawName = '', ...args] = body.split(/\s+/);
@@ -249,4 +279,8 @@ export function formatCommandHelp(options: {
     lines.push(`- ${command.usage}：${command.description}`);
   }
   return lines.join('\n');
+}
+
+export function formatUnknownRuntimeCommandReply(rawName: string): string {
+  return `不支持的命令 /${rawName}，请使用 /help 查看当前可用命令`;
 }

@@ -6,7 +6,7 @@
 
 Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由 `container/agent-runner/` 按工作区运行时配置调用底层 CLI runtime。
 
-服务进程本身由外部 launcher `cli-claw start` 启动；launcher 负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。
+服务进程本身由外部 launcher `cli-claw start` 启动；该 launcher 来自 npm 包 `cli-claw-kit`，负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。
 
 ## 运行时矩阵
 

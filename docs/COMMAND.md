@@ -6,14 +6,14 @@
 
 Cli Claw 的“命令”分成两层：
 
-- 服务 launcher 命令：在 shell 里直接执行 `cli-claw ...`
+- 服务 launcher 命令：安装 `cli-claw-kit` 后，在 shell 里直接执行 `cli-claw ...`
 - 应用内命令：服务启动后，在 Web / IM 里输入 slash command
 
 统一命令注册表只覆盖第二层应用内命令；`cli-claw start` / `help` / `version` 不走 runtime command registry。
 
 ## 服务 Launcher 命令
 
-以下命令由 npm 安装后的 `cli-claw` 二进制直接处理：
+以下命令由 npm 包 `cli-claw-kit` 安装后的 `cli-claw` 二进制直接处理：
 
 | 命令 | 别名 | 作用 |
 | --- | --- | --- |

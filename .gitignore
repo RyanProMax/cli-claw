@@ -67,3 +67,4 @@ nohup.out
 PLANS/*
 !PLANS/_TEMPLATE.md
 shared/dist/
+*.tgz

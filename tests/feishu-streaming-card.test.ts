@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { StreamingCardController } from '../src/feishu-streaming-card.ts';
+import {
+  buildStaticReplyCard,
+  StreamingCardController,
+} from '../src/feishu-streaming-card.ts';
 import { formatToolStepLine } from '../src/tool-step-display.ts';
 
 describe('StreamingCardController footer caching', () => {
@@ -112,5 +115,32 @@ describe('StreamingCardController footer caching', () => {
     expect(formatToolStepLine('exec_command', 'ls -la')).toBe(
       'exec_command · ls -la',
     );
+  });
+
+  test('builds static replies with the same schema 2 card shape as streaming cards', () => {
+    expect(
+      buildStaticReplyCard('# Runtime Update\n\n已切换到 `gpt-5.4`', {
+        footerNote: '1.2s | gpt-5.4 | 1.0K tokens',
+      }),
+    ).toMatchObject({
+      schema: '2.0',
+      config: {
+        summary: { content: 'Runtime Update' },
+      },
+      body: {
+        elements: expect.arrayContaining([
+          {
+            tag: 'markdown',
+            content: '已切换到 `gpt-5.4`',
+            text_size: 'normal_text',
+          },
+          {
+            tag: 'markdown',
+            content: '*1.2s | gpt-5.4 | 1.0K tokens*',
+            text_size: 'notation',
+          },
+        ]),
+      },
+    });
   });
 });

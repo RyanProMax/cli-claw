@@ -69,7 +69,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 ### 从 npm 安装
 
 ```bash
-npm install -g cli-claw
+npm install -g cli-claw-kit
 cli-claw help
 cli-claw version
 cli-claw start
@@ -79,6 +79,7 @@ cli-claw start
 
 外部 launcher 说明：
 
+- npm 包名是 `cli-claw-kit`，安装后的可执行命令保持为 `cli-claw <command>`。
 - `cli-claw start` 启动服务。
 - `cli-claw help` / `-h` / `--help` 查看 launcher 帮助。
 - `cli-claw version` / `-v` / `--version` 查看已安装版本。
@@ -132,6 +133,7 @@ cli-claw start
 仓库开发命令：
 
 ```bash
+bun start
 make dev
 make build
 make typecheck
@@ -149,8 +151,8 @@ npm run release:check
 2. 确认版本号已更新：`package.json` / `npm version <patch|minor|major>`
 3. 确认 npm 身份与包权限可用：
    - `npm whoami`
-   - 首次发布时确认 `cli-claw` 包名可用
-   - 后续发布时确认自己仍是 maintainer：`npm owner ls cli-claw`
+   - 首次发布时确认 `cli-claw-kit` 包名可用
+   - 后续发布时确认自己仍是 maintainer：`npm owner ls cli-claw-kit`
 4. 跑本地发布检查：`npm run release:check`
 5. 手工检查 packlist 与体积是否符合预期：
 
@@ -176,7 +178,7 @@ npm --cache /tmp/cli-claw-npm-cache pack --dry-run
 npm --cache /tmp/cli-claw-npm-cache pack
 TMP_HOME="$(mktemp -d)"
 TMP_PREFIX="$(mktemp -d)"
-HOME="$TMP_HOME" npm install -g --prefix "$TMP_PREFIX" ./cli-claw-<version>.tgz
+HOME="$TMP_HOME" npm install -g --prefix "$TMP_PREFIX" ./cli-claw-kit-<version>.tgz
 "$TMP_PREFIX/bin/cli-claw" help
 "$TMP_PREFIX/bin/cli-claw" version
 ```

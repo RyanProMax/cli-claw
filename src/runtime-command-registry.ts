@@ -1,12 +1,14 @@
 export {
   findRuntimeCommand,
   formatCommandHelp,
+  formatUnknownRuntimeCommandReply,
   getAvailableCommands,
   getModelPresets,
   getReasoningEffortPresets,
   isCommandAvailable,
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
+  parseSlashCommandCandidate,
   parseRuntimeCommand,
   RUNTIME_COMMANDS,
   supportsReasoningEffort,
@@ -14,6 +16,7 @@ export {
 
 export type {
   ParsedRuntimeCommand,
+  ParsedSlashCommandCandidate,
   ReasoningEffortPreset,
   RuntimeAgentType,
   RuntimeCommandDefinition,
