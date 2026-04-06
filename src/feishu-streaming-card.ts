@@ -349,6 +349,52 @@ function buildRuntimeControlElements(
   return elements;
 }
 
+function buildSchema2RuntimeControlRow(options: {
+  runtimeIdentity?: RuntimeIdentity | null;
+  includeInterrupt?: boolean;
+  interruptElementId?: string;
+}): Record<string, unknown> | null {
+  const columns: Array<Record<string, unknown>> = [];
+
+  if (options.includeInterrupt) {
+    columns.push({
+      tag: 'column',
+      width: 'auto',
+      vertical_align: 'center',
+      elements: [
+        {
+          ...INTERRUPT_BUTTON_V2,
+          ...(options.interruptElementId
+            ? { element_id: options.interruptElementId }
+            : {}),
+        },
+      ],
+    });
+  }
+
+  for (const control of buildRuntimeControlElements(options.runtimeIdentity)) {
+    const isSelect = control.tag === 'select_static';
+    columns.push({
+      tag: 'column',
+      width: isSelect ? 'weighted' : 'auto',
+      ...(isSelect ? { weight: 1 } : {}),
+      vertical_align: 'center',
+      elements: [control],
+    });
+  }
+
+  if (columns.length === 0) return null;
+
+  return {
+    tag: 'column_set',
+    flex_mode: 'none',
+    background_style: 'default',
+    horizontal_spacing: '8px',
+    horizontal_align: 'left',
+    columns,
+  };
+}
+
 // ─── Streaming Mode Constants ─────────────────────────────────
 
 const ELEMENT_IDS = {
@@ -660,11 +706,13 @@ function buildSchema2Card(
     elements.push(...contentElements);
   }
 
-  if (state === 'streaming') {
-    elements.push(INTERRUPT_BUTTON_V2);
+  const runtimeControlRow = buildSchema2RuntimeControlRow({
+    runtimeIdentity,
+    includeInterrupt: state === 'streaming',
+  });
+  if (runtimeControlRow) {
+    elements.push(runtimeControlRow);
   }
-
-  elements.push(...buildRuntimeControlElements(runtimeIdentity));
 
   if (SCHEMA2_NOTE_MAP[state]) {
     elements.push({
@@ -753,14 +801,15 @@ function buildStreamingModeCard(
           element_id: ELEMENT_IDS.AUX_AFTER,
           text_size: 'notation',
         },
-        {
-          tag: 'button',
-          text: { tag: 'plain_text', content: '⏹ 中断回复' },
-          type: 'danger',
-          value: { action: 'interrupt_stream' },
-          element_id: ELEMENT_IDS.INTERRUPT_BTN,
+        buildSchema2RuntimeControlRow({
+          runtimeIdentity,
+          includeInterrupt: true,
+          interruptElementId: ELEMENT_IDS.INTERRUPT_BTN,
+        }) || {
+          tag: 'markdown',
+          content: '',
+          text_size: 'notation',
         },
-        ...buildRuntimeControlElements(runtimeIdentity),
         {
           tag: 'markdown',
           content: '⏳ 生成中...',
@@ -1005,6 +1054,7 @@ class StreamingModeBackend {
   private lastMainHash = '';
   private lastAuxBeforeHash = '';
   private lastAuxAfterHash = '';
+  private lastStatusNoteHash = '';
   private readonly client: lark.Client;
 
   constructor(client: lark.Client) {
@@ -1131,10 +1181,14 @@ class StreamingModeBackend {
   }
 
   /**
-   * Update an auxiliary element via cardElement.update() — instant replacement.
+   * Update an auxiliary markdown element via cardElement.update() — instant replacement.
+   * Supports AUX_BEFORE, AUX_AFTER, and STATUS_NOTE; each is hash-deduped independently.
    */
   async updateAuxiliary(
-    elementId: typeof ELEMENT_IDS.AUX_BEFORE | typeof ELEMENT_IDS.AUX_AFTER,
+    elementId:
+      | typeof ELEMENT_IDS.AUX_BEFORE
+      | typeof ELEMENT_IDS.AUX_AFTER
+      | typeof ELEMENT_IDS.STATUS_NOTE,
     content: string,
   ): Promise<void> {
     if (!this.cardId) return;
@@ -1143,7 +1197,9 @@ class StreamingModeBackend {
     const hashField =
       elementId === ELEMENT_IDS.AUX_BEFORE
         ? 'lastAuxBeforeHash'
-        : 'lastAuxAfterHash';
+        : elementId === ELEMENT_IDS.AUX_AFTER
+          ? 'lastAuxAfterHash'
+          : 'lastStatusNoteHash';
     if (hash === this[hashField]) return;
 
     const element = JSON.stringify({
@@ -1293,13 +1349,16 @@ class MultiCardManager {
           return before.length + after.length;
         })()
       : 0;
-    const runtimeControlCount =
-      buildRuntimeControlElements(runtimeIdentity).length;
+    const runtimeControlCount = buildSchema2RuntimeControlRow({
+      runtimeIdentity,
+      includeInterrupt: state === 'streaming',
+    })
+      ? 1
+      : 0;
     const fixedCount =
-      (state === 'streaming' ? 1 : 0) + // button
       runtimeControlCount + // runtime controls
       (SCHEMA2_NOTE_MAP[state] ? 1 : 0) + // note
-      (footerNote ? 1 : 0); // footer
+      (footerNote ? 2 : 0); // divider + footer
     const totalElements = contentElements.length + auxCount + fixedCount;
 
     if (totalElements > this.MAX_ELEMENTS && state === 'streaming') {
@@ -1481,9 +1540,23 @@ export class StreamingCardController {
   }
 
   /**
+   * Whether the controller has reached a terminal state. Subsequent
+   * incoming events (thinking, tools, hooks) must be ignored so the
+   * aborted/completed card doesn't get visually rewound.
+   */
+  private isTerminal(): boolean {
+    return (
+      this.state === 'completed' ||
+      this.state === 'aborted' ||
+      this.state === 'error'
+    );
+  }
+
+  /**
    * Signal that the agent is in thinking state (before text arrives).
    */
   setThinking(): void {
+    if (this.isTerminal()) return;
     this.thinking = true;
     if (this.state === 'idle') {
       // Create card immediately with thinking placeholder
@@ -1503,6 +1576,7 @@ export class StreamingCardController {
    * Signal that a tool has started executing.
    */
   startTool(toolId: string, toolName: string): void {
+    if (this.isTerminal()) return;
     this.toolCalls.set(toolId, {
       name: toolName,
       status: 'running',
@@ -1520,6 +1594,7 @@ export class StreamingCardController {
    * Signal that a tool has finished executing.
    */
   endTool(toolId: string, isError: boolean): void {
+    if (this.isTerminal()) return;
     const tc = this.toolCalls.get(toolId);
     if (tc) {
       tc.status = isError ? 'error' : 'complete';
@@ -1549,6 +1624,7 @@ export class StreamingCardController {
    * Append thinking text (accumulated, tail-truncated at MAX_THINKING_CHARS).
    */
   appendThinking(text: string): void {
+    if (this.isTerminal()) return;
     this.thinkingText += text;
     if (this.thinkingText.length > MAX_THINKING_CHARS) {
       this.thinkingText =
@@ -1577,6 +1653,7 @@ export class StreamingCardController {
    * Set or clear system status text (e.g. "上下文压缩中").
    */
   setSystemStatus(status: string | null): void {
+    if (this.isTerminal()) return;
     this.systemStatus = status;
     this.stateVersion++;
     if (this.state === 'streaming') {
@@ -1590,6 +1667,7 @@ export class StreamingCardController {
    * Set or clear active hook state.
    */
   setHook(hook: { hookName: string; hookEvent: string } | null): void {
+    if (this.isTerminal()) return;
     this.activeHook = hook;
     this.stateVersion++;
     if (this.state === 'streaming') {
@@ -1605,6 +1683,7 @@ export class StreamingCardController {
   setTodos(
     todos: Array<{ id: string; content: string; status: string }>,
   ): void {
+    if (this.isTerminal()) return;
     this.todos = todos;
     this.stateVersion++;
     if (this.state === 'streaming') {
@@ -1648,6 +1727,7 @@ export class StreamingCardController {
    * Update a tool's input summary (displayed as parameter hint).
    */
   updateToolSummary(toolId: string, summary: string): void {
+    if (this.isTerminal()) return;
     const tc = this.toolCalls.get(toolId);
     if (tc) {
       tc.toolInputSummary = summary;
@@ -1673,6 +1753,7 @@ export class StreamingCardController {
    * Creates the card on first call, then patches on subsequent calls.
    */
   append(text: string): void {
+    if (this.isTerminal()) return;
     this.accumulatedText = text;
     this.thinking = false; // Text arrived, no longer just thinking
 
@@ -1719,6 +1800,7 @@ export class StreamingCardController {
     if (this.state !== 'streaming' && this.state !== 'creating') return;
 
     const prevState = this.state;
+    this.settleAuxiliaryState({ dropThinkingText: finalState === 'aborted' });
     this.accumulatedText = finalText;
     this.state = finalState;
     this.flushCtrl.dispose();
@@ -1809,13 +1891,18 @@ export class StreamingCardController {
     if (this.state === 'completed' || this.state === 'aborted') return;
 
     const wasActive = this.isActive();
+    this.settleAuxiliaryState({ dropThinkingText: true });
     this.state = 'aborted';
     this.flushCtrl.dispose();
     this.textFlushCtrl?.dispose();
     this.auxFlushCtrl?.dispose();
 
     if (reason) {
-      this.accumulatedText += `\n\n---\n*${reason}*`;
+      if (this.accumulatedText.trim()) {
+        this.accumulatedText += `\n\n---\n*${reason}*`;
+      } else {
+        this.accumulatedText = reason;
+      }
     }
 
     if (
@@ -2040,12 +2127,38 @@ export class StreamingCardController {
   }
 
   private getFooterNote(): string | undefined {
+    const recordedDuration = this.footerTokenUsage?.durationMs;
+    const hasRecordedDuration =
+      typeof recordedDuration === 'number' && recordedDuration > 0;
+    const tokenUsage = hasRecordedDuration
+      ? this.footerTokenUsage
+      : this.startTime > 0
+        ? {
+            ...this.footerTokenUsage,
+            durationMs: Math.max(0, Date.now() - this.startTime),
+          }
+        : this.footerTokenUsage;
+
     return (
       formatAssistantMetaFooter({
         runtimeIdentity: this.footerRuntimeIdentity,
-        tokenUsage: this.footerTokenUsage,
+        tokenUsage,
       }) || undefined
     );
+  }
+
+  private settleAuxiliaryState(options: { dropThinkingText?: boolean } = {}): void {
+    this.thinking = false;
+    if (options.dropThinkingText) {
+      this.thinkingText = '';
+    }
+    this.systemStatus = null;
+    this.activeHook = null;
+    for (const toolCall of this.toolCalls.values()) {
+      if (toolCall.status === 'running') {
+        toolCall.status = 'complete';
+      }
+    }
   }
 
   private getAuxiliaryState(): AuxiliaryState {
@@ -2111,7 +2224,8 @@ export class StreamingCardController {
       const { before, after } = buildAuxiliaryElements(auxState);
       const auxBefore = serializeAuxContent(before);
       const auxAfter = serializeAuxContent(after);
-      const snapshot = auxBefore + '||' + auxAfter;
+      const statusNote = this.buildStreamingStatusNote();
+      const snapshot = auxBefore + '||' + auxAfter + '||' + statusNote;
       if (snapshot === this.lastAuxSnapshot) return;
 
       try {
@@ -2123,6 +2237,10 @@ export class StreamingCardController {
           ELEMENT_IDS.AUX_AFTER,
           auxAfter,
         );
+        await this.streamingBackend!.updateAuxiliary(
+          ELEMENT_IDS.STATUS_NOTE,
+          statusNote,
+        );
         this.lastAuxSnapshot = snapshot;
       } catch (err) {
         // Auxiliary update failures do NOT count toward degradation
@@ -2132,6 +2250,17 @@ export class StreamingCardController {
         );
       }
     });
+  }
+
+  /**
+   * Build the footer line shown below the control row during streaming.
+   * Combines the "生成中..." indicator with the live elapsed time / model / effort
+   * so the user can see progress without waiting for completion.
+   */
+  private buildStreamingStatusNote(): string {
+    const footer = this.getFooterNote();
+    const base = '⏳ 生成中...';
+    return footer ? `${base} · ${footer}` : base;
   }
 
   /**
@@ -2200,6 +2329,7 @@ export class StreamingCardController {
         undefined,
         auxiliaryState,
         footerNote,
+        this.footerRuntimeIdentity,
       );
       const cardSize = Buffer.byteLength(JSON.stringify(cardJson), 'utf-8');
 

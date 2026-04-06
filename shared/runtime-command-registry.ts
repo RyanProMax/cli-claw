@@ -204,11 +204,15 @@ export function findRuntimeCommand(
 
 export function parseSlashCommandCandidate(
   text: string,
+  options: { allowBare?: boolean } = {},
 ): ParsedSlashCommandCandidate | null {
   const trimmed = text.trim();
-  if (!trimmed.startsWith('/')) return null;
+  const allowBare = options.allowBare === true;
+  if (!trimmed.startsWith('/')) {
+    if (!allowBare) return null;
+  }
 
-  const body = trimmed.slice(1).trim();
+  const body = trimmed.startsWith('/') ? trimmed.slice(1).trim() : trimmed;
   if (!body) return null;
 
   const [rawName = '', ...args] = body.split(/\s+/);

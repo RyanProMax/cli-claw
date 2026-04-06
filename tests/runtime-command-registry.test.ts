@@ -72,6 +72,22 @@ describe('runtime command registry', () => {
     expect(parseRuntimeCommand('/statis')).toBeNull();
   });
 
+  test('supports IM command parsing when connectors strip the leading slash', () => {
+    expect(parseSlashCommandCandidate('status')).toBeNull();
+    expect(parseSlashCommandCandidate('status', { allowBare: true })).toEqual({
+      rawName: 'status',
+      argsText: '',
+      args: [],
+    });
+    expect(
+      parseSlashCommandCandidate('model gpt-5.4', { allowBare: true }),
+    ).toEqual({
+      rawName: 'model',
+      argsText: 'gpt-5.4',
+      args: ['gpt-5.4'],
+    });
+  });
+
   test('formats a stable reply for unsupported slash commands', () => {
     expect(formatUnknownRuntimeCommandReply('statis')).toBe(
       '不支持的命令 /statis，请使用 /help 查看当前可用命令',

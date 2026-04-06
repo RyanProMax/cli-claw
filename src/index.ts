@@ -1034,10 +1034,15 @@ async function handleCommand(
   chatJid: string,
   command: string,
 ): Promise<string | null> {
-  const slashCandidate = parseSlashCommandCandidate(command);
+  const normalizedCommand = command.trim().startsWith('/')
+    ? command.trim()
+    : `/${command.trim()}`;
+  const slashCandidate = parseSlashCommandCandidate(command, {
+    allowBare: true,
+  });
   if (!slashCandidate) return null;
 
-  const parsed = parseRuntimeCommand(command);
+  const parsed = parseRuntimeCommand(normalizedCommand);
   if (!parsed) {
     return formatUnknownRuntimeCommandReply(slashCandidate.rawName);
   }
@@ -1049,7 +1054,7 @@ async function handleCommand(
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'im',
       chatJid,
-      commandText: command,
+      commandText: normalizedCommand,
       deps: {
         getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
         setGroup: (jid, group) => {
