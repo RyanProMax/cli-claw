@@ -14,6 +14,7 @@ import {
   FileTooLargeError,
 } from './im-downloader.js';
 import { detectImageMimeType } from './image-detector.js';
+import { resolveImSlashCommandReply } from './im-slash-command.js';
 // ─── TelegramConnection Interface ──────────────────────────────
 
 export interface TelegramConnectionConfig {
@@ -508,12 +509,13 @@ export function createTelegramConnection(
               'Telegram slash command detected',
             );
             try {
-              const reply = await opts.onCommand(jid, cmdBody);
-              if (reply) {
-                await ctx.reply(reply);
-                return; // 已由 onCommand 处理并回复
-              }
-              // reply 为 null 表示未知命令，继续作为普通消息处理
+              const reply = await resolveImSlashCommandReply(
+                jid,
+                cmdBody,
+                opts.onCommand,
+              );
+              await ctx.reply(reply);
+              return;
             } catch (err) {
               logger.error(
                 { jid, cmd: tgSlashMatch[1], err },

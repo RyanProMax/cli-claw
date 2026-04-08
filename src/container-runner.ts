@@ -13,7 +13,12 @@ import fs from 'fs';
 import { createRequire } from 'module';
 import os from 'os';
 import path from 'path';
-import { APP_ROOT, LAUNCH_CWD, resolveAppPath } from './app-root.js';
+import {
+  APP_ROOT,
+  LAUNCH_CWD,
+  isInstalledNodeModulesPackageRoot,
+  resolveAppPath,
+} from './app-root.js';
 
 import { CONTAINER_IMAGE, DATA_DIR, GROUPS_DIR } from './config.js';
 import { logger } from './logger.js';
@@ -1137,36 +1142,39 @@ export async function runHostAgent(
       }
     }
 
-    // Auto-rebuild if dist is stale (src newer than dist)
-    try {
-      const distMtime = fs.statSync(agentRunnerDist).mtimeMs;
-      const srcDir = path.join(agentRunnerRoot, 'src');
-      const srcFiles = fs.readdirSync(srcDir);
-      const newestSrc = Math.max(
-        ...srcFiles.map((f) => fs.statSync(path.join(srcDir, f)).mtimeMs),
-      );
-      if (newestSrc > distMtime) {
-        logger.info(
-          { group: group.name },
-          'agent-runner dist 已过期，自动重新编译...',
+    // Auto-rebuild only in local/dev checkouts. Installed npm packages may
+    // normalize mtimes such that src appears slightly newer than dist.
+    if (!isInstalledNodeModulesPackageRoot(APP_ROOT)) {
+      try {
+        const distMtime = fs.statSync(agentRunnerDist).mtimeMs;
+        const srcDir = path.join(agentRunnerRoot, 'src');
+        const srcFiles = fs.readdirSync(srcDir);
+        const newestSrc = Math.max(
+          ...srcFiles.map((f) => fs.statSync(path.join(srcDir, f)).mtimeMs),
         );
-        try {
-          const { execSync } = await import('child_process');
-          execSync('npm run build', {
-            cwd: agentRunnerRoot,
-            stdio: 'pipe',
-            timeout: 30_000,
-          });
-          logger.info({ group: group.name }, 'agent-runner 自动编译完成');
-        } catch (buildErr) {
-          logger.warn(
-            { group: group.name, err: buildErr },
-            `agent-runner 自动编译失败，使用旧版 dist。手动执行：${setupBuildHint}`,
+        if (newestSrc > distMtime) {
+          logger.info(
+            { group: group.name },
+            'agent-runner dist 已过期，自动重新编译...',
           );
+          try {
+            const { execSync } = await import('child_process');
+            execSync('npm run build', {
+              cwd: agentRunnerRoot,
+              stdio: 'pipe',
+              timeout: 30_000,
+            });
+            logger.info({ group: group.name }, 'agent-runner 自动编译完成');
+          } catch (buildErr) {
+            logger.warn(
+              { group: group.name, err: buildErr },
+              `agent-runner 自动编译失败，使用旧版 dist。手动执行：${setupBuildHint}`,
+            );
+          }
         }
+      } catch {
+        // Best effort, don't block execution
       }
-    } catch {
-      // Best effort, don't block execution
     }
 
     logger.info(

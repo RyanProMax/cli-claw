@@ -26,6 +26,7 @@ import { broadcastNewMessage } from './web.js';
 import { logger } from './logger.js';
 import { saveDownloadedFile, MAX_FILE_SIZE } from './im-downloader.js';
 import { detectImageMimeType } from './image-detector.js';
+import { resolveImSlashCommandReply } from './im-slash-command.js';
 import { markdownToPlainText, splitTextChunks } from './im-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -1417,18 +1418,20 @@ export function createDingTalkConnection(
           slashMatch[1] + (slashMatch[2] ? ' ' + slashMatch[2] : '')
         ).trim();
         try {
-          const reply = await opts.onCommand(jid, cmdBody);
-          if (reply) {
-            const plainText = markdownToPlainText(reply);
-            if (data.sessionWebhook) {
-              await sendViaSessionWebhook(
-                data.sessionWebhook,
-                plainText,
-                isGroup,
-              );
-            }
-            return;
+          const reply = await resolveImSlashCommandReply(
+            jid,
+            cmdBody,
+            opts.onCommand,
+          );
+          const plainText = markdownToPlainText(reply);
+          if (data.sessionWebhook) {
+            await sendViaSessionWebhook(
+              data.sessionWebhook,
+              plainText,
+              isGroup,
+            );
           }
+          return;
         } catch (err) {
           logger.error({ jid, err }, 'DingTalk slash command failed');
           return;

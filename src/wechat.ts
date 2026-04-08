@@ -18,6 +18,7 @@ import { broadcastNewMessage } from './web.js';
 import { logger } from './logger.js';
 import { saveDownloadedFile, MAX_FILE_SIZE } from './im-downloader.js';
 import { detectImageMimeType } from './image-detector.js';
+import { resolveImSlashCommandReply } from './im-slash-command.js';
 import { downloadAndDecryptMedia } from './wechat-crypto.js';
 import { markdownToPlainText, splitTextChunks } from './im-utils.js';
 
@@ -522,14 +523,16 @@ export function createWeChatConnection(
           slashMatch[1] + (slashMatch[2] ? ' ' + slashMatch[2] : '')
         ).trim();
         try {
-          const reply = await opts.onCommand(jid, cmdBody);
-          if (reply) {
-            const ct = contextTokenCache.get(fromUserId);
-            if (ct) {
-              await sendMessageApi(fromUserId, ct, markdownToPlainText(reply));
-            }
-            return;
+          const reply = await resolveImSlashCommandReply(
+            jid,
+            cmdBody,
+            opts.onCommand,
+          );
+          const ct = contextTokenCache.get(fromUserId);
+          if (ct) {
+            await sendMessageApi(fromUserId, ct, markdownToPlainText(reply));
           }
+          return;
         } catch (err) {
           logger.error({ jid, err }, 'WeChat slash command failed');
           const ct = contextTokenCache.get(fromUserId);

@@ -31,6 +31,8 @@ describe('npm package manifest', () => {
         'container/agent-runner/package.json',
       ]),
     );
+    expect(pkg.files).not.toContain('container/agent-runner/src');
+    expect(pkg.files).not.toContain('container/agent-runner/tsconfig.json');
     expect(pkg.scripts?.start).toBe('bun src/index.ts');
     expect(pkg.scripts?.build).toBe(
       'npm run build:shared && npm run build:backend && npm run build:web && npm --prefix container/agent-runner run build:runner',

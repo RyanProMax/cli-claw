@@ -17,8 +17,6 @@
     "container/entrypoint.sh",
     "container/skills",
     "container/agent-runner/package.json",
-    "container/agent-runner/tsconfig.json",
-    "container/agent-runner/src",
     "container/agent-runner/dist",
     "container/agent-runner/prompts",
     "web/dist",

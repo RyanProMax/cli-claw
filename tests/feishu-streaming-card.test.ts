@@ -76,7 +76,7 @@ describe('StreamingCardController footer caching', () => {
     (controller as any).state = 'completed';
 
     expect((controller as any).getFooterNote()).toBe(
-      '5.2s | GPT-5.4 | xhigh | 12.3K tokens | $0.0421',
+      '5.2s | Codex | GPT-5.4 | xhigh',
     );
 
     controller.dispose();
@@ -268,7 +268,7 @@ describe('StreamingCardController footer caching', () => {
 
     const note: string = (controller as any).buildStreamingStatusNote();
     expect(note).toContain('⏳ 生成中...');
-    expect(note).toMatch(/\d+\.\ds \| GPT-5\.4 \| high/);
+    expect(note).toMatch(/\d+\.\ds \| Codex \| GPT-5\.4 \| high/);
 
     controller.dispose();
   });
@@ -338,7 +338,7 @@ describe('StreamingCardController footer caching', () => {
 
     const finalCardJson = JSON.stringify(updatedCards.at(-1));
     expect(finalCardJson).toContain('⚠️ 已中断');
-    expect(finalCardJson).toMatch(/\d+\.\ds \| GPT-5\.4 \| high/);
+    expect(finalCardJson).toMatch(/\d+\.\ds \| Codex \| GPT-5\.4 \| high/);
     expect(finalCardJson).not.toContain('Thinking...');
     expect(finalCardJson).not.toContain('Reasoning...');
 

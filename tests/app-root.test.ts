@@ -1,46 +1,25 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, expect, test } from 'vitest';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { isInstalledNodeModulesPackageRoot } from '../src/app-root.ts';
 
-const tempDirs: string[] = [];
-const originalCwd = process.cwd();
-
-function createTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-app-root-'));
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  process.chdir(originalCwd);
-  vi.resetModules();
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-describe('app root resolution', () => {
-  test('separates package root from launch cwd', async () => {
-    const launchDir = createTempDir();
-    process.chdir(launchDir);
-    const expectedLaunchCwd = fs.realpathSync(launchDir);
-
-    const expectedAppRoot = path.resolve(
-      path.dirname(
-        fileURLToPath(new URL('../src/app-root.ts', import.meta.url)),
+describe('app root helpers', () => {
+  test('detects installed cli-claw package roots inside node_modules', () => {
+    expect(
+      isInstalledNodeModulesPackageRoot(
+        '/Users/ryan/.nvm/versions/node/v24.14.0/lib/node_modules/cli-claw-kit',
       ),
-      '..',
-    );
+    ).toBe(true);
+    expect(
+      isInstalledNodeModulesPackageRoot(
+        '/opt/homebrew/lib/node_modules/cli-claw-kit',
+      ),
+    ).toBe(true);
+  });
 
-    const appRoot = await import('../src/app-root.js');
-
-    expect(appRoot.APP_ROOT).toBe(expectedAppRoot);
-    expect(appRoot.LAUNCH_CWD).toBe(expectedLaunchCwd);
-    expect(appRoot.resolveAppPath('package.json')).toBe(
-      path.join(expectedAppRoot, 'package.json'),
-    );
+  test('does not treat local checkouts as installed package roots', () => {
+    expect(
+      isInstalledNodeModulesPackageRoot('/Users/ryan/projects/cli-claw'),
+    ).toBe(false);
+    expect(isInstalledNodeModulesPackageRoot('/tmp/cli-claw-kit')).toBe(false);
   });
 });

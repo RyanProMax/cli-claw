@@ -38,6 +38,14 @@ function normalizeNumber(value: number | null | undefined): number | null {
   return value;
 }
 
+function formatAgentTypeLabel(agentType?: string | null): string | null {
+  const normalized = normalizeText(agentType)?.toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'codex') return 'Codex';
+  if (normalized === 'claude') return 'Claude';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 export function formatCompactNumber(value: number): string {
   if (!Number.isFinite(value)) return '0';
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -119,9 +127,46 @@ export function getAssistantMetaFooterParts(
   return parts;
 }
 
+export function getAssistantCardFooterParts(
+  input: AssistantMetaFooterInput,
+): string[] {
+  const parts: string[] = [];
+  const runtimeIdentity = input.runtimeIdentity ?? null;
+  const tokenUsage = parseAssistantTokenUsage(input.tokenUsage);
+
+  const durationMs = normalizeNumber(tokenUsage?.durationMs);
+  if (durationMs !== null && durationMs > 0) {
+    parts.push(`${(durationMs / 1000).toFixed(1)}s`);
+  }
+
+  const agentType = formatAgentTypeLabel(runtimeIdentity?.agentType);
+  if (agentType) {
+    parts.push(agentType);
+  }
+
+  const model = normalizeText(runtimeIdentity?.model);
+  if (model) {
+    parts.push(model);
+  }
+
+  const reasoningEffort = normalizeText(runtimeIdentity?.reasoningEffort);
+  if (reasoningEffort) {
+    parts.push(reasoningEffort);
+  }
+
+  return parts;
+}
+
 export function formatAssistantMetaFooter(
   input: AssistantMetaFooterInput,
 ): string | null {
   const parts = getAssistantMetaFooterParts(input);
+  return parts.length > 0 ? parts.join(' | ') : null;
+}
+
+export function formatAssistantCardFooter(
+  input: AssistantMetaFooterInput,
+): string | null {
+  const parts = getAssistantCardFooterParts(input);
   return parts.length > 0 ? parts.join(' | ') : null;
 }

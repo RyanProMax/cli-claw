@@ -19,6 +19,7 @@ import { broadcastNewMessage } from './web.js';
 import { logger } from './logger.js';
 import { saveDownloadedFile, MAX_FILE_SIZE } from './im-downloader.js';
 import { detectImageMimeTypeStrict } from './image-detector.js';
+import { resolveImSlashCommandReply } from './im-slash-command.js';
 import { markdownToPlainText, splitTextChunks } from './im-utils.js';
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -750,11 +751,13 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
           slashMatch[1] + (slashMatch[2] ? ' ' + slashMatch[2] : '')
         ).trim();
         try {
-          const reply = await opts.onCommand(jid, cmdBody);
-          if (reply) {
-            await sendQQMessage('c2c', userOpenId, markdownToPlainText(reply));
-            return;
-          }
+          const reply = await resolveImSlashCommandReply(
+            jid,
+            cmdBody,
+            opts.onCommand,
+          );
+          await sendQQMessage('c2c', userOpenId, markdownToPlainText(reply));
+          return;
         } catch (err) {
           logger.error({ jid, err }, 'QQ slash command failed');
           await sendQQMessage('c2c', userOpenId, '命令执行失败，请稍后重试');
@@ -907,15 +910,13 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
           slashMatch[1] + (slashMatch[2] ? ' ' + slashMatch[2] : '')
         ).trim();
         try {
-          const reply = await opts.onCommand(jid, cmdBody);
-          if (reply) {
-            await sendQQMessage(
-              'group',
-              groupOpenId,
-              markdownToPlainText(reply),
-            );
-            return;
-          }
+          const reply = await resolveImSlashCommandReply(
+            jid,
+            cmdBody,
+            opts.onCommand,
+          );
+          await sendQQMessage('group', groupOpenId, markdownToPlainText(reply));
+          return;
         } catch (err) {
           logger.error({ jid, err }, 'QQ group slash command failed');
           await sendQQMessage('group', groupOpenId, '命令执行失败，请稍后重试');

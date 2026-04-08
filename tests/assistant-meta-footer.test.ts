@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
+import { formatAssistantCardFooter as formatBackendAssistantCardFooter } from '../src/assistant-meta-footer.ts';
 import { formatAssistantMetaFooter as formatBackendAssistantMetaFooter } from '../src/assistant-meta-footer.ts';
+import { formatAssistantCardFooter as formatWebAssistantCardFooter } from '../web/src/lib/assistantMetaFooter.ts';
 import { formatAssistantMetaFooter as formatWebAssistantMetaFooter } from '../web/src/lib/assistantMetaFooter.ts';
 
 describe('assistant meta footer', () => {
@@ -65,5 +67,27 @@ describe('assistant meta footer', () => {
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
     ).toBe('4.5s | GPT-5.4 | 1.2K tokens');
+  });
+
+  test('formats compact card footer with duration, agent type, model, and effort only', () => {
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    };
+    const tokenUsage = {
+      inputTokens: 12_300,
+      outputTokens: 34,
+      costUSD: 0.0421,
+      durationMs: 5_200,
+    };
+
+    expect(
+      formatBackendAssistantCardFooter({ runtimeIdentity, tokenUsage }),
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh');
+    expect(formatWebAssistantCardFooter({ runtimeIdentity, tokenUsage })).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh',
+    );
   });
 });

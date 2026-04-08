@@ -17,6 +17,7 @@ import {
 import { notifyNewImMessage } from './message-notifier.js';
 import { broadcastNewMessage } from './web.js';
 import { detectImageMimeType } from './image-detector.js';
+import { resolveImSlashCommandReply } from './im-slash-command.js';
 import {
   buildStaticReplyCard,
   resolveJidByMessageId,
@@ -929,21 +930,22 @@ export function createFeishuConnection(
         'Feishu slash command detected',
       );
       try {
-        const reply = await onCommand(chatJid, cmdBody);
+        const reply = await resolveImSlashCommandReply(
+          chatJid,
+          cmdBody,
+          onCommand,
+        );
         logger.info(
           {
             chatJid,
             cmd: slashMatch[1],
-            hasReply: !!reply,
-            replyLen: reply?.length,
+            hasReply: true,
+            replyLen: reply.length,
           },
           'Feishu slash command processed',
         );
-        if (reply) {
-          await sendTextToChat(chatId, reply);
-          return; // 已由 onCommand 处理并回复
-        }
-        // reply 为 null 表示未知命令，继续作为普通消息处理
+        await sendTextToChat(chatId, reply);
+        return;
       } catch (err) {
         logger.error(
           { chatJid, cmd: slashMatch[1], err },

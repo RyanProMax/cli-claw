@@ -1,6 +1,8 @@
 export {
+  formatAssistantCardFooter,
   formatAssistantMetaFooter,
   formatCompactNumber,
+  getAssistantCardFooterParts,
   getAssistantMetaFooterParts,
   parseAssistantTokenUsage,
 } from '../../../shared/dist/assistant-meta-footer.js';

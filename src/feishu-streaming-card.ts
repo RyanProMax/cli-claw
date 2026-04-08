@@ -20,7 +20,7 @@ import { createHash } from 'crypto';
 import { logger } from './logger.js';
 import { optimizeMarkdownStyle } from './feishu-markdown-style.js';
 import {
-  formatAssistantMetaFooter,
+  formatAssistantCardFooter,
   type AssistantFooterTokenUsage,
 } from './assistant-meta-footer.js';
 import type { RuntimeIdentity } from './types.js';
@@ -2140,14 +2140,16 @@ export class StreamingCardController {
         : this.footerTokenUsage;
 
     return (
-      formatAssistantMetaFooter({
+      formatAssistantCardFooter({
         runtimeIdentity: this.footerRuntimeIdentity,
         tokenUsage,
       }) || undefined
     );
   }
 
-  private settleAuxiliaryState(options: { dropThinkingText?: boolean } = {}): void {
+  private settleAuxiliaryState(
+    options: { dropThinkingText?: boolean } = {},
+  ): void {
     this.thinking = false;
     if (options.dropThinkingText) {
       this.thinkingText = '';

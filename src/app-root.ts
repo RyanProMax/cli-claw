@@ -58,3 +58,15 @@ export function resolvePackageDependency(specifier: string): string {
   const packageRequire = createRequire(resolvePackagePath('package.json'));
   return packageRequire.resolve(specifier);
 }
+
+export function isInstalledNodeModulesPackageRoot(
+  packageRoot: string = PACKAGE_ROOT,
+  packageName = 'cli-claw-kit',
+): boolean {
+  const normalizedRoot = path.resolve(packageRoot);
+  const expectedSuffix = path.join('node_modules', packageName);
+  return (
+    normalizedRoot === expectedSuffix ||
+    normalizedRoot.endsWith(path.sep + expectedSuffix)
+  );
+}

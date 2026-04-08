@@ -49,7 +49,11 @@ export interface IMChannelConnectOpts {
     chatName: string,
     code: string,
   ) => Promise<boolean>;
-  /** Slash command callback (e.g. /clear). Returns reply text or null. */
+  /**
+   * Slash command callback (e.g. /clear).
+   * Return reply text for known commands; return null to emit the default
+   * unsupported-command reply without falling through to model execution.
+   */
   onCommand?: (chatJid: string, command: string) => Promise<string | null>;
   /** 根据 jid 解析群组 folder，用于下载文件/图片到工作区 */
   resolveGroupFolder?: (jid: string) => string | undefined;
