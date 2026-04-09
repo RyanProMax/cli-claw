@@ -1,6 +1,10 @@
 export type RuntimeAgentType = 'claude' | 'codex';
 export type RuntimeCommandEntrypoint = 'im' | 'web';
 export type ReasoningEffortPreset = 'low' | 'medium' | 'high' | 'xhigh';
+export interface RuntimePresetOption {
+  value: string;
+  label: string;
+}
 
 const CLAUDE_MODEL_PRESETS = [
   'opus[1m]',
@@ -10,7 +14,12 @@ const CLAUDE_MODEL_PRESETS = [
   'haiku',
 ] as const;
 
-const CODEX_MODEL_PRESETS = ['gpt-5.4', 'gpt-5.4-mini'] as const;
+const CODEX_MODEL_PRESETS = [
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.3-codex',
+  'gpt-5.2',
+] as const;
 
 const REASONING_EFFORT_PRESETS = [
   'low',
@@ -124,14 +133,14 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
   },
   {
     name: 'model',
-    usage: '/model <preset>',
+    usage: '/model',
     description: '切换当前工作区模型预设',
     availableEntrypoints: ['im', 'web'],
     availabilityByRuntime: 'all',
   },
   {
     name: 'effort',
-    usage: '/effort <low|medium|high|xhigh>',
+    usage: '/effort',
     description: '切换当前工作区思考强度',
     availableEntrypoints: ['im', 'web'],
     availabilityByRuntime: ['codex'],
@@ -154,8 +163,37 @@ export function getModelPresets(agentType: RuntimeAgentType): string[] {
     : [...CLAUDE_MODEL_PRESETS];
 }
 
+function formatModelPresetLabel(preset: string): string {
+  return preset
+    .split('-')
+    .map((part) => {
+      const normalized = part.toLowerCase();
+      if (normalized === 'gpt') return 'GPT';
+      if (normalized === 'codex') return 'Codex';
+      if (normalized === 'mini') return 'Mini';
+      if (normalized.startsWith('opus')) return `Opus${part.slice(4)}`;
+      if (normalized.startsWith('sonnet')) return `Sonnet${part.slice(6)}`;
+      if (normalized.startsWith('haiku')) return `Haiku${part.slice(5)}`;
+      return part;
+    })
+    .join('-');
+}
+
+export function getModelPresetOptions(
+  agentType: RuntimeAgentType,
+): RuntimePresetOption[] {
+  return getModelPresets(agentType).map((value) => ({
+    value,
+    label: formatModelPresetLabel(value),
+  }));
+}
+
 export function getReasoningEffortPresets(): ReasoningEffortPreset[] {
   return [...REASONING_EFFORT_PRESETS];
+}
+
+export function getReasoningEffortOptions(): RuntimePresetOption[] {
+  return getReasoningEffortPresets().map((value) => ({ value, label: value }));
 }
 
 export function normalizeModelPreset(

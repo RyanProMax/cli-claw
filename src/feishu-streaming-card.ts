@@ -25,8 +25,8 @@ import {
 } from './assistant-meta-footer.js';
 import type { RuntimeIdentity } from './types.js';
 import {
-  getModelPresets,
-  getReasoningEffortPresets,
+  getModelPresetOptions,
+  getReasoningEffortOptions,
   supportsReasoningEffort,
 } from './runtime-command-registry.js';
 import { formatToolStepLine } from './tool-step-display.js';
@@ -290,7 +290,7 @@ const INTERRUPT_BUTTON_V2 = {
 function buildRuntimeSelectElement(options: {
   action: 'set_runtime_model' | 'set_runtime_effort';
   placeholder: string;
-  values: string[];
+  choices: Array<{ value: string; label: string }>;
 }): Record<string, unknown> {
   return {
     tag: 'select_static',
@@ -301,52 +301,64 @@ function buildRuntimeSelectElement(options: {
     value: {
       action: options.action,
     },
-    options: options.values.map((value) => ({
+    options: options.choices.map((choice) => ({
       text: {
         tag: 'plain_text',
-        content: value,
+        content: choice.label,
       },
-      value,
+      value: choice.value,
     })),
   };
 }
 
-function buildRuntimeControlElements(
-  runtimeIdentity?: RuntimeIdentity | null,
-): Array<Record<string, unknown>> {
+function buildRuntimeSelectionElement(options: {
+  selection: 'model' | 'effort';
+  runtimeIdentity?: RuntimeIdentity | null;
+}): Record<string, unknown> | null {
+  const runtimeIdentity = options.runtimeIdentity;
   const agentType = runtimeIdentity?.agentType;
-  if (agentType !== 'claude' && agentType !== 'codex') return [];
+  if (agentType !== 'claude' && agentType !== 'codex') return null;
 
-  const modelPlaceholder = runtimeIdentity?.model
-    ? `模型: ${runtimeIdentity.model}`
-    : '切换模型';
-  const elements: Array<Record<string, unknown>> = [
-    buildRuntimeSelectElement({
+  if (options.selection === 'model') {
+    return buildRuntimeSelectElement({
       action: 'set_runtime_model',
-      placeholder: modelPlaceholder,
-      values: getModelPresets(agentType),
-    }),
-  ];
-
-  if (supportsReasoningEffort(agentType)) {
-    elements.push(
-      buildRuntimeSelectElement({
-        action: 'set_runtime_effort',
-        placeholder: runtimeIdentity?.reasoningEffort
-          ? `思考强度: ${runtimeIdentity.reasoningEffort}`
-          : '切换思考强度',
-        values: getReasoningEffortPresets(),
-      }),
-    );
-  } else {
-    elements.push({
-      tag: 'markdown',
-      content: '思考强度: 当前 runtime 不支持',
-      text_size: 'notation',
+      placeholder: runtimeIdentity?.model
+        ? `模型: ${runtimeIdentity.model}`
+        : '选择模型',
+      choices: getModelPresetOptions(agentType),
     });
   }
 
-  return elements;
+  if (!supportsReasoningEffort(agentType)) {
+    return null;
+  }
+
+  return buildRuntimeSelectElement({
+    action: 'set_runtime_effort',
+    placeholder: runtimeIdentity?.reasoningEffort
+      ? `思考强度: ${runtimeIdentity.reasoningEffort}`
+      : '选择思考强度',
+    choices: getReasoningEffortOptions(),
+  });
+}
+
+function buildSchema2SelectionRow(
+  element: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    tag: 'column_set',
+    flex_mode: 'stretch',
+    horizontal_spacing: '8px',
+    columns: [
+      {
+        tag: 'column',
+        width: 'weighted',
+        weight: 1,
+        vertical_align: 'center',
+        elements: [element],
+      },
+    ],
+  };
 }
 
 function buildSchema2RuntimeControlRow(options: {
@@ -354,44 +366,27 @@ function buildSchema2RuntimeControlRow(options: {
   includeInterrupt?: boolean;
   interruptElementId?: string;
 }): Record<string, unknown> | null {
-  const columns: Array<Record<string, unknown>> = [];
-
-  if (options.includeInterrupt) {
-    columns.push({
-      tag: 'column',
-      width: 'auto',
-      vertical_align: 'center',
-      elements: [
-        {
-          ...INTERRUPT_BUTTON_V2,
-          ...(options.interruptElementId
-            ? { element_id: options.interruptElementId }
-            : {}),
-        },
-      ],
-    });
-  }
-
-  for (const control of buildRuntimeControlElements(options.runtimeIdentity)) {
-    const isSelect = control.tag === 'select_static';
-    columns.push({
-      tag: 'column',
-      width: isSelect ? 'weighted' : 'auto',
-      ...(isSelect ? { weight: 1 } : {}),
-      vertical_align: 'center',
-      elements: [control],
-    });
-  }
-
-  if (columns.length === 0) return null;
+  if (!options.includeInterrupt) return null;
 
   return {
     tag: 'column_set',
-    flex_mode: 'none',
-    background_style: 'default',
+    flex_mode: 'stretch',
     horizontal_spacing: '8px',
-    horizontal_align: 'left',
-    columns,
+    columns: [
+      {
+        tag: 'column',
+        width: 'auto',
+        vertical_align: 'center',
+        elements: [
+          {
+            ...INTERRUPT_BUTTON_V2,
+            ...(options.interruptElementId
+              ? { element_id: options.interruptElementId }
+              : {}),
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -638,8 +633,6 @@ function buildStreamingCard(
     elements.push(INTERRUPT_BUTTON);
   }
 
-  elements.push(...buildRuntimeControlElements(runtimeIdentity));
-
   if (noteMap[state]) {
     elements.push({
       tag: 'note',
@@ -761,6 +754,39 @@ export function buildStaticReplyCard(
     options.footerNote,
     options.runtimeIdentity,
   );
+}
+
+export function buildRuntimeSelectionCard(options: {
+  selection: 'model' | 'effort';
+  runtimeIdentity?: RuntimeIdentity | null;
+}): object {
+  const label = options.selection === 'model' ? '模型' : '思考强度';
+  const selectElement = buildRuntimeSelectionElement(options);
+
+  if (!selectElement) {
+    return buildStaticReplyCard(
+      `# 运行时切换\n\n当前 runtime 不支持${label}切换。`,
+      { runtimeIdentity: options.runtimeIdentity },
+    );
+  }
+
+  return {
+    schema: '2.0',
+    config: {
+      wide_screen_mode: true,
+      summary: { content: `选择${label}` },
+    },
+    body: {
+      elements: [
+        {
+          tag: 'markdown',
+          content: `请选择要切换到的${label}。`,
+          text_size: 'normal_text',
+        },
+        buildSchema2SelectionRow(selectElement),
+      ],
+    },
+  };
 }
 
 // ─── Usage Note Formatter ─────────────────────────────────────

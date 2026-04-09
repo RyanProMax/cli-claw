@@ -4,6 +4,7 @@ import { successTap } from '../../hooks/useHaptic';
 import {
   ArrowUp,
   Brush,
+  Check,
   FileUp,
   FolderUp,
   X,
@@ -15,6 +16,12 @@ import {
 import { useFileStore } from '../../stores/files';
 import { useChatStore } from '../../stores/chat';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
+import { toast } from 'sonner';
+import {
+  detectRuntimePickerCommand,
+  getRuntimePickerOptions,
+  type RuntimePickerCommand,
+} from '../../lib/runtimeCommandPicker';
 
 interface PendingFile {
   /** Display name: relative path for folder uploads, file name otherwise */
@@ -61,8 +68,21 @@ export function MessageInput({
 
   const { uploadFiles, uploading, uploadProgress } = useFileStore();
   const { drafts, saveDraft, clearDraft } = useChatStore();
+  const group = useChatStore((s) => (groupJid ? s.groups[groupJid] : undefined));
+  const updateGroupRuntime = useChatStore((s) => s.updateGroupRuntime);
   const { mode: displayMode } = useDisplayMode();
   const isCompact = displayMode === 'compact';
+  const agentType = group?.agent_type ?? 'claude';
+  const pickerCommand = !disabled
+    ? detectRuntimePickerCommand(content)
+    : null;
+  const pickerOptions = pickerCommand
+    ? getRuntimePickerOptions({ command: pickerCommand, agentType })
+    : [];
+  const currentRuntimeValue =
+    pickerCommand === 'model'
+      ? (group?.model ?? null)
+      : (group?.reasoning_effort ?? null);
 
   // iOS keyboard adaptation
   useKeyboardHeight();
@@ -153,6 +173,7 @@ export function MessageInput({
     const hasPending = pendingFiles.length > 0;
     const hasImages = pendingImages.length > 0;
 
+    if (pickerCommand) return;
     if (!trimmed && !hasPending && !hasImages) return;
     if (disabled || sending) return;
 
@@ -367,12 +388,72 @@ export function MessageInput({
   };
 
   const hasContent = content.trim().length > 0;
-  const canSend = (hasContent || pendingFiles.length > 0 || pendingImages.length > 0) && !sending;
+  const canSend =
+    !pickerCommand &&
+    (hasContent || pendingFiles.length > 0 || pendingImages.length > 0) &&
+    !sending;
 
   const progressPercent =
     uploadProgress && uploadProgress.totalBytes > 0
       ? Math.round((uploadProgress.uploadedBytes / uploadProgress.totalBytes) * 100)
       : 0;
+
+  const handleRuntimeCommandSelect = async (
+    command: RuntimePickerCommand,
+    value: string,
+  ) => {
+    if (disabled || sending || !groupJid || !group) return;
+
+    if (currentRuntimeValue === value) {
+      setSendError(null);
+      successTap();
+      setContent('');
+      clearDraft(groupJid);
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = undefined;
+      }
+      return;
+    }
+
+    setSending(true);
+    setSendError(null);
+
+    try {
+      await updateGroupRuntime(groupJid, {
+        agent_type: group.agent_type ?? 'claude',
+        execution_mode:
+          group.execution_mode ??
+          ((group.agent_type ?? 'claude') === 'codex' ? 'host' : 'container'),
+        model: command === 'model' ? value : (group.model ?? null),
+        reasoning_effort:
+          command === 'effort'
+            ? value as 'low' | 'medium' | 'high' | 'xhigh'
+            : ((group.reasoning_effort as 'low' | 'medium' | 'high' | 'xhigh' | null) ??
+              null),
+      });
+      successTap();
+      toast.success(
+        command === 'model' ? '模型已更新' : '思考强度已更新',
+        {
+          description:
+            pickerOptions.find((option) => option.value === value)?.label ?? value,
+        },
+      );
+      setContent('');
+      clearDraft(groupJid);
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = undefined;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '运行时切换失败';
+      setSendError(message);
+      toast.error(message);
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div
@@ -530,6 +611,42 @@ export function MessageInput({
               style={{ minHeight: '28px', maxHeight: '144px' }}
             />
           </div>
+
+          {pickerCommand && (
+            <div className="px-3 pb-2">
+              <div className="rounded-xl border border-brand-200/60 bg-brand-50/30 p-2.5">
+                <div className="mb-2 text-[11px] font-medium text-muted-foreground">
+                  {pickerCommand === 'model' ? '选择模型' : '选择思考强度'}
+                </div>
+                {pickerOptions.length > 0 ? (
+                  <div className="space-y-1">
+                    {pickerOptions.map((option) => {
+                      const selected = currentRuntimeValue === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => handleRuntimeCommandSelect(pickerCommand, option.value)}
+                          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer ${
+                            selected
+                              ? 'bg-brand-100 text-primary'
+                              : 'hover:bg-brand-100/70 text-foreground/80'
+                          }`}
+                        >
+                          <span className="flex-1 min-w-0 truncate">{option.label}</span>
+                          {selected && <Check className="w-4 h-4 flex-shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+                    当前 runtime 不支持思考强度切换
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Bottom action bar */}
           <div className="flex items-center px-2 pb-2.5">

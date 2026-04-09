@@ -328,8 +328,35 @@ interface PendingDelta {
   texts: string[];
   thinkings: string[];
   raf: number;
+  turnId?: string;
+  sessionId?: string;
+  runtimeIdentity?: RuntimeIdentity | null;
 }
 const pendingDeltas = new Map<string, PendingDelta>();
+
+function resolveBufferedStreamingPrev(
+  current: StreamingState | undefined,
+  pending: PendingDelta,
+): StreamingState {
+  if (current?.turnId && pending.turnId && current.turnId !== pending.turnId) {
+    return {
+      ...DEFAULT_STREAMING_STATE,
+      turnId: pending.turnId,
+      sessionId: pending.sessionId,
+      runtimeIdentity: pending.runtimeIdentity ?? null,
+    };
+  }
+
+  const prev = current || { ...DEFAULT_STREAMING_STATE };
+  return {
+    ...prev,
+    ...(pending.turnId ? { turnId: pending.turnId } : {}),
+    ...(pending.sessionId ? { sessionId: pending.sessionId } : {}),
+    ...(pending.runtimeIdentity !== undefined
+      ? { runtimeIdentity: pending.runtimeIdentity }
+      : {}),
+  };
+}
 
 function flushPendingDelta(
   key: string,
@@ -347,7 +374,10 @@ function flushPendingDelta(
   if (agentId) {
     set((s) => {
       if (!s.agentStreaming[agentId] && s.agentWaiting[agentId] === false) return s;
-      const prev = s.agentStreaming[agentId] || { ...DEFAULT_STREAMING_STATE };
+      const prev = resolveBufferedStreamingPrev(
+        s.agentStreaming[agentId],
+        entry,
+      );
       const next = { ...prev };
       if (mergedText) {
         const combined = prev.partialText + mergedText;
@@ -365,7 +395,7 @@ function flushPendingDelta(
     set((s) => {
       if (!s.streaming[chatJid] && s.waiting[chatJid] === false) return s;
       if (s.streaming[chatJid]?.interrupted) return s;
-      const prev = s.streaming[chatJid] || { ...DEFAULT_STREAMING_STATE };
+      const prev = resolveBufferedStreamingPrev(s.streaming[chatJid], entry);
       const next = { ...prev };
       if (mergedText) {
         const combined = prev.partialText + mergedText;
@@ -1277,13 +1307,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (event.eventType === 'text_delta' || event.eventType === 'thinking_delta') {
       const key = agentId ? `agent:${agentId}` : `main:${chatJid}`;
       let entry = pendingDeltas.get(key);
+      if (entry?.turnId && event.turnId && entry.turnId !== event.turnId) {
+        cancelAnimationFrame(entry.raf);
+        flushPendingDelta(key, chatJid, agentId, set);
+        entry = undefined;
+      }
       if (entry) {
         // Already have a pending rAF — just accumulate
+        if (event.turnId) entry.turnId = event.turnId;
+        if (event.sessionId) entry.sessionId = event.sessionId;
+        if (event.runtimeIdentity) entry.runtimeIdentity = event.runtimeIdentity;
         if (event.eventType === 'text_delta') entry.texts.push(event.text || '');
         else entry.thinkings.push(event.text || '');
         return;
       }
-      entry = { texts: [], thinkings: [], raf: 0 };
+      entry = {
+        texts: [],
+        thinkings: [],
+        raf: 0,
+        turnId: event.turnId,
+        sessionId: event.sessionId,
+        runtimeIdentity: event.runtimeIdentity ?? undefined,
+      };
       if (event.eventType === 'text_delta') entry.texts.push(event.text || '');
       else entry.thinkings.push(event.text || '');
       entry.raf = requestAnimationFrame(() => {

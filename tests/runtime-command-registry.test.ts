@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   formatCommandHelp,
+  getModelPresetOptions,
   formatUnknownRuntimeCommandReply,
   getModelPresets,
   normalizeModelPreset,
@@ -10,6 +11,10 @@ import {
   parseRuntimeCommand,
   supportsReasoningEffort,
 } from '../src/runtime-command-registry.ts';
+import {
+  detectRuntimePickerCommand,
+  getRuntimePickerOptions,
+} from '../web/src/lib/runtimeCommandPicker.ts';
 
 describe('runtime command registry', () => {
   test('formats web help with only web-direct commands for codex workspaces', () => {
@@ -21,8 +26,9 @@ describe('runtime command registry', () => {
     expect(help).toContain('/help');
     expect(help).toContain('/clear');
     expect(help).toContain('/sw <任务描述>');
-    expect(help).toContain('/model <preset>');
-    expect(help).toContain('/effort <low|medium|high|xhigh>');
+    expect(help).toContain('/model');
+    expect(help).toContain('/effort');
+    expect(help).not.toContain('/model <preset>');
     expect(help).not.toContain('/bind <workspace>');
   });
 
@@ -35,7 +41,7 @@ describe('runtime command registry', () => {
     expect(help).toContain('/help');
     expect(help).toContain('/bind <workspace>');
     expect(help).toContain('/where');
-    expect(help).toContain('/model <preset>');
+    expect(help).toContain('/model');
     expect(help).not.toContain('/effort <low|medium|high|xhigh>');
   });
 
@@ -60,7 +66,41 @@ describe('runtime command registry', () => {
       'sonnet',
       'haiku',
     ]);
-    expect(getModelPresets('codex')).toEqual(['gpt-5.4', 'gpt-5.4-mini']);
+    expect(getModelPresets('codex')).toEqual([
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.3-codex',
+      'gpt-5.2',
+    ]);
+  });
+
+  test('exposes display labels for runtime model pickers', () => {
+    expect(getModelPresetOptions('codex')).toEqual([
+      { value: 'gpt-5.4', label: 'GPT-5.4' },
+      { value: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+      { value: 'gpt-5.3-codex', label: 'GPT-5.3-Codex' },
+      { value: 'gpt-5.2', label: 'GPT-5.2' },
+    ]);
+  });
+
+  test('detects runtime picker commands only for bare slash commands', () => {
+    expect(detectRuntimePickerCommand('/model')).toBe('model');
+    expect(detectRuntimePickerCommand('/model ')).toBe('model');
+    expect(detectRuntimePickerCommand('/effort')).toBe('effort');
+    expect(detectRuntimePickerCommand('/model gpt-5.4')).toBeNull();
+    expect(detectRuntimePickerCommand('hello')).toBeNull();
+  });
+
+  test('returns runtime picker options only when the runtime supports them', () => {
+    expect(getRuntimePickerOptions({ command: 'model', agentType: 'codex' })).toHaveLength(4);
+    expect(
+      getRuntimePickerOptions({ command: 'effort', agentType: 'claude' }),
+    ).toEqual([]);
+    expect(
+      getRuntimePickerOptions({ command: 'effort', agentType: 'codex' }).map(
+        (item) => item.value,
+      ),
+    ).toEqual(['low', 'medium', 'high', 'xhigh']);
   });
 
   test('extracts unknown slash commands without treating them as valid runtime commands', () => {

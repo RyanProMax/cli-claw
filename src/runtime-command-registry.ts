@@ -3,7 +3,9 @@ export {
   formatCommandHelp,
   formatUnknownRuntimeCommandReply,
   getAvailableCommands,
+  getModelPresetOptions,
   getModelPresets,
+  getReasoningEffortOptions,
   getReasoningEffortPresets,
   isCommandAvailable,
   normalizeModelPreset,
@@ -17,6 +19,7 @@ export {
 export type {
   ParsedRuntimeCommand,
   ParsedSlashCommandCandidate,
+  RuntimePresetOption,
   ReasoningEffortPreset,
   RuntimeAgentType,
   RuntimeCommandDefinition,

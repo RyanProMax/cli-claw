@@ -93,6 +93,7 @@ import {
 import { imManager } from './im-manager.js';
 import { getChannelType, extractChatId } from './im-channel.js';
 import {
+  buildRuntimeSelectionCard,
   registerStreamingSession,
   unregisterStreamingSession,
   hasActiveStreamingSession,
@@ -115,7 +116,11 @@ import {
   resolveLocationInfo,
   type WorkspaceInfo,
 } from './im-command-utils.js';
-import { executeRuntimeWorkspaceCommand } from './runtime-command-handler.js';
+import {
+  applyRuntimeWorkspaceSelection,
+  executeRuntimeWorkspaceCommand,
+  resolveRuntimeWorkspaceTarget,
+} from './runtime-command-handler.js';
 import {
   formatUnknownRuntimeCommandReply,
   parseRuntimeCommand,
@@ -1051,6 +1056,37 @@ async function handleCommand(
   const rawArgs = parsed.argsText;
 
   if (cmd === 'help' || cmd === 'model' || cmd === 'effort') {
+    if (
+      (cmd === 'model' || cmd === 'effort') &&
+      !rawArgs &&
+      chatJid.startsWith('feishu:')
+    ) {
+      const target = resolveRuntimeWorkspaceTarget(chatJid, {
+        getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
+        getSiblingJids: getJidsByFolder,
+        getAgent,
+      });
+      if (!target) {
+        return '未找到当前工作区';
+      }
+      const runtimeIdentity = {
+        agentType: (target.effectiveGroup.agentType || 'claude') as
+          | 'claude'
+          | 'codex',
+        model: target.effectiveGroup.model ?? null,
+        reasoningEffort: target.effectiveGroup.reasoningEffort ?? null,
+        supportsReasoningEffort:
+          (target.effectiveGroup.agentType || 'claude') === 'codex',
+      };
+      return JSON.stringify({
+        type: 'interactive',
+        card: buildRuntimeSelectionCard({
+          selection: cmd,
+          runtimeIdentity,
+        }),
+      });
+    }
+
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'im',
       chatJid,
@@ -6702,15 +6738,10 @@ async function handleCardRuntimeUpdate(
     value: string;
   },
 ): Promise<string> {
-  const commandText =
-    update.action === 'set_runtime_model'
-      ? `/model ${update.value}`
-      : `/effort ${update.value}`;
-
-  const result = await executeRuntimeWorkspaceCommand({
-    entrypoint: 'im',
+  const result = await applyRuntimeWorkspaceSelection({
     chatJid,
-    commandText,
+    selection: update.action === 'set_runtime_model' ? 'model' : 'effort',
+    value: update.value,
     deps: {
       getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
       setGroup: (jid, group) => {

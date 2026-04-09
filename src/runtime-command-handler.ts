@@ -42,6 +42,13 @@ export interface RuntimeCommandResponse {
   reply: string | null;
 }
 
+export interface RuntimeWorkspaceSelectionOptions {
+  chatJid: string;
+  selection: 'model' | 'effort';
+  value: string;
+  deps: RuntimeCommandDeps;
+}
+
 function stripVirtualChatJid(chatJid: string): string {
   const agentIdx = chatJid.indexOf('#agent:');
   if (agentIdx >= 0) return chatJid.slice(0, agentIdx);
@@ -253,6 +260,25 @@ async function handleEffortCommand(
   return `已将当前工作区思考强度切换为 ${preset}`;
 }
 
+export async function applyRuntimeWorkspaceSelection(
+  options: RuntimeWorkspaceSelectionOptions,
+): Promise<RuntimeCommandResponse> {
+  const target = resolveRuntimeWorkspaceTarget(options.chatJid, options.deps);
+  if (!target) {
+    return { handled: true, reply: '未找到当前工作区' };
+  }
+
+  const reply =
+    options.selection === 'model'
+      ? await handleModelCommand(target, options.deps, options.value)
+      : await handleEffortCommand(target, options.deps, options.value);
+
+  return {
+    handled: true,
+    reply,
+  };
+}
+
 export async function executeRuntimeWorkspaceCommand(options: {
   entrypoint: RuntimeCommandEntrypoint;
   chatJid: string;
@@ -269,6 +295,8 @@ export async function executeRuntimeWorkspaceCommand(options: {
     return { handled: true, reply: '未找到当前工作区' };
   }
 
+  const agentType = normalizeAgentType(target.effectiveGroup.agentType);
+
   switch (parsed.name) {
     case 'help':
       return {
@@ -276,28 +304,28 @@ export async function executeRuntimeWorkspaceCommand(options: {
         reply: buildHelpReply(options.entrypoint, target),
       };
     case 'model':
-      if (!parsed.argsText) {
+      if (parsed.argsText) {
         return {
           handled: true,
-          reply: `用法: /model <preset>\n可用值：${getModelPresets(
-            normalizeAgentType(target.effectiveGroup.agentType),
-          ).join(', ')}`,
+          reply: '请直接输入 /model 打开模型选择器',
         };
       }
       return {
         handled: true,
-        reply: await handleModelCommand(target, options.deps, parsed.argsText),
+        reply: `可用模型：${getModelPresets(agentType).join(', ')}`,
       };
     case 'effort':
-      if (!parsed.argsText) {
+      if (!supportsReasoningEffort(agentType)) {
         return {
           handled: true,
-          reply: `用法: /effort <${getReasoningEffortPresets().join('|')}>`,
+          reply: `${agentType} 不支持 /effort，可继续使用 /model 切换模型`,
         };
       }
       return {
         handled: true,
-        reply: await handleEffortCommand(target, options.deps, parsed.argsText),
+        reply: parsed.argsText
+          ? '请直接输入 /effort 打开思考强度选择器'
+          : `可用思考强度：${getReasoningEffortPresets().join(', ')}`,
       };
     default:
       return { handled: false, reply: null };

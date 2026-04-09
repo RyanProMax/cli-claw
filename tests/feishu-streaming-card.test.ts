@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import {
+  buildRuntimeSelectionCard,
   buildStaticReplyCard,
   StreamingCardController,
 } from '../src/feishu-streaming-card.ts';
@@ -179,7 +180,7 @@ describe('StreamingCardController footer caching', () => {
     });
   });
 
-  test('renders streaming controls in a single footer row', async () => {
+  test('renders only the interrupt control in the default streaming footer row', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
@@ -205,8 +206,6 @@ describe('StreamingCardController footer caching', () => {
       tag: 'column_set',
       columns: [
         { tag: 'column', elements: [{ tag: 'button' }] },
-        { tag: 'column', elements: [{ tag: 'select_static' }] },
-        { tag: 'column', elements: [{ tag: 'select_static' }] },
       ],
     });
     // Every column entry must carry tag: 'column' so Feishu schema 2.0 accepts the layout
@@ -217,6 +216,45 @@ describe('StreamingCardController footer caching', () => {
     expect(elements.filter((el: any) => el?.tag === 'select_static')).toHaveLength(0);
 
     controller.dispose();
+  });
+
+  test('builds a runtime selection card with the expanded Codex model list', () => {
+    const card = buildRuntimeSelectionCard({
+      selection: 'model',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'gpt-5.4',
+        reasoningEffort: 'high',
+        supportsReasoningEffort: true,
+      },
+    }) as any;
+
+    const select =
+      card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    expect(card.config.summary.content).toBe('选择模型');
+    expect(select).toMatchObject({
+      tag: 'select_static',
+      value: { action: 'set_runtime_model' },
+      placeholder: { content: '模型: gpt-5.4' },
+    });
+    expect(select.options).toEqual([
+      {
+        text: { tag: 'plain_text', content: 'GPT-5.4' },
+        value: 'gpt-5.4',
+      },
+      {
+        text: { tag: 'plain_text', content: 'GPT-5.4-Mini' },
+        value: 'gpt-5.4-mini',
+      },
+      {
+        text: { tag: 'plain_text', content: 'GPT-5.3-Codex' },
+        value: 'gpt-5.3-codex',
+      },
+      {
+        text: { tag: 'plain_text', content: 'GPT-5.2' },
+        value: 'gpt-5.2',
+      },
+    ]);
   });
 
   test('initial streaming card exposes a STATUS_NOTE element so the live footer can be patched', async () => {

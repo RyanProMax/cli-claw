@@ -2,7 +2,9 @@ export {
   findRuntimeCommand,
   formatCommandHelp,
   getAvailableCommands,
+  getModelPresetOptions,
   getModelPresets,
+  getReasoningEffortOptions,
   getReasoningEffortPresets,
   isCommandAvailable,
   normalizeModelPreset,
@@ -18,4 +20,5 @@ export type {
   RuntimeAgentType,
   RuntimeCommandDefinition,
   RuntimeCommandEntrypoint,
+  RuntimePresetOption,
 } from '../../../shared/dist/runtime-command-registry.js';
