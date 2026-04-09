@@ -2,6 +2,8 @@ import { describe, expect, test } from 'vitest';
 
 import {
   formatCommandHelp,
+  getDefaultModelPreset,
+  getDefaultReasoningEffortPreset,
   getModelPresetOptions,
   formatUnknownRuntimeCommandReply,
   getModelPresets,
@@ -81,6 +83,13 @@ describe('runtime command registry', () => {
       { value: 'gpt-5.3-codex', label: 'GPT-5.3-Codex' },
       { value: 'gpt-5.2', label: 'GPT-5.2' },
     ]);
+  });
+
+  test('exposes stable runtime fallback defaults for picker/status rendering', () => {
+    expect(getDefaultModelPreset('claude')).toBe('opus[1m]');
+    expect(getDefaultModelPreset('codex')).toBe('gpt-5.4');
+    expect(getDefaultReasoningEffortPreset('claude')).toBeNull();
+    expect(getDefaultReasoningEffortPreset('codex')).toBe('medium');
   });
 
   test('detects runtime picker commands only for bare slash commands', () => {

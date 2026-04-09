@@ -163,6 +163,10 @@ export function getModelPresets(agentType: RuntimeAgentType): string[] {
     : [...CLAUDE_MODEL_PRESETS];
 }
 
+export function getDefaultModelPreset(agentType: RuntimeAgentType): string {
+  return getModelPresets(agentType)[0];
+}
+
 function formatModelPresetLabel(preset: string): string {
   return preset
     .split('-')
@@ -190,6 +194,13 @@ export function getModelPresetOptions(
 
 export function getReasoningEffortPresets(): ReasoningEffortPreset[] {
   return [...REASONING_EFFORT_PRESETS];
+}
+
+export function getDefaultReasoningEffortPreset(
+  agentType: RuntimeAgentType,
+): ReasoningEffortPreset | null {
+  if (!supportsReasoningEffort(agentType)) return null;
+  return 'medium';
 }
 
 export function getReasoningEffortOptions(): RuntimePresetOption[] {

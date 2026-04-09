@@ -118,6 +118,7 @@ import {
 } from './im-command-utils.js';
 import {
   applyRuntimeWorkspaceSelection,
+  buildRuntimeStatusReply,
   executeRuntimeWorkspaceCommand,
   resolveRuntimeWorkspaceTarget,
 } from './runtime-command-handler.js';
@@ -1362,7 +1363,7 @@ function handleStatusCommand(chatJid: string): string {
       ? queueStatus.waitingGroupJids.indexOf(chatJid) + 1
       : null;
 
-  return formatSystemStatus(
+  const systemStatus = formatSystemStatus(
     location,
     {
       activeContainerCount: queueStatus.activeContainerCount,
@@ -1375,6 +1376,18 @@ function handleStatusCommand(chatJid: string): string {
     isActive,
     queuePosition,
   );
+
+  const runtimeTarget = resolveRuntimeWorkspaceTarget(chatJid, {
+    getGroup: lookupGroup,
+    getSiblingJids: getJidsByFolder,
+    getAgent,
+  });
+
+  if (!runtimeTarget) {
+    return systemStatus;
+  }
+
+  return `${systemStatus}\n\n${buildRuntimeStatusReply(runtimeTarget)}`;
 }
 
 function handleWhereCommand(chatJid: string): string {

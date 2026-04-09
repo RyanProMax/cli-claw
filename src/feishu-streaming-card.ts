@@ -25,6 +25,8 @@ import {
 } from './assistant-meta-footer.js';
 import type { RuntimeIdentity } from './types.js';
 import {
+  getDefaultModelPreset,
+  getDefaultReasoningEffortPreset,
   getModelPresetOptions,
   getReasoningEffortOptions,
   supportsReasoningEffort,
@@ -291,7 +293,11 @@ function buildRuntimeSelectElement(options: {
   action: 'set_runtime_model' | 'set_runtime_effort';
   placeholder: string;
   choices: Array<{ value: string; label: string }>;
+  initialOption?: string | null;
 }): Record<string, unknown> {
+  const hasInitialOption = options.choices.some(
+    (choice) => choice.value === options.initialOption,
+  );
   return {
     tag: 'select_static',
     placeholder: {
@@ -301,6 +307,7 @@ function buildRuntimeSelectElement(options: {
     value: {
       action: options.action,
     },
+    ...(hasInitialOption ? { initial_option: options.initialOption } : {}),
     options: options.choices.map((choice) => ({
       text: {
         tag: 'plain_text',
@@ -320,12 +327,13 @@ function buildRuntimeSelectionElement(options: {
   if (agentType !== 'claude' && agentType !== 'codex') return null;
 
   if (options.selection === 'model') {
+    const currentModel =
+      runtimeIdentity?.model?.trim() || getDefaultModelPreset(agentType);
     return buildRuntimeSelectElement({
       action: 'set_runtime_model',
-      placeholder: runtimeIdentity?.model
-        ? `模型: ${runtimeIdentity.model}`
-        : '选择模型',
+      placeholder: `模型: ${currentModel}`,
       choices: getModelPresetOptions(agentType),
+      initialOption: currentModel,
     });
   }
 
@@ -333,12 +341,15 @@ function buildRuntimeSelectionElement(options: {
     return null;
   }
 
+  const currentEffort =
+    runtimeIdentity?.reasoningEffort?.trim() ||
+    getDefaultReasoningEffortPreset(agentType);
+
   return buildRuntimeSelectElement({
     action: 'set_runtime_effort',
-    placeholder: runtimeIdentity?.reasoningEffort
-      ? `思考强度: ${runtimeIdentity.reasoningEffort}`
-      : '选择思考强度',
+    placeholder: currentEffort ? `思考强度: ${currentEffort}` : '选择思考强度',
     choices: getReasoningEffortOptions(),
+    initialOption: currentEffort,
   });
 }
 

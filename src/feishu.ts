@@ -449,6 +449,18 @@ function buildPostMdFallback(text: string): string {
   });
 }
 
+function extractPrebuiltInteractiveCardContent(text: string): string | null {
+  if (!text.startsWith('{"type":"interactive"')) return null;
+
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed.type !== 'interactive' || !parsed.card) return null;
+    return JSON.stringify(parsed.card);
+  } catch {
+    return null;
+  }
+}
+
 function buildInteractiveCard(text: string): object {
   return buildStaticReplyCard(text);
 }
@@ -721,12 +733,14 @@ export function createFeishuConnection(
     if (!client) return;
     try {
       const receive_id_type = chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
+      const prebuiltInteractiveContent =
+        extractPrebuiltInteractiveCardContent(text);
       await client.im.v1.message.create({
         params: { receive_id_type },
         data: {
           receive_id: chatId,
-          msg_type: 'text',
-          content: JSON.stringify({ text }),
+          msg_type: prebuiltInteractiveContent ? 'interactive' : 'text',
+          content: prebuiltInteractiveContent ?? JSON.stringify({ text }),
         },
       });
     } catch (err) {
@@ -1551,32 +1565,30 @@ export function createFeishuConnection(
 
       try {
         // Detect pre-built Feishu interactive card JSON — send directly without wrapping
-        if (text.startsWith('{"type":"interactive"')) {
-          try {
-            const parsed = JSON.parse(text);
-            if (parsed.type === 'interactive' && parsed.card) {
-              const lastMsgId = lastMessageIdByChat.get(chatId);
-              if (lastMsgId) {
-                await client.im.message.reply({
-                  path: { message_id: lastMsgId },
-                  data: { content: text, msg_type: 'interactive' },
-                });
-              } else {
-                await client.im.v1.message.create({
-                  params: { receive_id_type: 'chat_id' },
-                  data: {
-                    receive_id: chatId,
-                    msg_type: 'interactive',
-                    content: text,
-                  },
-                });
-              }
-              clearAckReaction();
-              return;
-            }
-          } catch {
-            // Not valid card JSON, fall through to normal handling
+        const prebuiltInteractiveContent =
+          extractPrebuiltInteractiveCardContent(text);
+        if (prebuiltInteractiveContent) {
+          const lastMsgId = lastMessageIdByChat.get(chatId);
+          if (lastMsgId) {
+            await client.im.message.reply({
+              path: { message_id: lastMsgId },
+              data: {
+                content: prebuiltInteractiveContent,
+                msg_type: 'interactive',
+              },
+            });
+          } else {
+            await client.im.v1.message.create({
+              params: { receive_id_type: 'chat_id' },
+              data: {
+                receive_id: chatId,
+                msg_type: 'interactive',
+                content: prebuiltInteractiveContent,
+              },
+            });
           }
+          clearAckReaction();
+          return;
         }
 
         // Count markdown tables to decide format upfront — Feishu cards have a table limit

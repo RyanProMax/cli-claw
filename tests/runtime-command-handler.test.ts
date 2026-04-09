@@ -13,6 +13,7 @@ vi.mock('../src/workspace-runtime-reset.ts', () => ({
 
 import {
   applyRuntimeWorkspaceSelection,
+  buildRuntimeStatusReply,
   executeRuntimeWorkspaceCommand,
   resolveRuntimeWorkspaceTarget,
 } from '../src/runtime-command-handler.ts';
@@ -133,6 +134,31 @@ describe('runtime command handler', () => {
     });
   });
 
+  test('returns command-only help without embedding runtime status lines', async () => {
+    const { deps } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+      },
+    });
+
+    const result = await executeRuntimeWorkspaceCommand({
+      entrypoint: 'im',
+      chatJid: 'web:proj-home',
+      commandText: '/help',
+      deps,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.reply).toContain('可用命令：');
+    expect(result.reply).not.toContain('当前模型:');
+    expect(result.reply).not.toContain('当前 runtime:');
+  });
+
   test('rejects the legacy parameterized /model form and points users to the picker', async () => {
     const { deps, setGroup } = createDeps({
       'web:proj-home': {
@@ -240,5 +266,27 @@ describe('runtime command handler', () => {
       handled: true,
       reply: '可用思考强度：low, medium, high, xhigh',
     });
+  });
+
+  test('builds runtime status with concrete fallback defaults when workspace settings are unset', () => {
+    const { deps } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+      },
+    });
+
+    const target = resolveRuntimeWorkspaceTarget('web:proj-home', deps);
+    expect(target).not.toBeNull();
+
+    expect(buildRuntimeStatusReply(target!)).toContain('当前模型: gpt-5.4');
+    expect(buildRuntimeStatusReply(target!)).toContain('当前思考强度: medium');
+    expect(buildRuntimeStatusReply(target!)).toContain(
+      '模型预设: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2',
+    );
   });
 });

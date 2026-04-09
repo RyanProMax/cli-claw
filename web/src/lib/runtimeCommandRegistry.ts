@@ -1,4 +1,6 @@
 export {
+  getDefaultModelPreset,
+  getDefaultReasoningEffortPreset,
   findRuntimeCommand,
   formatCommandHelp,
   getAvailableCommands,

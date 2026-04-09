@@ -1,5 +1,7 @@
 import {
   formatCommandHelp,
+  getDefaultModelPreset,
+  getDefaultReasoningEffortPreset,
   getModelPresets,
   getReasoningEffortPresets,
   normalizeModelPreset,
@@ -8,6 +10,7 @@ import {
   supportsReasoningEffort,
   type RuntimeCommandEntrypoint,
 } from './runtime-command-registry.js';
+import { getClaudeProviderConfig } from './runtime-config.js';
 import { buildEffectiveGroupFromHomeSibling } from './group-runtime.js';
 import { resetWorkspaceRuntimeState } from './workspace-runtime-reset.js';
 import type { AgentType, RegisteredGroup } from './types.js';
@@ -157,38 +160,55 @@ function buildHelpReply(
   entrypoint: RuntimeCommandEntrypoint,
   target: ResolvedRuntimeWorkspaceTarget,
 ): string {
-  const agentType = normalizeAgentType(target.effectiveGroup.agentType);
-  const modelPresets = getModelPresets(agentType).join(', ');
-  const effortPresets = supportsReasoningEffort(agentType)
-    ? getReasoningEffortPresets().join(', ')
-    : null;
-  const currentModel = target.workspaceGroup.model ?? '默认';
-  const currentEffort = supportsReasoningEffort(agentType)
-    ? (target.workspaceGroup.reasoningEffort ?? '默认')
-    : null;
+  return formatCommandHelp({
+    entrypoint,
+    agentType: normalizeAgentType(target.effectiveGroup.agentType),
+  });
+}
 
+function resolveCurrentModelPreset(
+  agentType: AgentType,
+  target: ResolvedRuntimeWorkspaceTarget,
+): string {
+  const explicitModel = target.effectiveGroup.model?.trim();
+  if (explicitModel) return explicitModel;
+
+  if (agentType === 'claude') {
+    const providerModel = getClaudeProviderConfig().anthropicModel?.trim();
+    if (providerModel) return providerModel;
+  }
+
+  return getDefaultModelPreset(agentType);
+}
+
+function resolveCurrentReasoningEffort(
+  agentType: AgentType,
+  target: ResolvedRuntimeWorkspaceTarget,
+): string | null {
+  const explicitEffort = target.effectiveGroup.reasoningEffort?.trim();
+  if (explicitEffort) return explicitEffort;
+  return getDefaultReasoningEffortPreset(agentType);
+}
+
+export function buildRuntimeStatusReply(
+  target: ResolvedRuntimeWorkspaceTarget,
+): string {
+  const agentType = normalizeAgentType(target.effectiveGroup.agentType);
+  const currentEffort = resolveCurrentReasoningEffort(agentType, target);
   const lines = [
     `当前工作区: ${formatRuntimeScopeLabel(target)}`,
     `当前 runtime: ${agentType}`,
-    `当前模型: ${currentModel}`,
+    `当前模型: ${resolveCurrentModelPreset(agentType, target)}`,
   ];
 
   if (currentEffort) {
     lines.push(`当前思考强度: ${currentEffort}`);
   }
 
-  lines.push(`模型预设: ${modelPresets}`);
-  if (effortPresets) {
-    lines.push(`思考强度预设: ${effortPresets}`);
+  lines.push(`模型预设: ${getModelPresets(agentType).join(', ')}`);
+  if (supportsReasoningEffort(agentType)) {
+    lines.push(`思考强度预设: ${getReasoningEffortPresets().join(', ')}`);
   }
-
-  lines.push('');
-  lines.push(
-    formatCommandHelp({
-      entrypoint,
-      agentType,
-    }),
-  );
 
   return lines.join('\n');
 }

@@ -236,6 +236,7 @@ describe('StreamingCardController footer caching', () => {
       tag: 'select_static',
       value: { action: 'set_runtime_model' },
       placeholder: { content: '模型: gpt-5.4' },
+      initial_option: 'gpt-5.4',
     });
     expect(select.options).toEqual([
       {
@@ -255,6 +256,43 @@ describe('StreamingCardController footer caching', () => {
         value: 'gpt-5.2',
       },
     ]);
+  });
+
+  test('falls back to the current Codex defaults when selection card inputs are unset', () => {
+    const card = buildRuntimeSelectionCard({
+      selection: 'effort',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: null,
+        reasoningEffort: null,
+        supportsReasoningEffort: true,
+      },
+    }) as any;
+
+    const select =
+      card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    expect(select).toMatchObject({
+      tag: 'select_static',
+      placeholder: { content: '思考强度: medium' },
+      initial_option: 'medium',
+      value: { action: 'set_runtime_effort' },
+    });
+  });
+
+  test('omits initial_option when the current value is no longer in the preset list', () => {
+    const card = buildRuntimeSelectionCard({
+      selection: 'model',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'legacy-model',
+        reasoningEffort: 'medium',
+        supportsReasoningEffort: true,
+      },
+    }) as any;
+
+    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    expect(select.placeholder).toMatchObject({ content: '模型: legacy-model' });
+    expect(select.initial_option).toBeUndefined();
   });
 
   test('initial streaming card exposes a STATUS_NOTE element so the live footer can be patched', async () => {
