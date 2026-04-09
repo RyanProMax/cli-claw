@@ -3,7 +3,11 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   buildRuntimeSelectionCard,
   buildStaticReplyCard,
+  registerMessageIdMapping,
+  registerStreamingSession,
+  resolveJidByMessageId,
   StreamingCardController,
+  unregisterStreamingSession,
 } from '../src/feishu-streaming-card.ts';
 import { formatToolStepLine } from '../src/tool-step-display.ts';
 
@@ -419,5 +423,23 @@ describe('StreamingCardController footer caching', () => {
     expect(finalCardJson).not.toContain('Reasoning...');
 
     controller.dispose();
+  });
+
+  test('re-registering a streaming session clears stale messageId callbacks from the previous session', () => {
+    registerMessageIdMapping('old-msg', 'feishu:room');
+    registerStreamingSession('feishu:room', {
+      isActive: () => true,
+      abort: vi.fn().mockResolvedValue(undefined),
+      getAllMessageIds: () => ['old-msg'],
+    } as any);
+
+    registerStreamingSession('feishu:room', {
+      isActive: () => true,
+      abort: vi.fn().mockResolvedValue(undefined),
+      getAllMessageIds: () => ['new-msg'],
+    } as any);
+
+    expect(resolveJidByMessageId('old-msg')).toBeUndefined();
+    unregisterStreamingSession('feishu:room');
   });
 });

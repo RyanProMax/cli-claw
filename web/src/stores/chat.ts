@@ -68,6 +68,7 @@ export interface StreamSnapshotData {
   todos?: Array<{ id: string; content: string; status: string }>;
   systemStatus: string | null;
   turnId?: string;
+  sessionId?: string;
   runtimeIdentity?: RuntimeIdentity | null;
 }
 
@@ -271,6 +272,7 @@ function saveStreamingToSession(chatJid: string, state: StreamingState | undefin
           todos: state.todos,
           systemStatus: state.systemStatus,
           turnId: state.turnId,
+          sessionId: state.sessionId,
           runtimeIdentity: state.runtimeIdentity,
           ts: Date.now(),
         };
@@ -313,6 +315,7 @@ function restoreStreamingFromSession(chatJid: string): StreamingState | null {
       todos: entry.todos,
       systemStatus: entry.systemStatus || null,
       turnId: entry.turnId,
+      sessionId: entry.sessionId,
       runtimeIdentity: entry.runtimeIdentity || null,
     };
   } catch { return null; }
@@ -333,6 +336,53 @@ interface PendingDelta {
   runtimeIdentity?: RuntimeIdentity | null;
 }
 const pendingDeltas = new Map<string, PendingDelta>();
+
+function hasStreamingData(state: StreamingState | null | undefined): boolean {
+  return !!(
+    state &&
+    (state.partialText ||
+      state.thinkingText ||
+      state.activeTools.length > 0 ||
+      state.activeHook ||
+      state.systemStatus ||
+      state.recentEvents.length > 0 ||
+      (state.todos && state.todos.length > 0))
+  );
+}
+
+function cancelPendingDeltaEntry(key: string): void {
+  const entry = pendingDeltas.get(key);
+  if (!entry) return;
+  cancelAnimationFrame(entry.raf);
+  pendingDeltas.delete(key);
+}
+
+function clearMainStreamingResidue(
+  chatJid: string,
+  waiting: Record<string, boolean>,
+  streaming: Record<string, StreamingState>,
+  pendingThinking: Record<string, string>,
+): void {
+  delete waiting[chatJid];
+  delete streaming[chatJid];
+  delete pendingThinking[chatJid];
+  clearStreamingFromSession(chatJid);
+  cancelPendingDeltaEntry(`main:${chatJid}`);
+}
+
+function shouldReplaceStreamingSnapshot(
+  current: StreamingState | undefined,
+  restored: StreamingState,
+  isWaiting: boolean | undefined,
+): boolean {
+  if (!current) return true;
+  if (!hasStreamingData(current)) return true;
+  if (current.interrupted) return true;
+  if (isWaiting === false) return true;
+  if (restored.sessionId && current.sessionId !== restored.sessionId) return true;
+  if (restored.turnId && current.turnId !== restored.turnId) return true;
+  return false;
+}
 
 function resolveBufferedStreamingPrev(
   current: StreamingState | undefined,
@@ -2195,30 +2245,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => {
         const nextWaiting = { ...s.waiting };
         const nextStreaming = { ...s.streaming };
+        const nextPendingThinking = { ...s.pendingThinking };
 
         // 构建后端已知的群组集合；不在集合中的 JID 说明后端无活跃进程
         // （pm2 restart 后 queue 为空，所有 JID 都不在集合中）。
         const knownJids = new Set(data.groups.map((g) => g.jid));
 
         // 清除后端不可见的 JID 的 waiting/streaming（进程已死）
-        for (const jid of Object.keys(nextWaiting)) {
+        for (const jid of new Set([
+          ...Object.keys(nextWaiting),
+          ...Object.keys(nextStreaming),
+          ...Object.keys(nextPendingThinking),
+        ])) {
           if (!knownJids.has(jid)) {
-            delete nextWaiting[jid];
-            delete nextStreaming[jid];
-            clearStreamingFromSession(jid);
+            clearMainStreamingResidue(
+              jid,
+              nextWaiting,
+              nextStreaming,
+              nextPendingThinking,
+            );
           }
         }
 
         for (const g of data.groups) {
           if (g.pendingMessages) {
+            if (nextStreaming[g.jid]?.interrupted) {
+              clearMainStreamingResidue(
+                g.jid,
+                nextWaiting,
+                nextStreaming,
+                nextPendingThinking,
+              );
+            }
             nextWaiting[g.jid] = true;
             continue;
           }
           // 没有活跃进程且没有待处理消息 → 不应等待。
           if (!g.active) {
-            delete nextWaiting[g.jid];
-            delete nextStreaming[g.jid];
-            clearStreamingFromSession(g.jid);
+            clearMainStreamingResidue(
+              g.jid,
+              nextWaiting,
+              nextStreaming,
+              nextPendingThinking,
+            );
             continue;
           }
           // active 可能仅表示 runner 空闲存活，这里回退到消息语义推断。
@@ -2230,6 +2299,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
             (latest.is_from_me === false || latest.source_kind === 'sdk_send_message');
           if (inferredWaiting) {
             nextWaiting[g.jid] = true;
+            if (nextStreaming[g.jid]?.interrupted) {
+              clearMainStreamingResidue(
+                g.jid,
+                nextWaiting,
+                nextStreaming,
+                nextPendingThinking,
+              );
+              nextWaiting[g.jid] = true;
+            }
             // Restore streaming state from sessionStorage if available
             if (!nextStreaming[g.jid]) {
               const restored = restoreStreamingFromSession(g.jid);
@@ -2238,11 +2316,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
               }
             }
           } else {
-            delete nextWaiting[g.jid];
-            clearStreamingFromSession(g.jid);
+            clearMainStreamingResidue(
+              g.jid,
+              nextWaiting,
+              nextStreaming,
+              nextPendingThinking,
+            );
           }
         }
-        return { waiting: nextWaiting, streaming: nextStreaming };
+        return {
+          waiting: nextWaiting,
+          streaming: nextStreaming,
+          pendingThinking: nextPendingThinking,
+        };
       });
     } catch {
       // 静默失败
@@ -2265,13 +2351,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
       todos: snapshot.todos,
       systemStatus: snapshot.systemStatus || null,
       turnId: snapshot.turnId,
+      sessionId: snapshot.sessionId,
       runtimeIdentity: snapshot.runtimeIdentity || null,
     };
 
     if (agentId) {
       // Agent-specific snapshot → restore agentStreaming + agentWaiting
       set((s) => {
-        if (s.agentStreaming[agentId]?.partialText) return s;
+        if (
+          !shouldReplaceStreamingSnapshot(
+            s.agentStreaming[agentId],
+            restored,
+            s.agentWaiting[agentId],
+          )
+        ) {
+          return s;
+        }
+        cancelPendingDeltaEntry(`agent:${agentId}`);
         return {
           agentWaiting: { ...s.agentWaiting, [agentId]: true },
           agentStreaming: { ...s.agentStreaming, [agentId]: restored },
@@ -2280,7 +2376,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } else {
       // Main conversation snapshot
       set((s) => {
-        if (s.streaming[chatJid]?.partialText) return s;
+        if (
+          !shouldReplaceStreamingSnapshot(
+            s.streaming[chatJid],
+            restored,
+            s.waiting[chatJid],
+          )
+        ) {
+          return s;
+        }
+        cancelPendingDeltaEntry(`main:${chatJid}`);
+        saveStreamingToSession(chatJid, restored);
         return {
           waiting: { ...s.waiting, [chatJid]: true },
           streaming: { ...s.streaming, [chatJid]: restored },
@@ -2328,12 +2434,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // 清除流式状态（保留仍在运行的后台 SDK Task 的 agentStreaming）
   clearStreaming: (chatJid, options) => {
     // Cancel any pending rAF for this chatJid to prevent stale flushes
-    const mainKey = `main:${chatJid}`;
-    const mainEntry = pendingDeltas.get(mainKey);
-    if (mainEntry) {
-      cancelAnimationFrame(mainEntry.raf);
-      pendingDeltas.delete(mainKey);
-    }
+    cancelPendingDeltaEntry(`main:${chatJid}`);
     clearStreamingFromSession(chatJid);
     set((s) => {
       const next = { ...s.streaming };

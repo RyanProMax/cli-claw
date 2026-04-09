@@ -2577,6 +2577,11 @@ export function registerStreamingSession(
   session: StreamingCardController,
 ): void {
   const existing = activeSessions.get(chatJid);
+  if (existing) {
+    for (const msgId of existing.getAllMessageIds()) {
+      unregisterMessageId(msgId);
+    }
+  }
   if (existing && existing.isActive()) {
     // Abort (not just dispose) so the old card shows "已中断" instead of stuck "生成中..."
     existing.abort('新的回复已开始').catch(() => {});

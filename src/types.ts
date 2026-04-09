@@ -412,6 +412,7 @@ export type WsMessageOut =
         todos?: Array<{ id: string; content: string; status: string }>;
         systemStatus: string | null;
         turnId?: string;
+        sessionId?: string;
         runtimeIdentity?: RuntimeIdentity | null;
       };
     };

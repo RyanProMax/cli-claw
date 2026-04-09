@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { appendAssistantMetaFooter } from '../src/assistant-meta-footer.ts';
 import { formatAssistantCardFooter as formatBackendAssistantCardFooter } from '../src/assistant-meta-footer.ts';
 import { formatAssistantMetaFooter as formatBackendAssistantMetaFooter } from '../src/assistant-meta-footer.ts';
 import { formatAssistantCardFooter as formatWebAssistantCardFooter } from '../web/src/lib/assistantMetaFooter.ts';
@@ -88,6 +89,33 @@ describe('assistant meta footer', () => {
     ).toBe('5.2s | Codex | gpt-5.4 | xhigh');
     expect(formatWebAssistantCardFooter({ runtimeIdentity, tokenUsage })).toBe(
       '5.2s | Codex | gpt-5.4 | xhigh',
+    );
+  });
+
+  test('appends footer below assistant text for IM channels', () => {
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'GPT-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    };
+    const tokenUsage = {
+      inputTokens: 1_000,
+      outputTokens: 200,
+      durationMs: 4_500,
+    };
+
+    expect(
+      appendAssistantMetaFooter('Hello from assistant', {
+        runtimeIdentity,
+        tokenUsage,
+      }),
+    ).toBe('Hello from assistant\n\n4.5s | GPT-5.4 | xhigh | 1.2K tokens');
+  });
+
+  test('keeps original text when no footer parts are available', () => {
+    expect(appendAssistantMetaFooter('Hello from assistant', {})).toBe(
+      'Hello from assistant',
     );
   });
 });

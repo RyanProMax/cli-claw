@@ -67,6 +67,7 @@ vi.mock('../web/src/api/ws.ts', () => ({
 }));
 
 import { useChatStore, type StreamingState } from '../web/src/stores/chat.ts';
+import { api } from '../web/src/api/client.ts';
 
 function createStreamingState(
   overrides: Partial<StreamingState> = {},
@@ -119,6 +120,78 @@ describe('chat streaming store', () => {
 
     const next = useChatStore.getState().streaming['web:proj-home'];
     expect(next?.partialText).toBe('new output');
+    expect(next?.turnId).toBe('turn-new');
+    expect(next?.sessionId).toBe('session-new');
+  });
+
+  test('clears orphaned streaming residue on restore when backend no longer has an active runner', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ groups: [] } as any);
+    sessionStorageMock.setItem(
+      'hc_streaming',
+      JSON.stringify({
+        'web:proj-home': {
+          partialText: 'stale output',
+          activeTools: [],
+          recentEvents: [],
+          systemStatus: null,
+          turnId: 'turn-old',
+          runtimeIdentity: null,
+          ts: Date.now(),
+        },
+      }),
+    );
+
+    useChatStore.setState((state) => ({
+      ...state,
+      streaming: {
+        'web:proj-home': createStreamingState({
+          turnId: 'turn-old',
+          partialText: 'stale output',
+          interrupted: true,
+        }),
+      },
+      pendingThinking: {
+        'web:proj-home': 'stale thinking',
+      },
+    }));
+
+    await useChatStore.getState().restoreActiveState();
+
+    expect(useChatStore.getState().streaming['web:proj-home']).toBeUndefined();
+    expect(useChatStore.getState().waiting['web:proj-home']).toBeUndefined();
+    expect(
+      useChatStore.getState().pendingThinking['web:proj-home'],
+    ).toBeUndefined();
+    expect(sessionStorageMock.getItem('hc_streaming')).toBe('{}');
+  });
+
+  test('replaces stale local streaming state when reconnect snapshot belongs to a new session', () => {
+    useChatStore.setState((state) => ({
+      ...state,
+      waiting: {
+        'web:proj-home': true,
+      },
+      streaming: {
+        'web:proj-home': createStreamingState({
+          turnId: 'turn-old',
+          sessionId: 'session-old',
+          partialText: 'old output',
+        }),
+      },
+    }));
+
+    useChatStore.getState().handleStreamSnapshot('web:proj-home', {
+      partialText: 'fresh output',
+      activeTools: [],
+      recentEvents: [],
+      systemStatus: null,
+      turnId: 'turn-new',
+      sessionId: 'session-new',
+      runtimeIdentity: null,
+    });
+
+    const next = useChatStore.getState().streaming['web:proj-home'];
+    expect(next?.partialText).toBe('fresh output');
     expect(next?.turnId).toBe('turn-new');
     expect(next?.sessionId).toBe('session-new');
   });

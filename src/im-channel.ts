@@ -35,6 +35,15 @@ import {
   type StreamingCardOptions,
 } from './feishu-streaming-card.js';
 import { CHANNEL_PREFIXES } from './channel-prefixes.js';
+import {
+  appendAssistantMetaFooter,
+  type AssistantFooterTokenUsage,
+} from './assistant-meta-footer.js';
+import type {
+  MessageFinalizationReason,
+  MessageSourceKind,
+  RuntimeIdentity,
+} from './types.js';
 
 // ─── Unified Interface ──────────────────────────────────────────
 
@@ -81,6 +90,16 @@ export interface IMChannelConnectOpts {
   ) => Promise<string | null>;
 }
 
+export interface OutboundMessageMeta {
+  turnId?: string;
+  sessionId?: string;
+  sdkMessageUuid?: string;
+  sourceKind?: MessageSourceKind | null;
+  finalizationReason?: MessageFinalizationReason | null;
+  runtimeIdentity?: RuntimeIdentity | null;
+  tokenUsage?: AssistantFooterTokenUsage | string | null;
+}
+
 export interface IMChannel {
   readonly channelType: string;
   connect(opts: IMChannelConnectOpts): Promise<boolean>;
@@ -89,6 +108,7 @@ export interface IMChannel {
     chatId: string,
     text: string,
     localImagePaths?: string[],
+    messageMeta?: OutboundMessageMeta,
   ): Promise<void>;
   /** Send file to chat (if supported) */
   sendFile?(chatId: string, filePath: string, fileName: string): Promise<void>;
@@ -116,6 +136,17 @@ export interface IMChannel {
     chat_type?: string;
     chat_mode?: string;
   } | null>;
+}
+
+function applyTextChannelFooter(
+  text: string,
+  messageMeta?: OutboundMessageMeta,
+): string {
+  if (!messageMeta) return text;
+  return appendAssistantMetaFooter(text, {
+    runtimeIdentity: messageMeta.runtimeIdentity,
+    tokenUsage: messageMeta.tokenUsage,
+  });
 }
 
 // ─── Channel Registry ───────────────────────────────────────────
@@ -190,6 +221,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
       chatId: string,
       text: string,
       localImagePaths?: string[],
+      _messageMeta?: OutboundMessageMeta,
     ): Promise<void> {
       if (!inner) {
         logger.warn(
@@ -332,6 +364,7 @@ export function createTelegramChannel(
       chatId: string,
       text: string,
       localImagePaths?: string[],
+      messageMeta?: OutboundMessageMeta,
     ): Promise<void> {
       if (!inner) {
         logger.warn(
@@ -340,7 +373,11 @@ export function createTelegramChannel(
         );
         return;
       }
-      await inner.sendMessage(chatId, text, localImagePaths);
+      await inner.sendMessage(
+        chatId,
+        applyTextChannelFooter(text, messageMeta),
+        localImagePaths,
+      );
     },
 
     async sendImage(
@@ -437,7 +474,12 @@ export function createQQChannel(config: QQConnectionConfig): IMChannel {
       }
     },
 
-    async sendMessage(chatId: string, text: string): Promise<void> {
+    async sendMessage(
+      chatId: string,
+      text: string,
+      _localImagePaths?: string[],
+      messageMeta?: OutboundMessageMeta,
+    ): Promise<void> {
       if (!inner) {
         logger.warn(
           { chatId },
@@ -445,7 +487,10 @@ export function createQQChannel(config: QQConnectionConfig): IMChannel {
         );
         return;
       }
-      await inner.sendMessage(chatId, text);
+      await inner.sendMessage(
+        chatId,
+        applyTextChannelFooter(text, messageMeta),
+      );
     },
 
     async setTyping(_chatId: string, _isTyping: boolean): Promise<void> {
@@ -495,7 +540,12 @@ export function createWeChatChannel(config: WeChatConnectionConfig): IMChannel {
       }
     },
 
-    async sendMessage(chatId: string, text: string): Promise<void> {
+    async sendMessage(
+      chatId: string,
+      text: string,
+      _localImagePaths?: string[],
+      messageMeta?: OutboundMessageMeta,
+    ): Promise<void> {
       if (!inner) {
         logger.warn(
           { chatId },
@@ -503,7 +553,10 @@ export function createWeChatChannel(config: WeChatConnectionConfig): IMChannel {
         );
         return;
       }
-      await inner.sendMessage(chatId, text);
+      await inner.sendMessage(
+        chatId,
+        applyTextChannelFooter(text, messageMeta),
+      );
     },
 
     async setTyping(chatId: string, isTyping: boolean): Promise<void> {
@@ -561,7 +614,12 @@ export function createDingTalkChannel(
       }
     },
 
-    async sendMessage(chatId: string, text: string): Promise<void> {
+    async sendMessage(
+      chatId: string,
+      text: string,
+      _localImagePaths?: string[],
+      messageMeta?: OutboundMessageMeta,
+    ): Promise<void> {
       if (!inner) {
         logger.warn(
           { chatId },
@@ -569,7 +627,10 @@ export function createDingTalkChannel(
         );
         return;
       }
-      await inner.sendMessage(chatId, text);
+      await inner.sendMessage(
+        chatId,
+        applyTextChannelFooter(text, messageMeta),
+      );
     },
 
     async setTyping(_chatId: string, _isTyping: boolean): Promise<void> {

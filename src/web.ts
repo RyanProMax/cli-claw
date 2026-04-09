@@ -824,6 +824,7 @@ function setupWebSocket(server: any): WebSocketServer {
                 todos: snap.todos,
                 systemStatus: snap.systemStatus,
                 turnId: snap.turnId,
+                sessionId: snap.sessionId,
                 runtimeIdentity: snap.runtimeIdentity ?? null,
               },
             } satisfies WsMessageOut),
@@ -1518,6 +1519,7 @@ interface StreamingSnapshotEntry {
   todos?: Array<{ id: string; content: string; status: string }>;
   systemStatus: string | null;
   turnId?: string;
+  sessionId?: string;
   runtimeIdentity?: RuntimeIdentity | null;
   updatedAt: number;
 }
@@ -1563,12 +1565,14 @@ function updateStreamingSnapshot(
       recentEvents: [],
       systemStatus: null,
       turnId: event.turnId,
+      sessionId: event.sessionId,
       updatedAt: Date.now(),
     };
   }
 
   snap.updatedAt = Date.now();
   if (event.turnId) snap.turnId = event.turnId;
+  if (event.sessionId) snap.sessionId = event.sessionId;
   if (event.runtimeIdentity) snap.runtimeIdentity = event.runtimeIdentity;
 
   switch (event.eventType) {

@@ -91,7 +91,11 @@ import {
 } from './db.js';
 // feishu.js deprecated exports are no longer needed; imManager handles all connections
 import { imManager } from './im-manager.js';
-import { getChannelType, extractChatId } from './im-channel.js';
+import {
+  getChannelType,
+  extractChatId,
+  type OutboundMessageMeta,
+} from './im-channel.js';
 import {
   buildRuntimeSelectionCard,
   registerStreamingSession,
@@ -102,7 +106,6 @@ import {
   getStreamingSession,
   StreamingCardController,
 } from './feishu-streaming-card.js';
-import type { AssistantFooterTokenUsage } from './assistant-meta-footer.js';
 import {
   buildProvisionalTokenUsage,
   normalizeStreamingStatusText,
@@ -1842,15 +1845,7 @@ interface SendMessageOptions {
   /** Message source identifier (e.g. 'scheduled_task') for frontend routing. */
   source?: string;
   /** Metadata used to preserve Claude SDK turn semantics for persisted messages. */
-  messageMeta?: {
-    turnId?: string;
-    sessionId?: string;
-    sdkMessageUuid?: string;
-    sourceKind?: ContainerOutput['sourceKind'];
-    finalizationReason?: ContainerOutput['finalizationReason'];
-    runtimeIdentity?: RuntimeIdentity | null;
-    tokenUsage?: AssistantFooterTokenUsage | string | null;
-  };
+  messageMeta?: OutboundMessageMeta;
 }
 
 function loadState(): void {
@@ -3644,7 +3639,12 @@ async function sendMessage(
         const localImagePaths =
           options.localImagePaths ??
           extractLocalImImagePaths(text, resolveEffectiveFolder(jid));
-        await imManager.sendMessage(jid, text, localImagePaths);
+        await imManager.sendMessage(
+          jid,
+          text,
+          localImagePaths,
+          options.messageMeta,
+        );
       } catch (err) {
         logger.error({ jid, err }, 'Failed to send message to IM channel');
       }
