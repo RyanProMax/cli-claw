@@ -1482,8 +1482,13 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
 
         switch (update.sessionUpdate) {
           case 'agent_message_chunk': {
-            if (update.content?.type === 'text' && update.content.text) {
-              activeTurnText += update.content.text;
+            const chunkText =
+              update.content?.type === 'text' &&
+              typeof update.content.text === 'string'
+                ? update.content.text
+                : null;
+            if (chunkText) {
+              activeTurnText += chunkText;
               writeOutput({
                 status: 'stream',
                 result: null,
@@ -1491,14 +1496,19 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                 streamEvent: {
                   ...baseEvent,
                   eventType: 'text_delta',
-                  text: update.content.text,
+                  text: chunkText,
                 },
               });
             }
             break;
           }
           case 'agent_thought_chunk': {
-            if (update.content?.type === 'text' && update.content.text) {
+            const thoughtText =
+              update.content?.type === 'text' &&
+              typeof update.content.text === 'string'
+                ? update.content.text
+                : null;
+            if (thoughtText) {
               writeOutput({
                 status: 'stream',
                 result: null,
@@ -1506,7 +1516,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                 streamEvent: {
                   ...baseEvent,
                   eventType: 'thinking_delta',
-                  text: update.content.text,
+                  text: thoughtText,
                 },
               });
             }
