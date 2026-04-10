@@ -37,6 +37,8 @@ export interface ResolvedRuntimeWorkspaceTarget {
   sourceGroup: RegisteredGroup;
   workspaceJid: string;
   workspaceGroup: RegisteredGroup;
+  runtimeOwnerJid: string;
+  runtimeOwnerGroup: RegisteredGroup;
   effectiveGroup: RegisteredGroup;
 }
 
@@ -139,6 +141,12 @@ export function resolveRuntimeWorkspaceTarget(
 
   const workspaceJid = resolveWorkspaceJid(sourceChatJid, sourceGroup, deps);
   const workspaceGroup = deps.getGroup(workspaceJid) ?? sourceGroup;
+  const homeRuntimeJid = workspaceGroup.is_home
+    ? null
+    : findHomeWorkspaceJid(workspaceGroup, deps);
+  const runtimeOwnerJid =
+    homeRuntimeJid && homeRuntimeJid.trim() ? homeRuntimeJid : workspaceJid;
+  const runtimeOwnerGroup = deps.getGroup(runtimeOwnerJid) ?? workspaceGroup;
   const effectiveGroup = resolveEffectiveRuntimeGroup(workspaceGroup, deps);
 
   return {
@@ -146,6 +154,8 @@ export function resolveRuntimeWorkspaceTarget(
     sourceGroup,
     workspaceJid,
     workspaceGroup,
+    runtimeOwnerJid,
+    runtimeOwnerGroup,
     effectiveGroup,
   };
 }
@@ -219,17 +229,17 @@ async function updateWorkspaceRuntime(
   patch: Partial<Pick<RegisteredGroup, 'model' | 'reasoningEffort'>>,
 ): Promise<void> {
   const updated: RegisteredGroup = {
-    ...target.workspaceGroup,
+    ...target.runtimeOwnerGroup,
     ...patch,
   };
 
-  deps.setGroup(target.workspaceJid, updated);
+  deps.setGroup(target.runtimeOwnerJid, updated);
   await resetWorkspaceRuntimeState(
     {
       queue: deps.queue,
       getSessions: deps.getSessions,
     },
-    target.workspaceJid,
+    target.runtimeOwnerJid,
     updated,
   );
 }
@@ -247,7 +257,7 @@ async function handleModelCommand(
     ).join(', ')}`;
   }
 
-  if ((target.workspaceGroup.model ?? null) === preset) {
+  if ((target.runtimeOwnerGroup.model ?? null) === preset) {
     return `当前工作区模型已经是 ${preset}`;
   }
 
@@ -272,7 +282,7 @@ async function handleEffortCommand(
     )}`;
   }
 
-  if ((target.workspaceGroup.reasoningEffort ?? null) === preset) {
+  if ((target.runtimeOwnerGroup.reasoningEffort ?? null) === preset) {
     return `当前工作区思考强度已经是 ${preset}`;
   }
 

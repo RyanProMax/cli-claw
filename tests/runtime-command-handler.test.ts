@@ -108,6 +108,57 @@ describe('runtime command handler', () => {
     expect(stopGroup).toHaveBeenCalledWith('web:proj-home', { force: true });
   });
 
+  test('updates the effective runtime owner so status reflects model changes for inherited workspaces', async () => {
+    const { deps, groups, setGroup, stopGroup } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+        model: 'gpt-5.4',
+        reasoningEffort: 'medium',
+      },
+      'web:proj-child': {
+        name: 'Child Workspace',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: false,
+        agentType: 'codex',
+        executionMode: 'host',
+      },
+    });
+
+    const before = resolveRuntimeWorkspaceTarget('web:proj-child', deps);
+    expect(before).not.toBeNull();
+    expect(buildRuntimeStatusReply(before!)).toContain('当前模型: gpt-5.4');
+
+    const result = await applyRuntimeWorkspaceSelection({
+      chatJid: 'web:proj-child',
+      selection: 'model',
+      value: 'gpt-5.3-codex',
+      deps,
+    });
+
+    const after = resolveRuntimeWorkspaceTarget('web:proj-child', deps);
+    expect(after).not.toBeNull();
+
+    expect(result).toEqual({
+      handled: true,
+      reply: '已将当前工作区模型切换为 gpt-5.3-codex',
+    });
+    expect(buildRuntimeStatusReply(after!)).toContain(
+      '当前模型: gpt-5.3-codex',
+    );
+    expect(setGroup).toHaveBeenCalledWith(
+      'web:proj-home',
+      expect.objectContaining({ model: 'gpt-5.3-codex' }),
+    );
+    expect(groups['web:proj-home']?.model).toBe('gpt-5.3-codex');
+    expect(stopGroup).toHaveBeenCalledWith('web:proj-home', { force: true });
+  });
+
   test('returns picker-oriented help for bare /model without exposing the old usage form', async () => {
     const { deps } = createDeps({
       'web:proj-home': {
