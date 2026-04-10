@@ -101,6 +101,7 @@ import net from 'node:net';
 import { z } from 'zod';
 import { broadcastNewMessage, invalidateAllowedUserCache } from '../web.js';
 import { getStreamingSession } from '../feishu-streaming-card.js';
+import { serializeErrorForOutput } from '../../shared/dist/error-serialization.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -694,7 +695,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     deleteChatHistory(jid);
     delete deps.getRegisteredGroups()[jid];
 
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const errMsg = serializeErrorForOutput(err);
     return c.json({ error: `Workspace initialization failed: ${errMsg}` }, 500);
   }
 

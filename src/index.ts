@@ -130,6 +130,7 @@ import {
   parseRuntimeCommand,
   parseSlashCommandCandidate,
 } from './runtime-command-registry.js';
+import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 import { invalidateSessionCache, getWebDeps } from './web-context.js';
 import {
   getFeishuProviderConfigWithSource,
@@ -2000,7 +2001,7 @@ function loadState(): void {
       { err, launchCwd: LAUNCH_CWD },
       'Failed to materialize host workspace cwd defaults',
     );
-    throw err instanceof Error ? err : new Error(String(err));
+    throw err instanceof Error ? err : new Error(serializeErrorForOutput(err));
   }
 
   // Initialize per-user global AGENTS.md from template for users missing it
@@ -3618,7 +3619,7 @@ async function runAgent(
 
     return { status: 'success' };
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorMsg = serializeErrorForOutput(err);
     logger.error({ group: group.name, err }, 'Agent error');
     return { status: 'error', error: errorMsg };
   } finally {
@@ -4739,7 +4740,7 @@ async function processTaskIpc(
         } catch (err) {
           const errorResult = JSON.stringify({
             success: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: serializeErrorForOutput(err),
           });
           const tmpPath = `${resultFilePath}.tmp`;
           fs.writeFileSync(tmpPath, errorResult);
@@ -4865,7 +4866,7 @@ async function processTaskIpc(
         } catch (err) {
           const errorResult = JSON.stringify({
             success: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: serializeErrorForOutput(err),
           });
           const tmpPath = `${resultFilePath}.tmp`;
           fs.mkdirSync(path.dirname(resultFilePath), { recursive: true });

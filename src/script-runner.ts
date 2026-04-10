@@ -4,6 +4,7 @@ import path from 'path';
 import { GROUPS_DIR } from './config.js';
 import { logger } from './logger.js';
 import { getSystemSettings } from './runtime-config.js';
+import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 
 export interface ScriptRunResult {
   stdout: string;
@@ -87,7 +88,7 @@ export async function runScript(
     );
     return {
       stdout: '',
-      stderr: err instanceof Error ? err.message : String(err),
+      stderr: serializeErrorForOutput(err),
       exitCode: 1,
       timedOut: false,
       durationMs,

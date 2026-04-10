@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 
 type CliCommand = 'start' | 'version' | 'help';
 
@@ -125,7 +126,7 @@ export async function runCli(
     await start();
     return 0;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = serializeErrorForOutput(error);
     stderr(message);
     return 1;
   }
@@ -142,7 +143,7 @@ export async function main(
 
 if (isExecutedAsCliEntry(process.argv[1], import.meta.url)) {
   void main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(serializeErrorForOutput(error));
     process.exitCode = 1;
   });
 }

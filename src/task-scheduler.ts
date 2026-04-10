@@ -46,6 +46,7 @@ import { hasScriptCapacity, runScript } from './script-runner.js';
 import type { StreamEvent } from './stream-event.types.js';
 import { ExecutionMode, RegisteredGroup, ScheduledTask } from './types.js';
 import { checkBillingAccessFresh, isBillingEnabled } from './billing.js';
+import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 
 /**
  * Resolve the actual group JID to send a task to.
@@ -527,7 +528,7 @@ export async function runTask(
     );
   } catch (err) {
     if (idleTimer) clearTimeout(idleTimer);
-    error = err instanceof Error ? err.message : String(err);
+    error = serializeErrorForOutput(err);
     lastOutputTime = Date.now();
     logger.error({ taskId: task.id, error }, 'Task failed');
   } finally {
@@ -717,7 +718,7 @@ export async function runScriptTask(
       'Script task completed',
     );
   } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
+    error = serializeErrorForOutput(err);
     logger.error({ taskId: task.id, error }, 'Script task failed');
   } finally {
     runningTaskIds.delete(task.id);
@@ -788,7 +789,7 @@ async function runGroupModeTask(
       error: null,
     });
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = serializeErrorForOutput(err);
     logger.error(
       { taskId: task.id, error },
       'Group-mode task injection failed',

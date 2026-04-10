@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Readable } from 'stream';
+import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 
 import { getSystemSettings } from './runtime-config.js';
 import { logger } from './logger.js';
@@ -649,7 +650,7 @@ function parseLegacyOutput(ctx: CloseHandlerContext): void {
     ctx.resolvePromise({
       status: 'error',
       result: null,
-      error: `Failed to parse ${ctx.filePrefix} output: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Failed to parse ${ctx.filePrefix} output: ${serializeErrorForOutput(err)}`,
     });
   }
 }

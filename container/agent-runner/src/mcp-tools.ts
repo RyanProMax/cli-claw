@@ -14,6 +14,7 @@ import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
+import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 
 /** Context required by MCP tools. Passed at construction time. */
 export interface McpContext {
@@ -45,7 +46,7 @@ function writeIpcFile(dir: string, data: object): string {
       /* ignore */
     }
     throw new Error(
-      `IPC 写入失败 (${dir}): ${err instanceof Error ? err.message : String(err)}`,
+      `IPC 写入失败 (${dir}): ${serializeErrorForOutput(err)}`,
     );
   }
   return filename;
@@ -1071,7 +1072,7 @@ Use the skills panel in the UI to find the skill ID (directory name, e.g. "memor
               content: [
                 {
                   type: 'text' as const,
-                  text: `\u8ffd\u52a0\u8bb0\u5fc6\u65f6\u51fa\u9519\uff1a${err instanceof Error ? err.message : String(err)}`,
+                  text: `\u8ffd\u52a0\u8bb0\u5fc6\u65f6\u51fa\u9519\uff1a${serializeErrorForOutput(err)}`,
                 },
               ],
               isError: true,
@@ -1281,7 +1282,7 @@ Use the skills panel in the UI to find the skill ID (directory name, e.g. "memor
             content: [
               {
                 type: 'text' as const,
-                text: `\u8bfb\u53d6\u6587\u4ef6\u65f6\u51fa\u9519\uff1a${err instanceof Error ? err.message : String(err)}`,
+                text: `\u8bfb\u53d6\u6587\u4ef6\u65f6\u51fa\u9519\uff1a${serializeErrorForOutput(err)}`,
               },
             ],
             isError: true,

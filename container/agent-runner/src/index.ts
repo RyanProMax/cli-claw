@@ -35,6 +35,7 @@ import { detectImageMimeTypeFromBase64Strict } from './image-detector.js';
 import { getChannelFromJid } from './channel-prefixes.js';
 import { spawn } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
+import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 
 import type {
   ContainerInput,
@@ -1707,7 +1708,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       containerInput.turnId = generateTurnId();
     }
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorMessage = serializeErrorForOutput(err);
     writeOutput(buildVisibleRuntimeErrorOutput(errorMessage, sessionId));
     forceExitWithSafetyNet(1);
   } finally {
@@ -2421,7 +2422,7 @@ async function runQuery(
   } catch (err) {
     ipcPolling = false;
     ipcQueryWatcher.close();
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorMessage = serializeErrorForOutput(err);
 
     // 检测上下文溢出错误
     if (isContextOverflowError(errorMessage)) {
@@ -2593,7 +2594,7 @@ async function main(): Promise<void> {
   } catch (err) {
     writeOutput(
       buildVisibleRuntimeErrorOutput(
-        `Failed to parse input: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to parse input: ${serializeErrorForOutput(err)}`,
       ),
     );
     process.exit(1);
@@ -2992,7 +2993,7 @@ async function main(): Promise<void> {
       containerInput.turnId = generateTurnId();
     }
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorMessage = serializeErrorForOutput(err);
     log(`Agent error: ${errorMessage}`);
     if (err instanceof Error && err.stack) {
       log(`Agent error stack:\n${err.stack}`);
@@ -3082,7 +3083,12 @@ process.on('uncaughtException', (err: unknown) => {
   console.error('Uncaught exception:', err);
   // 尝试输出结构化错误，让主进程能收到错误信息而非仅看到 exit code 1
   try {
-    writeOutput(buildVisibleRuntimeErrorOutput(String(err), latestSessionId));
+    writeOutput(
+      buildVisibleRuntimeErrorOutput(
+        serializeErrorForOutput(err),
+        latestSessionId,
+      ),
+    );
   } catch {
     /* ignore */
   }
@@ -3100,7 +3106,12 @@ process.on('unhandledRejection', (reason: unknown) => {
   }
   console.error('Unhandled rejection:', reason);
   try {
-    writeOutput(buildVisibleRuntimeErrorOutput(String(reason), latestSessionId));
+    writeOutput(
+      buildVisibleRuntimeErrorOutput(
+        serializeErrorForOutput(reason),
+        latestSessionId,
+      ),
+    );
   } catch {
     /* ignore */
   }
@@ -3109,7 +3120,12 @@ process.on('unhandledRejection', (reason: unknown) => {
 main().catch((err) => {
   console.error('Fatal error in main():', err);
   try {
-    writeOutput(buildVisibleRuntimeErrorOutput(String(err), latestSessionId));
+    writeOutput(
+      buildVisibleRuntimeErrorOutput(
+        serializeErrorForOutput(err),
+        latestSessionId,
+      ),
+    );
   } catch {
     /* ignore */
   }
