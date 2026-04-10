@@ -211,4 +211,52 @@ describe('usage command', () => {
     expect(reply).toContain('原因: Claude usage fetch failed: unknown error');
     expect(reply).toContain('数据源: Claude OAuth API');
   });
+
+  test('Claude helper proxy error with throwing message getter degrades safely', async () => {
+    const codexHome = mkdtempSync(
+      join(tmpdir(), 'codex-home-claude-proxy-message-throw-'),
+    );
+    writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 10, window_minutes: 300, resets_at: 1775790000 },
+            secondary: { used_percent: 15, window_minutes: 10080, resets_at: 1776390000 },
+          },
+        },
+      },
+    ]);
+
+    const proxies: ProxyHandler<Error> = {
+      get(target, prop, receiver) {
+        if (prop === 'message') {
+          throw new Error('proxy boom');
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+      getOwnPropertyDescriptor(target, prop) {
+        if (prop === 'message') {
+          throw new Error('descriptor boom');
+        }
+        return Reflect.getOwnPropertyDescriptor(target, prop);
+      },
+    };
+
+    const proxiedError = new Proxy(new Error('hidden'), proxies) as Error;
+
+    expect(proxiedError instanceof Error).toBe(true);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockRejectedValue(proxiedError),
+    });
+
+    expect(reply).toContain('Claude');
+    expect(reply).toContain('5h 剩余: unavailable');
+    expect(reply).toContain('原因: Claude usage fetch failed: unknown error');
+    expect(reply).toContain('数据源: Claude OAuth API');
+  });
 });
