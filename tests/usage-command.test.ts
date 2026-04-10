@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -66,6 +66,59 @@ describe('usage command', () => {
     expect(reply).toContain('Claude');
     expect(reply).toContain('原因: 未启用 Claude OAuth provider');
     expectUnavailableResetLines(reply);
+  });
+
+  test('selects newest snapshot by timestamp even when a newer-touched file contains older data', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-mtime-vs-ts-'));
+
+    const newerMtimeOlderSnapshot = 'sessions/2026/04/10/newer-mtime.jsonl';
+    const olderMtimeNewerSnapshot = 'sessions/2026/04/10/older-mtime.jsonl';
+
+    writeCodexSession(codexHome, newerMtimeOlderSnapshot, [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 90, window_minutes: 300, resets_at: 1775790000 },
+            secondary: { used_percent: 80, window_minutes: 10080, resets_at: 1776390000 },
+          },
+        },
+      },
+    ]);
+    writeCodexSession(codexHome, olderMtimeNewerSnapshot, [
+      {
+        timestamp: '2026-04-10T09:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 45, window_minutes: 300, resets_at: 1775793600 },
+            secondary: { used_percent: 12, window_minutes: 10080, resets_at: 1776393600 },
+          },
+        },
+      },
+    ]);
+
+    const nowish = new Date('2026-04-10T12:00:00.000Z');
+    const earlier = new Date('2026-04-10T11:00:00.000Z');
+    utimesSync(join(codexHome, newerMtimeOlderSnapshot), nowish, nowish);
+    utimesSync(join(codexHome, olderMtimeNewerSnapshot), earlier, earlier);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: false,
+        reason: '未启用 Claude OAuth provider',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    expect(reply).toContain('Codex');
+    expect(reply).toContain('5h 剩余: 55%');
+    expect(reply).toContain('7d 剩余: 88%');
   });
 
   test('returns codex unavailable when no usable token_count snapshot exists', async () => {

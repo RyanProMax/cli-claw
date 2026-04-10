@@ -140,6 +140,20 @@ function formatResetTime(value: unknown): string | undefined {
   return formatLocalTimestamp(timestampMs);
 }
 
+function parseSnapshotTimestampMs(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'string') {
+    if (value.trim().length === 0) {
+      return undefined;
+    }
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+  return undefined;
+}
+
 function readLatestCodexUsage(codexHome: string): UsageProviderResult {
   const sessionRoot = join(codexHome, 'sessions');
   const files = collectJsonlFiles(sessionRoot);
@@ -155,6 +169,12 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
   const filesWithTime = files
     .map((file) => ({ file, mtime: statSync(file).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime);
+
+  let best:
+    | (UsageProviderResult & {
+        snapshotTimestampMs: number;
+      })
+    | undefined;
 
   for (const { file } of filesWithTime) {
     const content = readFileSync(file, 'utf-8');
@@ -180,27 +200,40 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
         ) {
           continue;
         }
-        const timestampRaw = parsed?.timestamp;
-        let timestamp = Number.NaN;
-        if (typeof timestampRaw === 'number') {
-          timestamp = timestampRaw;
-        } else if (typeof timestampRaw === 'string') {
-          timestamp = Date.parse(timestampRaw);
+        const snapshotTimestampMs = parseSnapshotTimestampMs(parsed?.timestamp);
+        if (snapshotTimestampMs === undefined) continue;
+
+        const candidate: UsageProviderResult & { snapshotTimestampMs: number } =
+          {
+            provider: 'codex',
+            available: true,
+            source: 'local ~/.codex/sessions',
+            snapshotTimestampMs,
+            primaryRemainingPct: Math.max(0, 100 - primaryUsedPercent),
+            secondaryRemainingPct: Math.max(0, 100 - secondaryUsedPercent),
+            primaryResetAt: formatResetTime(rateLimits.primary.resets_at),
+            secondaryResetAt: formatResetTime(rateLimits.secondary.resets_at),
+          };
+
+        if (
+          best === undefined ||
+          candidate.snapshotTimestampMs > best.snapshotTimestampMs
+        ) {
+          best = candidate;
         }
-        if (Number.isNaN(timestamp)) continue;
-        return {
-          provider: 'codex',
-          available: true,
-          source: 'local ~/.codex/sessions',
-          primaryRemainingPct: Math.max(0, 100 - primaryUsedPercent),
-          secondaryRemainingPct: Math.max(0, 100 - secondaryUsedPercent),
-          primaryResetAt: formatResetTime(rateLimits.primary.resets_at),
-          secondaryResetAt: formatResetTime(rateLimits.secondary.resets_at),
-        };
+
+        // Latest usable snapshot within this file is found; no need to scan earlier lines.
+        break;
       } catch {
         continue;
       }
     }
+  }
+
+  if (best) {
+    // Strip internal scan metadata.
+    const { snapshotTimestampMs: _snapshotTimestampMs, ...rest } = best;
+    return rest;
   }
 
   return {
