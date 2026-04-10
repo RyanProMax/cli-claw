@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 interface UsageProviderResult {
   provider: 'codex' | 'claude';
@@ -246,10 +246,11 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
 
 function getHomeDirectory(): string | undefined {
   const override = process.env[HOME_OVERRIDE_ENV];
-  if (override !== undefined) {
-    return override;
+  const candidate = override !== undefined ? override.trim() : homedir().trim();
+  if (!candidate) {
+    return undefined;
   }
-  return homedir();
+  return isAbsolute(candidate) ? candidate : undefined;
 }
 
 function resolveCodexHome(options: ExecuteUsageCommandOptions): string | undefined {

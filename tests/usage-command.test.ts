@@ -157,6 +157,23 @@ describe('usage command', () => {
     expect(reply).toContain('数据源: Codex home resolution');
   });
 
+  test('rejects relative home overrides when resolving codex home', async () => {
+    process.env.CLI_CLAW_HOME_OVERRIDE = '.';
+    const reply = await executeUsageCommand({
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: false,
+        reason: '未启用 Claude OAuth provider',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    expect(reply).toContain('Codex');
+    expect(reply).toContain('5h 剩余: unavailable');
+    expect(reply).toContain('原因: 无法解析 Codex home 目录');
+    expect(reply).toContain('数据源: Codex home resolution');
+  });
+
   test('ignores newer malformed codex snapshots so oldest valid data wins', async () => {
     const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-invalid-'));
     writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
