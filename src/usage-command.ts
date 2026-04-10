@@ -232,6 +232,8 @@ function formatUsageSection(result: UsageProviderResult): string {
       result.provider === 'codex' ? 'Codex' : 'Claude',
       `- 5h 剩余: unavailable`,
       `- 7d 剩余: unavailable`,
+      `- 5h 重置时间: ${RESET_PLACEHOLDER}`,
+      `- 7d 重置时间: ${RESET_PLACEHOLDER}`,
       `- 原因: ${result.reason ?? 'unknown'}`,
       `- 数据源: ${result.source}`,
     ].join('\n');

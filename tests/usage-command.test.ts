@@ -11,6 +11,11 @@ function writeCodexSession(root: string, rel: string, lines: unknown[]) {
   writeFileSync(full, lines.map((line) => JSON.stringify(line)).join('\n'));
 }
 
+function expectUnavailableResetLines(reply: string) {
+  expect(reply).toContain('- 5h 重置时间: unknown');
+  expect(reply).toContain('- 7d 重置时间: unknown');
+}
+
 describe('usage command', () => {
   test('uses the newest codex token_count rate-limit snapshot and keeps Claude unavailable non-fatal', async () => {
     const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-'));
@@ -60,6 +65,7 @@ describe('usage command', () => {
     expect(reply).toContain('数据源: local ~/.codex/sessions');
     expect(reply).toContain('Claude');
     expect(reply).toContain('原因: 未启用 Claude OAuth provider');
+    expectUnavailableResetLines(reply);
   });
 
   test('returns codex unavailable when no usable token_count snapshot exists', async () => {
@@ -78,6 +84,7 @@ describe('usage command', () => {
     expect(reply).toContain('Codex');
     expect(reply).toContain('5h 剩余: unavailable');
     expect(reply).toContain('原因: 未找到 Codex usage snapshot');
+    expectUnavailableResetLines(reply);
   });
 
   test('ignores newer malformed codex snapshots so oldest valid data wins', async () => {
@@ -197,6 +204,7 @@ describe('usage command', () => {
     expect(reply).toContain('5h 剩余: unavailable');
     expect(reply).toContain('原因: Claude usage fetch failed: timeout');
     expect(reply).toContain('数据源: Claude OAuth API');
+    expectUnavailableResetLines(reply);
   });
 
   test('Claude helper synchronous throw degrades to unavailable instead of failing', async () => {
@@ -226,6 +234,7 @@ describe('usage command', () => {
     expect(reply).toContain('5h 剩余: unavailable');
     expect(reply).toContain('原因: Claude usage fetch failed: sync failure');
     expect(reply).toContain('数据源: Claude OAuth API');
+    expectUnavailableResetLines(reply);
   });
 
   test('degrades gracefully when Claude error message getter throws', async () => {
@@ -259,6 +268,7 @@ describe('usage command', () => {
     expect(reply).toContain('5h 剩余: unavailable');
     expect(reply).toContain('原因: Claude usage fetch failed: unknown error');
     expect(reply).toContain('数据源: Claude OAuth API');
+    expectUnavailableResetLines(reply);
   });
 
   test('Claude helper proxy error with throwing message getter degrades safely', async () => {
@@ -307,5 +317,6 @@ describe('usage command', () => {
     expect(reply).toContain('5h 剩余: unavailable');
     expect(reply).toContain('原因: Claude usage fetch failed: unknown error');
     expect(reply).toContain('数据源: Claude OAuth API');
+    expectUnavailableResetLines(reply);
   });
 });
