@@ -178,4 +178,37 @@ describe('usage command', () => {
     expect(reply).toContain('原因: Claude usage fetch failed: sync failure');
     expect(reply).toContain('数据源: Claude OAuth API');
   });
+
+  test('degrades gracefully when Claude error message getter throws', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-claude-throw-message-'));
+    writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 10, window_minutes: 300, resets_at: 1775790000 },
+            secondary: { used_percent: 15, window_minutes: 10080, resets_at: 1776390000 },
+          },
+        },
+      },
+    ]);
+
+    const failingMessage = {
+      get message() {
+        throw new Error('boom');
+      },
+    };
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockRejectedValue(failingMessage),
+    });
+
+    expect(reply).toContain('Claude');
+    expect(reply).toContain('5h 剩余: unavailable');
+    expect(reply).toContain('原因: Claude usage fetch failed: unknown error');
+    expect(reply).toContain('数据源: Claude OAuth API');
+  });
 });

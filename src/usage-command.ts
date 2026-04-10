@@ -17,6 +17,27 @@ interface ExecuteUsageCommandOptions {
   getClaudeUsage: () => Promise<UsageProviderResult>;
 }
 
+const UNKNOWN_ERROR_MESSAGE = 'unknown error';
+
+function messageFromObject(error: object): string | undefined {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(error, 'message');
+    if (descriptor && 'value' in descriptor) {
+      const value = descriptor.value;
+      if (typeof value === 'string' && value.length > 0) {
+        return value;
+      }
+    }
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string' && maybeMessage.length > 0) {
+      return maybeMessage;
+    }
+  } catch {
+    // getter threw; fall back to generic reason
+  }
+  return undefined;
+}
+
 function stringifyErrorMessage(error: unknown): string {
   if (typeof error === 'string') {
     return error;
@@ -25,15 +46,24 @@ function stringifyErrorMessage(error: unknown): string {
     return error.message;
   }
   if (typeof error === 'object' && error !== null) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === 'string' && message.length > 0) {
+    const message = messageFromObject(error);
+    if (message) {
       return message;
     }
+    return UNKNOWN_ERROR_MESSAGE;
   }
   if (error === undefined || error === null) {
-    return 'unknown error';
+    return UNKNOWN_ERROR_MESSAGE;
   }
-  return String(error);
+  try {
+    const coerced = String(error);
+    if (coerced.length > 0) {
+      return coerced;
+    }
+  } catch {
+    // fall through to fallback
+  }
+  return UNKNOWN_ERROR_MESSAGE;
 }
 
 function collectJsonlFiles(root: string): string[] {
