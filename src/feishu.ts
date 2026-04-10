@@ -1269,6 +1269,7 @@ export function createFeishuConnection(
 
   function extractCardActionValue(data: any): string | null {
     const candidates = [
+      data?.action?.option,
       data?.action?.option?.value,
       data?.action?.value?.selected_value,
       data?.action?.value?.selectedValue,
