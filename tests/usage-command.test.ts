@@ -103,7 +103,11 @@ describe('usage command', () => {
           type: 'token_count',
           rate_limits: {
             primary: { used_percent: 5, window_minutes: 300, resets_at: 1775797200 },
-            secondary: null,
+            secondary: {
+              used_percent: 'oops',
+              window_minutes: 10080,
+              resets_at: 1776397200,
+            },
           },
         },
       },
@@ -121,6 +125,51 @@ describe('usage command', () => {
 
     expect(reply).toContain('5h 剩余: 57%');
     expect(reply).toContain('7d 剩余: 80%');
+  });
+
+  test('reset-time output is compact local format with placeholders when missing', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-reset-format-'));
+    writeCodexSession(codexHome, 'sessions/2026/04/10/reset.jsonl', [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: {
+              used_percent: 25,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 30,
+              window_minutes: 10080,
+              resets_at: null,
+            },
+          },
+        },
+      },
+    ]);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: false,
+        reason: '未启用 Claude OAuth provider',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    const primaryMatch = reply.match(/- 5h 重置时间: (.+)$/m);
+    expect(primaryMatch).not.toBeNull();
+    const primaryValue = primaryMatch![1];
+    expect(primaryValue).not.toContain('Z');
+    expect(primaryValue).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+
+    const secondaryMatch = reply.match(/- 7d 重置时间: (.+)$/m);
+    expect(secondaryMatch).not.toBeNull();
+    expect(secondaryMatch![1]).toBe('unknown');
   });
 
   test('Claude helper rejection degrades to unavailable instead of failing', async () => {

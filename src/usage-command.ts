@@ -18,6 +18,7 @@ interface ExecuteUsageCommandOptions {
 }
 
 const UNKNOWN_ERROR_MESSAGE = 'unknown error';
+const RESET_PLACEHOLDER = 'unknown';
 
 function messageFromObject(error: object): string | undefined {
   try {
@@ -80,24 +81,61 @@ function collectJsonlFiles(root: string): string[] {
   return out;
 }
 
-function parseResetTime(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === 'string') {
-    if (!Number.isNaN(Date.parse(value))) {
-      return value;
-    }
-    const num = Number(value);
-    if (!Number.isNaN(num)) {
-      return new Date(num * 1000).toISOString();
-    }
-    return value;
-  }
-
+function parseUsagePercent(value: unknown): number | undefined {
   if (typeof value === 'number') {
-    return new Date(value * 1000).toISOString();
+    return Number.isFinite(value) ? value : undefined;
   }
+  if (typeof value === 'string') {
+    if (value.trim().length === 0) {
+      return undefined;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
 
-  return String(value);
+function normalizeTimestampValue(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value * 1000 : undefined;
+  }
+  if (typeof value === 'string') {
+    if (value.trim().length === 0) {
+      return undefined;
+    }
+    const parsedIso = Date.parse(value);
+    if (!Number.isNaN(parsedIso)) {
+      return parsedIso;
+    }
+    const asNumber = Number(value);
+    if (!Number.isNaN(asNumber)) {
+      return asNumber * 1000;
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+function formatLocalTimestamp(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  const pad = (num: number) => String(num).padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function formatResetTime(value: unknown): string | undefined {
+  const timestampMs = normalizeTimestampValue(value);
+  if (timestampMs === undefined) {
+    return undefined;
+  }
+  return formatLocalTimestamp(timestampMs);
 }
 
 function readLatestCodexUsage(codexHome: string): UsageProviderResult {
@@ -117,6 +155,8 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
     | {
         primary: Record<string, unknown>;
         secondary: Record<string, unknown>;
+        primaryUsedPercent: number;
+        secondaryUsedPercent: number;
         timestamp: number;
       }
     | null = null;
@@ -131,6 +171,15 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
         if (!payload || payload.type !== 'token_count') continue;
         const rateLimits = payload.rate_limits;
         if (!rateLimits?.primary || !rateLimits?.secondary) continue;
+        const primaryUsedPercent = parseUsagePercent(
+          rateLimits.primary.used_percent,
+        );
+        const secondaryUsedPercent = parseUsagePercent(
+          rateLimits.secondary.used_percent,
+        );
+        if (primaryUsedPercent === undefined || secondaryUsedPercent === undefined) {
+          continue;
+        }
         const timestampRaw = parsed?.timestamp;
         let timestamp = Number.NaN;
         if (typeof timestampRaw === 'number') {
@@ -144,6 +193,8 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
           latestPayload = {
             primary: rateLimits.primary,
             secondary: rateLimits.secondary,
+            primaryUsedPercent,
+            secondaryUsedPercent,
             timestamp,
           };
         }
@@ -162,16 +213,16 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
     };
   }
 
-  const primaryUsed = Number(latestPayload.primary.used_percent ?? 0);
-  const secondaryUsed = Number(latestPayload.secondary.used_percent ?? 0);
+  const primaryUsed = latestPayload.primaryUsedPercent;
+  const secondaryUsed = latestPayload.secondaryUsedPercent;
   return {
     provider: 'codex',
     available: true,
     source: 'local ~/.codex/sessions',
     primaryRemainingPct: Math.max(0, 100 - primaryUsed),
     secondaryRemainingPct: Math.max(0, 100 - secondaryUsed),
-    primaryResetAt: parseResetTime(latestPayload.primary.resets_at),
-    secondaryResetAt: parseResetTime(latestPayload.secondary.resets_at),
+    primaryResetAt: formatResetTime(latestPayload.primary.resets_at),
+    secondaryResetAt: formatResetTime(latestPayload.secondary.resets_at),
   };
 }
 
@@ -192,14 +243,10 @@ function formatUsageSection(result: UsageProviderResult): string {
     result.provider === 'codex' ? 'Codex' : 'Claude',
     `- 5h 剩余: ${primaryPct}%`,
     `- 7d 剩余: ${secondaryPct}%`,
+    `- 5h 重置时间: ${result.primaryResetAt ?? RESET_PLACEHOLDER}`,
+    `- 7d 重置时间: ${result.secondaryResetAt ?? RESET_PLACEHOLDER}`,
+    `- 数据源: ${result.source}`,
   ];
-  if (result.primaryResetAt) {
-    lines.push(`- 5h 重置时间: ${result.primaryResetAt}`);
-  }
-  if (result.secondaryResetAt) {
-    lines.push(`- 7d 重置时间: ${result.secondaryResetAt}`);
-  }
-  lines.push(`- 数据源: ${result.source}`);
   return lines.join('\n');
 }
 
