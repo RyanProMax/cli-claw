@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { executeUsageCommand } from '../src/usage-command.ts';
 
@@ -87,6 +87,23 @@ describe('usage command', () => {
     expectUnavailableResetLines(reply);
   });
 
+  test('reports codex unavailable when home resolution fails', async () => {
+    process.env.CLI_CLAW_HOME_OVERRIDE = '';
+    const reply = await executeUsageCommand({
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: false,
+        reason: '未启用 Claude OAuth provider',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    expect(reply).toContain('Codex');
+    expect(reply).toContain('5h 剩余: unavailable');
+    expect(reply).toContain('原因: 无法解析 Codex home 目录');
+    expect(reply).toContain('数据源: Codex home resolution');
+  });
+
   test('ignores newer malformed codex snapshots so oldest valid data wins', async () => {
     const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-invalid-'));
     writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
@@ -132,6 +149,45 @@ describe('usage command', () => {
 
     expect(reply).toContain('5h 剩余: 57%');
     expect(reply).toContain('7d 剩余: 80%');
+  });
+
+  test('available providers with missing percentages render unknown instead of 0%', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-missing-pct-'));
+    writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: {
+              used_percent: 25,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 30,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
+          },
+        },
+      },
+    ]);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: true,
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    expect(reply).toContain('Codex');
+    expect(reply).toContain('Claude');
+    expect(reply).toContain('- 5h 剩余: unknown');
+    expect(reply).toContain('- 7d 剩余: unknown');
   });
 
   test('reset-time output is compact local format with placeholders when missing', async () => {
@@ -318,5 +374,10 @@ describe('usage command', () => {
     expect(reply).toContain('原因: Claude usage fetch failed: unknown error');
     expect(reply).toContain('数据源: Claude OAuth API');
     expectUnavailableResetLines(reply);
+  });
+
+  afterEach(() => {
+    delete process.env.CLI_CLAW_HOME_OVERRIDE;
+    vi.restoreAllMocks();
   });
 });

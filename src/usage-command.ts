@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 interface UsageProviderResult {
@@ -19,6 +20,7 @@ interface ExecuteUsageCommandOptions {
 
 const UNKNOWN_ERROR_MESSAGE = 'unknown error';
 const RESET_PLACEHOLDER = 'unknown';
+const HOME_OVERRIDE_ENV = 'CLI_CLAW_HOME_OVERRIDE';
 
 function messageFromObject(error: object): string | undefined {
   try {
@@ -150,20 +152,15 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
     };
   }
 
-  let latestTimestamp = 0;
-  let latestPayload:
-    | {
-        primary: Record<string, unknown>;
-        secondary: Record<string, unknown>;
-        primaryUsedPercent: number;
-        secondaryUsedPercent: number;
-        timestamp: number;
-      }
-    | null = null;
+  const filesWithTime = files
+    .map((file) => ({ file, mtime: statSync(file).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
 
-  for (const file of files.sort()) {
+  for (const { file } of filesWithTime) {
     const content = readFileSync(file, 'utf-8');
-    for (const raw of content.split('\n')) {
+    const lines = content.split('\n');
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const raw = lines[i];
       if (!raw.trim()) continue;
       try {
         const parsed = JSON.parse(raw);
@@ -177,7 +174,10 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
         const secondaryUsedPercent = parseUsagePercent(
           rateLimits.secondary.used_percent,
         );
-        if (primaryUsedPercent === undefined || secondaryUsedPercent === undefined) {
+        if (
+          primaryUsedPercent === undefined ||
+          secondaryUsedPercent === undefined
+        ) {
           continue;
         }
         const timestampRaw = parsed?.timestamp;
@@ -188,42 +188,46 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
           timestamp = Date.parse(timestampRaw);
         }
         if (Number.isNaN(timestamp)) continue;
-        if (timestamp > latestTimestamp) {
-          latestTimestamp = timestamp;
-          latestPayload = {
-            primary: rateLimits.primary,
-            secondary: rateLimits.secondary,
-            primaryUsedPercent,
-            secondaryUsedPercent,
-            timestamp,
-          };
-        }
+        return {
+          provider: 'codex',
+          available: true,
+          source: 'local ~/.codex/sessions',
+          primaryRemainingPct: Math.max(0, 100 - primaryUsedPercent),
+          secondaryRemainingPct: Math.max(0, 100 - secondaryUsedPercent),
+          primaryResetAt: formatResetTime(rateLimits.primary.resets_at),
+          secondaryResetAt: formatResetTime(rateLimits.secondary.resets_at),
+        };
       } catch {
         continue;
       }
     }
   }
 
-  if (!latestPayload) {
-    return {
-      provider: 'codex',
-      available: false,
-      source: 'local ~/.codex/sessions',
-      reason: '未找到 Codex usage snapshot',
-    };
-  }
-
-  const primaryUsed = latestPayload.primaryUsedPercent;
-  const secondaryUsed = latestPayload.secondaryUsedPercent;
   return {
     provider: 'codex',
-    available: true,
+    available: false,
     source: 'local ~/.codex/sessions',
-    primaryRemainingPct: Math.max(0, 100 - primaryUsed),
-    secondaryRemainingPct: Math.max(0, 100 - secondaryUsed),
-    primaryResetAt: formatResetTime(latestPayload.primary.resets_at),
-    secondaryResetAt: formatResetTime(latestPayload.secondary.resets_at),
+    reason: '未找到 Codex usage snapshot',
   };
+}
+
+function getHomeDirectory(): string | undefined {
+  const override = process.env[HOME_OVERRIDE_ENV];
+  if (override !== undefined) {
+    return override;
+  }
+  return homedir();
+}
+
+function resolveCodexHome(options: ExecuteUsageCommandOptions): string | undefined {
+  if (options.codexHome) {
+    return options.codexHome;
+  }
+  const homeDir = getHomeDirectory();
+  if (!homeDir) {
+    return undefined;
+  }
+  return join(homeDir, '.codex');
 }
 
 function formatUsageSection(result: UsageProviderResult): string {
@@ -239,12 +243,14 @@ function formatUsageSection(result: UsageProviderResult): string {
     ].join('\n');
   }
 
-  const primaryPct = result.primaryRemainingPct ?? 0;
-  const secondaryPct = result.secondaryRemainingPct ?? 0;
+  const formatRemaining = (value: number | undefined): string =>
+    value === undefined ? 'unknown' : `${value}%`;
+  const primaryPct = formatRemaining(result.primaryRemainingPct);
+  const secondaryPct = formatRemaining(result.secondaryRemainingPct);
   const lines = [
     result.provider === 'codex' ? 'Codex' : 'Claude',
-    `- 5h 剩余: ${primaryPct}%`,
-    `- 7d 剩余: ${secondaryPct}%`,
+    `- 5h 剩余: ${primaryPct}`,
+    `- 7d 剩余: ${secondaryPct}`,
     `- 5h 重置时间: ${result.primaryResetAt ?? RESET_PLACEHOLDER}`,
     `- 7d 重置时间: ${result.secondaryResetAt ?? RESET_PLACEHOLDER}`,
     `- 数据源: ${result.source}`,
@@ -255,9 +261,18 @@ function formatUsageSection(result: UsageProviderResult): string {
 export async function executeUsageCommand(
   options: ExecuteUsageCommandOptions,
 ): Promise<string> {
-  const codexHome =
-    options.codexHome ?? join(process.env.HOME ?? '', '.codex');
-  const codex = readLatestCodexUsage(codexHome);
+  const codexHome = resolveCodexHome(options);
+  let codex: UsageProviderResult;
+  if (!codexHome) {
+    codex = {
+      provider: 'codex',
+      available: false,
+      source: 'Codex home resolution',
+      reason: '无法解析 Codex home 目录',
+    };
+  } else {
+    codex = readLatestCodexUsage(codexHome);
+  }
   let claude: UsageProviderResult;
   try {
     claude = await options.getClaudeUsage();
