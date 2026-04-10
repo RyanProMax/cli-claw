@@ -55,6 +55,8 @@ describe('usage command', () => {
     expect(reply).toContain('Codex');
     expect(reply).toContain('5h 剩余: 73%');
     expect(reply).toContain('7d 剩余: 61%');
+    expect(reply).toContain('- 5h 重置时间:');
+    expect(reply).toContain('- 7d 重置时间:');
     expect(reply).toContain('数据源: local ~/.codex/sessions');
     expect(reply).toContain('Claude');
     expect(reply).toContain('原因: 未启用 Claude OAuth provider');
@@ -76,5 +78,75 @@ describe('usage command', () => {
     expect(reply).toContain('Codex');
     expect(reply).toContain('5h 剩余: unavailable');
     expect(reply).toContain('原因: 未找到 Codex usage snapshot');
+  });
+
+  test('ignores newer malformed codex snapshots so oldest valid data wins', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-invalid-'));
+    writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 43, window_minutes: 300, resets_at: 1775790000 },
+            secondary: { used_percent: 20, window_minutes: 10080, resets_at: 1776390000 },
+          },
+        },
+      },
+    ]);
+    writeCodexSession(codexHome, 'sessions/2026/04/10/newer-invalid.jsonl', [
+      {
+        timestamp: '2026-04-10T10:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 5, window_minutes: 300, resets_at: 1775797200 },
+            secondary: null,
+          },
+        },
+      },
+    ]);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: false,
+        reason: '未启用 Claude OAuth provider',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    expect(reply).toContain('5h 剩余: 57%');
+    expect(reply).toContain('7d 剩余: 80%');
+  });
+
+  test('Claude helper rejection degrades to unavailable instead of failing', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-claude-error-'));
+    writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 10, window_minutes: 300, resets_at: 1775790000 },
+            secondary: { used_percent: 15, window_minutes: 10080, resets_at: 1776390000 },
+          },
+        },
+      },
+    ]);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockRejectedValue(new Error('timeout')),
+    });
+
+    expect(reply).toContain('Claude');
+    expect(reply).toContain('5h 剩余: unavailable');
+    expect(reply).toContain('原因: Claude usage fetch failed: timeout');
+    expect(reply).toContain('数据源: Claude OAuth API');
   });
 });

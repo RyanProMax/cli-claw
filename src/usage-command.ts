@@ -17,6 +17,25 @@ interface ExecuteUsageCommandOptions {
   getClaudeUsage: () => Promise<UsageProviderResult>;
 }
 
+function stringifyErrorMessage(error: unknown): string {
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'object' && error !== null) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.length > 0) {
+      return message;
+    }
+  }
+  if (error === undefined || error === null) {
+    return 'unknown error';
+  }
+  return String(error);
+}
+
 function collectJsonlFiles(root: string): string[] {
   if (!existsSync(root)) return [];
   const out: string[] = [];
@@ -148,7 +167,10 @@ function formatUsageSection(result: UsageProviderResult): string {
     `- 7d 剩余: ${secondaryPct}%`,
   ];
   if (result.primaryResetAt) {
-    lines.push(`- 重置时间: ${result.primaryResetAt}`);
+    lines.push(`- 5h 重置时间: ${result.primaryResetAt}`);
+  }
+  if (result.secondaryResetAt) {
+    lines.push(`- 7d 重置时间: ${result.secondaryResetAt}`);
   }
   lines.push(`- 数据源: ${result.source}`);
   return lines.join('\n');
@@ -160,7 +182,17 @@ export async function executeUsageCommand(
   const codexHome =
     options.codexHome ?? join(process.env.HOME ?? '', '.codex');
   const codex = readLatestCodexUsage(codexHome);
-  const claude = await options.getClaudeUsage();
+  let claude: UsageProviderResult;
+  try {
+    claude = await options.getClaudeUsage();
+  } catch (error) {
+    claude = {
+      provider: 'claude',
+      available: false,
+      source: 'Claude OAuth API',
+      reason: `Claude usage fetch failed: ${stringifyErrorMessage(error)}`,
+    };
+  }
   return [
     '📈 用量查询',
     '━━━━━━━━━━',
