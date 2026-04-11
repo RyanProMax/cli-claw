@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { getClaudeUsageSnapshot } from '../src/claude-oauth-usage.ts';
 import { executeUsageCommand } from '../src/usage-command.ts';
 
 function writeCodexSession(root: string, rel: string, lines: unknown[]) {
@@ -712,6 +713,72 @@ describe('usage command', () => {
     expect(reply).toContain('原因: Claude usage fetch failed: unknown error');
     expect(reply).toContain('数据源: Claude OAuth API');
     expectUnavailableResetLines(reply);
+  });
+
+  test('maps enabled Claude OAuth usage into the shared reply shape', async () => {
+    const snapshot = await getClaudeUsageSnapshot({
+      getEnabledProviders: () => [
+        {
+          id: 'provider-1',
+          name: 'Official',
+          type: 'official',
+          enabled: true,
+          weight: 1,
+          anthropicBaseUrl: '',
+          anthropicAuthToken: '',
+          anthropicModel: 'sonnet',
+          anthropicApiKey: '',
+          claudeCodeOauthToken: '',
+          claudeOAuthCredentials: {
+            accessToken: 'token',
+            refreshToken: 'refresh',
+            expiresAt: Date.now() + 60_000,
+            scopes: [],
+          },
+          customEnv: {},
+          updatedAt: '2026-04-10T00:00:00.000Z',
+        },
+      ],
+      fetchOAuthUsage: vi.fn().mockResolvedValue({
+        data: {
+          five_hour: {
+            utilization: 62,
+            resets_at: '2026-04-10T12:00:00.000Z',
+          },
+          seven_day: {
+            utilization: 41,
+            resets_at: '2026-04-14T00:00:00.000Z',
+          },
+          seven_day_opus: null,
+          seven_day_sonnet: null,
+        },
+        fetchedAt: Date.now(),
+      }),
+    });
+
+    expect(snapshot).toEqual({
+      provider: 'claude',
+      available: true,
+      source: 'Claude OAuth API',
+      primaryRemainingPct: 38,
+      secondaryRemainingPct: 59,
+      primaryResetAt: '2026-04-10T12:00:00.000Z',
+      secondaryResetAt: '2026-04-14T00:00:00.000Z',
+    });
+  });
+
+  test('returns unavailable when no enabled Claude OAuth provider exists', async () => {
+    const snapshot = await getClaudeUsageSnapshot({
+      getEnabledProviders: () => [],
+      fetchOAuthUsage: vi.fn(),
+    });
+
+    expect(snapshot).toEqual({
+      provider: 'claude',
+      available: false,
+      reason: '未启用 Claude OAuth provider',
+      source: 'Claude OAuth API',
+    });
   });
 
   afterEach(() => {

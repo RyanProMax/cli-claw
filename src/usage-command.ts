@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 
-interface UsageProviderResult {
+export interface UsageProviderResult {
   provider: 'codex' | 'claude';
   available: boolean;
   source: string;
@@ -13,7 +13,7 @@ interface UsageProviderResult {
   reason?: string;
 }
 
-interface ExecuteUsageCommandOptions {
+export interface ExecuteUsageCommandOptions {
   codexHome?: string;
   getClaudeUsage: () => Promise<UsageProviderResult>;
 }
