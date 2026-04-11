@@ -8,8 +8,8 @@ interface UsageProviderResult {
   source: string;
   primaryRemainingPct?: number;
   secondaryRemainingPct?: number;
-  primaryResetAt?: string;
-  secondaryResetAt?: string;
+  primaryResetAt?: unknown;
+  secondaryResetAt?: unknown;
   reason?: string;
 }
 
@@ -21,6 +21,8 @@ interface ExecuteUsageCommandOptions {
 const UNKNOWN_ERROR_MESSAGE = 'unknown error';
 const RESET_PLACEHOLDER = 'unknown';
 const HOME_OVERRIDE_ENV = 'CLI_CLAW_HOME_OVERRIDE';
+const CODEX_PRIMARY_WINDOW_MINUTES = 300;
+const CODEX_SECONDARY_WINDOW_MINUTES = 10080;
 
 function messageFromObject(error: object): string | undefined {
   try {
@@ -68,6 +70,7 @@ function stringifyErrorMessage(error: unknown): string {
 
 function collectJsonlFiles(root: string): string[] {
   if (!existsSync(root)) return [];
+  if (!statSync(root).isDirectory()) return [];
   const out: string[] = [];
   for (const entry of readdirSync(root)) {
     const full = join(root, entry);
@@ -95,6 +98,30 @@ function parseUsagePercent(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+function parseWindowMinutes(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'string') {
+    if (value.trim().length === 0) {
+      return undefined;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function hasExpectedCodexWindows(
+  primary: Record<string, unknown>,
+  secondary: Record<string, unknown>,
+): boolean {
+  return (
+    parseWindowMinutes(primary.window_minutes) === CODEX_PRIMARY_WINDOW_MINUTES &&
+    parseWindowMinutes(secondary.window_minutes) === CODEX_SECONDARY_WINDOW_MINUTES
+  );
 }
 
 function normalizeTimestampValue(value: unknown): number | undefined {
@@ -188,6 +215,11 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
         if (!payload || payload.type !== 'token_count') continue;
         const rateLimits = payload.rate_limits;
         if (!rateLimits?.primary || !rateLimits?.secondary) continue;
+        if (
+          !hasExpectedCodexWindows(rateLimits.primary, rateLimits.secondary)
+        ) {
+          continue;
+        }
         const primaryUsedPercent = parseUsagePercent(
           rateLimits.primary.used_percent,
         );
@@ -276,14 +308,16 @@ function formatUsageSection(result: UsageProviderResult): string {
 
   const formatRemaining = (value: number | undefined): string =>
     value === undefined ? 'unknown' : `${value}%`;
+  const formatResetDisplay = (value: unknown): string =>
+    formatResetTime(value) ?? RESET_PLACEHOLDER;
   const primaryPct = formatRemaining(result.primaryRemainingPct);
   const secondaryPct = formatRemaining(result.secondaryRemainingPct);
   const lines = [
     result.provider === 'codex' ? 'Codex' : 'Claude',
     `- 5h 剩余: ${primaryPct}`,
     `- 7d 剩余: ${secondaryPct}`,
-    `- 5h 重置时间: ${result.primaryResetAt ?? RESET_PLACEHOLDER}`,
-    `- 7d 重置时间: ${result.secondaryResetAt ?? RESET_PLACEHOLDER}`,
+    `- 5h 重置时间: ${formatResetDisplay(result.primaryResetAt)}`,
+    `- 7d 重置时间: ${formatResetDisplay(result.secondaryResetAt)}`,
     `- 数据源: ${result.source}`,
   ];
   return lines.join('\n');
@@ -302,7 +336,16 @@ export async function executeUsageCommand(
       reason: '无法解析 Codex home 目录',
     };
   } else {
-    codex = readLatestCodexUsage(codexHome);
+    try {
+      codex = readLatestCodexUsage(codexHome);
+    } catch (error) {
+      codex = {
+        provider: 'codex',
+        available: false,
+        source: 'local ~/.codex/sessions',
+        reason: `读取 Codex usage snapshot 失败: ${stringifyErrorMessage(error)}`,
+      };
+    }
   }
   let claude: UsageProviderResult;
   try {

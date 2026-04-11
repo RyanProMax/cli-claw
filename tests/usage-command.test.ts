@@ -183,6 +183,26 @@ describe('usage command', () => {
     expectUnavailableResetLines(reply);
   });
 
+  test('returns codex unavailable when sessions path is not a directory', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-sessions-file-'));
+    writeFileSync(join(codexHome, 'sessions'), 'not a directory');
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: false,
+        reason: '未启用 Claude OAuth provider',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    expect(reply).toContain('Codex');
+    expect(reply).toContain('5h 剩余: unavailable');
+    expect(reply).toContain('原因: 未找到 Codex usage snapshot');
+    expect(reply).toContain('Claude');
+  });
+
   test('reports codex unavailable when home resolution fails', async () => {
     process.env.CLI_CLAW_HOME_OVERRIDE = '';
     const reply = await executeUsageCommand({
@@ -264,6 +284,49 @@ describe('usage command', () => {
     expect(reply).toContain('7d 剩余: 80%');
   });
 
+  test('ignores newer codex snapshots with unexpected rate-limit windows', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-wrong-window-'));
+    writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 43, window_minutes: 300, resets_at: 1775790000 },
+            secondary: { used_percent: 20, window_minutes: 10080, resets_at: 1776390000 },
+          },
+        },
+      },
+    ]);
+    writeCodexSession(codexHome, 'sessions/2026/04/10/wrong-window.jsonl', [
+      {
+        timestamp: '2026-04-10T10:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 1, window_minutes: 60, resets_at: 1775797200 },
+            secondary: { used_percent: 2, window_minutes: 1440, resets_at: 1776397200 },
+          },
+        },
+      },
+    ]);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: false,
+        reason: '未启用 Claude OAuth provider',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    expect(reply).toContain('5h 剩余: 57%');
+    expect(reply).toContain('7d 剩余: 80%');
+  });
+
   test('available providers with missing percentages render unknown instead of 0%', async () => {
     const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-missing-pct-'));
     writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
@@ -301,6 +364,48 @@ describe('usage command', () => {
     expect(reply).toContain('Claude');
     expect(reply).toContain('- 5h 剩余: unknown');
     expect(reply).toContain('- 7d 剩余: unknown');
+  });
+
+  test('available Claude reset fields are normalized into compact local format', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-claude-reset-format-'));
+    writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 25, window_minutes: 300, resets_at: 1775790000 },
+            secondary: { used_percent: 30, window_minutes: 10080, resets_at: 1776390000 },
+          },
+        },
+      },
+    ]);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: true,
+        primaryRemainingPct: 10,
+        secondaryRemainingPct: 20,
+        primaryResetAt: '2026-04-10T09:00:00.000Z',
+        secondaryResetAt: '1776393600',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    const claudeSection = reply.split('\n\n')[1] ?? '';
+    expect(claudeSection).toContain('Claude');
+    expect(claudeSection).toContain('- 5h 剩余: 10%');
+    expect(claudeSection).toContain('- 7d 剩余: 20%');
+    expect(claudeSection).not.toContain('2026-04-10T09:00:00.000Z');
+    expect(claudeSection.match(/- 5h 重置时间: (.+)$/m)?.[1]).toMatch(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/,
+    );
+    expect(claudeSection.match(/- 7d 重置时间: (.+)$/m)?.[1]).toMatch(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/,
+    );
   });
 
   test('reset-time output is compact local format with placeholders when missing', async () => {
