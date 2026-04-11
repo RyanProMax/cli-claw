@@ -26,8 +26,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 61, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 54, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 61,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 54,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -39,8 +47,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 27, window_minutes: 300, resets_at: 1775793600 },
-            secondary: { used_percent: 39, window_minutes: 10080, resets_at: 1776393600 },
+            primary: {
+              used_percent: 27,
+              window_minutes: 300,
+              resets_at: 1775793600,
+            },
+            secondary: {
+              used_percent: 39,
+              window_minutes: 10080,
+              resets_at: 1776393600,
+            },
           },
         },
       },
@@ -81,8 +97,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 90, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 80, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 90,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 80,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -94,8 +118,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 45, window_minutes: 300, resets_at: 1775793600 },
-            secondary: { used_percent: 12, window_minutes: 10080, resets_at: 1776393600 },
+            primary: {
+              used_percent: 45,
+              window_minutes: 300,
+              resets_at: 1775793600,
+            },
+            secondary: {
+              used_percent: 12,
+              window_minutes: 10080,
+              resets_at: 1776393600,
+            },
           },
         },
       },
@@ -131,8 +163,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 45, window_minutes: 300, resets_at: 1775793600 },
-            secondary: { used_percent: 12, window_minutes: 10080, resets_at: 1776393600 },
+            primary: {
+              used_percent: 45,
+              window_minutes: 300,
+              resets_at: 1775793600,
+            },
+            secondary: {
+              used_percent: 12,
+              window_minutes: 10080,
+              resets_at: 1776393600,
+            },
           },
         },
       },
@@ -142,8 +182,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 90, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 80, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 90,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 80,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -246,8 +294,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 43, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 20, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 43,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 20,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -259,7 +315,11 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 5, window_minutes: 300, resets_at: 1775797200 },
+            primary: {
+              used_percent: 5,
+              window_minutes: 300,
+              resets_at: 1775797200,
+            },
             secondary: {
               used_percent: 'oops',
               window_minutes: 10080,
@@ -293,8 +353,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 43, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 20, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 43,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 20,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -306,8 +374,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 1, window_minutes: 60, resets_at: 1775797200 },
-            secondary: { used_percent: 2, window_minutes: 1440, resets_at: 1776397200 },
+            primary: {
+              used_percent: 1,
+              window_minutes: 60,
+              resets_at: 1775797200,
+            },
+            secondary: {
+              used_percent: 2,
+              window_minutes: 1440,
+              resets_at: 1776397200,
+            },
           },
         },
       },
@@ -367,7 +443,9 @@ describe('usage command', () => {
   });
 
   test('available Claude reset fields are normalized into compact local format', async () => {
-    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-claude-reset-format-'));
+    const codexHome = mkdtempSync(
+      join(tmpdir(), 'codex-home-claude-reset-format-'),
+    );
     writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
       {
         timestamp: '2026-04-10T08:00:00.000Z',
@@ -375,8 +453,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 25, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 30, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 25,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 30,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -462,8 +548,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 10, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 15, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 10,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 15,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -490,8 +584,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 10, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 15, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 10,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 15,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -512,7 +614,9 @@ describe('usage command', () => {
   });
 
   test('degrades gracefully when Claude error message getter throws', async () => {
-    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-claude-throw-message-'));
+    const codexHome = mkdtempSync(
+      join(tmpdir(), 'codex-home-claude-throw-message-'),
+    );
     writeCodexSession(codexHome, 'sessions/2026/04/10/valid.jsonl', [
       {
         timestamp: '2026-04-10T08:00:00.000Z',
@@ -520,8 +624,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 10, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 15, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 10,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 15,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },
@@ -556,8 +668,16 @@ describe('usage command', () => {
         payload: {
           type: 'token_count',
           rate_limits: {
-            primary: { used_percent: 10, window_minutes: 300, resets_at: 1775790000 },
-            secondary: { used_percent: 15, window_minutes: 10080, resets_at: 1776390000 },
+            primary: {
+              used_percent: 10,
+              window_minutes: 300,
+              resets_at: 1775790000,
+            },
+            secondary: {
+              used_percent: 15,
+              window_minutes: 10080,
+              resets_at: 1776390000,
+            },
           },
         },
       },

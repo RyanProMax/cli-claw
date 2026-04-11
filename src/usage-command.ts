@@ -119,8 +119,10 @@ function hasExpectedCodexWindows(
   secondary: Record<string, unknown>,
 ): boolean {
   return (
-    parseWindowMinutes(primary.window_minutes) === CODEX_PRIMARY_WINDOW_MINUTES &&
-    parseWindowMinutes(secondary.window_minutes) === CODEX_SECONDARY_WINDOW_MINUTES
+    parseWindowMinutes(primary.window_minutes) ===
+      CODEX_PRIMARY_WINDOW_MINUTES &&
+    parseWindowMinutes(secondary.window_minutes) ===
+      CODEX_SECONDARY_WINDOW_MINUTES
   );
 }
 
@@ -282,7 +284,9 @@ function getHomeDirectory(): string | undefined {
   return isAbsolute(candidate) ? candidate : undefined;
 }
 
-function resolveCodexHome(options: ExecuteUsageCommandOptions): string | undefined {
+function resolveCodexHome(
+  options: ExecuteUsageCommandOptions,
+): string | undefined {
   if (options.codexHome) {
     return options.codexHome;
   }
