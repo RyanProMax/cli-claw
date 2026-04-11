@@ -15,17 +15,14 @@ const USAGE_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
 const usageCache = new Map<string, CachedOAuthUsage>();
 const inFlightUsageRequests = new Map<string, Promise<CachedOAuthUsage>>();
 
-const cleanupInterval = setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, entry] of usageCache) {
-      if (now - entry.fetchedAt >= USAGE_CACHE_TTL_MS) {
-        usageCache.delete(key);
-      }
+const cleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of usageCache) {
+    if (now - entry.fetchedAt >= USAGE_CACHE_TTL_MS) {
+      usageCache.delete(key);
     }
-  },
-  5 * 60_000,
-);
+  }
+}, 5 * 60_000);
 cleanupInterval.unref?.();
 
 export async function fetchOAuthUsage(

@@ -73,9 +73,7 @@ import {
   saveUserDingTalkConfig,
   updateAllSessionCredentials,
 } from '../runtime-config.js';
-import type {
-  ClaudeOAuthCredentials,
-} from '../runtime-config.js';
+import type { ClaudeOAuthCredentials } from '../runtime-config.js';
 import { fetchOAuthUsage } from '../claude-oauth-usage.js';
 import type { AuthUser, RegisteredGroup } from '../types.js';
 import { hasPermission } from '../permissions.js';
