@@ -211,6 +211,8 @@ import {
 import { verifyPairingCode } from './telegram-pairing.js';
 import { sdkQuery } from './sdk-query.js';
 import { executeSessionReset } from './commands.js';
+import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
+import { executeUsageCommand } from './usage-command.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const execFileAsync = promisify(execFile);
@@ -1119,6 +1121,10 @@ async function handleCommand(
       return handleListCommand(chatJid);
     case 'status':
       return handleStatusCommand(chatJid);
+    case 'usage':
+      return executeUsageCommand({
+        getClaudeUsage: () => getClaudeUsageSnapshot(),
+      });
     case 'recall':
     case 'rc':
       return handleRecallCommand(chatJid);

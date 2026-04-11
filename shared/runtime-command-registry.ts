@@ -81,6 +81,13 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
+    name: 'usage',
+    usage: '/usage',
+    description: '查看 Codex 和 Claude 的 5h / 7d 用量余额',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
     name: 'recall',
     aliases: ['rc'],
     usage: '/recall',

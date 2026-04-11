@@ -47,6 +47,25 @@ describe('runtime command registry', () => {
     expect(help).not.toContain('/effort <low|medium|high|xhigh>');
   });
 
+  test('shows /usage in IM help, hides it from Web help, and parses it as a local command', () => {
+    const imHelp = formatCommandHelp({
+      entrypoint: 'im',
+      agentType: 'codex',
+    });
+    const webHelp = formatCommandHelp({
+      entrypoint: 'web',
+      agentType: 'codex',
+    });
+
+    expect(imHelp).toContain('/usage');
+    expect(webHelp).not.toContain('/usage');
+    expect(parseRuntimeCommand('/usage')).toMatchObject({
+      name: 'usage',
+      argsText: '',
+      args: [],
+    });
+  });
+
   test('normalizes preset-only model selections', () => {
     expect(normalizeModelPreset('claude', ' SONNET ')).toBe('sonnet');
     expect(normalizeModelPreset('codex', 'GPT-5.4')).toBe('gpt-5.4');
