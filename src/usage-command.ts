@@ -221,9 +221,6 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
         ) {
           best = candidate;
         }
-
-        // Latest usable snapshot within this file is found; no need to scan earlier lines.
-        break;
       } catch {
         continue;
       }

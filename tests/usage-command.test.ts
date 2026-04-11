@@ -121,6 +121,49 @@ describe('usage command', () => {
     expect(reply).toContain('7d 剩余: 88%');
   });
 
+  test('selects newest snapshot by timestamp within the same file', async () => {
+    const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-same-file-ts-'));
+
+    writeCodexSession(codexHome, 'sessions/2026/04/10/mixed.jsonl', [
+      {
+        timestamp: '2026-04-10T09:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 45, window_minutes: 300, resets_at: 1775793600 },
+            secondary: { used_percent: 12, window_minutes: 10080, resets_at: 1776393600 },
+          },
+        },
+      },
+      {
+        timestamp: '2026-04-10T08:00:00.000Z',
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          rate_limits: {
+            primary: { used_percent: 90, window_minutes: 300, resets_at: 1775790000 },
+            secondary: { used_percent: 80, window_minutes: 10080, resets_at: 1776390000 },
+          },
+        },
+      },
+    ]);
+
+    const reply = await executeUsageCommand({
+      codexHome,
+      getClaudeUsage: vi.fn().mockResolvedValue({
+        provider: 'claude',
+        available: false,
+        reason: '未启用 Claude OAuth provider',
+        source: 'Claude OAuth API',
+      }),
+    });
+
+    expect(reply).toContain('Codex');
+    expect(reply).toContain('5h 剩余: 55%');
+    expect(reply).toContain('7d 剩余: 88%');
+  });
+
   test('returns codex unavailable when no usable token_count snapshot exists', async () => {
     const codexHome = mkdtempSync(join(tmpdir(), 'codex-home-empty-'));
 
