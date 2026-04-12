@@ -14,6 +14,7 @@ import { formatToolStepLine } from '../src/tool-step-display.ts';
 function createStreamingModeClient() {
   const createdCards: Array<Record<string, any>> = [];
   const updatedCards: Array<Record<string, any>> = [];
+  const streamedContents: string[] = [];
 
   const client = {
     cardkit: {
@@ -29,6 +30,12 @@ function createStreamingModeClient() {
           }),
           settings: vi.fn(async () => ({ data: {} })),
         },
+        cardElement: {
+          content: vi.fn(async ({ data }: any) => {
+            streamedContents.push(data.content);
+            return { data: {} };
+          }),
+        },
       },
     },
     im: {
@@ -43,7 +50,7 @@ function createStreamingModeClient() {
     },
   } as any;
 
-  return { client, createdCards, updatedCards };
+  return { client, createdCards, updatedCards, streamedContents };
 }
 
 describe('StreamingCardController footer caching', () => {
@@ -151,10 +158,32 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('formats card tool steps as plain text lines', () => {
+  test('formats card tool steps with emoji prefixes', () => {
     expect(formatToolStepLine('exec_command', 'ls -la')).toBe(
-      'exec_command · ls -la',
+      '💻 exec_command · ls -la',
     );
+  });
+
+  test('normalizes streaming main content before CardKit content pushes', async () => {
+    const { client, streamedContents } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.append('go');
+
+    await vi.waitFor(() => {
+      expect((controller as any).streamingBackend).toBeTruthy();
+    });
+
+    await (controller as any).streamingBackend.streamContent(
+      'Intro\n# Result\n- first',
+    );
+
+    expect(streamedContents.at(-1)).toBe('Intro\n\n# Result\n\n- first');
+
+    controller.dispose();
   });
 
   test('builds static replies with the same schema 2 card shape as streaming cards', () => {

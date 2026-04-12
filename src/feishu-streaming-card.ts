@@ -18,7 +18,10 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { createHash } from 'crypto';
 import { logger } from './logger.js';
-import { optimizeMarkdownStyle } from './feishu-markdown-style.js';
+import {
+  normalizeStreamingMarkdown,
+  optimizeMarkdownStyle,
+} from './feishu-markdown-style.js';
 import {
   formatAssistantCardFooter,
   type AssistantFooterTokenUsage,
@@ -1182,10 +1185,12 @@ class StreamingModeBackend {
 
     // Truncate at 100K char limit (hint at end, slice adjusted for hint length)
     const truncHint = `\n\n> ⚠️ 输出已截断（超过 ${MAX_STREAMING_CONTENT} 字符）`;
+    const normalizedText = normalizeStreamingMarkdown(text);
     const content =
-      text.length > MAX_STREAMING_CONTENT
-        ? text.slice(0, MAX_STREAMING_CONTENT - truncHint.length) + truncHint
-        : text;
+      normalizedText.length > MAX_STREAMING_CONTENT
+        ? normalizedText.slice(0, MAX_STREAMING_CONTENT - truncHint.length) +
+          truncHint
+        : normalizedText;
 
     const hash = quickHash(content);
     if (hash === this.lastMainHash) return;

@@ -29,11 +29,11 @@ Run: `npm test -- tests/context-compaction.test.ts`
 
 Add:
 - `buildRecoveryContext(messages, options)`
-- `selectPendingMessagesForAgent(messages, options)`
+- `compactMessagesForAgent(messages, options)`
 
 - [x] **Step 3: Wire helper**
 
-Use `buildRecoveryContext()` in the restart recovery block and `selectPendingMessagesForAgent()` before active runner IPC injection.
+Use `buildRecoveryContext()` in the restart recovery block and `compactMessagesForAgent()` before active runner IPC injection.
 
 - [x] **Step 4: Validate**
 
@@ -51,7 +51,7 @@ Run:
 - Test: `tests/feishu-streaming-card.test.ts`
 - Test: `tests/feishu-markdown-style.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Expected coverage:
 - `formatToolStepLine('exec_command', 'npm test')` starts with an emoji.
@@ -60,14 +60,17 @@ Expected coverage:
 
 Run: `npm test -- tests/tool-step-display.test.ts tests/feishu-markdown-style.test.ts`
 
-- [ ] **Step 2: Implement and wire**
+- [x] **Step 2: Implement and wire**
 
 Add emoji mapping in shared formatter, add `normalizeStreamingMarkdown()`, and call it before `cardElement.content()`.
 
-- [ ] **Step 3: Validate**
+- [x] **Step 3: Validate**
 
 Run:
 - `npm run build:shared`
 - `npm test -- tests/tool-step-display.test.ts tests/feishu-streaming-card.test.ts tests/feishu-markdown-style.test.ts`
 - `npm run build:backend`
 - `./scripts/review.sh`
+
+Result:
+- Passed.

@@ -13,6 +13,116 @@
  * - Invalid image cleanup: strip non-img_ image references
  */
 
+type StreamingBlockKind = 'heading' | 'list' | 'rule' | 'fence' | 'text';
+
+/**
+ * Normalize streaming Markdown for Feishu card updates.
+ *
+ * Feishu's streaming renderer is sensitive to adjacent block markers. Adding
+ * blank lines around major blocks keeps headings/lists/rules readable without
+ * rewriting fenced code content.
+ */
+export function normalizeStreamingMarkdown(text: string): string {
+  try {
+    return _normalizeStreamingMarkdown(text);
+  } catch {
+    return text;
+  }
+}
+
+function _normalizeStreamingMarkdown(text: string): string {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  const output: string[] = [];
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    const trimmed = line.trim();
+    const isFence = /^```/.test(trimmed);
+
+    if (inCodeBlock) {
+      output.push(line);
+      if (isFence) inCodeBlock = false;
+      continue;
+    }
+
+    if (trimmed === '') {
+      pushBlankLine(output);
+      continue;
+    }
+
+    const currentKind = getStreamingBlockKind(line, isFence);
+    if (shouldInsertBlankBefore(output, currentKind)) {
+      pushBlankLine(output);
+    }
+
+    output.push(line);
+
+    if (isFence) {
+      inCodeBlock = true;
+      continue;
+    }
+
+    if (shouldInsertBlankAfter(lines, i, currentKind)) {
+      pushBlankLine(output);
+    }
+  }
+
+  return output.join('\n');
+}
+
+function pushBlankLine(output: string[]): void {
+  if (output.length === 0) return;
+  if (output[output.length - 1] === '') return;
+  output.push('');
+}
+
+function getStreamingBlockKind(
+  line: string,
+  isFence = /^```/.test(line.trim()),
+): StreamingBlockKind {
+  const trimmed = line.trim();
+  if (isFence) return 'fence';
+  if (/^#{1,6}\s+\S/.test(trimmed)) return 'heading';
+  if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) return 'rule';
+  if (/^(?:[-*+]\s+\S|\d+[.)]\s+\S)/.test(trimmed)) return 'list';
+  return 'text';
+}
+
+function lastNonBlankLine(lines: string[]): string | undefined {
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (line !== '') return line;
+  }
+  return undefined;
+}
+
+function shouldInsertBlankBefore(
+  output: string[],
+  currentKind: StreamingBlockKind,
+): boolean {
+  if (!['heading', 'list', 'rule', 'fence'].includes(currentKind)) {
+    return false;
+  }
+  if (output.length === 0 || output[output.length - 1] === '') return false;
+
+  const previousLine = lastNonBlankLine(output);
+  if (!previousLine) return false;
+
+  const previousKind = getStreamingBlockKind(previousLine);
+  return !(currentKind === 'list' && previousKind === 'list');
+}
+
+function shouldInsertBlankAfter(
+  lines: string[],
+  index: number,
+  currentKind: StreamingBlockKind,
+): boolean {
+  if (currentKind !== 'heading' && currentKind !== 'rule') return false;
+  const nextLine = lines[index + 1];
+  return nextLine !== undefined && nextLine.trim() !== '';
+}
+
 /**
  * Optimize Markdown style for Feishu card rendering.
  *
