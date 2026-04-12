@@ -102,6 +102,13 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
+    name: 'self-restart',
+    usage: '/self-restart',
+    description: '创建自重启 intent 并交给独立 watchdog 执行',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
     name: 'recall',
     aliases: ['rc'],
     usage: '/recall',

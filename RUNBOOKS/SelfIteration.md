@@ -13,6 +13,8 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 3. Send `/self-status` from an admin IM chat to check the running PID, build stale state, cwd, and latest self-check result.
 4. Send `/self-check` from an admin IM chat.
 5. Continue only if `/self-check` reports `通过`.
+6. If a managed restart is desired, send `/self-restart` from an admin IM chat.
+7. Inspect `~/.cli-claw/ops/restarts/*.json` if IM becomes temporarily unavailable.
 
 ## What `/self-check` Does
 
@@ -33,8 +35,17 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 - It does not promote the candidate to the production port.
 - It does not roll back a failed real restart.
 
+## What `/self-restart` Does
+
+- Writes a restart intent JSON under `~/.cli-claw/ops/restarts/`.
+- Starts an independent watchdog process from `dist/self-restart-watchdog.js`.
+- The watchdog runs shadow self-check first.
+- If shadow self-check fails, the watchdog writes `preflight_failed` and leaves the current backend running.
+- If shadow self-check passes, the watchdog sends `SIGTERM` to the old PID, starts the same command/args that launched the current backend, and polls the production `/api/health`.
+- The watchdog inherits the current process environment but does not write the full environment into the intent JSON.
+
 ## Restart Rule
 
-Only an out-of-process supervisor or watchdog should perform a real restart. That watchdog must own the old PID, new process launch, health polling, log capture, and rollback behavior.
+Only an out-of-process supervisor or watchdog should perform a real restart. That watchdog must own the old PID, new process launch, health polling, and log capture.
 
-Until that watchdog exists, use `/self-check` as the final cold-start gate, then restart manually from the host shell or service manager with a separate recovery path.
+`/self-restart` is the built-in minimal watchdog. It is not a full release manager: it does not keep old binaries, switch symlinks, or guarantee rollback. For stronger production safety, run Cli Claw under launchd/systemd with release directories or blue-green promotion.

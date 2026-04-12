@@ -10,15 +10,16 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 ## 服务自检与 Shadow Start
 
-`/self-status` 和 `/self-check` 用于通过正在运行的 Cli Claw 检查仓库自身迭代风险：
+`/self-status`、`/self-check` 和 `/self-restart` 用于通过正在运行的 Cli Claw 检查仓库自身迭代风险：
 
 - `/self-status` 输出当前 backend PID、启动时间、cwd、已加载 build 与磁盘 build 是否一致，以及最近一次 `/self-check` 结果。
 - `/self-check` 从应用包根目录启动候选 backend，默认执行 `node dist/index.js`，并用临时 `WEB_PORT` 轮询候选服务的 `/api/health`。
 - 候选进程会使用隔离 `HOME`，因此数据目录落在临时 `~/.cli-claw`，不会写入生产 `~/.cli-claw`。
 - 候选进程会带上 `CLI_CLAW_SELF_CHECK=1`；backend 在该模式下启动 Web/API、DB 和队列基础能力，但跳过 CLI launch cwd 校验、host workspace 默认 cwd 物化和 IM channel 连接，避免临时 HOME 的 allowlist 影响自检，也避免和线上飞书/微信/Telegram/QQ/钉钉连接抢占。
 - `/self-check` 只验证“当前 build 能否冷启动并健康”，不会停止当前服务，也不会切换端口或执行真实重启。
+- `/self-restart` 不在 backend 进程内重启自身；它写入 `~/.cli-claw/ops/restarts/*.json` intent，并启动独立 watchdog 进程。watchdog 先执行 shadow self-check；失败时不停止当前服务；通过后才停止旧 PID、按同一启动命令启动新进程，并轮询生产端口 `/api/health`。
 
-真实重启仍必须由服务外部的 supervisor/watchdog 执行；否则 backend 进程退出后，如果新进程启动失败，IM 入口也会失联，无法通过 Cli Claw 自己报告失败。
+`/self-restart` 不是 blue-green 或 rollback 机制。它能避免“preflight 失败还杀旧进程”的 badcase，但不能保证源码/二进制级回滚；更强的生产发布仍应使用 release 目录、symlink 或系统级 supervisor。
 
 ## 运行时矩阵
 

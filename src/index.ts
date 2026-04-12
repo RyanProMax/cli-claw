@@ -15,6 +15,7 @@ import {
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
   TIMEZONE,
+  WEB_PORT,
   isDockerAvailable,
   updateWeChatNoProxy,
 } from './config.js';
@@ -115,6 +116,7 @@ import {
   formatContextMessages,
   formatConversationStatus,
   formatSelfCheckResult,
+  formatSelfRestartAccepted,
   formatSelfStatus,
   formatWorkspaceList,
   formatSystemStatus,
@@ -221,6 +223,7 @@ import { executeSessionReset } from './commands.js';
 import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
 import { executeUsageCommand } from './usage-command.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
+import { requestSelfRestart } from './self-restart.js';
 import {
   buildRecoveryContext,
   compactMessagesForAgent,
@@ -1145,6 +1148,8 @@ async function handleCommand(
       return handleSelfStatusCommand(chatJid);
     case 'self-check':
       return handleSelfCheckCommand(chatJid);
+    case 'self-restart':
+      return handleSelfRestartCommand(chatJid);
     case 'recall':
     case 'rc':
       return handleRecallCommand(chatJid);
@@ -1516,6 +1521,27 @@ async function handleSelfCheckCommand(chatJid: string): Promise<string> {
   } finally {
     selfCheckRunning = false;
   }
+}
+
+function handleSelfRestartCommand(chatJid: string): string {
+  if (!isSelfIterationAdmin(chatJid)) {
+    return '需要管理员权限才能执行服务自重启';
+  }
+
+  const result = requestSelfRestart({
+    appRoot: resolveAppPath(),
+    pid: process.pid,
+    port: WEB_PORT,
+    command: process.execPath,
+    args: process.argv.slice(1),
+    cwd: process.cwd(),
+  });
+
+  if (result.status === 'failed') {
+    return `自重启受理失败: ${result.error}`;
+  }
+
+  return formatSelfRestartAccepted(result);
 }
 
 function handleWhereCommand(chatJid: string): string {

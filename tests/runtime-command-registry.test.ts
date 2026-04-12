@@ -78,8 +78,10 @@ describe('runtime command registry', () => {
 
     expect(imHelp).toContain('/self-status');
     expect(imHelp).toContain('/self-check');
+    expect(imHelp).toContain('/self-restart');
     expect(webHelp).not.toContain('/self-status');
     expect(webHelp).not.toContain('/self-check');
+    expect(webHelp).not.toContain('/self-restart');
     expect(parseRuntimeCommand('/self-status')).toMatchObject({
       name: 'self-status',
       argsText: '',
@@ -87,6 +89,11 @@ describe('runtime command registry', () => {
     });
     expect(parseRuntimeCommand('/self-check')).toMatchObject({
       name: 'self-check',
+      argsText: '',
+      args: [],
+    });
+    expect(parseRuntimeCommand('/self-restart')).toMatchObject({
+      name: 'self-restart',
       argsText: '',
       args: [],
     });

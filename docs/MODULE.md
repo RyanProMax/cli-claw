@@ -19,6 +19,8 @@
 │   ├── runtime-config.ts           # Provider / IM / 系统配置、密文存储、环境变量合成
 │   ├── runtime-build.ts            # 运行进程与已加载 dist 的 build 指纹
 │   ├── self-check.ts               # 服务自迭代 shadow start 与健康检查
+│   ├── self-restart.ts             # 自重启 intent、watchdog 调度与执行逻辑
+│   ├── self-restart-watchdog.ts    # 独立 watchdog CLI 入口
 │   ├── runtime-identity.ts         # 实际运行时 agent / model / effort 元数据
 │   ├── file-manager.ts             # 文件读写边界、系统路径保护、路径安全
 │   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区上下文解析

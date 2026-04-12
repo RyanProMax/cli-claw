@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   formatConversationStatus,
   formatSelfCheckResult,
+  formatSelfRestartAccepted,
   formatSelfStatus,
   resolveBoundChatTarget,
   type RegisteredGroupLike,
@@ -259,6 +260,25 @@ describe('formatSelfCheckResult', () => {
         '🚪 退出: code=1',
         '📜 输出:',
         'Error: bad config',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('formatSelfRestartAccepted', () => {
+  test('formats the watchdog intent location and warning', () => {
+    expect(
+      formatSelfRestartAccepted({
+        intentPath: '/Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
+        watchdogPid: 4321,
+      }),
+    ).toBe(
+      [
+        '🔁 自重启已受理',
+        '━━━━━━━━━━',
+        '🧾 intent: /Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
+        '👁️ watchdog PID: 4321',
+        '⚠️ 后续由独立 watchdog 执行；当前 IM 可能短暂离线',
       ].join('\n'),
     );
   });

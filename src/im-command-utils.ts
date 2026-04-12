@@ -399,3 +399,20 @@ export function formatSelfCheckResult(result: SelfCheckResultInfo): string {
 
   return lines.join('\n');
 }
+
+export interface SelfRestartAcceptedInfo {
+  intentPath: string;
+  watchdogPid: number | null;
+}
+
+export function formatSelfRestartAccepted(
+  info: SelfRestartAcceptedInfo,
+): string {
+  return [
+    '🔁 自重启已受理',
+    '━━━━━━━━━━',
+    `🧾 intent: ${info.intentPath}`,
+    `👁️ watchdog PID: ${info.watchdogPid ?? 'unknown'}`,
+    '⚠️ 后续由独立 watchdog 执行；当前 IM 可能短暂离线',
+  ].join('\n');
+}
