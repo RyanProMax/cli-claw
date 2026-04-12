@@ -213,6 +213,10 @@ import { sdkQuery } from './sdk-query.js';
 import { executeSessionReset } from './commands.js';
 import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
 import { executeUsageCommand } from './usage-command.js';
+import {
+  buildRecoveryContext,
+  compactMessagesForAgent,
+} from './context-compaction.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const execFileAsync = promisify(execFile);
@@ -2278,24 +2282,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     const historyMsgs = recentHistory
       .reverse()
       .filter((m) => !pendingIds.has(m.id));
-    if (historyMsgs.length > 0) {
-      const historyLines = historyMsgs.map((m) => {
-        const role = m.is_from_me ? 'assistant' : m.sender_name;
-        const truncated =
-          m.content.length > 500 ? m.content.slice(0, 500) + '…' : m.content;
-        // Strip lone surrogates to avoid API JSON errors
-        const cleaned = truncated.replace(/[\uD800-\uDFFF]/g, '');
-        return `[${role}] ${cleaned}`;
-      });
-      prompt =
-        '<system_context>\n' +
-        '服务刚重启，当前为新会话。以下是重启前的最近对话记录，供你了解上下文：\n\n' +
-        historyLines.join('\n') +
-        '\n</system_context>\n\n' +
-        prompt;
+    const recoveryContext = buildRecoveryContext(historyMsgs);
+    if (recoveryContext) {
+      prompt = `${recoveryContext}\n\n${prompt}`;
       logger.info(
         { group: group.name, historyCount: historyMsgs.length },
-        'Recovery: injected recent conversation history into prompt',
+        'Recovery: injected compact recent conversation history into prompt',
       );
     }
   }
@@ -6108,9 +6100,11 @@ async function startMessageLoop(): Promise<void> {
           // the process for home groups.
 
           const shared = !group.is_home && isGroupShared(group.folder);
-          const formatted = formatMessages(messagesToSend, shared);
+          const compactedMessagesToSend =
+            compactMessagesForAgent(messagesToSend);
+          const formatted = formatMessages(compactedMessagesToSend, shared);
 
-          const images = collectMessageImages(chatJid, messagesToSend);
+          const images = collectMessageImages(chatJid, compactedMessagesToSend);
           const imagesForAgent = images.length > 0 ? images : undefined;
 
           // Determine the IM source JID for route update on successful injection

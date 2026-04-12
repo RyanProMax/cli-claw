@@ -17,7 +17,7 @@
 - Modify: `src/index.ts`
 - Test: `tests/context-compaction.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Expected coverage:
 - recovery context keeps chronological order, caps message count, truncates long content, and avoids raw 500-char history blocks.
@@ -25,17 +25,17 @@ Expected coverage:
 
 Run: `npm test -- tests/context-compaction.test.ts`
 
-- [ ] **Step 2: Implement helper**
+- [x] **Step 2: Implement helper**
 
 Add:
 - `buildRecoveryContext(messages, options)`
 - `selectPendingMessagesForAgent(messages, options)`
 
-- [ ] **Step 3: Wire helper**
+- [x] **Step 3: Wire helper**
 
 Use `buildRecoveryContext()` in the restart recovery block and `selectPendingMessagesForAgent()` before active runner IPC injection.
 
-- [ ] **Step 4: Validate**
+- [x] **Step 4: Validate**
 
 Run:
 - `npm test -- tests/context-compaction.test.ts`
