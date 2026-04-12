@@ -130,6 +130,7 @@ import {
   parseRuntimeCommand,
   parseSlashCommandCandidate,
 } from './runtime-command-registry.js';
+import { createImNewWorkspaceGroup } from './im-new-workspace.js';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 import { invalidateSessionCache, getWebDeps } from './web-context.js';
 import {
@@ -1473,18 +1474,20 @@ async function handleNewCommand(
   if (!name) return '用法: /new <工作区名称>';
   if (name.length > 50) return '名称过长（最多 50 字符）';
 
-  // Create a new workspace (same pattern as routes/groups.ts POST)
-  const newJid = `web:${crypto.randomUUID()}`;
-  const folder = `flow-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const now = new Date().toISOString();
-
-  const newGroup: RegisteredGroup = {
+  const created = createImNewWorkspaceGroup({
     name,
-    folder,
-    added_at: now,
-    executionMode: (await isDockerAvailable()) ? 'container' : 'host',
-    created_by: userId,
-  };
+    userId,
+    dockerAvailable: await isDockerAvailable(),
+  });
+  if ('error' in created) {
+    logger.error(
+      { chatJid, userId, err: created.error },
+      'IM /new workspace creation failed',
+    );
+    return `创建工作区失败：${created.error}`;
+  }
+
+  const { jid: newJid, folder, group: newGroup } = created;
 
   // Register the workspace
   registerGroup(newJid, newGroup);
