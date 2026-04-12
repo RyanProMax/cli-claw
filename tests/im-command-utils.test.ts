@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
+  formatConversationStatus,
   resolveBoundChatTarget,
   type RegisteredGroupLike,
   type AgentLike,
@@ -90,6 +91,74 @@ describe('resolveBoundChatTarget', () => {
       agentId: 'agent-1234',
       locationLine: 'graduation / Thesis Agent',
     });
+  });
+});
+
+describe('formatConversationStatus', () => {
+  test('marks the current workspace main conversation and explicit main binding', () => {
+    expect(
+      formatConversationStatus({
+        workspace: {
+          name: 'Graduation',
+          folder: 'flow-graduation',
+          agents: [
+            { id: 'agent-1234', name: 'Thesis Agent', status: 'idle' },
+            { id: 'agent-5678', name: 'Review Agent', status: 'running' },
+          ],
+        },
+        currentAgentId: null,
+        currentOnMain: true,
+        binding: {
+          type: 'main',
+          label: 'Graduation / 主对话',
+          replyPolicy: 'source_only',
+        },
+      }),
+    ).toBe(
+      [
+        '🧵 会话与绑定',
+        '━━━━━━━━━━',
+        '📁 工作区: Graduation (flow-graduation)',
+        '🔗 当前绑定: Graduation / 主对话',
+        '🔁 回复策略: source_only',
+        '💬 会话:',
+        '  ▶ 主对话 ← 当前',
+        '  · Thesis Agent [agen] idle',
+        '  · Review Agent [agen] running',
+      ].join('\n'),
+    );
+  });
+
+  test('marks the bound conversation agent as current', () => {
+    expect(
+      formatConversationStatus({
+        workspace: {
+          name: 'Home',
+          folder: 'home-u1',
+          agents: [
+            { id: 'agent-1234', name: 'Thesis Agent', status: 'running' },
+          ],
+        },
+        currentAgentId: 'agent-1234',
+        currentOnMain: false,
+        binding: {
+          type: 'agent',
+          label: 'Home / Thesis Agent',
+          replyPolicy: 'source_only',
+        },
+      }),
+    ).toBe(
+      [
+        '🧵 会话与绑定',
+        '━━━━━━━━━━',
+        '📁 工作区: Home (home-u1)',
+        '🔗 当前绑定: Home / Thesis Agent',
+        '🔁 回复策略: source_only',
+        '💬 会话:',
+        '  · 主对话',
+        '  ▶ Thesis Agent [agen] running ← 当前',
+      ].join('\n'),
+    );
   });
 });
 

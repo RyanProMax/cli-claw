@@ -72,6 +72,28 @@ host 相关消费者统一使用同一份 effective cwd contract：
 - run log / dispatch log 排障
 - 区分“请求的运行时”和“实际执行的运行时”
 
+## 会话与 Runner 对应关系
+
+外层 channel、workspace conversation、底层 runtime session 和 runner 不是同一个概念：
+
+- 外层 channel 是消息入口，例如飞书或微信。
+- Workspace conversation 是 Cli Claw 的对话身份，由 `folder` 加可选 `agentId` 决定。
+- Runtime session 是 Claude/Codex 自己的会话 ID，持久化在 `sessions` 表，主对话使用 `(folder, 空 agent_id)`，conversation agent 使用 `(folder, agent_id)`。
+- Runner 是正在处理消息的底层 CLI 进程或容器，只在执行期间存在，并可能在 idle timeout 后退出。
+
+对应关系：
+
+- 同一个 workspace 主对话通常复用同一个 runtime session；不同 channel 只要绑定到这个主对话，就共享该 session。
+- 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/Codex 对话上下文。
+- Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。
+- 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
+
+当前限制：
+
+- `sessions` 表的主键维度是 `(folder, agentId)`，不是 `(folder, agentId, agentType)`。
+- 切换 `agentType`、`executionMode`、`model` 或 `reasoningEffort` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
+- 因此，主对话从 Codex 切到 Claude 再切回 Codex 时，当前版本不保证恢复切换前的 Codex session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
+
 ## 外部运行时契约
 
 项目内部长期记忆统一使用 `AGENTS.md`，但外部 CLI runtime 仍保留各自原生约定：

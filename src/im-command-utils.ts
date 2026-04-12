@@ -244,3 +244,58 @@ export function formatSystemStatus(
 
   return lines.join('\n');
 }
+
+// ─── Conversation Status Formatting ────────────────────────────
+
+export interface ConversationBindingInfo {
+  type: 'default' | 'main' | 'agent';
+  label: string;
+  replyPolicy: string | null;
+}
+
+export interface ConversationStatusInfo {
+  workspace: WorkspaceInfo;
+  currentAgentId: string | null;
+  currentOnMain: boolean;
+  binding: ConversationBindingInfo;
+}
+
+/**
+ * Format the current workspace's conversations and IM binding target for
+ * /status. This stays pure so IM/Web route handlers can unit-test formatting
+ * without touching DB state.
+ */
+export function formatConversationStatus(info: ConversationStatusInfo): string {
+  const lines = [
+    '🧵 会话与绑定',
+    '━━━━━━━━━━',
+    `📁 工作区: ${info.workspace.name} (${info.workspace.folder})`,
+    `🔗 当前绑定: ${info.binding.label}`,
+  ];
+
+  if (info.binding.replyPolicy) {
+    lines.push(`🔁 回复策略: ${info.binding.replyPolicy}`);
+  }
+
+  lines.push('💬 会话:');
+
+  const mainPrefix = info.currentOnMain ? '▶' : '·';
+  const mainCurrent = info.currentOnMain ? ' ← 当前' : '';
+  lines.push(`  ${mainPrefix} 主对话${mainCurrent}`);
+
+  for (const agent of info.workspace.agents) {
+    const isCurrent = info.currentAgentId === agent.id;
+    const marker = isCurrent ? '▶' : '·';
+    const current = isCurrent ? ' ← 当前' : '';
+    const shortId = agent.id.slice(0, 4);
+    lines.push(
+      `  ${marker} ${agent.name} [${shortId}] ${agent.status}${current}`,
+    );
+  }
+
+  if (info.workspace.agents.length === 0) {
+    lines.push('  · 暂无 conversation agent');
+  }
+
+  return lines.join('\n');
+}

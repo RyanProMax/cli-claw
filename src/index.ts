@@ -113,6 +113,7 @@ import {
 } from './streaming-runtime-meta.js';
 import {
   formatContextMessages,
+  formatConversationStatus,
   formatWorkspaceList,
   formatSystemStatus,
   resolveBoundChatTarget,
@@ -1299,6 +1300,36 @@ function findGroupNameByFolder(folder: string): string {
   return folder;
 }
 
+function resolveStatusWorkspaceInfo(
+  group: RegisteredGroup,
+  location: { folder: string },
+): WorkspaceInfo {
+  let workspaceJid: string | null = null;
+
+  if (group.target_agent_id) {
+    workspaceJid = getAgent(group.target_agent_id)?.chat_jid ?? null;
+  } else if (group.target_main_jid) {
+    workspaceJid = group.target_main_jid;
+  } else {
+    workspaceJid = findWebJidForFolder(location.folder);
+  }
+
+  const workspaceGroup = workspaceJid
+    ? (registeredGroups[workspaceJid] ?? getRegisteredGroup(workspaceJid))
+    : undefined;
+  const agents = workspaceJid
+    ? listAgentsByJid(workspaceJid)
+        .filter((a) => a.kind === 'conversation')
+        .map((a) => ({ id: a.id, name: a.name, status: a.status }))
+    : [];
+
+  return {
+    folder: workspaceGroup?.folder ?? location.folder,
+    name: workspaceGroup?.name ?? findGroupNameByFolder(location.folder),
+    agents,
+  };
+}
+
 /**
  * Fetch recent messages and format a context summary.
  */
@@ -1393,6 +1424,26 @@ function handleStatusCommand(chatJid: string): string {
     queuePosition,
   );
 
+  const workspace = resolveStatusWorkspaceInfo(group, location);
+  const bindingLabel =
+    group.target_agent_id || group.target_main_jid
+      ? location.locationLine
+      : '默认路由到当前 IM 工作区';
+  const conversationStatus = formatConversationStatus({
+    workspace,
+    currentAgentId: group.target_agent_id ?? null,
+    currentOnMain: !group.target_agent_id,
+    binding: {
+      type: group.target_agent_id
+        ? 'agent'
+        : group.target_main_jid
+          ? 'main'
+          : 'default',
+      label: bindingLabel,
+      replyPolicy: location.replyPolicy,
+    },
+  });
+
   const runtimeTarget = resolveRuntimeWorkspaceTarget(chatJid, {
     getGroup: lookupGroup,
     getSiblingJids: getJidsByFolder,
@@ -1400,10 +1451,10 @@ function handleStatusCommand(chatJid: string): string {
   });
 
   if (!runtimeTarget) {
-    return systemStatus;
+    return `${systemStatus}\n\n${conversationStatus}`;
   }
 
-  return `${systemStatus}\n\n${buildRuntimeStatusReply(runtimeTarget)}`;
+  return `${systemStatus}\n\n${conversationStatus}\n\n${buildRuntimeStatusReply(runtimeTarget)}`;
 }
 
 function handleWhereCommand(chatJid: string): string {

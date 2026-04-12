@@ -27,6 +27,29 @@
 - `user-global`：
   - 这不是普通 group 记录，而是用户级全局记忆目录 `~/.cli-claw/groups/user-global/{userId}`。
 
+## 会话层级与 IM 绑定
+
+Cli Claw 的会话关系按四层理解：
+
+- Channel：飞书、微信、Telegram、Web 等入口，只负责接收消息和回消息。
+- Workspace：由 `folder` 标识的工作区，决定文件、记忆、消息归属和默认主会话。
+- Conversation：同一个 workspace 下可以有多个对话：
+  - 主对话：workspace 自带的默认对话，runtime session 以 `(folder, 空 agent_id)` 记录。
+  - Conversation agent：用户在 Web 内创建的独立对话，记录在 `agents` 表，`kind='conversation'`，消息使用虚拟 JID `{workspaceJid}#agent:{agentId}`，runtime session 以 `(folder, agent_id)` 记录。
+- Runner：当前正在执行的一次底层 CLI 进程或容器。runner 是临时执行体，不是长期会话本身。
+
+IM 入口自身也会有一条 `registered_groups` 记录。默认情况下，新接入的 IM chat 会挂到该用户的 home workspace；如果通过 `/bind` 或 Web 绑定面板设置了目标，则消息会改路由到目标：
+
+- `target_main_jid`：绑定到某个 workspace 的主对话。
+- `target_agent_id`：绑定到某个 workspace 下的 conversation agent。
+- 解除绑定后，IM chat 回到自身默认 workspace/folder。
+
+因此，多个 channel 是否共享上下文，不看 channel 类型，而看它们是否最终路由到同一个 conversation identity：
+
+- 飞书和微信都指向同一个 workspace 主对话时，共享同一个主会话上下文。
+- 飞书指向 workspace 主对话、微信指向同 workspace 的某个 conversation agent 时，二者共享工作区文件和记忆，但对话消息与 runtime session 相互独立。
+- 微信执行 `/new <名称>` 时，会创建新 workspace，并只把当前微信 chat 绑定到新 workspace 的主对话；飞书等其他 channel 的绑定不自动改变。
+
 ## 记忆与持久化布局
 
 - 项目内部长期记忆统一使用 `AGENTS.md`：

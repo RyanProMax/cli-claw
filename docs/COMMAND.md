@@ -91,8 +91,27 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 
 说明：
 
-- `/status` 会同时展示系统队列状态、当前工作区定位，以及 runtime 摘要（当前模型、思考强度、可用预设）。
+- `/status` 会同时展示系统队列状态、当前工作区定位、当前 workspace 的主对话 / conversation agent 列表、IM 绑定关系，以及 runtime 摘要（当前模型、思考强度、可用预设）。
 - `/usage` 是本地查询命令，不进入 agent 对话链路；Codex 数据来自本机 `~/.codex/sessions/**/*.jsonl` 的最新 usage 快照，Claude 数据来自已启用 OAuth provider 的 usage API，任一侧不可用时会在对应 section 内展示 `unavailable` 与原因。
+
+## IM 会话切换与绑定
+
+IM 入口本身不是长期对话身份；它会路由到某个 workspace 的主对话，或某个 workspace 下的 conversation agent。
+
+常用切换方式：
+
+- `/list`：查看当前用户可访问的 workspace，以及每个 workspace 下可绑定的 conversation agent 短 ID。
+- `/where`：查看当前 IM chat 实际绑定到了哪里。
+- `/bind <workspace>`：把当前 IM chat 切到该 workspace 的主对话。
+- `/bind <workspace>/<agent短ID>`：把当前 IM chat 切到该 workspace 下的 conversation agent。
+- `/unbind`：取消显式绑定，回到该 IM chat 自己的默认 workspace/folder。
+- `/new <名称>`：创建新 workspace，并只把当前 IM chat 绑定到这个新 workspace 的主对话。
+
+例子：
+
+- 飞书和微信都绑定到 `demo`，等价于两个入口共用 `demo` 的主对话 runtime session。
+- 微信执行 `/bind demo/a1b2` 后，微信切到 `demo` 下 ID 以 `a1b2` 开头的 conversation agent；飞书如果仍绑定 `demo` 主对话，则不受影响。
+- 微信执行 `/new app2` 后，只是微信切到新建的 `app2` 主对话；飞书仍停留在原 workspace。
 
 ## Web 入口说明
 
