@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   buildEffectiveGroupFromHomeSibling,
   hasRuntimeBoundaryChange,
+  resolveEffectiveRuntimeIdentity,
   validateGroupRuntimeUpdate,
 } from '../src/group-runtime.js';
 
@@ -140,5 +141,45 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
         is_home: true,
       }),
     );
+  });
+});
+
+describe('resolveEffectiveRuntimeIdentity', () => {
+  test('materializes Codex defaults before dispatch so runner config cannot drift from status', () => {
+    expect(
+      resolveEffectiveRuntimeIdentity({
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-12T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+      }),
+    ).toEqual({
+      agentType: 'codex',
+      model: 'gpt-5.4',
+      reasoningEffort: 'medium',
+      supportsReasoningEffort: true,
+    });
+  });
+
+  test('uses the explicit workspace effort as the effective Codex effort', () => {
+    expect(
+      resolveEffectiveRuntimeIdentity({
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-12T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+        model: 'gpt-5.4-mini',
+        reasoningEffort: 'high',
+      }),
+    ).toEqual({
+      agentType: 'codex',
+      model: 'gpt-5.4-mini',
+      reasoningEffort: 'high',
+      supportsReasoningEffort: true,
+    });
   });
 });

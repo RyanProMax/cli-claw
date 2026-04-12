@@ -1,5 +1,21 @@
-import type { AgentType, ExecutionMode, RegisteredGroup } from './types.js';
+import {
+  getDefaultModelPreset,
+  getDefaultReasoningEffortPreset,
+  supportsReasoningEffort,
+} from './runtime-command-registry.js';
+import type {
+  AgentType,
+  ExecutionMode,
+  RegisteredGroup,
+  RuntimeIdentity,
+} from './types.js';
 import { resolveEffectiveHostWorkspaceCwd } from './host-workspace-cwd.js';
+
+function normalizeRuntimeText(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
 
 export function normalizeAgentType(raw: string | null | undefined): AgentType {
   if (raw === 'codex') return 'codex';
@@ -60,5 +76,29 @@ export function buildEffectiveGroupFromHomeSibling(
     customCwd: resolveEffectiveHostWorkspaceCwd(group, homeGroup),
     created_by: group.created_by || homeGroup.created_by,
     is_home: true,
+  };
+}
+
+export function resolveEffectiveRuntimeIdentity(
+  group: RegisteredGroup,
+  options: { claudeProviderModel?: string | null } = {},
+): RuntimeIdentity {
+  const agentType = normalizeAgentType(group.agentType);
+  const supportsEffort = supportsReasoningEffort(agentType);
+  const model =
+    normalizeRuntimeText(group.model) ??
+    (agentType === 'claude'
+      ? normalizeRuntimeText(options.claudeProviderModel)
+      : null) ??
+    getDefaultModelPreset(agentType);
+
+  return {
+    agentType,
+    model,
+    reasoningEffort: supportsEffort
+      ? (normalizeRuntimeText(group.reasoningEffort) ??
+        getDefaultReasoningEffortPreset(agentType))
+      : null,
+    supportsReasoningEffort: supportsEffort,
   };
 }

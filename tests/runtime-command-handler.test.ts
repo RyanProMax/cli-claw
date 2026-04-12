@@ -340,4 +340,28 @@ describe('runtime command handler', () => {
       '模型预设: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2',
     );
   });
+
+  test('exposes one effective runtime identity for status, picker cards, and dispatch fallback', () => {
+    const { deps } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-12T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+        reasoningEffort: 'high',
+      },
+    });
+
+    const target = resolveRuntimeWorkspaceTarget('web:proj-home', deps);
+
+    expect(target?.effectiveRuntimeIdentity).toEqual({
+      agentType: 'codex',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      supportsReasoningEffort: true,
+    });
+    expect(buildRuntimeStatusReply(target!)).toContain('当前思考强度: high');
+  });
 });

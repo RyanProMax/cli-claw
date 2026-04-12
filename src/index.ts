@@ -148,6 +148,7 @@ import {
   getUserWeChatConfig,
   getUserDingTalkConfig,
   getSystemSettings,
+  getClaudeProviderConfig,
   saveUserFeishuConfig,
   saveUserTelegramConfig,
   updateAllSessionCredentials,
@@ -185,7 +186,10 @@ import {
   getRuntimeBuildLogFields,
   getRuntimeBuildStatus,
 } from './runtime-build.js';
-import { buildEffectiveGroupFromHomeSibling } from './group-runtime.js';
+import {
+  buildEffectiveGroupFromHomeSibling,
+  resolveEffectiveRuntimeIdentity,
+} from './group-runtime.js';
 import {
   materializeHostWorkspaceDefaultCwd,
   validateHostWorkspaceCwd,
@@ -1095,20 +1099,11 @@ async function handleCommand(
       if (!target) {
         return '未找到当前工作区';
       }
-      const runtimeIdentity = {
-        agentType: (target.effectiveGroup.agentType || 'claude') as
-          | 'claude'
-          | 'codex',
-        model: target.effectiveGroup.model ?? null,
-        reasoningEffort: target.effectiveGroup.reasoningEffort ?? null,
-        supportsReasoningEffort:
-          (target.effectiveGroup.agentType || 'claude') === 'codex',
-      };
       return JSON.stringify({
         type: 'interactive',
         card: buildRuntimeSelectionCard({
           selection: cmd,
-          runtimeIdentity,
+          runtimeIdentity: target.effectiveRuntimeIdentity,
         }),
       });
     }
@@ -2605,7 +2600,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     | { status: 'success' | 'error' | 'closed'; error?: string }
     | undefined;
   let activeSessionId = getSession(effectiveGroup.folder) || undefined;
-  let activeRuntimeIdentity: RuntimeIdentity | null = null;
+  let activeRuntimeIdentity: RuntimeIdentity | null =
+    resolveEffectiveRuntimeIdentity(effectiveGroup, {
+      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+    });
   const agentRunStartedAt = Date.now();
   try {
     output = await runAgent(
@@ -3661,6 +3659,9 @@ async function runAgent(
     const executionMode = group.executionMode || 'container';
     const agentType = group.agentType || 'claude';
     const selectedRunner = executionMode === 'host' ? agentType : 'claude';
+    const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(group, {
+      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+    });
     const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
     logger.info(
@@ -3706,8 +3707,8 @@ async function runAgent(
           groupFolder: group.folder,
           chatJid,
           agentType,
-          model: group.model ?? null,
-          reasoningEffort: group.reasoningEffort ?? null,
+          model: effectiveRuntimeIdentity.model ?? null,
+          reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
           isMain: isAdminHome,
           isHome,
           isAdminHome,
@@ -3726,8 +3727,8 @@ async function runAgent(
           turnId,
           groupFolder: group.folder,
           chatJid,
-          model: group.model ?? null,
-          reasoningEffort: group.reasoningEffort ?? null,
+          model: effectiveRuntimeIdentity.model ?? null,
+          reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
           isMain: isAdminHome,
           isHome,
           isAdminHome,
@@ -5388,7 +5389,10 @@ async function processAgentConversation(
   // Get or use agent-specific session
   const sessionId = getSession(effectiveGroup.folder, agentId) || undefined;
   let currentAgentSessionId = sessionId;
-  let currentAgentRuntimeIdentity: RuntimeIdentity | null = null;
+  let currentAgentRuntimeIdentity: RuntimeIdentity | null =
+    resolveEffectiveRuntimeIdentity(effectiveGroup, {
+      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+    });
   const agentConversationStartedAt = Date.now();
 
   const wrappedOnOutput = async (output: ContainerOutput) => {
@@ -5754,6 +5758,12 @@ async function processAgentConversation(
     const executionMode = effectiveGroup.executionMode || 'container';
     const agentType = effectiveGroup.agentType || 'claude';
     const selectedRunner = executionMode === 'host' ? agentType : 'claude';
+    const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
+      effectiveGroup,
+      {
+        claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+      },
+    );
     const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
     logger.info(
@@ -5794,8 +5804,8 @@ async function processAgentConversation(
       groupFolder: effectiveGroup.folder,
       chatJid,
       agentType,
-      model: effectiveGroup.model ?? null,
-      reasoningEffort: effectiveGroup.reasoningEffort ?? null,
+      model: effectiveRuntimeIdentity.model ?? null,
+      reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
       isMain: isAdminHome,
       isHome,
       isAdminHome,

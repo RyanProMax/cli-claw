@@ -1,7 +1,5 @@
 import {
   formatCommandHelp,
-  getDefaultModelPreset,
-  getDefaultReasoningEffortPreset,
   getModelPresets,
   getReasoningEffortPresets,
   normalizeModelPreset,
@@ -11,9 +9,12 @@ import {
   type RuntimeCommandEntrypoint,
 } from './runtime-command-registry.js';
 import { getClaudeProviderConfig } from './runtime-config.js';
-import { buildEffectiveGroupFromHomeSibling } from './group-runtime.js';
+import {
+  buildEffectiveGroupFromHomeSibling,
+  resolveEffectiveRuntimeIdentity,
+} from './group-runtime.js';
 import { resetWorkspaceRuntimeState } from './workspace-runtime-reset.js';
-import type { AgentType, RegisteredGroup } from './types.js';
+import type { AgentType, RegisteredGroup, RuntimeIdentity } from './types.js';
 
 export interface RuntimeCommandAgentLike {
   id: string;
@@ -40,6 +41,7 @@ export interface ResolvedRuntimeWorkspaceTarget {
   runtimeOwnerJid: string;
   runtimeOwnerGroup: RegisteredGroup;
   effectiveGroup: RegisteredGroup;
+  effectiveRuntimeIdentity: RuntimeIdentity;
 }
 
 export interface RuntimeCommandResponse {
@@ -148,6 +150,12 @@ export function resolveRuntimeWorkspaceTarget(
     homeRuntimeJid && homeRuntimeJid.trim() ? homeRuntimeJid : workspaceJid;
   const runtimeOwnerGroup = deps.getGroup(runtimeOwnerJid) ?? workspaceGroup;
   const effectiveGroup = resolveEffectiveRuntimeGroup(workspaceGroup, deps);
+  const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
+    effectiveGroup,
+    {
+      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+    },
+  );
 
   return {
     sourceChatJid,
@@ -157,6 +165,7 @@ export function resolveRuntimeWorkspaceTarget(
     runtimeOwnerJid,
     runtimeOwnerGroup,
     effectiveGroup,
+    effectiveRuntimeIdentity,
   };
 }
 
@@ -176,39 +185,16 @@ function buildHelpReply(
   });
 }
 
-function resolveCurrentModelPreset(
-  agentType: AgentType,
-  target: ResolvedRuntimeWorkspaceTarget,
-): string {
-  const explicitModel = target.effectiveGroup.model?.trim();
-  if (explicitModel) return explicitModel;
-
-  if (agentType === 'claude') {
-    const providerModel = getClaudeProviderConfig().anthropicModel?.trim();
-    if (providerModel) return providerModel;
-  }
-
-  return getDefaultModelPreset(agentType);
-}
-
-function resolveCurrentReasoningEffort(
-  agentType: AgentType,
-  target: ResolvedRuntimeWorkspaceTarget,
-): string | null {
-  const explicitEffort = target.effectiveGroup.reasoningEffort?.trim();
-  if (explicitEffort) return explicitEffort;
-  return getDefaultReasoningEffortPreset(agentType);
-}
-
 export function buildRuntimeStatusReply(
   target: ResolvedRuntimeWorkspaceTarget,
 ): string {
-  const agentType = normalizeAgentType(target.effectiveGroup.agentType);
-  const currentEffort = resolveCurrentReasoningEffort(agentType, target);
+  const runtimeIdentity = target.effectiveRuntimeIdentity;
+  const agentType = normalizeAgentType(runtimeIdentity.agentType);
+  const currentEffort = runtimeIdentity.reasoningEffort?.trim() || null;
   const lines = [
     `当前工作区: ${formatRuntimeScopeLabel(target)}`,
     `当前 runtime: ${agentType}`,
-    `当前模型: ${resolveCurrentModelPreset(agentType, target)}`,
+    `当前模型: ${runtimeIdentity.model}`,
   ];
 
   if (currentEffort) {

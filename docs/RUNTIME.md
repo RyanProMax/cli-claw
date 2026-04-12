@@ -52,6 +52,7 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 约束：
 
 - `model` 采用 preset-only 约束，不做动态发现。
+- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/model` / `/effort` 选择卡、runner dispatch 和 footer fallback 都必须读取这同一份结果。
 - `reasoningEffort` 只有支持该能力的 runtime 才会真正下发。
 - 不支持 `reasoningEffort` 的 runtime 会忽略该字段，但 `model` 仍可独立生效。
 - 非主工作区若继承同 folder 的 home workspace runtime，则会沿用该 home workspace 的 `agentType` / `executionMode` / `model` / `reasoningEffort`。
@@ -84,6 +85,8 @@ host 相关消费者统一使用同一份 effective cwd contract：
 - usage 晚到后的 footer 补写 / patch
 - run log / dispatch log 排障
 - 区分“请求的运行时”和“实际执行的运行时”
+
+backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与 `reasoningEffort` 写入 runner input。这样 Codex 不会在 workspace 未显式设置时再从用户级 `~/.codex/config.toml` 展示出另一套 footer 值；若 runner 返回了实际 `runtime_identity`，仍以 runner 返回值为最终记录。
 
 ## 会话与 Runner 对应关系
 
