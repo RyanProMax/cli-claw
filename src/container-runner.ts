@@ -592,7 +592,7 @@ export async function runContainerAgent(
 
       const killOnTimeout = () => {
         timedOut = true;
-        logger.error(
+        logger.info(
           { group: group.name, containerName },
           'Container timeout, stopping gracefully',
         );
@@ -1240,7 +1240,7 @@ export async function runHostAgent(
 
       const killOnTimeout = () => {
         timedOut = true;
-        logger.error(
+        logger.info(
           { group: group.name, processId },
           'Host agent timeout, killing',
         );

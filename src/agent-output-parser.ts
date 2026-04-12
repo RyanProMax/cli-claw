@@ -279,7 +279,7 @@ export function handleTimeoutClose(
     ].join('\n'),
   );
 
-  logger.error(
+  logger.info(
     {
       group: ctx.groupName,
       [ctx.filePrefix === 'container' ? 'containerName' : 'processId']:
