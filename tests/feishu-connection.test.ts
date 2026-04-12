@@ -14,7 +14,9 @@ const hoisted = vi.hoisted(() => {
     requestSpy: vi.fn().mockResolvedValue({ bot: { open_id: 'bot-open-id' } }),
     replySpy: vi.fn().mockResolvedValue({}),
     createSpy: vi.fn().mockResolvedValue({}),
-    reactionCreateSpy: vi.fn().mockResolvedValue({ data: { reaction_id: 'r1' } }),
+    reactionCreateSpy: vi
+      .fn()
+      .mockResolvedValue({ data: { reaction_id: 'r1' } }),
     reactionDeleteSpy: vi.fn().mockResolvedValue({}),
     wsStartSpy: vi.fn().mockResolvedValue(undefined),
     wsCloseSpy: vi.fn().mockResolvedValue(undefined),
@@ -115,7 +117,10 @@ vi.mock('../src/im-slash-command.js', () => ({
 }));
 
 vi.mock('../src/feishu-streaming-card.js', () => ({
-  buildStaticReplyCard: vi.fn((text: string) => ({ schema: '2.0', body: { text } })),
+  buildStaticReplyCard: vi.fn((text: string) => ({
+    schema: '2.0',
+    body: { text },
+  })),
   resolveJidByMessageId: vi.fn(),
   getStreamingSession: vi.fn(() => null),
 }));
@@ -155,7 +160,9 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.wsCloseSpy.mockClear();
     hoisted.onReadySpy.mockClear();
     hoisted.resolveImSlashCommandReplySpy.mockClear();
-    Object.keys(hoisted.handlers).forEach((key) => delete hoisted.handlers[key]);
+    Object.keys(hoisted.handlers).forEach(
+      (key) => delete hoisted.handlers[key],
+    );
   });
 
   test('sends only the inner card payload when creating a prebuilt interactive message', async () => {
@@ -342,6 +349,49 @@ describe('feishu connection prebuilt interactive card delivery', () => {
           schema: '2.0',
           body: {
             text: '已将当前工作区思考强度切换为 xhigh',
+          },
+        }),
+      },
+    });
+  });
+
+  test('infers effort picker actions when Feishu omits the element action value', async () => {
+    const onCardRuntimeUpdate = vi
+      .fn()
+      .mockResolvedValue('已将当前工作区思考强度切换为 high');
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCardRuntimeUpdate,
+    });
+
+    await hoisted.handlers['card.action.trigger']?.({
+      action: {
+        tag: 'select_static',
+        value: 'high',
+      },
+      context: {
+        open_chat_id: 'runtime-chat',
+      },
+    });
+
+    expect(onCardRuntimeUpdate).toHaveBeenCalledWith('feishu:runtime-chat', {
+      action: 'set_runtime_effort',
+      value: 'high',
+    });
+    expect(hoisted.createSpy).toHaveBeenCalledWith({
+      params: { receive_id_type: 'chat_id' },
+      data: {
+        receive_id: 'runtime-chat',
+        msg_type: 'interactive',
+        content: JSON.stringify({
+          schema: '2.0',
+          body: {
+            text: '已将当前工作区思考强度切换为 high',
           },
         }),
       },

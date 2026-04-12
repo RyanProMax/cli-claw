@@ -24,6 +24,10 @@ import {
   getStreamingSession,
 } from './feishu-streaming-card.js';
 import { optimizeMarkdownStyle } from './feishu-markdown-style.js';
+import {
+  normalizeModelPreset,
+  normalizeReasoningEffortPreset,
+} from './runtime-command-registry.js';
 
 // ─── FeishuConnection Interface ────────────────────────────────
 
@@ -107,6 +111,11 @@ export interface FeishuConnection {
   /** Get the last received message ID for a chat (for reply threading) */
   getLastMessageId(chatId: string): string | undefined;
 }
+
+type FeishuCardAction =
+  | 'interrupt_stream'
+  | 'set_runtime_model'
+  | 'set_runtime_effort';
 
 // ─── Shared Helpers (pure functions, no instance state) ────────
 
@@ -1267,6 +1276,34 @@ export function createFeishuConnection(
     }
   }
 
+  function normalizeCardAction(value: unknown): FeishuCardAction | null {
+    if (
+      value === 'interrupt_stream' ||
+      value === 'set_runtime_model' ||
+      value === 'set_runtime_effort'
+    ) {
+      return value;
+    }
+    return null;
+  }
+
+  function extractCardAction(data: any): FeishuCardAction | null {
+    const candidates = [
+      data?.action?.value?.action,
+      data?.action?.value?.action_type,
+      data?.action?.value?.actionType,
+      data?.action?.action,
+      data?.action?.action_type,
+      data?.action?.actionType,
+    ];
+
+    for (const candidate of candidates) {
+      const action = normalizeCardAction(candidate);
+      if (action) return action;
+    }
+    return null;
+  }
+
   function extractCardActionValue(data: any): string | null {
     const candidates = [
       data?.action?.option,
@@ -1276,12 +1313,32 @@ export function createFeishuConnection(
       data?.action?.value?.value,
       data?.action?.form_value?.value,
       data?.action?.formValue?.value,
+      data?.action?.value,
     ];
 
     for (const candidate of candidates) {
       if (typeof candidate === 'string' && candidate.trim()) {
         return candidate.trim();
       }
+    }
+    return null;
+  }
+
+  function inferRuntimeActionFromSelectedValue(
+    selectedValue: string | null,
+  ): Extract<
+    FeishuCardAction,
+    'set_runtime_model' | 'set_runtime_effort'
+  > | null {
+    if (!selectedValue) return null;
+    if (normalizeReasoningEffortPreset(selectedValue)) {
+      return 'set_runtime_effort';
+    }
+    if (
+      normalizeModelPreset('codex', selectedValue) ||
+      normalizeModelPreset('claude', selectedValue)
+    ) {
+      return 'set_runtime_model';
     }
     return null;
   }
@@ -1412,7 +1469,7 @@ export function createFeishuConnection(
         },
         'card.action.trigger': async (data: any) => {
           try {
-            const action = data?.action?.value?.action;
+            const action = extractCardAction(data);
             const messageId = data?.context?.open_message_id;
             const mappedChatJid = messageId
               ? resolveJidByMessageId(messageId)
@@ -1444,10 +1501,13 @@ export function createFeishuConnection(
               return;
             }
 
-            if (
-              action === 'set_runtime_model' ||
-              action === 'set_runtime_effort'
-            ) {
+            const selectedValue = extractCardActionValue(data);
+            const runtimeAction =
+              action === 'set_runtime_model' || action === 'set_runtime_effort'
+                ? action
+                : inferRuntimeActionFromSelectedValue(selectedValue);
+
+            if (runtimeAction) {
               const chatJid =
                 mappedChatJid ||
                 (typeof data?.context?.open_chat_id === 'string'
@@ -1461,7 +1521,6 @@ export function createFeishuConnection(
                 return;
               }
 
-              const selectedValue = extractCardActionValue(data);
               if (!selectedValue) {
                 await sendCardActionReply(
                   chatJid,
@@ -1471,13 +1530,13 @@ export function createFeishuConnection(
               }
 
               logger.info(
-                { chatJid, action, selectedValue, messageId },
+                { chatJid, action: runtimeAction, selectedValue, messageId },
                 'Card action: updating workspace runtime',
               );
               const reply = await connectOptions?.onCardRuntimeUpdate?.(
                 chatJid,
                 {
-                  action,
+                  action: runtimeAction,
                   value: selectedValue,
                 },
               );
