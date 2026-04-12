@@ -74,3 +74,37 @@ Run:
 
 Result:
 - Passed.
+
+### Task 3: Cut stale pending history after long gaps
+
+**Files:**
+- Modify: `src/context-compaction.ts`
+- Modify: `src/index.ts`
+- Test: `tests/context-compaction.test.ts`
+
+- [x] **Step 1: Write failing tests**
+
+Expected coverage:
+- pending messages split by a gap longer than 2 hours keep only the newest contiguous segment.
+- compacting still applies after stale history is removed.
+- invalid/missing timestamps keep existing safe behavior instead of dropping messages.
+
+Run: `npm test -- tests/context-compaction.test.ts`
+
+- [x] **Step 2: Implement helper**
+
+Add `selectRecentTurnMessages(messages, options)` in `src/context-compaction.ts`.
+
+- [x] **Step 3: Wire helper**
+
+Use `selectRecentTurnMessages()` before `compactMessagesForAgent()` in both normal prompt construction and active runner IPC injection.
+
+- [x] **Step 4: Validate**
+
+Run:
+- `npm test -- tests/context-compaction.test.ts`
+- `npm run build:backend`
+- `./scripts/review.sh`
+
+Result:
+- Passed.

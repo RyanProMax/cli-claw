@@ -216,6 +216,7 @@ import { executeUsageCommand } from './usage-command.js';
 import {
   buildRecoveryContext,
   compactMessagesForAgent,
+  selectRecentTurnMessages,
 } from './context-compaction.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -2219,6 +2220,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const missedMessages = getMessagesSince(chatJid, sinceCursor);
 
   if (missedMessages.length === 0) return true;
+  const messagesForAgent = selectRecentTurnMessages(missedMessages);
 
   // Admin home is shared as web:main, so select runtime owner from the latest
   // active admin sender to avoid writing global memory into another admin's
@@ -2248,10 +2250,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let replySourceImJid: string | null = null;
   if (!directImReply) {
     // chatJid is a web channel — check if ALL messages share the same IM source
-    const firstSourceJid = missedMessages[0]?.source_jid || chatJid;
+    const firstSourceJid = messagesForAgent[0]?.source_jid || chatJid;
     const allSameImSource =
       getChannelType(firstSourceJid) !== null &&
-      missedMessages.every((m) => (m.source_jid || chatJid) === firstSourceJid);
+      messagesForAgent.every(
+        (m) => (m.source_jid || chatJid) === firstSourceJid,
+      );
     if (allSameImSource) {
       replySourceImJid = firstSourceJid;
     }
@@ -2264,7 +2268,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
 
   const shared = isGroupShared(group.folder);
-  let prompt = formatMessages(missedMessages, shared);
+  let prompt = formatMessages(messagesForAgent, shared);
 
   // Recovery mode: session was cleared to prevent session ghost, so inject
   // recent conversation history to give the fresh session context.
@@ -2292,13 +2296,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
   }
 
-  const images = collectMessageImages(chatJid, missedMessages);
+  const images = collectMessageImages(chatJid, messagesForAgent);
   const imagesForAgent = images.length > 0 ? images : undefined;
 
   logger.info(
     {
       group: group.name,
       messageCount: missedMessages.length,
+      forwardedMessageCount: messagesForAgent.length,
       directImReply,
       imageCount: images.length,
       shared,
@@ -6093,6 +6098,7 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
+          const recentTurnMessages = selectRecentTurnMessages(messagesToSend);
 
           // Home and non-home groups now share the same IPC injection path.
           // Reply routing is dynamically updated via activeRouteUpdaters when
@@ -6101,7 +6107,7 @@ async function startMessageLoop(): Promise<void> {
 
           const shared = !group.is_home && isGroupShared(group.folder);
           const compactedMessagesToSend =
-            compactMessagesForAgent(messagesToSend);
+            compactMessagesForAgent(recentTurnMessages);
           const formatted = formatMessages(compactedMessagesToSend, shared);
 
           const images = collectMessageImages(chatJid, compactedMessagesToSend);
@@ -6125,6 +6131,7 @@ async function startMessageLoop(): Promise<void> {
               {
                 chatJid,
                 count: messagesToSend.length,
+                forwardedCount: compactedMessagesToSend.length,
                 imageCount: images.length,
               },
               'Piped messages to active container',
