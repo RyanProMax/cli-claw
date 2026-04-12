@@ -88,6 +88,20 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
+    name: 'self-status',
+    usage: '/self-status',
+    description: '查看 cli-claw 服务版本、自检与重启需求',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
+    name: 'self-check',
+    usage: '/self-check',
+    description: '隔离启动候选服务做冷启动健康检查，不重启当前服务',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
     name: 'recall',
     aliases: ['rc'],
     usage: '/recall',

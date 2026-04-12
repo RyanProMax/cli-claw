@@ -66,6 +66,32 @@ describe('runtime command registry', () => {
     });
   });
 
+  test('shows self-iteration commands in IM help and parses them as local commands', () => {
+    const imHelp = formatCommandHelp({
+      entrypoint: 'im',
+      agentType: 'codex',
+    });
+    const webHelp = formatCommandHelp({
+      entrypoint: 'web',
+      agentType: 'codex',
+    });
+
+    expect(imHelp).toContain('/self-status');
+    expect(imHelp).toContain('/self-check');
+    expect(webHelp).not.toContain('/self-status');
+    expect(webHelp).not.toContain('/self-check');
+    expect(parseRuntimeCommand('/self-status')).toMatchObject({
+      name: 'self-status',
+      argsText: '',
+      args: [],
+    });
+    expect(parseRuntimeCommand('/self-check')).toMatchObject({
+      name: 'self-check',
+      argsText: '',
+      args: [],
+    });
+  });
+
   test('normalizes preset-only model selections', () => {
     expect(normalizeModelPreset('claude', ' SONNET ')).toBe('sonnet');
     expect(normalizeModelPreset('codex', 'GPT-5.4')).toBe('gpt-5.4');

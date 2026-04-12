@@ -114,6 +114,8 @@ import {
 import {
   formatContextMessages,
   formatConversationStatus,
+  formatSelfCheckResult,
+  formatSelfStatus,
   formatWorkspaceList,
   formatSystemStatus,
   resolveBoundChatTarget,
@@ -177,7 +179,10 @@ import {
   SubAgent,
 } from './types.js';
 import { logger } from './logger.js';
-import { getRuntimeBuildLogFields } from './runtime-build.js';
+import {
+  getRuntimeBuildLogFields,
+  getRuntimeBuildStatus,
+} from './runtime-build.js';
 import { buildEffectiveGroupFromHomeSibling } from './group-runtime.js';
 import {
   materializeHostWorkspaceDefaultCwd,
@@ -215,6 +220,7 @@ import { sdkQuery } from './sdk-query.js';
 import { executeSessionReset } from './commands.js';
 import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
 import { executeUsageCommand } from './usage-command.js';
+import { runSelfCheck, type SelfCheckResult } from './self-check.js';
 import {
   buildRecoveryContext,
   compactMessagesForAgent,
@@ -227,6 +233,9 @@ const DEFAULT_MAIN_JID = 'web:main';
 const DEFAULT_MAIN_NAME = 'Main';
 const SAFE_REQUEST_ID_RE = /^[A-Za-z0-9_-]+$/;
 const OOM_EXIT_RE = /code 137/;
+const SELF_CHECK_MODE = process.env.CLI_CLAW_SELF_CHECK === '1';
+let lastSelfCheckResult: SelfCheckResult | null = null;
+let selfCheckRunning = false;
 
 /**
  * Feed a stream event into a Feishu streaming card controller.
@@ -1132,6 +1141,10 @@ async function handleCommand(
       return executeUsageCommand({
         getClaudeUsage: () => getClaudeUsageSnapshot(),
       });
+    case 'self-status':
+      return handleSelfStatusCommand(chatJid);
+    case 'self-check':
+      return handleSelfCheckCommand(chatJid);
     case 'recall':
     case 'rc':
       return handleRecallCommand(chatJid);
@@ -1455,6 +1468,54 @@ function handleStatusCommand(chatJid: string): string {
   }
 
   return `${systemStatus}\n\n${conversationStatus}\n\n${buildRuntimeStatusReply(runtimeTarget)}`;
+}
+
+function isSelfIterationAdmin(chatJid: string): boolean {
+  const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
+  if (!group?.created_by) return false;
+  return getUserById(group.created_by)?.role === 'admin';
+}
+
+function handleSelfStatusCommand(chatJid: string): string {
+  if (!isSelfIterationAdmin(chatJid)) {
+    return '需要管理员权限才能查看服务自迭代状态';
+  }
+
+  const buildStatus = getRuntimeBuildStatus();
+  return formatSelfStatus({
+    pid: buildStatus.pid,
+    startedAt: buildStatus.startedAt,
+    cwd: process.cwd(),
+    stale: buildStatus.stale,
+    backend: {
+      stale: buildStatus.backend.stale,
+      loadedMtimeIso: buildStatus.backend.loaded.mtimeIso,
+      currentMtimeIso: buildStatus.backend.current.mtimeIso,
+    },
+    agentRunner: {
+      stale: buildStatus.agentRunner.stale,
+      loadedMtimeIso: buildStatus.agentRunner.loaded.mtimeIso,
+      currentMtimeIso: buildStatus.agentRunner.current.mtimeIso,
+    },
+    lastCheck: lastSelfCheckResult,
+  });
+}
+
+async function handleSelfCheckCommand(chatJid: string): Promise<string> {
+  if (!isSelfIterationAdmin(chatJid)) {
+    return '需要管理员权限才能执行服务自检';
+  }
+  if (selfCheckRunning) {
+    return '已有 /self-check 正在运行，请稍后再试';
+  }
+
+  selfCheckRunning = true;
+  try {
+    lastSelfCheckResult = await runSelfCheck();
+    return formatSelfCheckResult(lastSelfCheckResult);
+  } finally {
+    selfCheckRunning = false;
+  }
 }
 
 function handleWhereCommand(chatJid: string): string {
@@ -2059,14 +2120,20 @@ function loadState(): void {
     }
   }
 
-  try {
-    reconcileHostWorkspaceDefaults(LAUNCH_CWD);
-  } catch (err) {
-    logger.error(
-      { err, launchCwd: LAUNCH_CWD },
-      'Failed to materialize host workspace cwd defaults',
-    );
-    throw err instanceof Error ? err : new Error(serializeErrorForOutput(err));
+  if (SELF_CHECK_MODE) {
+    logger.info('CLI_CLAW_SELF_CHECK=1, skipping host workspace cwd defaults');
+  } else {
+    try {
+      reconcileHostWorkspaceDefaults(LAUNCH_CWD);
+    } catch (err) {
+      logger.error(
+        { err, launchCwd: LAUNCH_CWD },
+        'Failed to materialize host workspace cwd defaults',
+      );
+      throw err instanceof Error
+        ? err
+        : new Error(serializeErrorForOutput(err));
+    }
   }
 
   // Initialize per-user global AGENTS.md from template for users missing it
@@ -7028,17 +7095,20 @@ export async function startCliClaw(): Promise<void> {
 
   loadState();
 
-  const launchCwdValidation = validateHostWorkspaceCwd(LAUNCH_CWD, {
-    fieldLabel: 'CLI launch cwd',
-  });
-  if ('error' in launchCwdValidation) {
-    logger.error(
-      { launchCwd: LAUNCH_CWD, error: launchCwdValidation.error },
-      'Invalid CLI launch cwd for host workspace defaults',
-    );
-    throw new Error(launchCwdValidation.error);
+  if (SELF_CHECK_MODE) {
+    logger.info('CLI_CLAW_SELF_CHECK=1, skipping CLI launch cwd validation');
+  } else {
+    const launchCwdValidation = validateHostWorkspaceCwd(LAUNCH_CWD, {
+      fieldLabel: 'CLI launch cwd',
+    });
+    if ('error' in launchCwdValidation) {
+      logger.error(
+        { launchCwd: LAUNCH_CWD, error: launchCwdValidation.error },
+        'Invalid CLI launch cwd for host workspace defaults',
+      );
+      throw new Error(launchCwdValidation.error);
+    }
   }
-  const launchCwd = launchCwdValidation.cwd;
 
   // --- Channel reload helpers (hot-reload on config save) ---
 
@@ -7785,6 +7855,11 @@ export async function startCliClaw(): Promise<void> {
   recoverConversationAgents();
   startStreamingBuffer();
   startMessageLoop();
+
+  if (SELF_CHECK_MODE) {
+    logger.info('CLI_CLAW_SELF_CHECK=1, skipping IM channel connections');
+    return;
+  }
 
   // --- IM Connection Pool: connect per-user IM channels ---
   // Load global IM config (backward compat: used for admin if no per-user config exists)

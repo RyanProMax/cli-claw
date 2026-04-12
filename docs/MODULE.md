@@ -18,6 +18,7 @@
 │   ├── host-workspace-cwd.ts       # host 工作区 effective cwd 校验、物化与解析
 │   ├── runtime-config.ts           # Provider / IM / 系统配置、密文存储、环境变量合成
 │   ├── runtime-build.ts            # 运行进程与已加载 dist 的 build 指纹
+│   ├── self-check.ts               # 服务自迭代 shadow start 与健康检查
 │   ├── runtime-identity.ts         # 实际运行时 agent / model / effort 元数据
 │   ├── file-manager.ts             # 文件读写边界、系统路径保护、路径安全
 │   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区上下文解析
@@ -101,6 +102,7 @@
 ├── RUNBOOKS/
 │   ├── Implement.md                # 主 agent 实施循环、验证与 repair loop 约定
 │   ├── Review.md                   # Review gate 清单
+│   ├── SelfIteration.md            # 通过 Cli Claw 迭代自身的安全自检流程
 │   └── Handoff.md                  # 阻塞 / 换线程 / 跨会话交接模板
 ├── scripts/
 │   ├── validate.sh                 # 统一验证入口；串联测试、类型检查与构建

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   formatConversationStatus,
+  formatSelfCheckResult,
+  formatSelfStatus,
   resolveBoundChatTarget,
   type RegisteredGroupLike,
   type AgentLike,
@@ -157,6 +159,106 @@ describe('formatConversationStatus', () => {
         '💬 会话:',
         '  · 主对话',
         '  ▶ Thesis Agent [agen] running ← 当前',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('formatSelfStatus', () => {
+  test('summarizes the running service and stale build state concisely', () => {
+    expect(
+      formatSelfStatus({
+        pid: 1234,
+        startedAt: '2026-04-12T12:00:00.000Z',
+        cwd: '/Users/ryan/projects/cli-claw',
+        stale: true,
+        backend: {
+          stale: true,
+          loadedMtimeIso: '2026-04-12T11:00:00.000Z',
+          currentMtimeIso: '2026-04-12T12:10:00.000Z',
+        },
+        agentRunner: {
+          stale: false,
+          loadedMtimeIso: '2026-04-12T11:00:00.000Z',
+          currentMtimeIso: '2026-04-12T11:00:00.000Z',
+        },
+        lastCheck: null,
+      }),
+    ).toBe(
+      [
+        '🧭 自迭代状态',
+        '━━━━━━━━━━',
+        '🆔 PID: 1234',
+        '⏱️ 启动: 2026-04-12T12:00:00.000Z',
+        '📂 cwd: /Users/ryan/projects/cli-claw',
+        '📦 build: 需要重启',
+        '  backend: stale 2026-04-12T11:00:00.000Z → 2026-04-12T12:10:00.000Z',
+        '  agent-runner: ok 2026-04-12T11:00:00.000Z',
+        '🧪 最近自检: 未运行',
+        '💡 /self-check 冷启动验证，不会重启当前服务',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('formatSelfCheckResult', () => {
+  test('formats a passed shadow-start check', () => {
+    expect(
+      formatSelfCheckResult({
+        status: 'passed',
+        startedAt: '2026-04-12T12:01:00.000Z',
+        finishedAt: '2026-04-12T12:01:03.000Z',
+        durationMs: 3000,
+        port: 3101,
+        command: 'node',
+        args: ['/repo/dist/index.js'],
+        tempHome: '/tmp/cli-claw-self-check-abc',
+        healthUrl: 'http://127.0.0.1:3101/api/health',
+        error: null,
+        exitCode: null,
+        signal: null,
+        outputTail: [],
+      }),
+    ).toBe(
+      [
+        '🧪 自检结果: 通过',
+        '━━━━━━━━━━',
+        '⏱️ 耗时: 3000ms',
+        '🌐 端口: 3101',
+        '📂 隔离 HOME: /tmp/cli-claw-self-check-abc',
+        '✅ 候选服务冷启动健康，当前服务未重启',
+      ].join('\n'),
+    );
+  });
+
+  test('formats a failed shadow-start check with the failure reason', () => {
+    expect(
+      formatSelfCheckResult({
+        status: 'failed',
+        startedAt: '2026-04-12T12:01:00.000Z',
+        finishedAt: '2026-04-12T12:01:03.000Z',
+        durationMs: 3000,
+        port: 3101,
+        command: 'node',
+        args: ['/repo/dist/index.js'],
+        tempHome: '/tmp/cli-claw-self-check-abc',
+        healthUrl: 'http://127.0.0.1:3101/api/health',
+        error: 'candidate exited before health check passed',
+        exitCode: 1,
+        signal: null,
+        outputTail: ['Error: bad config'],
+      }),
+    ).toBe(
+      [
+        '🧪 自检结果: 失败',
+        '━━━━━━━━━━',
+        '⏱️ 耗时: 3000ms',
+        '🌐 端口: 3101',
+        '📂 隔离 HOME: /tmp/cli-claw-self-check-abc',
+        '❌ 原因: candidate exited before health check passed',
+        '🚪 退出: code=1',
+        '📜 输出:',
+        'Error: bad config',
       ].join('\n'),
     );
   });

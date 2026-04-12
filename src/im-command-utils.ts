@@ -299,3 +299,103 @@ export function formatConversationStatus(info: ConversationStatusInfo): string {
 
   return lines.join('\n');
 }
+
+// ─── Self Iteration Formatting ─────────────────────────────────
+
+export interface SelfBuildArtifactStatusInfo {
+  stale: boolean;
+  loadedMtimeIso: string | null;
+  currentMtimeIso: string | null;
+}
+
+export interface SelfCheckResultInfo {
+  status: 'passed' | 'failed';
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  port: number;
+  command: string;
+  args: string[];
+  tempHome: string;
+  healthUrl: string;
+  error: string | null;
+  exitCode: number | null;
+  signal: string | null;
+  outputTail: string[];
+}
+
+export interface SelfStatusInfo {
+  pid: number;
+  startedAt: string;
+  cwd: string;
+  stale: boolean;
+  backend: SelfBuildArtifactStatusInfo;
+  agentRunner: SelfBuildArtifactStatusInfo;
+  lastCheck: SelfCheckResultInfo | null;
+}
+
+function formatMtime(value: string | null): string {
+  return value || 'missing';
+}
+
+function formatArtifactLine(
+  label: string,
+  artifact: SelfBuildArtifactStatusInfo,
+): string {
+  const state = artifact.stale ? 'stale' : 'ok';
+  const loaded = formatMtime(artifact.loadedMtimeIso);
+  const current = formatMtime(artifact.currentMtimeIso);
+  const suffix = artifact.stale ? `${loaded} → ${current}` : loaded;
+  return `  ${label}: ${state} ${suffix}`;
+}
+
+export function formatSelfStatus(info: SelfStatusInfo): string {
+  const buildState = info.stale ? '需要重启' : '已是当前 build';
+  const lastCheck = info.lastCheck
+    ? `${info.lastCheck.status === 'passed' ? '通过' : '失败'} ${info.lastCheck.finishedAt}`
+    : '未运行';
+
+  return [
+    '🧭 自迭代状态',
+    '━━━━━━━━━━',
+    `🆔 PID: ${info.pid}`,
+    `⏱️ 启动: ${info.startedAt}`,
+    `📂 cwd: ${info.cwd}`,
+    `📦 build: ${buildState}`,
+    formatArtifactLine('backend', info.backend),
+    formatArtifactLine('agent-runner', info.agentRunner),
+    `🧪 最近自检: ${lastCheck}`,
+    '💡 /self-check 冷启动验证，不会重启当前服务',
+  ].join('\n');
+}
+
+export function formatSelfCheckResult(result: SelfCheckResultInfo): string {
+  const lines = [
+    `🧪 自检结果: ${result.status === 'passed' ? '通过' : '失败'}`,
+    '━━━━━━━━━━',
+    `⏱️ 耗时: ${result.durationMs}ms`,
+    `🌐 端口: ${result.port}`,
+    `📂 隔离 HOME: ${result.tempHome}`,
+  ];
+
+  if (result.status === 'passed') {
+    lines.push('✅ 候选服务冷启动健康，当前服务未重启');
+    return lines.join('\n');
+  }
+
+  lines.push(`❌ 原因: ${result.error || 'unknown error'}`);
+
+  if (result.exitCode !== null || result.signal !== null) {
+    const exitParts: string[] = [];
+    if (result.exitCode !== null) exitParts.push(`code=${result.exitCode}`);
+    if (result.signal !== null) exitParts.push(`signal=${result.signal}`);
+    lines.push(`🚪 退出: ${exitParts.join(', ')}`);
+  }
+
+  if (result.outputTail.length > 0) {
+    lines.push('📜 输出:');
+    lines.push(...result.outputTail);
+  }
+
+  return lines.join('\n');
+}

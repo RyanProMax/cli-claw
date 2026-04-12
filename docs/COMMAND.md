@@ -80,6 +80,8 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 | `/list` | `/ls` | 查看当前用户可访问的工作区与对话列表 |
 | `/status` | - | 查看当前工作区、运行状态与绑定信息摘要 |
 | `/usage` | - | 查看 Codex 与 Claude 的 5h / 7d 用量余额 |
+| `/self-status` | - | 查看 cli-claw 服务版本、自检与重启需求 |
+| `/self-check` | - | 隔离启动候选服务做冷启动健康检查，不重启当前服务 |
 | `/recall` | `/rc` | 汇总当前工作区最近消息并生成回顾摘要 |
 | `/where` | - | 查看当前 IM 会话绑定到了哪个工作区 / Agent |
 | `/bind <workspace>` | - | 将当前 IM 会话绑定到指定工作区 |
@@ -93,6 +95,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 
 - `/status` 会同时展示系统队列状态、当前工作区定位、当前 workspace 的主对话 / conversation agent 列表、IM 绑定关系，以及 runtime 摘要（当前模型、思考强度、可用预设）。
 - `/usage` 是本地查询命令，不进入 agent 对话链路；Codex 数据来自本机 `~/.codex/sessions/**/*.jsonl` 的最新 usage 快照，Claude 数据来自已启用 OAuth provider 的 usage API，任一侧不可用时会在对应 section 内展示 `unavailable` 与原因。
+- `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-check` 会用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，不会停止或重启当前服务。
 
 ## IM 会话切换与绑定
 
