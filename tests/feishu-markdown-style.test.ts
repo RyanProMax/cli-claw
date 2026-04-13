@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { normalizeStreamingMarkdown } from '../src/feishu-markdown-style.ts';
+import {
+  normalizeStreamingMarkdown,
+  optimizeMarkdownStyle,
+} from '../src/feishu-markdown-style.ts';
 import { appendStreamTextDelta } from '../shared/stream-event.ts';
 
 describe('normalizeStreamingMarkdown', () => {
@@ -42,5 +45,14 @@ describe('normalizeStreamingMarkdown', () => {
     expect(normalizeStreamingMarkdown(combined.text)).toBe(
       'First update\n\n# Second update',
     );
+  });
+
+  test('keeps plain prose paragraphs separated in Feishu card markdown', () => {
+    expect(
+      optimizeMarkdownStyle(
+        '第一段说明服务状态。\n\n第二段说明根因。\n\n第三段说明下一步。',
+        2,
+      ),
+    ).toBe('第一段说明服务状态。\n<br>\n<br>\n第二段说明根因。\n<br>\n<br>\n第三段说明下一步。');
   });
 });

@@ -54,7 +54,10 @@ import { StreamEventProcessor } from './stream-processor.js';
 import { PREDEFINED_AGENTS } from './agent-definitions.js';
 import { createMcpTools } from './mcp-tools.js';
 import { readCodexCliConfig } from './codex-config.js';
-import { buildCodexAcpLaunchArgs } from './codex-session-runtime.js';
+import {
+  appendCodexTurnChunk,
+  buildCodexAcpLaunchArgs,
+} from './codex-session-runtime.js';
 
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
 const WORKSPACE_GROUP =
@@ -1464,6 +1467,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
   );
 
   let activeTurnText = '';
+  let activeTurnMessageUuid: string | undefined;
   const connection = new ClientSideConnection(
     () => ({
       requestPermission: async (params) => {
@@ -1495,7 +1499,19 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                 ? update.content.text
                 : null;
             if (chunkText) {
-              activeTurnText += chunkText;
+              const appended = appendCodexTurnChunk(
+                activeTurnText,
+                {
+                  text: chunkText,
+                  messageUuid:
+                    typeof update.messageId === 'string'
+                      ? update.messageId
+                      : undefined,
+                },
+                activeTurnMessageUuid,
+              );
+              activeTurnText = appended.text;
+              activeTurnMessageUuid = appended.lastMessageUuid;
               writeOutput({
                 status: 'stream',
                 result: null,
@@ -1642,6 +1658,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       }
       clearInterruptRequested();
       activeTurnText = '';
+      activeTurnMessageUuid = undefined;
 
       let closeRequested = false;
       let interruptRequested = false;
