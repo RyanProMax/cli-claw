@@ -47,7 +47,7 @@ describe('runtime command registry', () => {
     expect(help).not.toContain('/effort <low|medium|high|xhigh>');
   });
 
-  test('shows /usage in IM help, hides it from Web help, and parses it as a local command', () => {
+  test('does not expose legacy /usage in help or command parsing', () => {
     const imHelp = formatCommandHelp({
       entrypoint: 'im',
       agentType: 'codex',
@@ -57,13 +57,9 @@ describe('runtime command registry', () => {
       agentType: 'codex',
     });
 
-    expect(imHelp).toContain('/usage');
+    expect(imHelp).not.toContain('/usage');
     expect(webHelp).not.toContain('/usage');
-    expect(parseRuntimeCommand('/usage')).toMatchObject({
-      name: 'usage',
-      argsText: '',
-      args: [],
-    });
+    expect(parseRuntimeCommand('/usage')).toBeNull();
   });
 
   test('shows self-iteration commands in IM help and parses them as local commands', () => {

@@ -18,6 +18,10 @@ export interface ExecuteUsageCommandOptions {
   getClaudeUsage: () => Promise<UsageProviderResult>;
 }
 
+export interface CodexUsageSnapshotOptions {
+  codexHome?: string;
+}
+
 const UNKNOWN_ERROR_MESSAGE = 'unknown error';
 const RESET_PLACEHOLDER = 'unknown';
 const HOME_OVERRIDE_ENV = 'CLI_CLAW_HOME_OVERRIDE';
@@ -284,9 +288,7 @@ function getHomeDirectory(): string | undefined {
   return isAbsolute(candidate) ? candidate : undefined;
 }
 
-function resolveCodexHome(
-  options: ExecuteUsageCommandOptions,
-): string | undefined {
+function resolveCodexHome(options: { codexHome?: string }): string | undefined {
   if (options.codexHome) {
     return options.codexHome;
   }
@@ -295,6 +297,31 @@ function resolveCodexHome(
     return undefined;
   }
   return join(homeDir, '.codex');
+}
+
+export function getCodexUsageSnapshot(
+  options: CodexUsageSnapshotOptions = {},
+): UsageProviderResult {
+  const codexHome = resolveCodexHome(options);
+  if (!codexHome) {
+    return {
+      provider: 'codex',
+      available: false,
+      source: 'Codex home resolution',
+      reason: '无法解析 Codex home 目录',
+    };
+  }
+
+  try {
+    return readLatestCodexUsage(codexHome);
+  } catch (error) {
+    return {
+      provider: 'codex',
+      available: false,
+      source: 'local ~/.codex/sessions',
+      reason: `读取 Codex usage snapshot 失败: ${stringifyErrorMessage(error)}`,
+    };
+  }
 }
 
 function formatUsageSection(result: UsageProviderResult): string {
@@ -330,27 +357,7 @@ function formatUsageSection(result: UsageProviderResult): string {
 export async function executeUsageCommand(
   options: ExecuteUsageCommandOptions,
 ): Promise<string> {
-  const codexHome = resolveCodexHome(options);
-  let codex: UsageProviderResult;
-  if (!codexHome) {
-    codex = {
-      provider: 'codex',
-      available: false,
-      source: 'Codex home resolution',
-      reason: '无法解析 Codex home 目录',
-    };
-  } else {
-    try {
-      codex = readLatestCodexUsage(codexHome);
-    } catch (error) {
-      codex = {
-        provider: 'codex',
-        available: false,
-        source: 'local ~/.codex/sessions',
-        reason: `读取 Codex usage snapshot 失败: ${stringifyErrorMessage(error)}`,
-      };
-    }
-  }
+  const codex = getCodexUsageSnapshot(options);
   let claude: UsageProviderResult;
   try {
     claude = await options.getClaudeUsage();

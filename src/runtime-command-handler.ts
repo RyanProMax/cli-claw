@@ -197,18 +197,13 @@ export function buildRuntimeStatusReply(
   const agentType = normalizeAgentType(runtimeIdentity.agentType);
   const currentEffort = runtimeIdentity.reasoningEffort?.trim() || null;
   const lines = [
-    `当前工作区: ${formatRuntimeScopeLabel(target)}`,
-    `当前 runtime: ${agentType}`,
-    `当前模型: ${runtimeIdentity.model}`,
+    `🗂️ 当前工作区: ${formatRuntimeScopeLabel(target)}`,
+    `🤖 当前 runtime: ${agentType}`,
+    `🧠 当前模型: ${runtimeIdentity.model}`,
   ];
 
   if (currentEffort) {
-    lines.push(`当前思考强度: ${currentEffort}`);
-  }
-
-  lines.push(`模型预设: ${getModelPresets(agentType).join(', ')}`);
-  if (supportsReasoningEffort(agentType)) {
-    lines.push(`思考强度预设: ${getReasoningEffortPresets().join(', ')}`);
+    lines.push(`⚙️ 当前思考强度: ${currentEffort}`);
   }
 
   return lines.join('\n');

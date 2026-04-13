@@ -226,8 +226,7 @@ import {
 import { verifyPairingCode } from './telegram-pairing.js';
 import { sdkQuery } from './sdk-query.js';
 import { executeSessionReset } from './commands.js';
-import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
-import { executeUsageCommand } from './usage-command.js';
+import { getCodexUsageSnapshot } from './usage-command.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
 import {
   cleanupOrphanRunnerProcesses,
@@ -1155,10 +1154,6 @@ async function handleCommand(
       return handleListCommand(chatJid);
     case 'status':
       return handleStatusCommand(chatJid);
-    case 'usage':
-      return executeUsageCommand({
-        getClaudeUsage: () => getClaudeUsageSnapshot(),
-      });
     case 'self-status':
       return handleSelfStatusCommand(chatJid);
     case 'self-check':
@@ -1443,20 +1438,6 @@ function handleStatusCommand(chatJid: string): string {
       ? queueStatus.waitingGroupJids.indexOf(chatJid) + 1
       : null;
 
-  const systemStatus = formatSystemStatus(
-    location,
-    {
-      activeContainerCount: queueStatus.activeContainerCount,
-      activeHostProcessCount: queueStatus.activeHostProcessCount,
-      maxContainers: settings.maxConcurrentContainers,
-      maxHostProcesses: settings.maxConcurrentHostProcesses,
-      waitingCount: queueStatus.waitingCount,
-      waitingGroupJids: queueStatus.waitingGroupJids,
-    },
-    isActive,
-    queuePosition,
-  );
-
   const workspace = resolveStatusWorkspaceInfo(group, location);
   const bindingLabel =
     group.target_agent_id || group.target_main_jid
@@ -1483,11 +1464,41 @@ function handleStatusCommand(chatJid: string): string {
     getAgent,
   });
 
+  const formatQuotaValue = (value: number | undefined): string =>
+    value === undefined ? 'unavailable' : `${value}%`;
+  const formatResetValue = (value: unknown): string =>
+    typeof value === 'string' && value.trim().length > 0 ? value : 'unknown';
+  const codexUsage =
+    runtimeTarget?.effectiveRuntimeIdentity.agentType === 'codex'
+      ? getCodexUsageSnapshot()
+      : null;
+  const runtimeLines = runtimeTarget
+    ? [
+        ...buildRuntimeStatusReply(runtimeTarget).split('\n'),
+        `⏳ 5h 剩余: ${formatQuotaValue(codexUsage?.primaryRemainingPct)}（重置时间：${formatResetValue(codexUsage?.primaryResetAt)}）`,
+        `📅 7d 剩余: ${formatQuotaValue(codexUsage?.secondaryRemainingPct)}（重置时间：${formatResetValue(codexUsage?.secondaryResetAt)}）`,
+      ]
+    : [];
+  const systemStatus = formatSystemStatus(
+    location,
+    {
+      activeContainerCount: queueStatus.activeContainerCount,
+      activeHostProcessCount: queueStatus.activeHostProcessCount,
+      maxContainers: settings.maxConcurrentContainers,
+      maxHostProcesses: settings.maxConcurrentHostProcesses,
+      waitingCount: queueStatus.waitingCount,
+      waitingGroupJids: queueStatus.waitingGroupJids,
+    },
+    isActive,
+    queuePosition,
+    runtimeLines,
+  );
+
   if (!runtimeTarget) {
     return `${systemStatus}\n\n${conversationStatus}`;
   }
 
-  return `${systemStatus}\n\n${conversationStatus}\n\n${buildRuntimeStatusReply(runtimeTarget)}`;
+  return `${systemStatus}\n\n${conversationStatus}`;
 }
 
 function isSelfIterationAdmin(chatJid: string): boolean {

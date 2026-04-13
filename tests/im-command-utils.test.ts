@@ -6,6 +6,7 @@ import {
   formatSelfRestartAccepted,
   formatSelfRestartSuccess,
   formatSelfStatus,
+  formatSystemStatus,
   resolveBoundChatTarget,
   type RegisteredGroupLike,
   type AgentLike,
@@ -161,6 +162,52 @@ describe('formatConversationStatus', () => {
         '💬 会话:',
         '  · 主对话',
         '  ▶ Thesis Agent [agen] running ← 当前',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('formatSystemStatus', () => {
+  test('renders the compact status template with runtime lines inline', () => {
+    expect(
+      formatSystemStatus(
+        {
+          locationLine: '主工作区 / 主对话',
+          folder: 'main',
+          replyPolicy: null,
+        },
+        {
+          activeContainerCount: 0,
+          activeHostProcessCount: 0,
+          maxContainers: 20,
+          maxHostProcesses: 5,
+          waitingCount: 0,
+          waitingGroupJids: [],
+        },
+        false,
+        null,
+        [
+          '🗂️ 当前工作区: 主工作区',
+          '🤖 当前 runtime: codex',
+          '🧠 当前模型: gpt-5.4',
+          '⚙️ 当前思考强度: medium',
+          '⏳ 5h 剩余: 42%（重置时间：2026-04-13 02:09）',
+          '📅 7d 剩余: 75%（重置时间：2026-04-19 11:50）',
+        ],
+      ),
+    ).toBe(
+      [
+        '📊 系统状态',
+        '━━━━━━━━━━',
+        '📍 位置: 主工作区 / 主对话',
+        '⚡ 状态: 空闲',
+        '📦 负载: 0/20 容器, 0/5 进程',
+        '🗂️ 当前工作区: 主工作区',
+        '🤖 当前 runtime: codex',
+        '🧠 当前模型: gpt-5.4',
+        '⚙️ 当前思考强度: medium',
+        '⏳ 5h 剩余: 42%（重置时间：2026-04-13 02:09）',
+        '📅 7d 剩余: 75%（重置时间：2026-04-19 11:50）',
       ].join('\n'),
     );
   });

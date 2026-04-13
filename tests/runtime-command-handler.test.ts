@@ -132,7 +132,7 @@ describe('runtime command handler', () => {
 
     const before = resolveRuntimeWorkspaceTarget('web:proj-child', deps);
     expect(before).not.toBeNull();
-    expect(buildRuntimeStatusReply(before!)).toContain('当前模型: gpt-5.4');
+    expect(buildRuntimeStatusReply(before!)).toContain('🧠 当前模型: gpt-5.4');
 
     const result = await applyRuntimeWorkspaceSelection({
       chatJid: 'web:proj-child',
@@ -149,7 +149,7 @@ describe('runtime command handler', () => {
       reply: '已将当前工作区模型切换为 gpt-5.3-codex',
     });
     expect(buildRuntimeStatusReply(after!)).toContain(
-      '当前模型: gpt-5.3-codex',
+      '🧠 当前模型: gpt-5.3-codex',
     );
     expect(setGroup).toHaveBeenCalledWith(
       'web:proj-home',
@@ -334,11 +334,11 @@ describe('runtime command handler', () => {
     const target = resolveRuntimeWorkspaceTarget('web:proj-home', deps);
     expect(target).not.toBeNull();
 
-    expect(buildRuntimeStatusReply(target!)).toContain('当前模型: gpt-5.4');
-    expect(buildRuntimeStatusReply(target!)).toContain('当前思考强度: medium');
+    expect(buildRuntimeStatusReply(target!)).toContain('🧠 当前模型: gpt-5.4');
     expect(buildRuntimeStatusReply(target!)).toContain(
-      '模型预设: gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2',
+      '⚙️ 当前思考强度: medium',
     );
+    expect(buildRuntimeStatusReply(target!)).not.toContain('模型预设:');
   });
 
   test('exposes one effective runtime identity for status, picker cards, and dispatch fallback', () => {
@@ -362,6 +362,8 @@ describe('runtime command handler', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     });
-    expect(buildRuntimeStatusReply(target!)).toContain('当前思考强度: high');
+    expect(buildRuntimeStatusReply(target!)).toContain(
+      '⚙️ 当前思考强度: high',
+    );
   });
 });

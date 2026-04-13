@@ -225,6 +225,7 @@ export function formatSystemStatus(
   queueStatus: QueueStatusInfo,
   isActive: boolean,
   queuePosition: number | null,
+  runtimeLines: string[] = [],
 ): string {
   const statusText = isActive
     ? '运行中'
@@ -238,8 +239,7 @@ export function formatSystemStatus(
     `📍 位置: ${location.locationLine}`,
     `⚡ 状态: ${statusText}`,
     `📦 负载: ${queueStatus.activeContainerCount}/${queueStatus.maxContainers} 容器, ${queueStatus.activeHostProcessCount}/${queueStatus.maxHostProcesses} 进程`,
-    '',
-    '💡 /sw <消息> 并行任务 · /where 绑定 · /list 全部',
+    ...runtimeLines,
   ];
 
   return lines.join('\n');

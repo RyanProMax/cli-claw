@@ -81,13 +81,6 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
-    name: 'usage',
-    usage: '/usage',
-    description: '查看 Codex 和 Claude 的 5h / 7d 用量余额',
-    availableEntrypoints: ['im'],
-    availabilityByRuntime: 'all',
-  },
-  {
     name: 'self-status',
     usage: '/self-status',
     description: '查看 cli-claw 服务版本、自检与重启需求',
