@@ -6,6 +6,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
+  createCliStartLaunchSpec,
+  inferDirectBackendLaunchSpec,
   cleanupOrphanRunnerProcesses,
   findPendingSelfRestartNotifications,
   markSelfRestartNotificationSent,
@@ -30,6 +32,54 @@ afterEach(() => {
 });
 
 describe('requestSelfRestart', () => {
+  test('captures a restartable direct bun backend launch spec', () => {
+    expect(
+      inferDirectBackendLaunchSpec({
+        execPath: '/Users/ryan/.bun/bin/bun',
+        argv: ['/Users/ryan/.bun/bin/bun', 'src/index.ts'],
+        cwd: '/Users/ryan/projects/cli-claw',
+      }),
+    ).toMatchObject({
+      command: '/Users/ryan/.bun/bin/bun',
+      args: ['src/index.ts'],
+      cwd: '/Users/ryan/projects/cli-claw',
+      source: 'direct_backend',
+      restartable: true,
+      validationError: null,
+      displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
+    });
+  });
+
+  test('captures a restartable cli launcher start spec', () => {
+    expect(
+      createCliStartLaunchSpec({
+        execPath: '/usr/local/bin/node',
+        argvEntry: '/Users/ryan/projects/cli-claw/dist/cli.js',
+        cwd: '/Users/ryan/projects/cli-claw',
+      }),
+    ).toMatchObject({
+      command: '/usr/local/bin/node',
+      args: ['/Users/ryan/projects/cli-claw/dist/cli.js', 'start'],
+      cwd: '/Users/ryan/projects/cli-claw',
+      source: 'cli_start',
+      restartable: true,
+      validationError: null,
+      displayCommand:
+        '/usr/local/bin/node /Users/ryan/projects/cli-claw/dist/cli.js start',
+    });
+  });
+
+  test('marks missing backend entry argv as not restartable', () => {
+    const spec = inferDirectBackendLaunchSpec({
+      execPath: '/Users/ryan/.bun/bin/bun',
+      argv: ['/Users/ryan/.bun/bin/bun'],
+      cwd: '/Users/ryan/projects/cli-claw',
+    });
+
+    expect(spec.restartable).toBe(false);
+    expect(spec.validationError).toContain('missing backend entrypoint');
+  });
+
   test('writes an intent without persisting env and spawns a detached watchdog', () => {
     const dataDir = makeTempDir();
     const child = Object.assign(new EventEmitter(), {
@@ -88,6 +138,41 @@ describe('requestSelfRestart', () => {
       requestChatJid: 'feishu:chat-1',
     });
     expect(intent.env).toBeUndefined();
+  });
+
+  test('rejects unsafe restart launch specs before writing an intent', () => {
+    const dataDir = makeTempDir();
+    const spawnFn = vi.fn();
+    const watchdogScriptPath = path.join(dataDir, 'watchdog.js');
+    fs.writeFileSync(watchdogScriptPath, '');
+
+    const result = requestSelfRestart({
+      dataDir,
+      appRoot: '/repo',
+      pid: 111,
+      port: 3000,
+      command: '/Users/ryan/.bun/bin/bun',
+      args: [],
+      cwd: '/repo',
+      requestChatJid: 'feishu:chat-1',
+      now: () => new Date('2026-04-12T13:00:00.000Z'),
+      randomId: () => 'restart-unsafe',
+      spawnFn,
+      watchdogCommand: 'node',
+      watchdogScriptPath,
+    });
+
+    expect(result).toEqual({
+      status: 'failed',
+      intentPath: null,
+      error: expect.stringContaining('unsafe restart launch spec'),
+    });
+    expect(spawnFn).not.toHaveBeenCalled();
+    expect(
+      fs.existsSync(
+        path.join(dataDir, 'ops', 'restarts', 'restart-unsafe.json'),
+      ),
+    ).toBe(false);
   });
 });
 

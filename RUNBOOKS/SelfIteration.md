@@ -10,7 +10,7 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 
 1. Implement code changes through the normal `RUNBOOKS/Implement.md` loop.
 2. Run the milestone validation commands, especially `npm run build:shared`, directly related tests, and `npm run build:backend`.
-3. Send `/self-status` from an admin IM chat to check the running PID, build stale state, cwd, and latest self-check result.
+3. Send `/self-status` from an admin IM chat to check the running PID, build stale state, cwd, latest self-check result, and the resolved self-restart launch command.
 4. Send `/self-check` from an admin IM chat.
 5. Continue only if `/self-check` reports `通过`.
 6. If a managed restart is desired, send `/self-restart` from an admin IM chat.
@@ -38,6 +38,7 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 ## What `/self-restart` Does
 
 - Writes a restart intent JSON under `~/.cli-claw/ops/restarts/`.
+- Reuses the validated launch spec captured at backend startup; if the current process cannot prove a safe restart command, `/self-restart` refuses the request immediately.
 - Starts an independent watchdog process from `dist/self-restart-watchdog.js`.
 - The watchdog runs shadow self-check first.
 - If shadow self-check fails, the watchdog writes `preflight_failed` and leaves the current backend running.
@@ -49,3 +50,5 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 Only an out-of-process supervisor or watchdog should perform a real restart. That watchdog must own the old PID, new process launch, health polling, and log capture.
 
 `/self-restart` is the built-in minimal watchdog. It is not a full release manager: it does not keep old binaries, switch symlinks, or guarantee rollback. For stronger production safety, run Cli Claw under launchd/systemd with release directories or blue-green promotion.
+
+For local macOS hardening, the repo ships `ops/install-launch-agent.sh`. Use it to install a user LaunchAgent with the same validated command shown by `/self-status`, then confirm `launchctl` can re-spawn the backend after a forced exit.

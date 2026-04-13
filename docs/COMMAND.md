@@ -80,7 +80,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 | --- | --- | --- |
 | `/list` | `/ls` | 查看当前用户可访问的工作区与对话列表 |
 | `/status` | - | 查看当前工作区、运行状态、当前 runtime 摘要与当前 Codex 5h / 7d 余额 |
-| `/self-status` | - | 查看 cli-claw 服务版本、自检与重启需求 |
+| `/self-status` | - | 查看 cli-claw 服务版本、自检状态、restartability 与当前重启命令 |
 | `/self-check` | - | 隔离启动候选服务做冷启动健康检查，不重启当前服务 |
 | `/self-restart` | - | 创建自重启 intent，并交给独立 watchdog 执行 |
 | `/recall` | `/rc` | 汇总当前工作区最近消息并生成回顾摘要 |
@@ -96,8 +96,10 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 
 - `/status` 会同时展示系统队列状态、当前工作区定位、当前 workspace 的主对话 / conversation agent 列表、IM 绑定关系，以及 runtime 摘要（当前 workspace、runtime、模型、思考强度）和当前 Codex 5h / 7d 余额。
 - Codex 余额读取自本机 `~/.codex/sessions/**/*.jsonl` 的最新 usage 快照；当前 runtime 不是 `codex` 或本地快照不可用时，对应余额会显示 `unavailable` / `unknown`。
-- `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-check` 会用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，不会停止或重启当前服务。
-- `/self-restart` 仅管理员可用；backend 只写入 restart intent 并启动独立 watchdog，watchdog 会先做 shadow self-check，通过后才停止旧 PID、启动同一启动命令并检查生产端口 `/api/health`。它不是 blue-green/rollback 机制，结果以 `~/.cli-claw/ops/restarts/*.json` 为准；重启成功后，新进程会向发起命令的 IM 会话补发一条成功回执，附带当前服务状态和残留进程检查摘要。若摘要里发现真正孤儿的 runner residue，服务会 best-effort 发送 `SIGTERM` 清理。
+- `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-status` 会直接展示当前 backend 解析到的 self-restart launch source 和精确命令，便于判断当前进程是否真的可安全重启。`/self-check` 会用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，不会停止或重启当前服务。
+- `/self-restart` 仅管理员可用；backend 只会在当前 launch spec 已通过结构校验时写入 restart intent 并启动独立 watchdog。若当前进程的启动命令不安全或不完整（例如只剩 `bun` 空参数），命令会直接失败，不会生成一个注定错误的 intent。watchdog 会先做 shadow self-check，通过后才停止旧 PID、启动同一启动命令并检查生产端口 `/api/health`。它不是 blue-green/rollback 机制，结果以 `~/.cli-claw/ops/restarts/*.json` 为准；重启成功后，新进程会向发起命令的 IM 会话补发一条成功回执，附带当前服务状态和残留进程检查摘要。若摘要里发现真正孤儿的 runner residue，服务会 best-effort 发送 `SIGTERM` 清理。
+
+本机如果需要比 watchdog 更强的兜底，使用 repo 内 `ops/install-launch-agent.sh` 安装用户级 `launchd` LaunchAgent；推荐直接复用 `/self-status` 展示的 validated 启动命令。
 
 ## IM 会话切换与绑定
 

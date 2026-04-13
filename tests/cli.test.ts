@@ -41,18 +41,32 @@ describe('runCli', () => {
     const start = vi.fn().mockResolvedValue(undefined);
     const stdout = vi.fn();
     const stderr = vi.fn();
+    const originalArgv = process.argv;
+    process.argv = ['/usr/local/bin/node', '/repo/dist/cli.js', 'start'];
 
-    const exitCode = await runCli(['start'], {
-      start,
-      stdout,
-      stderr,
-      version: '1.2.3',
-    });
+    try {
+      const exitCode = await runCli(['start'], {
+        start,
+        stdout,
+        stderr,
+        version: '1.2.3',
+      });
 
-    expect(exitCode).toBe(0);
-    expect(start).toHaveBeenCalledTimes(1);
-    expect(stdout).not.toHaveBeenCalled();
-    expect(stderr).not.toHaveBeenCalled();
+      expect(exitCode).toBe(0);
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(start).toHaveBeenCalledWith({
+        startupLaunchSpec: expect.objectContaining({
+          command: process.execPath,
+          args: ['/repo/dist/cli.js', 'start'],
+          source: 'cli_start',
+          restartable: true,
+        }),
+      });
+      expect(stdout).not.toHaveBeenCalled();
+      expect(stderr).not.toHaveBeenCalled();
+    } finally {
+      process.argv = originalArgv;
+    }
   });
 
   test('prints stable help text', async () => {

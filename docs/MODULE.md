@@ -18,6 +18,7 @@
 │   ├── host-workspace-cwd.ts       # host 工作区 effective cwd 校验、物化与解析
 │   ├── runtime-config.ts           # Provider / IM / 系统配置、密文存储、环境变量合成
 │   ├── runtime-build.ts            # 运行进程与已加载 dist 的 build 指纹
+│   ├── startup-launch.ts           # 自重启/守护复用的启动命令解析与校验
 │   ├── self-check.ts               # 服务自迭代 shadow start 与健康检查
 │   ├── self-restart.ts             # 自重启 intent、watchdog 调度与执行逻辑
 │   ├── self-restart-watchdog.ts    # 独立 watchdog CLI 入口
@@ -110,6 +111,8 @@
 │   ├── validate.sh                 # 统一验证入口；串联测试、类型检查与构建
 │   ├── review.sh                   # 机械化 review 辅助；语义审查仍按 RUNBOOKS/Review.md
 │   └── release-check.sh            # npm publish 前本地发布检查入口
+├── ops/
+│   └── install-launch-agent.sh     # 本机 launchd LaunchAgent 安装/状态/卸载入口
 ├── .codex/
 │   └── agents/
 │       ├── reader.md               # 只读探索子角色

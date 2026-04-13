@@ -235,6 +235,10 @@ import {
   requestSelfRestart,
   summarizeResidualProcesses,
 } from './self-restart.js';
+import {
+  inferStartupLaunchSpecFromProcess,
+  type StartupLaunchSpec,
+} from './startup-launch.js';
 import { getCodexRuntimeFallback } from './codex-config.js';
 import {
   buildRecoveryContext,
@@ -251,6 +255,7 @@ const OOM_EXIT_RE = /code 137/;
 const SELF_CHECK_MODE = process.env.CLI_CLAW_SELF_CHECK === '1';
 let lastSelfCheckResult: SelfCheckResult | null = null;
 let selfCheckRunning = false;
+let startupLaunchSpec: StartupLaunchSpec = inferStartupLaunchSpecFromProcess();
 
 function getCodexRuntimeIdentityOptions(): {
   codexCliModel: string | null;
@@ -1537,6 +1542,12 @@ function buildCurrentSelfStatusText(): string {
     pid: buildStatus.pid,
     startedAt: buildStatus.startedAt,
     cwd: process.cwd(),
+    restart: {
+      restartable: startupLaunchSpec.restartable,
+      source: startupLaunchSpec.source,
+      displayCommand: startupLaunchSpec.displayCommand,
+      validationError: startupLaunchSpec.validationError,
+    },
     stale: buildStatus.stale,
     backend: {
       stale: buildStatus.backend.stale,
@@ -1640,19 +1651,31 @@ function handleSelfRestartCommand(chatJid: string): string {
     return '需要管理员权限才能执行服务自重启';
   }
 
+  if (!startupLaunchSpec.restartable) {
+    return `自重启受理失败: unsafe restart launch spec: ${startupLaunchSpec.validationError || 'unknown error'}`;
+  }
+
   const result = requestSelfRestart({
     appRoot: resolveAppPath(),
     pid: process.pid,
     port: WEB_PORT,
-    command: process.execPath,
-    args: process.argv.slice(1),
-    cwd: process.cwd(),
+    launchSpec: startupLaunchSpec,
     requestChatJid: chatJid,
   });
 
   if (result.status === 'failed') {
     return `自重启受理失败: ${result.error}`;
   }
+
+  logger.info(
+    {
+      chatJid,
+      intentPath: result.intentPath,
+      launchSource: startupLaunchSpec.source,
+      launchCommand: startupLaunchSpec.displayCommand,
+    },
+    'Accepted self-restart request',
+  );
 
   return formatSelfRestartAccepted(result);
 }
@@ -7246,7 +7269,22 @@ async function connectUserIMChannels(
   return { feishu, telegram, qq, wechat, dingtalk };
 }
 
-export async function startCliClaw(): Promise<void> {
+export async function startCliClaw(
+  options: {
+    startupLaunchSpec?: StartupLaunchSpec;
+  } = {},
+): Promise<void> {
+  startupLaunchSpec =
+    options.startupLaunchSpec || inferStartupLaunchSpecFromProcess();
+  logger.info(
+    {
+      launchSource: startupLaunchSpec.source,
+      launchRestartable: startupLaunchSpec.restartable,
+      launchCommand: startupLaunchSpec.displayCommand,
+    },
+    'Resolved startup launch spec',
+  );
+
   initDatabase();
   logger.info('Database initialized');
 

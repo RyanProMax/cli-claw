@@ -232,7 +232,14 @@ describe('formatSelfStatus', () => {
           currentMtimeIso: '2026-04-12T11:00:00.000Z',
         },
         lastCheck: null,
-      }),
+        restart: {
+          restartable: true,
+          source: 'cli_start',
+          displayCommand:
+            '/usr/local/bin/node /Users/ryan/projects/cli-claw/dist/cli.js start',
+          validationError: null,
+        },
+      } as any),
     ).toBe(
       [
         '🧭 自迭代状态',
@@ -240,6 +247,8 @@ describe('formatSelfStatus', () => {
         '🆔 PID: 1234',
         '⏱️ 启动: 2026-04-12T12:00:00.000Z',
         '📂 cwd: /Users/ryan/projects/cli-claw',
+        '🔁 自重启: 可用 (cli_start)',
+        '🚀 启动命令: /usr/local/bin/node /Users/ryan/projects/cli-claw/dist/cli.js start',
         '📦 build: 需要重启',
         '  backend: stale 2026-04-12T11:00:00.000Z → 2026-04-12T12:10:00.000Z',
         '  agent-runner: ok 2026-04-12T11:00:00.000Z',

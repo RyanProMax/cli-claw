@@ -7,6 +7,13 @@ import path from 'node:path';
 import { DATA_DIR, WEB_PORT } from './config.js';
 import { APP_ROOT } from './app-root.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
+import {
+  createStartupLaunchSpec,
+  type StartupLaunchSpec,
+  createCliStartLaunchSpec,
+  inferDirectBackendLaunchSpec,
+  inferStartupLaunchSpecFromProcess,
+} from './startup-launch.js';
 
 export type SelfRestartStatus =
   | 'requested'
@@ -27,6 +34,8 @@ export interface SelfRestartIntent {
   command: string;
   args: string[];
   cwd: string;
+  launchSource?: string | null;
+  launchDisplay?: string | null;
   healthUrl: string;
   requestChatJid?: string | null;
   preflight?: SelfCheckResult;
@@ -72,6 +81,7 @@ interface RequestSelfRestartOptions {
   command?: string;
   args?: string[];
   cwd?: string;
+  launchSpec?: StartupLaunchSpec;
   requestChatJid?: string;
   now?: () => Date;
   randomId?: () => string;
@@ -101,6 +111,13 @@ export interface SelfRestartWatchdogResult {
   newPid?: number | null;
   error?: string | null;
 }
+
+export {
+  createCliStartLaunchSpec,
+  inferDirectBackendLaunchSpec,
+  inferStartupLaunchSpecFromProcess,
+  type StartupLaunchSpec,
+};
 
 interface WatchdogDeps {
   now?: () => Date;
@@ -241,9 +258,33 @@ export function requestSelfRestart(
   const dataDir = options.dataDir || DATA_DIR;
   const appRoot = options.appRoot || APP_ROOT;
   const port = options.port || WEB_PORT;
-  const command = options.command || process.execPath;
-  const args = options.args || process.argv.slice(1);
-  const cwd = options.cwd || process.cwd();
+  const launchSpec =
+    options.launchSpec ||
+    createStartupLaunchSpec({
+      command: options.command || process.execPath,
+      args: options.args || process.argv.slice(1),
+      cwd: options.cwd || process.cwd(),
+    });
+  if (!launchSpec.restartable) {
+    return {
+      status: 'failed',
+      intentPath: null,
+      error: `unsafe restart launch spec: ${launchSpec.validationError || 'unknown error'}`,
+    };
+  }
+  if (
+    launchSpec.command.includes(path.sep) &&
+    !fs.existsSync(launchSpec.command)
+  ) {
+    return {
+      status: 'failed',
+      intentPath: null,
+      error: `unsafe restart launch spec: launch command not found: ${launchSpec.command}`,
+    };
+  }
+  const command = launchSpec.command;
+  const args = launchSpec.args;
+  const cwd = launchSpec.cwd;
   const intentDir = getIntentDir(dataDir);
   const intentPath = path.join(intentDir, `${id}.json`);
   const watchdogScript =
@@ -263,6 +304,8 @@ export function requestSelfRestart(
     command,
     args,
     cwd,
+    launchSource: launchSpec.source,
+    launchDisplay: launchSpec.displayCommand,
     healthUrl: `http://127.0.0.1:${port}/api/health`,
     requestChatJid: options.requestChatJid || null,
   };

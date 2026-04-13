@@ -328,6 +328,12 @@ export interface SelfStatusInfo {
   pid: number;
   startedAt: string;
   cwd: string;
+  restart: {
+    restartable: boolean;
+    source: string;
+    displayCommand: string;
+    validationError: string | null;
+  };
   stale: boolean;
   backend: SelfBuildArtifactStatusInfo;
   agentRunner: SelfBuildArtifactStatusInfo;
@@ -354,19 +360,33 @@ export function formatSelfStatus(info: SelfStatusInfo): string {
   const lastCheck = info.lastCheck
     ? `${info.lastCheck.status === 'passed' ? '通过' : '失败'} ${info.lastCheck.finishedAt}`
     : '未运行';
+  const restartState = info.restart.restartable
+    ? `可用 (${info.restart.source})`
+    : `不可用 (${info.restart.source})`;
 
-  return [
+  const lines = [
     '🧭 自迭代状态',
     '━━━━━━━━━━',
     `🆔 PID: ${info.pid}`,
     `⏱️ 启动: ${info.startedAt}`,
     `📂 cwd: ${info.cwd}`,
-    `📦 build: ${buildState}`,
-    formatArtifactLine('backend', info.backend),
-    formatArtifactLine('agent-runner', info.agentRunner),
+    `🔁 自重启: ${restartState}`,
+    `🚀 启动命令: ${info.restart.displayCommand || 'unknown'}`,
+  ];
+
+  if (!info.restart.restartable && info.restart.validationError) {
+    lines.push(`⚠️ 原因: ${info.restart.validationError}`);
+  }
+
+  lines.push(`📦 build: ${buildState}`);
+  lines.push(formatArtifactLine('backend', info.backend));
+  lines.push(formatArtifactLine('agent-runner', info.agentRunner));
+  lines.push(
     `🧪 最近自检: ${lastCheck}`,
     '💡 /self-check 冷启动验证，不会重启当前服务',
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 export function formatSelfCheckResult(result: SelfCheckResultInfo): string {

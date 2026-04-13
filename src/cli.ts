@@ -3,6 +3,10 @@
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
+import {
+  createCliStartLaunchSpec,
+  type StartupLaunchSpec,
+} from './startup-launch.js';
 
 type CliCommand = 'start' | 'version' | 'help';
 
@@ -11,7 +15,9 @@ export interface CliArgs {
 }
 
 export interface CliDeps {
-  start: () => Promise<void> | void;
+  start: (options?: {
+    startupLaunchSpec?: StartupLaunchSpec;
+  }) => Promise<void> | void;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
   version: string;
@@ -88,7 +94,9 @@ export function isExecutedAsCliEntry(
   }
 }
 
-async function loadBackendStart(): Promise<() => Promise<void> | void> {
+async function loadBackendStart(): Promise<
+  (options?: { startupLaunchSpec?: StartupLaunchSpec }) => Promise<void> | void
+> {
   const mod = (await import('./index.js')) as Record<string, unknown>;
   const candidate =
     mod.startCliClaw ?? mod.start ?? mod.main ?? mod.runCliClaw ?? mod.default;
@@ -99,7 +107,9 @@ async function loadBackendStart(): Promise<() => Promise<void> | void> {
     );
   }
 
-  return candidate as () => Promise<void> | void;
+  return candidate as (options?: {
+    startupLaunchSpec?: StartupLaunchSpec;
+  }) => Promise<void> | void;
 }
 
 export async function runCli(
@@ -123,7 +133,13 @@ export async function runCli(
 
   try {
     const start = deps.start ?? (await loadBackendStart());
-    await start();
+    await start({
+      startupLaunchSpec: createCliStartLaunchSpec({
+        execPath: process.execPath,
+        argvEntry: process.argv[1],
+        cwd: process.cwd(),
+      }),
+    });
     return 0;
   } catch (error) {
     const message = serializeErrorForOutput(error);
