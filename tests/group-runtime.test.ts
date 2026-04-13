@@ -163,6 +163,30 @@ describe('resolveEffectiveRuntimeIdentity', () => {
     });
   });
 
+  test('uses caller-supplied Codex CLI fallback defaults when workspace runtime is unset', () => {
+    expect(
+      resolveEffectiveRuntimeIdentity(
+        {
+          name: 'Project Home',
+          folder: 'proj',
+          added_at: '2026-04-12T00:00:00.000Z',
+          is_home: true,
+          agentType: 'codex',
+          executionMode: 'host',
+        },
+        {
+          codexCliModel: 'gpt-5.4',
+          codexCliReasoningEffort: 'xhigh',
+        } as any,
+      ),
+    ).toEqual({
+      agentType: 'codex',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    });
+  });
+
   test('uses the explicit workspace effort as the effective Codex effort', () => {
     expect(
       resolveEffectiveRuntimeIdentity({

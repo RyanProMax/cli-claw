@@ -66,6 +66,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 说明：
 
 - `/model` 与 `/effort` 都是“当前工作区级”设置，会持久化到工作区 runtime 配置。
+- 当工作区未显式设置 `codex` 的模型或思考强度时，`/status`、选择卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 Codex CLI fallback（环境变量与 `~/.codex/config.toml`），避免不同入口看到不同值。
 - `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要。
 - Web 输入框只在输入 bare `/model` 或 `/effort` 时展示选择 UI；飞书会返回对应的选择卡；不再默认在普通回复卡片 footer 常驻下拉。
 - `claude` 不支持 `reasoning_effort`；在该 runtime 下执行 `/effort` 会返回明确提示。
@@ -97,7 +98,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 - `/status` 会同时展示系统队列状态、当前工作区定位、当前 workspace 的主对话 / conversation agent 列表、IM 绑定关系，以及 runtime 摘要（当前模型、思考强度、可用预设）。
 - `/usage` 是本地查询命令，不进入 agent 对话链路；Codex 数据来自本机 `~/.codex/sessions/**/*.jsonl` 的最新 usage 快照，Claude 数据来自已启用 OAuth provider 的 usage API，任一侧不可用时会在对应 section 内展示 `unavailable` 与原因。
 - `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-check` 会用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，不会停止或重启当前服务。
-- `/self-restart` 仅管理员可用；backend 只写入 restart intent 并启动独立 watchdog，watchdog 会先做 shadow self-check，通过后才停止旧 PID、启动同一启动命令并检查生产端口 `/api/health`。它不是 blue-green/rollback 机制，结果以 `~/.cli-claw/ops/restarts/*.json` 为准。
+- `/self-restart` 仅管理员可用；backend 只写入 restart intent 并启动独立 watchdog，watchdog 会先做 shadow self-check，通过后才停止旧 PID、启动同一启动命令并检查生产端口 `/api/health`。它不是 blue-green/rollback 机制，结果以 `~/.cli-claw/ops/restarts/*.json` 为准；重启成功后，新进程会向发起命令的 IM 会话补发一条成功回执，附带当前服务状态和残留进程检查摘要。若摘要里发现真正孤儿的 runner residue，服务会 best-effort 发送 `SIGTERM` 清理。
 
 ## IM 会话切换与绑定
 

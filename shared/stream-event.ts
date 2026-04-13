@@ -65,3 +65,52 @@ export interface StreamEvent {
     modelUsage?: Record<string, { inputTokens: number; outputTokens: number; costUSD: number }>;
   };
 }
+
+export interface StreamTextDeltaAccumulator {
+  text: string;
+  lastMessageUuid?: string;
+}
+
+function hasTrailingBlankBlock(text: string): boolean {
+  return /\n\s*\n$/.test(text);
+}
+
+function getMessageBoundarySeparator(text: string): string {
+  if (!text) return '';
+  if (hasTrailingBlankBlock(text)) return '';
+  if (text.endsWith('\n')) return '\n';
+  return '\n\n';
+}
+
+/**
+ * Append a streamed text delta while preserving intra-turn assistant message boundaries.
+ *
+ * Codex commentary can arrive as multiple assistant messages inside the same turn.
+ * When the message UUID changes, keep a blank-line separator so downstream
+ * renderers do not jam distinct updates together.
+ */
+export function appendStreamTextDelta(
+  currentText: string,
+  event: Pick<StreamEvent, 'text' | 'messageUuid'>,
+  previousMessageUuid?: string,
+): StreamTextDeltaAccumulator {
+  const deltaText = event.text || '';
+  if (!deltaText) {
+    return {
+      text: currentText,
+      lastMessageUuid: previousMessageUuid,
+    };
+  }
+
+  const nextMessageUuid = event.messageUuid || previousMessageUuid;
+  const needsBoundary =
+    !!currentText &&
+    !!previousMessageUuid &&
+    !!event.messageUuid &&
+    previousMessageUuid !== event.messageUuid;
+
+  return {
+    text: currentText + (needsBoundary ? getMessageBoundarySeparator(currentText) : '') + deltaText,
+    lastMessageUuid: nextMessageUuid,
+  };
+}

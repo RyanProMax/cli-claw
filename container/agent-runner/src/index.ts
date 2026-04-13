@@ -54,6 +54,7 @@ import { StreamEventProcessor } from './stream-processor.js';
 import { PREDEFINED_AGENTS } from './agent-definitions.js';
 import { createMcpTools } from './mcp-tools.js';
 import { readCodexCliConfig } from './codex-config.js';
+import { buildCodexAcpLaunchArgs } from './codex-session-runtime.js';
 
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
 const WORKSPACE_GROUP =
@@ -1420,8 +1421,13 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
   }
 
   const acpCommand = process.env.CODEX_ACP_COMMAND?.trim() || 'npx';
-  const acpArgs =
-    acpCommand === 'npx' ? ['-y', '@zed-industries/codex-acp'] : [];
+  const acpArgs = buildCodexAcpLaunchArgs({
+    acpCommand,
+    requestedRuntime: {
+      model: containerInput.model ?? null,
+      reasoningEffort: containerInput.reasoningEffort ?? null,
+    },
+  });
   const acpEnv = {
     ...process.env,
     ...(containerInput.model
@@ -1593,11 +1599,13 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
     const mcpServers = buildAcpMcpServers();
     if (sessionId) {
       try {
-        await connection.loadSession({
+        const loadedSession = await connection.loadSession({
           sessionId,
           cwd: WORKSPACE_GROUP,
           mcpServers,
         });
+        activeRuntimeIdentity =
+          extractCodexRuntimeIdentity(loadedSession) ?? activeRuntimeIdentity;
       } catch {
         sessionId = undefined;
         latestSessionId = undefined;

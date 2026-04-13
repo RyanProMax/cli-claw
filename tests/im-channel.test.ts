@@ -12,12 +12,30 @@ const hoisted = vi.hoisted(() => {
   });
 
   return {
+    feishuInner: {
+      connect: vi.fn().mockResolvedValue(true),
+      stop: vi.fn().mockResolvedValue(undefined),
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+      sendImage: vi.fn().mockResolvedValue(undefined),
+      sendFile: vi.fn().mockResolvedValue(undefined),
+      sendReaction: vi.fn().mockResolvedValue(undefined),
+      clearAckReaction: vi.fn(),
+      syncGroups: vi.fn().mockResolvedValue(undefined),
+      getChatInfo: vi.fn().mockResolvedValue(null),
+      getLarkClient: vi.fn(() => null),
+      getLastMessageId: vi.fn(() => undefined),
+      isConnected: vi.fn(() => true),
+    },
     telegramInner: makeInner(),
     qqInner: makeInner(),
     wechatInner: makeInner(),
     dingtalkInner: makeInner(),
   };
 });
+
+vi.mock('../src/feishu.ts', () => ({
+  createFeishuConnection: vi.fn(() => hoisted.feishuInner),
+}));
 
 vi.mock('../src/telegram.ts', () => ({
   createTelegramConnection: vi.fn(() => hoisted.telegramInner),
@@ -36,6 +54,7 @@ vi.mock('../src/dingtalk.ts', () => ({
 }));
 
 import {
+  createFeishuChannel,
   createDingTalkChannel,
   createQQChannel,
   createTelegramChannel,
@@ -66,6 +85,7 @@ describe('IM channel footer consumption', () => {
     'Hello world\n\n2.5s | GPT-5.4 | high | 1.2K tokens';
 
   beforeEach(() => {
+    hoisted.feishuInner.connect.mockClear();
     hoisted.telegramInner.connect.mockClear();
     hoisted.telegramInner.sendMessage.mockClear();
     hoisted.qqInner.connect.mockClear();
@@ -74,6 +94,25 @@ describe('IM channel footer consumption', () => {
     hoisted.wechatInner.sendMessage.mockClear();
     hoisted.dingtalkInner.connect.mockClear();
     hoisted.dingtalkInner.sendMessage.mockClear();
+  });
+
+  test('feishu forwards runtime card update callbacks to the connection adapter', async () => {
+    const onCardRuntimeUpdate = vi.fn().mockResolvedValue('ok');
+    const channel = createFeishuChannel({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await channel.connect({
+      ...connectOpts,
+      onCardRuntimeUpdate,
+    } as any);
+
+    expect(hoisted.feishuInner.connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        onCardRuntimeUpdate,
+      }),
+    );
   });
 
   test('telegram appends footer before delegating to the connection', async () => {

@@ -20,6 +20,7 @@ import { detectImageMimeType } from './image-detector.js';
 import { resolveImSlashCommandReply } from './im-slash-command.js';
 import {
   buildStaticReplyCard,
+  registerMessageIdMapping,
   resolveJidByMessageId,
   getStreamingSession,
 } from './feishu-streaming-card.js';
@@ -738,13 +739,33 @@ export function createFeishuConnection(
     }
   }
 
+  function extractSentMessageId(resp: unknown): string | null {
+    const data = resp as
+      | { data?: { message_id?: unknown }; message_id?: unknown }
+      | null
+      | undefined;
+    const candidates = [data?.data?.message_id, data?.message_id];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+    return null;
+  }
+
+  function registerSentMessageMapping(resp: unknown, chatId: string): void {
+    const messageId = extractSentMessageId(resp);
+    if (!messageId) return;
+    registerMessageIdMapping(messageId, `feishu:${chatId}`);
+  }
+
   async function sendTextToChat(chatId: string, text: string): Promise<void> {
     if (!client) return;
     try {
       const receive_id_type = chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
       const prebuiltInteractiveContent =
         extractPrebuiltInteractiveCardContent(text);
-      await client.im.v1.message.create({
+      const resp = await client.im.v1.message.create({
         params: { receive_id_type },
         data: {
           receive_id: chatId,
@@ -752,6 +773,9 @@ export function createFeishuConnection(
           content: prebuiltInteractiveContent ?? JSON.stringify({ text }),
         },
       });
+      if (prebuiltInteractiveContent) {
+        registerSentMessageMapping(resp, chatId);
+      }
     } catch (err) {
       logger.error({ chatId, err }, 'Failed to send Feishu text reply');
     }
@@ -1295,6 +1319,12 @@ export function createFeishuConnection(
       data?.action?.action,
       data?.action?.action_type,
       data?.action?.actionType,
+      data?.event?.action?.value?.action,
+      data?.event?.action?.value?.action_type,
+      data?.event?.action?.value?.actionType,
+      data?.event?.action?.action,
+      data?.event?.action?.action_type,
+      data?.event?.action?.actionType,
     ];
 
     for (const candidate of candidates) {
@@ -1314,6 +1344,14 @@ export function createFeishuConnection(
       data?.action?.form_value?.value,
       data?.action?.formValue?.value,
       data?.action?.value,
+      data?.event?.action?.option,
+      data?.event?.action?.option?.value,
+      data?.event?.action?.value?.selected_value,
+      data?.event?.action?.value?.selectedValue,
+      data?.event?.action?.value?.value,
+      data?.event?.action?.form_value?.value,
+      data?.event?.action?.formValue?.value,
+      data?.event?.action?.value,
     ];
 
     for (const candidate of candidates) {
@@ -1321,6 +1359,73 @@ export function createFeishuConnection(
         return candidate.trim();
       }
     }
+    return null;
+  }
+
+  function extractCardMessageId(data: any): string | null {
+    const candidates = [
+      data?.context?.open_message_id,
+      data?.open_message_id,
+      data?.event?.context?.open_message_id,
+      data?.event?.open_message_id,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+    return null;
+  }
+
+  function extractCardOpenChatId(data: any): string | null {
+    const candidates = [
+      data?.context?.open_chat_id,
+      data?.open_chat_id,
+      data?.event?.context?.open_chat_id,
+      data?.event?.open_chat_id,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+    return null;
+  }
+
+  async function resolveChatJidByCardMessageLookup(
+    messageId: string | null,
+  ): Promise<string | null> {
+    if (!messageId || !client) return null;
+
+    try {
+      const resp = await client.im.v1.message.get({
+        path: { message_id: messageId },
+      });
+      const items = (resp as { data?: { items?: unknown[] } } | null)?.data
+        ?.items;
+      if (!Array.isArray(items)) return null;
+
+      for (const item of items) {
+        const chatId = (item as { chat_id?: unknown } | null)?.chat_id;
+        if (typeof chatId === 'string' && chatId.trim()) {
+          const chatJid = `feishu:${chatId.trim()}`;
+          registerMessageIdMapping(messageId, chatJid);
+          logger.debug(
+            { messageId, chatJid },
+            'Resolved Feishu card action chat from message lookup',
+          );
+          return chatJid;
+        }
+      }
+    } catch (err) {
+      logger.debug(
+        { err, messageId },
+        'Failed to resolve Feishu card action chat from message lookup',
+      );
+    }
+
     return null;
   }
 
@@ -1470,7 +1575,7 @@ export function createFeishuConnection(
         'card.action.trigger': async (data: any) => {
           try {
             const action = extractCardAction(data);
-            const messageId = data?.context?.open_message_id;
+            const messageId = extractCardMessageId(data);
             const mappedChatJid = messageId
               ? resolveJidByMessageId(messageId)
               : undefined;
@@ -1508,11 +1613,15 @@ export function createFeishuConnection(
                 : inferRuntimeActionFromSelectedValue(selectedValue);
 
             if (runtimeAction) {
+              const openChatId = extractCardOpenChatId(data);
+              const lookedUpChatJid =
+                !mappedChatJid && !openChatId
+                  ? await resolveChatJidByCardMessageLookup(messageId)
+                  : null;
               const chatJid =
                 mappedChatJid ||
-                (typeof data?.context?.open_chat_id === 'string'
-                  ? `feishu:${data.context.open_chat_id}`
-                  : null);
+                (openChatId ? `feishu:${openChatId}` : null) ||
+                lookedUpChatJid;
               if (!chatJid) {
                 logger.debug(
                   { action, messageId },
@@ -1629,8 +1738,9 @@ export function createFeishuConnection(
           extractPrebuiltInteractiveCardContent(text);
         if (prebuiltInteractiveContent) {
           const lastMsgId = lastMessageIdByChat.get(chatId);
+          let resp: unknown;
           if (lastMsgId) {
-            await client.im.message.reply({
+            resp = await client.im.message.reply({
               path: { message_id: lastMsgId },
               data: {
                 content: prebuiltInteractiveContent,
@@ -1638,7 +1748,7 @@ export function createFeishuConnection(
               },
             });
           } else {
-            await client.im.v1.message.create({
+            resp = await client.im.v1.message.create({
               params: { receive_id_type: 'chat_id' },
               data: {
                 receive_id: chatId,
@@ -1647,6 +1757,7 @@ export function createFeishuConnection(
               },
             });
           }
+          registerSentMessageMapping(resp, chatId);
           clearAckReaction();
           return;
         }

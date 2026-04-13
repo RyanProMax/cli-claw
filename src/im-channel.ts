@@ -203,6 +203,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         onBotRemovedFromGroup: opts.onBotRemovedFromGroup,
         shouldProcessGroupMessage: opts.shouldProcessGroupMessage,
         onCardInterrupt: opts.onCardInterrupt,
+        onCardRuntimeUpdate: opts.onCardRuntimeUpdate,
       });
       if (!connected) {
         inner = null;

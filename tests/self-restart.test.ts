@@ -6,8 +6,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
+  cleanupOrphanRunnerProcesses,
+  findPendingSelfRestartNotifications,
+  markSelfRestartNotificationSent,
   requestSelfRestart,
   runSelfRestartWatchdog,
+  summarizeResidualProcesses,
   type SelfRestartIntent,
 } from '../src/self-restart.js';
 
@@ -44,6 +48,7 @@ describe('requestSelfRestart', () => {
       command: 'node',
       args: ['/repo/dist/index.js'],
       cwd: '/repo',
+      requestChatJid: 'feishu:chat-1',
       now: () => new Date('2026-04-12T13:00:00.000Z'),
       randomId: () => 'restart-abc',
       spawnFn,
@@ -80,8 +85,105 @@ describe('requestSelfRestart', () => {
       command: 'node',
       args: ['/repo/dist/index.js'],
       cwd: '/repo',
+      requestChatJid: 'feishu:chat-1',
     });
     expect(intent.env).toBeUndefined();
+  });
+});
+
+describe('self-restart success notifications', () => {
+  test('finds pending success notifications for the current replacement pid and marks them as sent', () => {
+    const dataDir = makeTempDir();
+    const intentDir = path.join(dataDir, 'ops', 'restarts');
+    fs.mkdirSync(intentDir, { recursive: true });
+    const intentPath = path.join(intentDir, 'restart-abc.json');
+    fs.writeFileSync(
+      intentPath,
+      JSON.stringify({
+        id: 'restart-abc',
+        status: 'passed',
+        createdAt: '2026-04-12T13:00:00.000Z',
+        updatedAt: '2026-04-12T13:00:05.000Z',
+        appRoot: '/repo',
+        pid: 111,
+        port: 3000,
+        command: 'node',
+        args: ['/repo/dist/index.js'],
+        cwd: '/repo',
+        healthUrl: 'http://127.0.0.1:3000/api/health',
+        newPid: 222,
+        requestChatJid: 'feishu:chat-1',
+      }),
+    );
+
+    expect(
+      findPendingSelfRestartNotifications({
+        dataDir,
+        pid: 222,
+      }),
+    ).toMatchObject([
+      {
+        intentPath,
+        intent: {
+          id: 'restart-abc',
+          requestChatJid: 'feishu:chat-1',
+          status: 'passed',
+        },
+      },
+    ]);
+
+    markSelfRestartNotificationSent(intentPath, {
+      now: () => new Date('2026-04-12T13:00:06.000Z'),
+    });
+
+    expect(
+      findPendingSelfRestartNotifications({
+        dataDir,
+        pid: 222,
+      }),
+    ).toEqual([]);
+  });
+
+  test('summarizes extra backend processes and orphaned runner chains', () => {
+    const summary = summarizeResidualProcesses(
+      [
+        ' 17510     1 /Users/ryan/.bun/bin/bun src/index.ts',
+        ' 20001     1 /Users/ryan/.bun/bin/bun src/index.ts',
+        ' 18611 17510 node /Users/ryan/projects/cli-claw/container/agent-runner/dist/index.js',
+        ' 18651 18611 npm exec @zed-industries/codex-acp',
+        ' 18718     1 node /Users/ryan/.npm/_npx/.../.bin/codex-acp',
+      ].join('\n'),
+      17510,
+    );
+
+    expect(summary).toEqual({
+      backendProcessCount: 2,
+      extraBackendPids: [20001],
+      runnerProcessCount: 3,
+      orphanRunnerPids: [18718],
+    });
+  });
+
+  test('kills only truly orphaned runner processes during residual cleanup', () => {
+    const killProcess = vi.fn();
+
+    const cleaned = cleanupOrphanRunnerProcesses(
+      {
+        backendProcessCount: 1,
+        extraBackendPids: [],
+        runnerProcessCount: 3,
+        orphanRunnerPids: [18718, 18719],
+      },
+      { killProcess },
+    );
+
+    expect(killProcess).toHaveBeenCalledTimes(2);
+    expect(killProcess).toHaveBeenNthCalledWith(1, 18718, 'SIGTERM');
+    expect(killProcess).toHaveBeenNthCalledWith(2, 18719, 'SIGTERM');
+    expect(cleaned).toEqual({
+      attemptedRunnerPids: [18718, 18719],
+      failedRunnerPids: [],
+    });
   });
 });
 

@@ -186,6 +186,28 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('keeps blank-line boundaries between same-turn commentary updates', async () => {
+    const { client, streamedContents } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.append('First update\n\n# Second update');
+
+    await vi.waitFor(() => {
+      expect((controller as any).streamingBackend).toBeTruthy();
+    });
+
+    await (controller as any).streamingBackend.streamContent(
+      'First update\n\n# Second update',
+    );
+
+    expect(streamedContents.at(-1)).toBe('First update\n\n# Second update');
+
+    controller.dispose();
+  });
+
   test('builds static replies with the same schema 2 card shape as streaming cards', () => {
     expect(
       buildStaticReplyCard('# Runtime Update\n\n已切换到 `gpt-5.4`', {

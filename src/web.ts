@@ -90,6 +90,7 @@ import {
   SESSION_COOKIE_NAME_PLAIN,
   ASSISTANT_NAME,
 } from './config.js';
+import { appendStreamTextDelta } from '../shared/dist/stream-event.js';
 import { logger } from './logger.js';
 import { executeSessionReset } from './commands.js';
 import {
@@ -1503,6 +1504,7 @@ export function broadcastTyping(chatJid: string, isTyping: boolean): void {
 
 interface StreamingSnapshotEntry {
   partialText: string;
+  lastTextMessageUuid?: string;
   activeTools: Array<{
     toolName: string;
     toolUseId: string;
@@ -1578,15 +1580,24 @@ function updateStreamingSnapshot(
   switch (event.eventType) {
     case 'text_delta':
       if (event.text) {
-        snap.partialText += event.text;
+        const previousMessageUuid = snap.lastTextMessageUuid;
+        const appended = appendStreamTextDelta(
+          snap.partialText,
+          event,
+          previousMessageUuid,
+        );
+        snap.partialText = appended.text;
+        snap.lastTextMessageUuid = appended.lastMessageUuid;
         if (snap.partialText.length > MAX_SNAPSHOT_TEXT) {
           snap.partialText = snap.partialText.slice(-MAX_SNAPSHOT_TEXT);
         }
         // Accumulate full (non-truncated) text for shutdown persistence
-        streamingFullTexts.set(
-          normalizedJid,
-          (streamingFullTexts.get(normalizedJid) || '') + event.text,
+        const fullAppended = appendStreamTextDelta(
+          streamingFullTexts.get(normalizedJid) || '',
+          event,
+          previousMessageUuid,
         );
+        streamingFullTexts.set(normalizedJid, fullAppended.text);
       }
       break;
 

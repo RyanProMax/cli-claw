@@ -124,6 +124,35 @@ describe('chat streaming store', () => {
     expect(next?.sessionId).toBe('session-new');
   });
 
+  test('inserts a blank line when same-turn text deltas switch to a new assistant message uuid', () => {
+    useChatStore.setState((state) => ({
+      ...state,
+      waiting: {
+        'web:proj-home': true,
+      },
+    }));
+
+    useChatStore.getState().handleStreamEvent('web:proj-home', {
+      eventType: 'text_delta',
+      text: 'first update',
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      messageUuid: 'msg-1',
+    });
+    useChatStore.getState().handleStreamEvent('web:proj-home', {
+      eventType: 'text_delta',
+      text: 'second update',
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      messageUuid: 'msg-2',
+    });
+
+    flushAnimationFrames();
+
+    const next = useChatStore.getState().streaming['web:proj-home'];
+    expect(next?.partialText).toBe('first update\n\nsecond update');
+  });
+
   test('clears orphaned streaming residue on restore when backend no longer has an active runner', async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ groups: [] } as any);
     sessionStorageMock.setItem(

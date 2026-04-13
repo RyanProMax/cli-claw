@@ -18,6 +18,8 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - 候选进程会带上 `CLI_CLAW_SELF_CHECK=1`；backend 在该模式下启动 Web/API、DB 和队列基础能力，但跳过 CLI launch cwd 校验、host workspace 默认 cwd 物化和 IM channel 连接，避免临时 HOME 的 allowlist 影响自检，也避免和线上飞书/微信/Telegram/QQ/钉钉连接抢占。
 - `/self-check` 只验证“当前 build 能否冷启动并健康”，不会停止当前服务，也不会切换端口或执行真实重启。
 - `/self-restart` 不在 backend 进程内重启自身；它写入 `~/.cli-claw/ops/restarts/*.json` intent，并启动独立 watchdog 进程。watchdog 先执行 shadow self-check；失败时不停止当前服务；通过后才停止旧 PID、按同一启动命令启动新进程，并轮询生产端口 `/api/health`。
+- 成功的 `/self-restart` intent 会记录发起它的 IM 会话；新进程启动并重新连上 IM 后，会向该会话补发一条“自重启成功”消息，附带当前服务状态与一次 best-effort 残留进程检查结果。
+- 若残留检查发现真正的孤儿 runner（`agent-runner` / `codex-acp` 链条已脱离 backend，表现为 `ppid = 1` 或父 PID 不存在），新进程会 best-effort 发送 `SIGTERM` 清理；正常挂在当前 backend 下的 runner 链不会被触碰。
 
 `/self-restart` 不是 blue-green 或 rollback 机制。它能避免“preflight 失败还杀旧进程”的 badcase，但不能保证源码/二进制级回滚；更强的生产发布仍应使用 release 目录、symlink 或系统级 supervisor。
 
@@ -46,13 +48,17 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 运行时参数按以下顺序生效：
 
 1. 工作区显式设置的 `model` / `reasoningEffort`
-2. runtime 默认配置
-3. CLI / provider 自身默认值
+2. 对 `codex` 而言，backend 会显式读取与 runner 相同的用户级 / 进程级 fallback：
+   - `OPENAI_MODEL` / `CODEX_MODEL`
+   - `OPENAI_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `REASONING_EFFORT`
+   - `~/.codex/config.toml` 中的 `model` / `model_reasoning_effort`（或 `reasoning_effort`）
+3. runtime 默认配置
+4. CLI / provider 自身默认值
 
 约束：
 
 - `model` 采用 preset-only 约束，不做动态发现。
-- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/model` / `/effort` 选择卡、runner dispatch 和 footer fallback 都必须读取这同一份结果。
+- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/model` / `/effort` 选择卡、runner dispatch 和 footer fallback 都必须读取这同一份结果，不能让 Codex CLI 全局配置只影响 runner/footer 而不影响 `/status`。
 - `reasoningEffort` 只有支持该能力的 runtime 才会真正下发。
 - 不支持 `reasoningEffort` 的 runtime 会忽略该字段，但 `model` 仍可独立生效。
 - 非主工作区若继承同 folder 的 home workspace runtime，则会沿用该 home workspace 的 `agentType` / `executionMode` / `model` / `reasoningEffort`。
@@ -86,7 +92,7 @@ host 相关消费者统一使用同一份 effective cwd contract：
 - run log / dispatch log 排障
 - 区分“请求的运行时”和“实际执行的运行时”
 
-backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与 `reasoningEffort` 写入 runner input。这样 Codex 不会在 workspace 未显式设置时再从用户级 `~/.codex/config.toml` 展示出另一套 footer 值；若 runner 返回了实际 `runtime_identity`，仍以 runner 返回值为最终记录。
+backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与 `reasoningEffort` 写入 runner input。对 Codex，这份 effective identity 还会显式纳入用户级 `~/.codex/config.toml` / 相关环境变量 fallback；这样 workspace 未显式设置时，`/status`、选择卡、dispatch 和 footer fallback 仍会保持一套值。若 runner 返回了实际 `runtime_identity`，仍以 runner 返回值为最终记录。
 
 ## 会话与 Runner 对应关系
 

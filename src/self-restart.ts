@@ -28,9 +28,28 @@ export interface SelfRestartIntent {
   args: string[];
   cwd: string;
   healthUrl: string;
+  requestChatJid?: string | null;
   preflight?: SelfCheckResult;
   newPid?: number | null;
+  notifiedAt?: string | null;
   error?: string | null;
+}
+
+export interface PendingSelfRestartNotification {
+  intentPath: string;
+  intent: SelfRestartIntent;
+}
+
+export interface ResidualProcessSummary {
+  backendProcessCount: number;
+  extraBackendPids: number[];
+  runnerProcessCount: number;
+  orphanRunnerPids: number[];
+}
+
+export interface ResidualCleanupResult {
+  attemptedRunnerPids: number[];
+  failedRunnerPids: number[];
 }
 
 interface SpawnedProcess extends EventEmitter {
@@ -53,6 +72,7 @@ interface RequestSelfRestartOptions {
   command?: string;
   args?: string[];
   cwd?: string;
+  requestChatJid?: string;
   now?: () => Date;
   randomId?: () => string;
   watchdogCommand?: string;
@@ -118,6 +138,10 @@ function writeIntent(intentPath: string, intent: SelfRestartIntent): void {
     encoding: 'utf8',
     mode: 0o600,
   });
+}
+
+function getIntentDir(dataDir: string): string {
+  return path.join(dataDir, 'ops', 'restarts');
 }
 
 function readIntent(intentPath: string): SelfRestartIntent {
@@ -220,7 +244,7 @@ export function requestSelfRestart(
   const command = options.command || process.execPath;
   const args = options.args || process.argv.slice(1);
   const cwd = options.cwd || process.cwd();
-  const intentDir = path.join(dataDir, 'ops', 'restarts');
+  const intentDir = getIntentDir(dataDir);
   const intentPath = path.join(intentDir, `${id}.json`);
   const watchdogScript =
     options.watchdogScriptPath ||
@@ -240,6 +264,7 @@ export function requestSelfRestart(
     args,
     cwd,
     healthUrl: `http://127.0.0.1:${port}/api/health`,
+    requestChatJid: options.requestChatJid || null,
   };
 
   try {
@@ -272,6 +297,156 @@ export function requestSelfRestart(
     }
     return { status: 'failed', intentPath, error: message };
   }
+}
+
+export function findPendingSelfRestartNotifications(
+  options: {
+    dataDir?: string;
+    pid?: number;
+  } = {},
+): PendingSelfRestartNotification[] {
+  const dataDir = options.dataDir || DATA_DIR;
+  const pid = options.pid || process.pid;
+  const intentDir = getIntentDir(dataDir);
+  if (!fs.existsSync(intentDir)) return [];
+
+  const pending: PendingSelfRestartNotification[] = [];
+  const fileNames = fs
+    .readdirSync(intentDir)
+    .filter((name) => name.endsWith('.json'))
+    .sort();
+
+  for (const fileName of fileNames) {
+    const intentPath = path.join(intentDir, fileName);
+    try {
+      const intent = readIntent(intentPath);
+      if (
+        intent.status === 'passed' &&
+        intent.newPid === pid &&
+        intent.requestChatJid &&
+        !intent.notifiedAt
+      ) {
+        pending.push({ intentPath, intent });
+      }
+    } catch {
+      // Ignore malformed intents during notification scan.
+    }
+  }
+
+  return pending;
+}
+
+export function markSelfRestartNotificationSent(
+  intentPath: string,
+  options: { now?: () => Date } = {},
+): SelfRestartIntent {
+  const now = options.now || defaultNow;
+  return patchIntent(
+    intentPath,
+    {
+      notifiedAt: now().toISOString(),
+    },
+    now,
+  );
+}
+
+function parsePsLine(
+  line: string,
+): { pid: number; ppid: number; command: string } | null {
+  const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+  if (!match) return null;
+
+  const pid = Number(match[1]);
+  const ppid = Number(match[2]);
+  if (!Number.isInteger(pid) || !Number.isInteger(ppid)) return null;
+
+  return {
+    pid,
+    ppid,
+    command: match[3],
+  };
+}
+
+function isBackendProcess(command: string): boolean {
+  if (command.includes('container/agent-runner/')) return false;
+  return /(?:^|\/)(?:bun|node)\b.*(?:src\/index\.ts|dist\/index\.js)\b/.test(
+    command,
+  );
+}
+
+function isRunnerProcess(command: string): boolean {
+  return (
+    command.includes('container/agent-runner/dist/index.js') ||
+    /\bcodex-acp\b/.test(command)
+  );
+}
+
+export function summarizeResidualProcesses(
+  psOutput: string,
+  currentPid: number,
+): ResidualProcessSummary {
+  const entries = psOutput
+    .split('\n')
+    .map(parsePsLine)
+    .filter(
+      (
+        entry,
+      ): entry is {
+        pid: number;
+        ppid: number;
+        command: string;
+      } => entry !== null,
+    );
+
+  const byPid = new Map(entries.map((entry) => [entry.pid, entry]));
+  const backendEntries = entries.filter((entry) =>
+    isBackendProcess(entry.command),
+  );
+  const runnerEntries = entries.filter((entry) =>
+    isRunnerProcess(entry.command),
+  );
+
+  const extraBackendPids = backendEntries
+    .map((entry) => entry.pid)
+    .filter((pid) => pid !== currentPid)
+    .sort((a, b) => a - b);
+
+  const orphanRunnerPids = runnerEntries
+    .filter((entry) => entry.ppid === 1 || !byPid.has(entry.ppid))
+    .map((entry) => entry.pid)
+    .sort((a, b) => a - b);
+
+  return {
+    backendProcessCount: backendEntries.length,
+    extraBackendPids,
+    runnerProcessCount: runnerEntries.length,
+    orphanRunnerPids,
+  };
+}
+
+export function cleanupOrphanRunnerProcesses(
+  summary: ResidualProcessSummary,
+  deps: {
+    killProcess?: (pid: number, signal: NodeJS.Signals) => void;
+  } = {},
+): ResidualCleanupResult {
+  const killProcess = deps.killProcess ?? process.kill;
+  const attemptedRunnerPids: number[] = [];
+  const failedRunnerPids: number[] = [];
+
+  for (const pid of summary.orphanRunnerPids) {
+    attemptedRunnerPids.push(pid);
+    try {
+      killProcess(pid, 'SIGTERM');
+    } catch {
+      failedRunnerPids.push(pid);
+    }
+  }
+
+  return {
+    attemptedRunnerPids,
+    failedRunnerPids,
+  };
 }
 
 export async function runSelfRestartWatchdog(

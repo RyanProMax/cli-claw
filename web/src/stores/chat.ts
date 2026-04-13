@@ -16,6 +16,7 @@ import {
 } from '../lib/messageIdentity';
 import { setHistoryCursorParams } from '../lib/messageHistoryCursor';
 import { formatToolStepLine } from '../lib/toolStepDisplay';
+import { appendStreamTextDelta } from '../../../shared/dist/stream-event.js';
 
 export type { GroupInfo, AgentInfo };
 
@@ -75,6 +76,7 @@ export interface StreamSnapshotData {
 export interface StreamingState {
   turnId?: string;
   sessionId?: string;
+  lastTextMessageUuid?: string;
   runtimeIdentity?: RuntimeIdentity | null;
   tokenUsage?: string;
   partialText: string;
@@ -328,7 +330,7 @@ function restoreStreamingFromSession(chatJid: string): StreamingState | null {
  * into a single state update.
  */
 interface PendingDelta {
-  texts: string[];
+  texts: Array<{ text: string; messageUuid?: string }>;
   thinkings: string[];
   raf: number;
   turnId?: string;
@@ -418,7 +420,6 @@ function flushPendingDelta(
   if (!entry) return;
   pendingDeltas.delete(key);
 
-  const mergedText = entry.texts.join('');
   const mergedThinking = entry.thinkings.join('');
 
   if (agentId) {
@@ -429,9 +430,20 @@ function flushPendingDelta(
         entry,
       );
       const next = { ...prev };
-      if (mergedText) {
-        const combined = prev.partialText + mergedText;
+      if (entry.texts.length > 0) {
+        let combined = prev.partialText;
+        let lastMessageUuid = prev.lastTextMessageUuid;
+        for (const item of entry.texts) {
+          const appended = appendStreamTextDelta(
+            combined,
+            { text: item.text, messageUuid: item.messageUuid },
+            lastMessageUuid,
+          );
+          combined = appended.text;
+          lastMessageUuid = appended.lastMessageUuid;
+        }
         next.partialText = combined.length > MAX_STREAMING_TEXT ? combined.slice(-MAX_STREAMING_TEXT) : combined;
+        next.lastTextMessageUuid = lastMessageUuid;
         next.isThinking = false;
       }
       if (mergedThinking) {
@@ -447,9 +459,20 @@ function flushPendingDelta(
       if (s.streaming[chatJid]?.interrupted) return s;
       const prev = resolveBufferedStreamingPrev(s.streaming[chatJid], entry);
       const next = { ...prev };
-      if (mergedText) {
-        const combined = prev.partialText + mergedText;
+      if (entry.texts.length > 0) {
+        let combined = prev.partialText;
+        let lastMessageUuid = prev.lastTextMessageUuid;
+        for (const item of entry.texts) {
+          const appended = appendStreamTextDelta(
+            combined,
+            { text: item.text, messageUuid: item.messageUuid },
+            lastMessageUuid,
+          );
+          combined = appended.text;
+          lastMessageUuid = appended.lastMessageUuid;
+        }
         next.partialText = combined.length > MAX_STREAMING_TEXT ? combined.slice(-MAX_STREAMING_TEXT) : combined;
+        next.lastTextMessageUuid = lastMessageUuid;
         next.isThinking = false;
       }
       if (mergedThinking) {
@@ -661,8 +684,14 @@ function applyStreamEvent(
   if (event.runtimeIdentity) next.runtimeIdentity = event.runtimeIdentity;
   switch (event.eventType) {
     case 'text_delta': {
-      const combined = prev.partialText + (event.text || '');
+      const appended = appendStreamTextDelta(
+        prev.partialText,
+        event,
+        prev.lastTextMessageUuid,
+      );
+      const combined = appended.text;
       next.partialText = combined.length > maxText ? combined.slice(-maxText) : combined;
+      next.lastTextMessageUuid = appended.lastMessageUuid;
       next.isThinking = false;
       break;
     }
@@ -1367,7 +1396,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (event.turnId) entry.turnId = event.turnId;
         if (event.sessionId) entry.sessionId = event.sessionId;
         if (event.runtimeIdentity) entry.runtimeIdentity = event.runtimeIdentity;
-        if (event.eventType === 'text_delta') entry.texts.push(event.text || '');
+        if (event.eventType === 'text_delta') {
+          entry.texts.push({
+            text: event.text || '',
+            messageUuid: event.messageUuid,
+          });
+        }
         else entry.thinkings.push(event.text || '');
         return;
       }
@@ -1379,7 +1413,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sessionId: event.sessionId,
         runtimeIdentity: event.runtimeIdentity ?? undefined,
       };
-      if (event.eventType === 'text_delta') entry.texts.push(event.text || '');
+      if (event.eventType === 'text_delta') {
+        entry.texts.push({
+          text: event.text || '',
+          messageUuid: event.messageUuid,
+        });
+      }
       else entry.thinkings.push(event.text || '');
       entry.raf = requestAnimationFrame(() => {
         flushPendingDelta(key, chatJid, agentId, set);

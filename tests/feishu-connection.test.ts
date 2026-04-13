@@ -14,10 +14,13 @@ const hoisted = vi.hoisted(() => {
     requestSpy: vi.fn().mockResolvedValue({ bot: { open_id: 'bot-open-id' } }),
     replySpy: vi.fn().mockResolvedValue({}),
     createSpy: vi.fn().mockResolvedValue({}),
+    messageGetSpy: vi.fn(),
     reactionCreateSpy: vi
       .fn()
       .mockResolvedValue({ data: { reaction_id: 'r1' } }),
     reactionDeleteSpy: vi.fn().mockResolvedValue({}),
+    resolveJidByMessageIdSpy: vi.fn(),
+    registerMessageIdMappingSpy: vi.fn(),
     wsStartSpy: vi.fn().mockResolvedValue(undefined),
     wsCloseSpy: vi.fn().mockResolvedValue(undefined),
     onReadySpy: vi.fn(),
@@ -35,6 +38,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
       v1: {
         message: {
           create: hoisted.createSpy,
+          get: hoisted.messageGetSpy,
         },
         chat: {
           get: vi.fn(),
@@ -121,7 +125,8 @@ vi.mock('../src/feishu-streaming-card.js', () => ({
     schema: '2.0',
     body: { text },
   })),
-  resolveJidByMessageId: vi.fn(),
+  resolveJidByMessageId: hoisted.resolveJidByMessageIdSpy,
+  registerMessageIdMapping: hoisted.registerMessageIdMappingSpy,
   getStreamingSession: vi.fn(() => null),
 }));
 
@@ -154,8 +159,11 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.requestSpy.mockClear();
     hoisted.replySpy.mockClear();
     hoisted.createSpy.mockClear();
+    hoisted.messageGetSpy.mockReset();
     hoisted.reactionCreateSpy.mockClear();
     hoisted.reactionDeleteSpy.mockClear();
+    hoisted.resolveJidByMessageIdSpy.mockReset();
+    hoisted.registerMessageIdMappingSpy.mockClear();
     hoisted.wsStartSpy.mockClear();
     hoisted.wsCloseSpy.mockClear();
     hoisted.onReadySpy.mockClear();
@@ -261,6 +269,42 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         content: EXPECTED_CARD_CONTENT,
       },
     });
+  });
+
+  test('registers slash-command runtime picker message ids for later card action routing', async () => {
+    hoisted.createSpy.mockResolvedValueOnce({
+      data: { message_id: 'msg-runtime-picker' },
+    });
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCommand: async () => PREBUILT_CARD_WRAPPER,
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_runtime_picker_chat',
+        message_id: 'msg-command',
+        create_time: Date.now().toString(),
+        message_type: 'text',
+        content: JSON.stringify({ text: '/effort' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    expect(hoisted.registerMessageIdMappingSpy).toHaveBeenCalledWith(
+      'msg-runtime-picker',
+      'feishu:oc_runtime_picker_chat',
+    );
   });
 
   test('forwards runtime picker card actions when Feishu returns select_static option as a string', async () => {
@@ -395,6 +439,85 @@ describe('feishu connection prebuilt interactive card delivery', () => {
           },
         }),
       },
+    });
+  });
+
+  test('routes SDK-style root open_message_id picker callbacks through message mapping', async () => {
+    hoisted.resolveJidByMessageIdSpy.mockReturnValue('feishu:runtime-chat');
+    const onCardRuntimeUpdate = vi
+      .fn()
+      .mockResolvedValue('已将当前工作区思考强度切换为 high');
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCardRuntimeUpdate,
+    });
+
+    await hoisted.handlers['card.action.trigger']?.({
+      open_message_id: 'msg-runtime-picker',
+      action: {
+        tag: 'select_static',
+        option: 'high',
+        value: {
+          action: 'set_runtime_effort',
+        },
+      },
+    });
+
+    expect(hoisted.resolveJidByMessageIdSpy).toHaveBeenCalledWith(
+      'msg-runtime-picker',
+    );
+    expect(onCardRuntimeUpdate).toHaveBeenCalledWith('feishu:runtime-chat', {
+      action: 'set_runtime_effort',
+      value: 'high',
+    });
+  });
+
+  test('resolves SDK-style card callbacks through Feishu message lookup when in-memory mapping is missing', async () => {
+    hoisted.messageGetSpy.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            message_id: 'msg-runtime-picker',
+            chat_id: 'runtime-chat',
+          },
+        ],
+      },
+    });
+    const onCardRuntimeUpdate = vi
+      .fn()
+      .mockResolvedValue('已将当前工作区思考强度切换为 high');
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCardRuntimeUpdate,
+    });
+
+    await hoisted.handlers['card.action.trigger']?.({
+      open_message_id: 'msg-runtime-picker',
+      action: {
+        tag: 'select_static',
+        option: 'high',
+        value: {
+          action: 'set_runtime_effort',
+        },
+      },
+    });
+
+    expect(hoisted.messageGetSpy).toHaveBeenCalledWith({
+      path: { message_id: 'msg-runtime-picker' },
+    });
+    expect(onCardRuntimeUpdate).toHaveBeenCalledWith('feishu:runtime-chat', {
+      action: 'set_runtime_effort',
+      value: 'high',
     });
   });
 });

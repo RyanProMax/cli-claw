@@ -13,6 +13,8 @@ import {
   buildEffectiveGroupFromHomeSibling,
   resolveEffectiveRuntimeIdentity,
 } from './group-runtime.js';
+import { getCodexRuntimeFallback } from './codex-config.js';
+import { logger } from './logger.js';
 import { resetWorkspaceRuntimeState } from './workspace-runtime-reset.js';
 import type { AgentType, RegisteredGroup, RuntimeIdentity } from './types.js';
 
@@ -150,10 +152,13 @@ export function resolveRuntimeWorkspaceTarget(
     homeRuntimeJid && homeRuntimeJid.trim() ? homeRuntimeJid : workspaceJid;
   const runtimeOwnerGroup = deps.getGroup(runtimeOwnerJid) ?? workspaceGroup;
   const effectiveGroup = resolveEffectiveRuntimeGroup(workspaceGroup, deps);
+  const codexRuntimeFallback = getCodexRuntimeFallback();
   const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
     effectiveGroup,
     {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+      codexCliModel: codexRuntimeFallback.model,
+      codexCliReasoningEffort: codexRuntimeFallback.reasoningEffort,
     },
   );
 
@@ -214,6 +219,20 @@ async function updateWorkspaceRuntime(
   deps: RuntimeCommandDeps,
   patch: Partial<Pick<RegisteredGroup, 'model' | 'reasoningEffort'>>,
 ): Promise<void> {
+  logger.info(
+    {
+      sourceChatJid: target.sourceChatJid,
+      runtimeOwnerJid: target.runtimeOwnerJid,
+      previousModel: target.runtimeOwnerGroup.model ?? null,
+      previousReasoningEffort: target.runtimeOwnerGroup.reasoningEffort ?? null,
+      nextModel: patch.model ?? target.runtimeOwnerGroup.model ?? null,
+      nextReasoningEffort:
+        patch.reasoningEffort ??
+        target.runtimeOwnerGroup.reasoningEffort ??
+        null,
+    },
+    'Persisting workspace runtime update',
+  );
   const updated: RegisteredGroup = {
     ...target.runtimeOwnerGroup,
     ...patch,
@@ -227,6 +246,14 @@ async function updateWorkspaceRuntime(
     },
     target.runtimeOwnerJid,
     updated,
+  );
+  logger.info(
+    {
+      runtimeOwnerJid: target.runtimeOwnerJid,
+      persistedModel: updated.model ?? null,
+      persistedReasoningEffort: updated.reasoningEffort ?? null,
+    },
+    'Persisted workspace runtime update',
   );
 }
 

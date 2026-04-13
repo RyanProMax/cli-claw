@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, test } from 'vitest';
 
-import { readCodexCliConfig } from '../container/agent-runner/src/codex-config.ts';
+import { readCodexCliConfig } from '../src/codex-config.ts';
 
 const tempDirs: string[] = [];
 

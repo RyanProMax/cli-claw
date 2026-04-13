@@ -81,7 +81,11 @@ export function buildEffectiveGroupFromHomeSibling(
 
 export function resolveEffectiveRuntimeIdentity(
   group: RegisteredGroup,
-  options: { claudeProviderModel?: string | null } = {},
+  options: {
+    claudeProviderModel?: string | null;
+    codexCliModel?: string | null;
+    codexCliReasoningEffort?: string | null;
+  } = {},
 ): RuntimeIdentity {
   const agentType = normalizeAgentType(group.agentType);
   const supportsEffort = supportsReasoningEffort(agentType);
@@ -89,7 +93,9 @@ export function resolveEffectiveRuntimeIdentity(
     normalizeRuntimeText(group.model) ??
     (agentType === 'claude'
       ? normalizeRuntimeText(options.claudeProviderModel)
-      : null) ??
+      : agentType === 'codex'
+        ? normalizeRuntimeText(options.codexCliModel)
+        : null) ??
     getDefaultModelPreset(agentType);
 
   return {
@@ -97,6 +103,9 @@ export function resolveEffectiveRuntimeIdentity(
     model,
     reasoningEffort: supportsEffort
       ? (normalizeRuntimeText(group.reasoningEffort) ??
+        (agentType === 'codex'
+          ? normalizeRuntimeText(options.codexCliReasoningEffort)
+          : null) ??
         getDefaultReasoningEffortPreset(agentType))
       : null,
     supportsReasoningEffort: supportsEffort,

@@ -413,6 +413,23 @@ export function formatSelfRestartAccepted(
     '━━━━━━━━━━',
     `🧾 intent: ${info.intentPath}`,
     `👁️ watchdog PID: ${info.watchdogPid ?? 'unknown'}`,
+    '💬 重启成功后会回到当前会话补发结果',
     '⚠️ 后续由独立 watchdog 执行；当前 IM 可能短暂离线',
+  ].join('\n');
+}
+
+export interface SelfRestartSuccessInfo {
+  intentPath: string;
+  selfStatus: string;
+  residualSummary: string;
+}
+
+export function formatSelfRestartSuccess(info: SelfRestartSuccessInfo): string {
+  return [
+    '✅ 自重启成功',
+    '━━━━━━━━━━',
+    `🧾 intent: ${info.intentPath}`,
+    info.selfStatus,
+    info.residualSummary,
   ].join('\n');
 }

@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
+import { appendStreamTextDelta } from '../shared/dist/stream-event.js';
 
 import { CronExpressionParser } from 'cron-parser';
 
@@ -117,6 +118,7 @@ import {
   formatConversationStatus,
   formatSelfCheckResult,
   formatSelfRestartAccepted,
+  formatSelfRestartSuccess,
   formatSelfStatus,
   formatWorkspaceList,
   formatSystemStatus,
@@ -227,7 +229,14 @@ import { executeSessionReset } from './commands.js';
 import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
 import { executeUsageCommand } from './usage-command.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
-import { requestSelfRestart } from './self-restart.js';
+import {
+  cleanupOrphanRunnerProcesses,
+  findPendingSelfRestartNotifications,
+  markSelfRestartNotificationSent,
+  requestSelfRestart,
+  summarizeResidualProcesses,
+} from './self-restart.js';
+import { getCodexRuntimeFallback } from './codex-config.js';
 import {
   buildRecoveryContext,
   compactMessagesForAgent,
@@ -243,6 +252,17 @@ const OOM_EXIT_RE = /code 137/;
 const SELF_CHECK_MODE = process.env.CLI_CLAW_SELF_CHECK === '1';
 let lastSelfCheckResult: SelfCheckResult | null = null;
 let selfCheckRunning = false;
+
+function getCodexRuntimeIdentityOptions(): {
+  codexCliModel: string | null;
+  codexCliReasoningEffort: string | null;
+} {
+  const fallback = getCodexRuntimeFallback();
+  return {
+    codexCliModel: fallback.model,
+    codexCliReasoningEffort: fallback.reasoningEffort,
+  };
+}
 
 /**
  * Feed a stream event into a Feishu streaming card controller.
@@ -1480,7 +1500,27 @@ function handleSelfStatusCommand(chatJid: string): string {
   if (!isSelfIterationAdmin(chatJid)) {
     return '需要管理员权限才能查看服务自迭代状态';
   }
+  return buildCurrentSelfStatusText();
+}
 
+async function handleSelfCheckCommand(chatJid: string): Promise<string> {
+  if (!isSelfIterationAdmin(chatJid)) {
+    return '需要管理员权限才能执行服务自检';
+  }
+  if (selfCheckRunning) {
+    return '已有 /self-check 正在运行，请稍后再试';
+  }
+
+  selfCheckRunning = true;
+  try {
+    lastSelfCheckResult = await runSelfCheck();
+    return formatSelfCheckResult(lastSelfCheckResult);
+  } finally {
+    selfCheckRunning = false;
+  }
+}
+
+function buildCurrentSelfStatusText(): string {
   const buildStatus = getRuntimeBuildStatus();
   return formatSelfStatus({
     pid: buildStatus.pid,
@@ -1501,20 +1541,86 @@ function handleSelfStatusCommand(chatJid: string): string {
   });
 }
 
-async function handleSelfCheckCommand(chatJid: string): Promise<string> {
-  if (!isSelfIterationAdmin(chatJid)) {
-    return '需要管理员权限才能执行服务自检';
-  }
-  if (selfCheckRunning) {
-    return '已有 /self-check 正在运行，请稍后再试';
-  }
-
-  selfCheckRunning = true;
+async function buildSelfRestartResidualSummary(): Promise<string> {
   try {
-    lastSelfCheckResult = await runSelfCheck();
-    return formatSelfCheckResult(lastSelfCheckResult);
-  } finally {
-    selfCheckRunning = false;
+    const { stdout } = await execFileAsync(
+      'ps',
+      ['-o', 'pid,ppid,command', '-ax'],
+      {
+        timeout: 5000,
+      },
+    );
+    const summary = summarizeResidualProcesses(
+      typeof stdout === 'string' ? stdout : String(stdout),
+      process.pid,
+    );
+    const cleanupResult = cleanupOrphanRunnerProcesses(summary);
+    const parts = [
+      `🧹 残留检查: backend ${summary.backendProcessCount} 个（额外 ${summary.extraBackendPids.length}），runner ${summary.runnerProcessCount} 个（孤儿 ${summary.orphanRunnerPids.length}）`,
+    ];
+    if (summary.extraBackendPids.length > 0) {
+      parts.push(`额外 backend PID: ${summary.extraBackendPids.join(', ')}`);
+    }
+    if (summary.orphanRunnerPids.length > 0) {
+      parts.push(`孤儿 runner PID: ${summary.orphanRunnerPids.join(', ')}`);
+      if (cleanupResult.attemptedRunnerPids.length > 0) {
+        parts.push(
+          `已尝试清理孤儿 runner PID: ${cleanupResult.attemptedRunnerPids.join(', ')}`,
+        );
+      }
+      if (cleanupResult.failedRunnerPids.length > 0) {
+        parts.push(
+          `孤儿 runner 清理失败 PID: ${cleanupResult.failedRunnerPids.join(', ')}`,
+        );
+      }
+    }
+    return parts.join('\n');
+  } catch (err) {
+    logger.warn(
+      { err },
+      'Failed to inspect residual processes after self-restart',
+    );
+    return '🧹 残留检查: unavailable';
+  }
+}
+
+async function notifyCompletedSelfRestartIntents(): Promise<void> {
+  const pending = findPendingSelfRestartNotifications({
+    pid: process.pid,
+  });
+  if (pending.length === 0) return;
+
+  const selfStatus = buildCurrentSelfStatusText();
+  const residualSummary = await buildSelfRestartResidualSummary();
+
+  for (const item of pending) {
+    try {
+      await imManager.sendMessage(
+        item.intent.requestChatJid!,
+        formatSelfRestartSuccess({
+          intentPath: item.intentPath,
+          selfStatus,
+          residualSummary,
+        }),
+      );
+      markSelfRestartNotificationSent(item.intentPath);
+      logger.info(
+        {
+          intentId: item.intent.id,
+          chatJid: item.intent.requestChatJid,
+        },
+        'Sent self-restart success notification',
+      );
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          intentId: item.intent.id,
+          chatJid: item.intent.requestChatJid,
+        },
+        'Failed to send self-restart success notification',
+      );
+    }
   }
 }
 
@@ -1530,6 +1636,7 @@ function handleSelfRestartCommand(chatJid: string): string {
     command: process.execPath,
     args: process.argv.slice(1),
     cwd: process.cwd(),
+    requestChatJid: chatJid,
   });
 
   if (result.status === 'failed') {
@@ -2489,6 +2596,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     makeOnCardCreated(streamingSessionJid),
   );
   let streamingAccumulatedText = '';
+  let streamingLastMessageUuid: string | undefined;
   let streamingAccumulatedThinking = '';
   let streamInterrupted = false;
   if (streamingSession) {
@@ -2534,6 +2642,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         makeOnCardCreated(streamingSessionJid),
       );
       streamingAccumulatedText = '';
+      streamingLastMessageUuid = undefined;
       streamingAccumulatedThinking = '';
       if (streamingSession) {
         registerStreamingSession(streamingSessionJid, streamingSession);
@@ -2603,6 +2712,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let activeRuntimeIdentity: RuntimeIdentity | null =
     resolveEffectiveRuntimeIdentity(effectiveGroup, {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+      ...getCodexRuntimeIdentityOptions(),
     });
   const agentRunStartedAt = Date.now();
   try {
@@ -2629,7 +2739,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               result.streamEvent.eventType === 'text_delta' &&
               result.streamEvent.text
             ) {
-              streamingAccumulatedText += result.streamEvent.text;
+              const appended = appendStreamTextDelta(
+                streamingAccumulatedText,
+                result.streamEvent,
+                streamingLastMessageUuid,
+              );
+              streamingAccumulatedText = appended.text;
+              streamingLastMessageUuid = appended.lastMessageUuid;
             }
             if (
               result.streamEvent.eventType === 'thinking_delta' &&
@@ -2644,6 +2760,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             if (streamingSession && !streamingSession.isActive()) {
               unregisterStreamingSession(streamingSessionJid);
               streamingAccumulatedText = '';
+              streamingLastMessageUuid = undefined;
               streamingAccumulatedThinking = '';
               // Note: sentReply is NOT reset here. Resetting it would cause
               // subsequent SDK Task results to be sent to IM as separate messages,
@@ -2720,6 +2837,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   sentReply = true;
                   clearStreamingSnapshot(chatJid);
                   streamingAccumulatedText = '';
+                  streamingLastMessageUuid = undefined;
                   streamingAccumulatedThinking = '';
                   commitCursor();
                 } catch (err) {
@@ -3044,6 +3162,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               ) {
                 unregisterStreamingSession(streamingSessionJid);
                 streamingAccumulatedText = '';
+                streamingLastMessageUuid = undefined;
                 streamingAccumulatedThinking = '';
                 streamingSession = imManager.createStreamingSession(
                   streamingSessionJid,
@@ -3137,6 +3256,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               // text from multiple turns into one message on shutdown.
               clearStreamingSnapshot(chatJid);
               streamingAccumulatedText = '';
+              streamingLastMessageUuid = undefined;
               streamingAccumulatedThinking = '';
               // Persist cursor as soon as a visible reply is emitted.
               // Long-lived runners may stay alive for idleTimeout, and waiting
@@ -3661,6 +3781,7 @@ async function runAgent(
     const selectedRunner = executionMode === 'host' ? agentType : 'claude';
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(group, {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+      ...getCodexRuntimeIdentityOptions(),
     });
     const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
@@ -5349,6 +5470,7 @@ async function processAgentConversation(
       )
     : undefined;
   let agentStreamingAccText = '';
+  let agentStreamingLastMessageUuid: string | undefined;
   let agentStreamInterrupted = false;
   if (agentStreamingSession && streamingSessionJid) {
     registerStreamingSession(streamingSessionJid, agentStreamingSession);
@@ -5392,6 +5514,7 @@ async function processAgentConversation(
   let currentAgentRuntimeIdentity: RuntimeIdentity | null =
     resolveEffectiveRuntimeIdentity(effectiveGroup, {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+      ...getCodexRuntimeIdentityOptions(),
     });
   const agentConversationStartedAt = Date.now();
 
@@ -5415,7 +5538,13 @@ async function processAgentConversation(
         output.streamEvent.eventType === 'text_delta' &&
         output.streamEvent.text
       ) {
-        agentStreamingAccText += output.streamEvent.text;
+        const appended = appendStreamTextDelta(
+          agentStreamingAccText,
+          output.streamEvent,
+          agentStreamingLastMessageUuid,
+        );
+        agentStreamingAccText = appended.text;
+        agentStreamingLastMessageUuid = appended.lastMessageUuid;
       }
 
       // ── Feed stream events into Feishu streaming card ──
@@ -5661,6 +5790,7 @@ async function processAgentConversation(
           streamingSessionJid
         ) {
           agentStreamingAccText = '';
+          agentStreamingLastMessageUuid = undefined;
           unregisterStreamingSession(streamingSessionJid);
           agentStreamingSession = imManager.createStreamingSession(
             replySourceImJid!,
@@ -5762,6 +5892,7 @@ async function processAgentConversation(
       effectiveGroup,
       {
         claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+        ...getCodexRuntimeIdentityOptions(),
       },
     );
     const runtimeBuildLogFields = getRuntimeBuildLogFields();
@@ -6916,6 +7047,14 @@ async function handleCardRuntimeUpdate(
     value: string;
   },
 ): Promise<string> {
+  logger.info(
+    {
+      chatJid,
+      action: update.action,
+      value: update.value,
+    },
+    'Received Feishu runtime card update',
+  );
   const result = await applyRuntimeWorkspaceSelection({
     chatJid,
     selection: update.action === 'set_runtime_model' ? 'model' : 'effort',
@@ -6932,6 +7071,16 @@ async function handleCardRuntimeUpdate(
       getSessions: () => sessions,
     },
   });
+  logger.info(
+    {
+      chatJid,
+      action: update.action,
+      value: update.value,
+      handled: result.handled,
+      reply: result.reply ?? null,
+    },
+    'Completed Feishu runtime card update',
+  );
 
   return result.reply ?? '运行时更新失败，请稍后重试';
 }
@@ -8045,6 +8194,8 @@ export async function startCliClaw(): Promise<void> {
       );
     }
   }
+
+  await notifyCompletedSelfRestartIntents();
 
   // Start Feishu group sync if any connection is active
   if (anyFeishuConnected) {

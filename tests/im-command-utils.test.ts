@@ -4,6 +4,7 @@ import {
   formatConversationStatus,
   formatSelfCheckResult,
   formatSelfRestartAccepted,
+  formatSelfRestartSuccess,
   formatSelfStatus,
   resolveBoundChatTarget,
   type RegisteredGroupLike,
@@ -278,7 +279,29 @@ describe('formatSelfRestartAccepted', () => {
         '━━━━━━━━━━',
         '🧾 intent: /Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
         '👁️ watchdog PID: 4321',
+        '💬 重启成功后会回到当前会话补发结果',
         '⚠️ 后续由独立 watchdog 执行；当前 IM 可能短暂离线',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('formatSelfRestartSuccess', () => {
+  test('formats the restart success message with service status and residual summary', () => {
+    expect(
+      formatSelfRestartSuccess({
+        intentPath: '/Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
+        selfStatus: '🧭 自迭代状态\n🆔 PID: 17510',
+        residualSummary:
+          '🧹 残留检查: backend 1 个（额外 0），runner 2 个（孤儿 0）',
+      }),
+    ).toBe(
+      [
+        '✅ 自重启成功',
+        '━━━━━━━━━━',
+        '🧾 intent: /Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
+        '🧭 自迭代状态\n🆔 PID: 17510',
+        '🧹 残留检查: backend 1 个（额外 0），runner 2 个（孤儿 0）',
       ].join('\n'),
     );
   });
