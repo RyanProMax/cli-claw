@@ -158,6 +158,35 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('rethrows completed-card finalize failures so callers can fall back to static IM delivery', async () => {
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+    });
+
+    const finalizeErr = new Error('card update failed');
+    const backend = {
+      disableStreamingMode: vi.fn(async () => {}),
+      updateCardFull: vi.fn(async () => {
+        throw finalizeErr;
+      }),
+    } as any;
+
+    (controller as any).state = 'streaming';
+    (controller as any).backendMode = 'streaming';
+    (controller as any).streamingBackend = backend;
+    (controller as any).accumulatedText = 'partial';
+
+    await expect(controller.complete('final answer')).rejects.toThrow(
+      'card update failed',
+    );
+    expect((controller as any).state).toBe('streaming');
+    expect(backend.disableStreamingMode).toHaveBeenCalledTimes(1);
+    expect(backend.updateCardFull).toHaveBeenCalledTimes(2);
+
+    controller.dispose();
+  });
+
   test('formats card tool steps with emoji prefixes', () => {
     expect(formatToolStepLine('exec_command', 'ls -la')).toBe(
       '💻 exec_command · ls -la',

@@ -2358,6 +2358,7 @@ export class StreamingCardController {
     finalState: 'completed' | 'aborted',
   ): Promise<void> {
     const backend = this.streamingBackend!;
+    let primaryError: unknown = null;
 
     try {
       // 1. Disable streaming mode (allows header/button changes)
@@ -2385,6 +2386,7 @@ export class StreamingCardController {
         await this.splitOnFinalize(finalState);
       }
     } catch (err) {
+      primaryError = err;
       logger.debug(
         { err, chatId: this.chatId },
         'Streaming finalize failed, trying truncated fallback',
@@ -2407,6 +2409,11 @@ export class StreamingCardController {
           { err: fallbackErr, chatId: this.chatId },
           'Streaming finalize truncated fallback also failed',
         );
+        throw fallbackErr instanceof Error
+          ? fallbackErr
+          : primaryError instanceof Error
+            ? primaryError
+            : new Error(String(fallbackErr));
       }
     }
   }
