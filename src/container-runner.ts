@@ -2,13 +2,7 @@
  * Container Runner for cli-claw
  * Spawns agent execution in Docker container and handles IPC
  */
-import {
-  ChildProcess,
-  exec,
-  execFile,
-  execFileSync,
-  spawn,
-} from 'child_process';
+import { ChildProcess, exec, execFile, spawn } from 'child_process';
 import fs from 'fs';
 import { createRequire } from 'module';
 import os from 'os';
@@ -21,6 +15,7 @@ import {
 } from './app-root.js';
 
 import { CONTAINER_IMAGE, DATA_DIR, GROUPS_DIR } from './config.js';
+import { buildHostRuntimePath, checkCodexCliReady } from './codex-config.js';
 import { logger } from './logger.js';
 import {
   loadMountAllowlist,
@@ -1057,6 +1052,11 @@ export async function runHostAgent(
       }
     }
 
+    hostEnv['PATH'] = buildHostRuntimePath({
+      pathValue: hostEnv['PATH'],
+      homeDir: hostEnv['HOME'],
+    });
+
     // 路径映射
     hostEnv['CLI_CLAW_WORKSPACE_GROUP'] = groupDir;
     // Per-user global memory
@@ -1130,14 +1130,21 @@ export async function runHostAgent(
       );
     }
     if (agentType === 'codex') {
-      try {
-        execFileSync('codex', ['login', 'status'], {
-          stdio: 'ignore',
-          timeout: 10_000,
-        });
-      } catch {
+      const codexCliReadiness = checkCodexCliReady({
+        env: hostEnv,
+      });
+      if (codexCliReadiness.status !== 'ready') {
+        logger.error(
+          {
+            group: group.name,
+            codexCliStatus: codexCliReadiness.status,
+            codexCliCommand: codexCliReadiness.command,
+            pathValue: codexCliReadiness.pathValue,
+          },
+          'Host agent preflight failed: Codex CLI unavailable',
+        );
         return hostModeSetupError(
-          'Codex CLI 未登录。请先在服务器上执行：codex login',
+          codexCliReadiness.message || 'Codex CLI 启动检查失败。',
         );
       }
     }

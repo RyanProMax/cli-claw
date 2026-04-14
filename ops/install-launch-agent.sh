@@ -8,6 +8,52 @@ STDOUT_PATH="${LOG_DIR}/cli-claw.stdout.log"
 STDERR_PATH="${LOG_DIR}/cli-claw.stderr.log"
 SUBCOMMAND="install"
 
+build_launch_path() {
+  local current_path="${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+  local -a current_segments=()
+  local -a merged_segments=()
+  local -a deduped_segments=()
+  local segment
+  local existing
+
+  IFS=':' read -r -a current_segments <<< "${current_path}"
+  merged_segments=(
+    "${current_segments[@]}"
+    "${HOME}/.bun/bin"
+    "/opt/homebrew/bin"
+    "/usr/local/bin"
+  )
+
+  for segment in "${merged_segments[@]}"; do
+    [[ -n "${segment}" ]] || continue
+    local duplicate=0
+    if [[ ${#deduped_segments[@]} -gt 0 ]]; then
+      for existing in "${deduped_segments[@]}"; do
+        if [[ "${existing}" == "${segment}" ]]; then
+          duplicate=1
+          break
+        fi
+      done
+    fi
+    [[ ${duplicate} -eq 1 ]] && continue
+    deduped_segments+=("${segment}")
+  done
+
+  if [[ ${#deduped_segments[@]} -eq 0 ]]; then
+    printf '%s' "${current_path}"
+    return
+  fi
+
+  local joined=""
+  for segment in "${deduped_segments[@]}"; do
+    if [[ -n "${joined}" ]]; then
+      joined="${joined}:"
+    fi
+    joined="${joined}${segment}"
+  done
+  printf '%s' "${joined}"
+}
+
 xml_escape() {
   local value="$1"
   value="${value//&/&amp;}"
@@ -75,6 +121,7 @@ done
 
 PLIST_PATH="${HOME}/Library/LaunchAgents/${LABEL}.plist"
 SERVICE_NAME="gui/$(id -u)/${LABEL}"
+LAUNCH_PATH="$(build_launch_path)"
 
 print_status() {
   if [[ ! -f "${PLIST_PATH}" ]]; then
@@ -133,6 +180,11 @@ EOF
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$(xml_escape "${LAUNCH_PATH}")</string>
+  </dict>
   <key>StandardOutPath</key>
   <string>$(xml_escape "${STDOUT_PATH}")</string>
   <key>StandardErrorPath</key>
