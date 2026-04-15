@@ -52,6 +52,8 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 - 优先执行当前 milestone 写明的验证命令；若仓库提供统一入口，优先使用 `./scripts/validate.sh` 与 `./scripts/review.sh`。
 - 至少运行与改动直接相关的测试；涉及构建、类型或跨子项目改动时，补跑对应 `build` / `typecheck`。
 - 未验证部分必须在收尾说明中明确指出。
+- 除非用户明确要求不要提交，任务完成后默认在 validation 和 review 都通过后自动提交。
+- 若任务改动会影响正在运行的 Cli Claw 服务，收尾时默认按 `docs/COMMAND.md` 约定走安全重启路径应用变更，不直接使用 `kill` / `pkill` / `launchctl bootout`。
 - commit message 使用英文，一次 commit 聚焦一个任务。
 
 ## 文档同步触发

@@ -21,9 +21,10 @@ afterEach(() => {
 });
 
 describe('parseCliArgs', () => {
-  test('recognizes start, help, and version entry points', () => {
+  test('recognizes start, restart, help, and version entry points', () => {
     expect(parseCliArgs([])).toEqual({ command: 'help' });
     expect(parseCliArgs(['start'])).toEqual({ command: 'start' });
+    expect(parseCliArgs(['restart'])).toEqual({ command: 'restart' });
     expect(parseCliArgs(['help'])).toEqual({ command: 'help' });
     expect(parseCliArgs(['version'])).toEqual({ command: 'version' });
   });
@@ -99,6 +100,30 @@ describe('runCli', () => {
     expect(exitCode).toBe(0);
     expect(stdout).toHaveBeenCalledTimes(1);
     expect(stdout).toHaveBeenCalledWith('1.2.3');
+  });
+
+  test('dispatches restart to the external self-restart seam', async () => {
+    const stdout = vi.fn();
+    const stderr = vi.fn();
+    const restart = vi.fn(() => ({
+      status: 'accepted' as const,
+      message: 'Self-restart requested: /tmp/restart-abc.json',
+    }));
+
+    const exitCode = await runCli(['restart'], {
+      start: vi.fn(),
+      restart,
+      stdout,
+      stderr,
+      version: '1.2.3',
+    });
+
+    expect(exitCode).toBe(0);
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(stdout).toHaveBeenCalledWith(
+      'Self-restart requested: /tmp/restart-abc.json',
+    );
+    expect(stderr).not.toHaveBeenCalled();
   });
 });
 

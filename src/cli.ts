@@ -7,8 +7,9 @@ import {
   createCliStartLaunchSpec,
   type StartupLaunchSpec,
 } from './startup-launch.js';
+import { requestSelfRestartFromSavedState } from './self-restart.js';
 
-type CliCommand = 'start' | 'version' | 'help';
+type CliCommand = 'start' | 'restart' | 'version' | 'help';
 
 export interface CliArgs {
   command: CliCommand;
@@ -18,9 +19,15 @@ export interface CliDeps {
   start: (options?: {
     startupLaunchSpec?: StartupLaunchSpec;
   }) => Promise<void> | void;
+  restart: () => SelfRestartCliResult;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
   version: string;
+}
+
+interface SelfRestartCliResult {
+  status: 'accepted' | 'failed';
+  message: string;
 }
 
 const HELP_TEXT = [
@@ -28,6 +35,7 @@ const HELP_TEXT = [
   '',
   'Commands:',
   '  start',
+  '  restart',
   '  version',
   '  help',
   '',
@@ -55,6 +63,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
       return { command: 'help' };
     case 'start':
       return { command: 'start' };
+    case 'restart':
+      return { command: 'restart' };
     case 'version':
     case '-v':
     case '--version':
@@ -129,6 +139,32 @@ export async function runCli(
   if (parsed.command === 'help') {
     stdout(formatHelpText(version));
     return 0;
+  }
+
+  if (parsed.command === 'restart') {
+    const restart =
+      deps.restart ||
+      (() => {
+        const result = requestSelfRestartFromSavedState();
+        if (result.status === 'accepted') {
+          return {
+            status: 'accepted',
+            message: `Self-restart requested: ${result.intentPath}`,
+          };
+        }
+        return {
+          status: 'failed',
+          message: result.error,
+        };
+      });
+
+    const result = restart();
+    if (result.status === 'accepted') {
+      stdout(result.message);
+      return 0;
+    }
+    stderr(result.message);
+    return 1;
   }
 
   try {

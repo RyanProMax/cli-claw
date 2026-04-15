@@ -11,10 +11,14 @@ import {
   cleanupOrphanRunnerProcesses,
   findPendingSelfRestartNotifications,
   markSelfRestartNotificationSent,
+  readCurrentBackendRestartState,
   requestSelfRestart,
+  requestSelfRestartFromSavedState,
+  resolveLaunchdServiceNameFromEnv,
   runSelfRestartWatchdog,
   summarizeResidualProcesses,
   type SelfRestartIntent,
+  writeCurrentBackendRestartState,
 } from '../src/self-restart.js';
 
 const tempDirs: string[] = [];
@@ -173,6 +177,75 @@ describe('requestSelfRestart', () => {
         path.join(dataDir, 'ops', 'restarts', 'restart-unsafe.json'),
       ),
     ).toBe(false);
+  });
+
+  test('writes and reuses saved backend restart state for external restart requests', () => {
+    const dataDir = makeTempDir();
+    const child = Object.assign(new EventEmitter(), {
+      pid: 9876,
+      unref: vi.fn(),
+    });
+    const spawnFn = vi.fn(() => child);
+    const watchdogScriptPath = path.join(dataDir, 'watchdog.js');
+    fs.writeFileSync(watchdogScriptPath, '');
+
+    writeCurrentBackendRestartState(
+      {
+        pid: 111,
+        startedAt: '2026-04-12T13:00:00.000Z',
+        appRoot: '/repo',
+        port: 3000,
+        launchSpec: {
+          command: '/Users/ryan/.bun/bin/bun',
+          args: ['src/index.ts'],
+          cwd: '/repo',
+          source: 'direct_backend',
+          restartable: true,
+          validationError: null,
+          displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
+        },
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+      },
+      { dataDir },
+    );
+
+    expect(readCurrentBackendRestartState({ dataDir })).toMatchObject({
+      pid: 111,
+      launchdServiceName: 'gui/501/com.ryan.cli-claw',
+    });
+
+    const result = requestSelfRestartFromSavedState({
+      dataDir,
+      now: () => new Date('2026-04-12T13:00:00.000Z'),
+      randomId: () => 'restart-from-state',
+      spawnFn,
+      watchdogCommand: 'node',
+      watchdogScriptPath,
+    });
+
+    expect(result).toMatchObject({
+      status: 'accepted',
+      watchdogPid: 9876,
+    });
+
+    const intent = JSON.parse(
+      fs.readFileSync(result.intentPath, 'utf8'),
+    ) as SelfRestartIntent;
+    expect(intent).toMatchObject({
+      pid: 111,
+      command: '/Users/ryan/.bun/bin/bun',
+      args: ['src/index.ts'],
+      launchdServiceName: 'gui/501/com.ryan.cli-claw',
+    });
+  });
+
+  test('reads the launchd service name from env', () => {
+    expect(
+      resolveLaunchdServiceNameFromEnv({
+        CLI_CLAW_LAUNCHD_SERVICE_NAME: 'gui/501/com.ryan.cli-claw',
+      }),
+    ).toBe('gui/501/com.ryan.cli-claw');
+    expect(resolveLaunchdServiceNameFromEnv({})).toBeNull();
   });
 });
 
@@ -397,6 +470,69 @@ describe('runSelfRestartWatchdog', () => {
       status: 'passed',
       newPid: 222,
       preflight: { status: 'passed' },
+    });
+  });
+
+  test('uses launchd kickstart instead of manual spawn when the intent is launchd-managed', async () => {
+    const dataDir = makeTempDir();
+    const intentPath = path.join(dataDir, 'restart.json');
+    fs.writeFileSync(
+      intentPath,
+      JSON.stringify({
+        id: 'restart-abc',
+        status: 'requested',
+        createdAt: '2026-04-12T13:00:00.000Z',
+        updatedAt: '2026-04-12T13:00:00.000Z',
+        appRoot: '/repo',
+        pid: 111,
+        port: 3000,
+        command: 'node',
+        args: ['/repo/dist/index.js'],
+        cwd: '/repo',
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        healthUrl: 'http://127.0.0.1:3000/api/health',
+      }),
+    );
+    const killProcess = vi.fn();
+    const spawnService = vi.fn();
+    const restartLaunchdService = vi.fn(async () => {});
+
+    const result = await runSelfRestartWatchdog(intentPath, {
+      now: () => new Date('2026-04-12T13:00:02.000Z'),
+      runSelfCheck: vi.fn(async () => ({
+        status: 'passed',
+        startedAt: '2026-04-12T13:00:00.000Z',
+        finishedAt: '2026-04-12T13:00:01.000Z',
+        durationMs: 1000,
+        port: 3101,
+        command: 'node',
+        args: ['/repo/dist/index.js'],
+        tempHome: '/tmp/check',
+        healthUrl: 'http://127.0.0.1:3101/api/health',
+        error: null,
+        exitCode: null,
+        signal: null,
+        outputTail: [],
+      })),
+      killProcess,
+      spawnService,
+      restartLaunchdService,
+      fetchFn: vi.fn(async () => ({ ok: true, status: 200 })),
+      sleep: vi.fn(async () => {}),
+    });
+
+    expect(restartLaunchdService).toHaveBeenCalledWith(
+      'gui/501/com.ryan.cli-claw',
+    );
+    expect(killProcess).not.toHaveBeenCalled();
+    expect(spawnService).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'passed', newPid: null });
+
+    const updated = JSON.parse(fs.readFileSync(intentPath, 'utf8'));
+    expect(updated).toMatchObject({
+      status: 'passed',
+      newPid: null,
+      launchdServiceName: 'gui/501/com.ryan.cli-claw',
     });
   });
 });

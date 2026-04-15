@@ -233,7 +233,9 @@ import {
   findPendingSelfRestartNotifications,
   markSelfRestartNotificationSent,
   requestSelfRestart,
+  resolveLaunchdServiceNameFromEnv,
   summarizeResidualProcesses,
+  writeCurrentBackendRestartState,
 } from './self-restart.js';
 import {
   inferStartupLaunchSpecFromProcess,
@@ -1660,6 +1662,7 @@ function handleSelfRestartCommand(chatJid: string): string {
     pid: process.pid,
     port: WEB_PORT,
     launchSpec: startupLaunchSpec,
+    launchdServiceName: resolveLaunchdServiceNameFromEnv(),
     requestChatJid: chatJid,
   });
 
@@ -7276,14 +7279,25 @@ export async function startCliClaw(
 ): Promise<void> {
   startupLaunchSpec =
     options.startupLaunchSpec || inferStartupLaunchSpecFromProcess();
+  const launchdServiceName = resolveLaunchdServiceNameFromEnv();
   logger.info(
     {
       launchSource: startupLaunchSpec.source,
       launchRestartable: startupLaunchSpec.restartable,
       launchCommand: startupLaunchSpec.displayCommand,
+      launchdServiceName,
     },
     'Resolved startup launch spec',
   );
+
+  writeCurrentBackendRestartState({
+    pid: process.pid,
+    startedAt: getRuntimeBuildStatus().startedAt,
+    appRoot: resolveAppPath(),
+    port: WEB_PORT,
+    launchSpec: startupLaunchSpec,
+    launchdServiceName,
+  });
 
   initDatabase();
   logger.info('Database initialized');

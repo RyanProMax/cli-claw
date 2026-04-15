@@ -184,6 +184,8 @@ EOF
   <dict>
     <key>PATH</key>
     <string>$(xml_escape "${LAUNCH_PATH}")</string>
+    <key>CLI_CLAW_LAUNCHD_SERVICE_NAME</key>
+    <string>$(xml_escape "${SERVICE_NAME}")</string>
   </dict>
   <key>StandardOutPath</key>
   <string>$(xml_escape "${STDOUT_PATH}")</string>

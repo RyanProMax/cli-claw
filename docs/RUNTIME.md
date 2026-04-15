@@ -20,12 +20,14 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - `/self-check` 只验证“当前 build 能否冷启动并健康”，不会停止当前服务，也不会切换端口或执行真实重启。
 - `/self-restart` 不在 backend 进程内重启自身；它写入 `~/.cli-claw/ops/restarts/*.json` intent，并启动独立 watchdog 进程。watchdog 先执行 shadow self-check；失败时不停止当前服务；通过后才停止旧 PID、按同一启动命令启动新进程，并轮询生产端口 `/api/health`。
 - `/self-restart` 使用一份在 backend 启动时捕获并校验过的 authoritative launch spec；若当前进程无法解析出安全的启动命令（例如 argv 缺失 entrypoint、只剩 `bun` 空参数、或明显不是 Cli Claw 入口），命令会直接拒绝受理，而不是写出一个注定重启失败的 intent。
+- backend 启动时还会把当前 PID、端口、validated launch spec，以及可选的 `launchd` service name 持久化到 `~/.cli-claw/ops/current-backend.json`；外部 `cli-claw restart` 会复用这份状态发起同一条 safe self-restart，而不是从调用方自己的 argv 反推启动命令。
 - 成功的 `/self-restart` intent 会记录发起它的 IM 会话；新进程启动并重新连上 IM 后，会向该会话补发一条“自重启成功”消息，附带当前服务状态与一次 best-effort 残留进程检查结果。
 - 若残留检查发现真正的孤儿 runner（`agent-runner` / `codex-acp` 链条已脱离 backend，表现为 `ppid = 1` 或父 PID 不存在），新进程会 best-effort 发送 `SIGTERM` 清理；正常挂在当前 backend 下的 runner 链不会被触碰。
+- 若当前服务由 repo 提供的 LaunchAgent 启动，并带有 `CLI_CLAW_LAUNCHD_SERVICE_NAME`，watchdog 在 preflight 通过后不会再手工 `spawn` 一个脱离 supervisor 的 replacement，而是执行 `launchctl kickstart -k <service>`，让 `launchd` 保持拥有者身份并继续负责后续兜底重拉。
 
 `/self-restart` 不是 blue-green 或 rollback 机制。它能避免“preflight 失败还杀旧进程”的 badcase，但不能保证源码/二进制级回滚；更强的生产发布仍应使用 release 目录、symlink 或系统级 supervisor。
 
-对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 应复用 `/self-status` 暴露的同一份 validated launch command，而不是另起一套不同的启动脚本；安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` / `codex` 这类宿主机 runtime 依赖。
+对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 应复用 `/self-status` 暴露的同一份 validated launch command，而不是另起一套不同的启动脚本；安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` / `codex` 这类宿主机 runtime 依赖，同时注入 `CLI_CLAW_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
 
 ## 运行时矩阵
 

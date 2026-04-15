@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
@@ -36,6 +36,7 @@ export interface SelfRestartIntent {
   cwd: string;
   launchSource?: string | null;
   launchDisplay?: string | null;
+  launchdServiceName?: string | null;
   healthUrl: string;
   requestChatJid?: string | null;
   preflight?: SelfCheckResult;
@@ -47,6 +48,15 @@ export interface SelfRestartIntent {
 export interface PendingSelfRestartNotification {
   intentPath: string;
   intent: SelfRestartIntent;
+}
+
+export interface CurrentBackendRestartState {
+  pid: number;
+  startedAt: string;
+  appRoot: string;
+  port: number;
+  launchSpec: StartupLaunchSpec;
+  launchdServiceName?: string | null;
 }
 
 export interface ResidualProcessSummary {
@@ -82,6 +92,7 @@ interface RequestSelfRestartOptions {
   args?: string[];
   cwd?: string;
   launchSpec?: StartupLaunchSpec;
+  launchdServiceName?: string | null;
   requestChatJid?: string;
   now?: () => Date;
   randomId?: () => string;
@@ -130,6 +141,7 @@ interface WatchdogDeps {
     options: SpawnOptions,
   ) => SpawnedProcess;
   fetchFn?: (url: string) => Promise<{ ok: boolean; status: number }>;
+  restartLaunchdService?: (serviceName: string) => Promise<void>;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -161,8 +173,44 @@ function getIntentDir(dataDir: string): string {
   return path.join(dataDir, 'ops', 'restarts');
 }
 
+function getCurrentBackendStatePath(dataDir: string): string {
+  return path.join(dataDir, 'ops', 'current-backend.json');
+}
+
 function readIntent(intentPath: string): SelfRestartIntent {
   return JSON.parse(fs.readFileSync(intentPath, 'utf8')) as SelfRestartIntent;
+}
+
+export function writeCurrentBackendRestartState(
+  state: CurrentBackendRestartState,
+  options: { dataDir?: string } = {},
+): string {
+  const dataDir = options.dataDir || DATA_DIR;
+  const statePath = getCurrentBackendStatePath(dataDir);
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n', {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  return statePath;
+}
+
+export function readCurrentBackendRestartState(
+  options: { dataDir?: string } = {},
+): CurrentBackendRestartState | null {
+  const dataDir = options.dataDir || DATA_DIR;
+  const statePath = getCurrentBackendStatePath(dataDir);
+  if (!fs.existsSync(statePath)) return null;
+  return JSON.parse(
+    fs.readFileSync(statePath, 'utf8'),
+  ) as CurrentBackendRestartState;
+}
+
+export function resolveLaunchdServiceNameFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const serviceName = env.CLI_CLAW_LAUNCHD_SERVICE_NAME?.trim();
+  return serviceName ? serviceName : null;
 }
 
 function patchIntent(
@@ -249,6 +297,20 @@ async function waitForHealth(
     : 'replacement health check timed out';
 }
 
+async function defaultRestartLaunchdService(
+  serviceName: string,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    execFile('launchctl', ['kickstart', '-k', serviceName], (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 export function requestSelfRestart(
   options: RequestSelfRestartOptions = {},
 ): SelfRestartRequestResult {
@@ -306,6 +368,7 @@ export function requestSelfRestart(
     cwd,
     launchSource: launchSpec.source,
     launchDisplay: launchSpec.displayCommand,
+    launchdServiceName: options.launchdServiceName || null,
     healthUrl: `http://127.0.0.1:${port}/api/health`,
     requestChatJid: options.requestChatJid || null,
   };
@@ -340,6 +403,56 @@ export function requestSelfRestart(
     }
     return { status: 'failed', intentPath, error: message };
   }
+}
+
+export function requestSelfRestartFromSavedState(
+  options: {
+    dataDir?: string;
+    requestChatJid?: string;
+    now?: () => Date;
+    randomId?: () => string;
+    watchdogCommand?: string;
+    watchdogScriptPath?: string;
+    spawnFn?: (
+      command: string,
+      args: string[],
+      options: SpawnOptions,
+    ) => SpawnedProcess;
+  } = {},
+): SelfRestartRequestResult {
+  const state = readCurrentBackendRestartState({
+    dataDir: options.dataDir,
+  });
+  if (!state) {
+    return {
+      status: 'failed',
+      intentPath: null,
+      error: 'current backend restart state not found',
+    };
+  }
+
+  if (!state.launchdServiceName && !defaultIsProcessAlive(state.pid)) {
+    return {
+      status: 'failed',
+      intentPath: null,
+      error: `current backend pid is not alive: ${state.pid}`,
+    };
+  }
+
+  return requestSelfRestart({
+    dataDir: options.dataDir,
+    appRoot: state.appRoot,
+    pid: state.pid,
+    port: state.port,
+    launchSpec: state.launchSpec,
+    launchdServiceName: state.launchdServiceName || null,
+    requestChatJid: options.requestChatJid,
+    now: options.now,
+    randomId: options.randomId,
+    watchdogCommand: options.watchdogCommand,
+    watchdogScriptPath: options.watchdogScriptPath,
+    spawnFn: options.spawnFn,
+  });
 }
 
 export function findPendingSelfRestartNotifications(
@@ -502,6 +615,8 @@ export async function runSelfRestartWatchdog(
   const isProcessAlive = deps.isProcessAlive || defaultIsProcessAlive;
   const spawnService = deps.spawnService || spawn;
   const fetchFn = deps.fetchFn || fetch;
+  const restartLaunchdService =
+    deps.restartLaunchdService || defaultRestartLaunchdService;
   const sleep = deps.sleep || defaultSleep;
 
   const intent = patchIntent(intentPath, { status: 'preflight' }, now);
@@ -527,20 +642,26 @@ export async function runSelfRestartWatchdog(
   patchIntent(intentPath, { status: 'restarting', preflight }, now);
 
   try {
-    await stopOldProcess({
-      pid: intent.pid,
-      killProcess,
-      isProcessAlive,
-      sleep,
-    });
+    let newPid: number | null = null;
+    if (intent.launchdServiceName) {
+      await restartLaunchdService(intent.launchdServiceName);
+    } else {
+      await stopOldProcess({
+        pid: intent.pid,
+        killProcess,
+        isProcessAlive,
+        sleep,
+      });
 
-    const replacement = spawnService(intent.command, intent.args, {
-      cwd: intent.cwd,
-      detached: true,
-      stdio: 'ignore',
-      env: buildRestartEnv(intent.port),
-    });
-    replacement.unref?.();
+      const replacement = spawnService(intent.command, intent.args, {
+        cwd: intent.cwd,
+        detached: true,
+        stdio: 'ignore',
+        env: buildRestartEnv(intent.port),
+      });
+      replacement.unref?.();
+      newPid = replacement.pid ?? null;
+    }
 
     const healthError = await waitForHealth(intent.healthUrl, {
       fetchFn,
@@ -551,7 +672,7 @@ export async function runSelfRestartWatchdog(
         intentPath,
         {
           status: 'failed',
-          newPid: replacement.pid ?? null,
+          newPid,
           error: healthError,
         },
         now,
@@ -567,7 +688,7 @@ export async function runSelfRestartWatchdog(
       intentPath,
       {
         status: 'passed',
-        newPid: replacement.pid ?? null,
+        newPid,
         error: null,
       },
       now,
