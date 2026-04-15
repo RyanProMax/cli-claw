@@ -193,8 +193,8 @@ describe('StreamingCardController footer caching', () => {
     );
   });
 
-  test('normalizes streaming main content before CardKit content pushes', async () => {
-    const { client, streamedContents } = createStreamingModeClient();
+  test('keeps streaming main content close to the original markdown in v1 cards', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
       chatId: 'chat-test',
@@ -203,20 +203,25 @@ describe('StreamingCardController footer caching', () => {
     controller.append('go');
 
     await vi.waitFor(() => {
-      expect((controller as any).streamingBackend).toBeTruthy();
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
     });
 
-    await (controller as any).streamingBackend.streamContent(
-      'Intro\n# Result\n- first',
-    );
+    controller.append('Intro\n# Result\n- first');
+    await (controller as any).patchCard('streaming');
 
-    expect(streamedContents.at(-1)).toBe('Intro\n\n# Result\n\n- first');
+    const lastCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const mainMarkdown = lastCard?.body?.elements?.find(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+    expect(mainMarkdown?.content).toBe('Intro\n# Result\n- first');
 
     controller.dispose();
   });
 
-  test('keeps blank-line boundaries between same-turn commentary updates', async () => {
-    const { client, streamedContents } = createStreamingModeClient();
+  test('keeps blank-line boundaries between same-turn commentary updates in v1 cards', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
       chatId: 'chat-test',
@@ -225,14 +230,18 @@ describe('StreamingCardController footer caching', () => {
     controller.append('First update\n\n# Second update');
 
     await vi.waitFor(() => {
-      expect((controller as any).streamingBackend).toBeTruthy();
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
     });
 
-    await (controller as any).streamingBackend.streamContent(
-      'First update\n\n# Second update',
-    );
+    await (controller as any).patchCard('streaming');
 
-    expect(streamedContents.at(-1)).toBe('First update\n\n# Second update');
+    const lastCard = updatedCards.at(-1);
+    const mainMarkdown = lastCard?.body?.elements?.find(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+    expect(mainMarkdown?.content).toBe('First update\n\n# Second update');
 
     controller.dispose();
   });
@@ -264,6 +273,57 @@ describe('StreamingCardController footer caching', () => {
     });
   });
 
+  test('keeps plain prose paragraph spacing in static reply cards without extra Feishu breaks', () => {
+    const card = buildStaticReplyCard(
+      '第一段说明当前方案。\n\n第二段说明原因。\n\n第三段确认下一步。',
+    ) as any;
+
+    const markdownElements = (card.body?.elements ?? []).filter(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+
+    expect(markdownElements).toHaveLength(1);
+    expect(markdownElements[0]?.content).toBe(
+      '第一段说明当前方案。\n\n第二段说明原因。\n\n第三段确认下一步。',
+    );
+    expect(JSON.stringify(card)).not.toContain('<br>');
+  });
+
+  test('creates streaming cards with an expanded thinking collapsible panel like runclaw', async () => {
+    const { client, createdCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.appendThinking('first thought');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+    });
+
+    const thinkingPanel = createdCards[0]?.body?.elements?.find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💭 Thinking...',
+    );
+
+    expect(thinkingPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: true,
+      elements: [
+        {
+          tag: 'markdown',
+          content: 'first thought',
+          text_size: 'notation',
+        },
+      ],
+    });
+
+    controller.dispose();
+  });
+
   test('renders only the interrupt control in the default streaming footer row', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
@@ -288,16 +348,16 @@ describe('StreamingCardController footer caching', () => {
 
     expect(controlRow).toMatchObject({
       tag: 'column_set',
-      columns: [
-        { tag: 'column', elements: [{ tag: 'button' }] },
-      ],
+      columns: [{ tag: 'column', elements: [{ tag: 'button' }] }],
     });
     // Every column entry must carry tag: 'column' so Feishu schema 2.0 accepts the layout
     for (const column of controlRow.columns) {
       expect(column.tag).toBe('column');
     }
     expect(elements.filter((el: any) => el?.tag === 'button')).toHaveLength(0);
-    expect(elements.filter((el: any) => el?.tag === 'select_static')).toHaveLength(0);
+    expect(
+      elements.filter((el: any) => el?.tag === 'select_static'),
+    ).toHaveLength(0);
 
     controller.dispose();
   });
@@ -313,8 +373,7 @@ describe('StreamingCardController footer caching', () => {
       },
     }) as any;
 
-    const select =
-      card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
     expect(card.config.summary.content).toBe('选择模型');
     expect(select).toMatchObject({
       tag: 'select_static',
@@ -353,8 +412,7 @@ describe('StreamingCardController footer caching', () => {
       },
     }) as any;
 
-    const select =
-      card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
     expect(select).toMatchObject({
       tag: 'select_static',
       placeholder: { content: '思考强度: medium' },
@@ -379,7 +437,7 @@ describe('StreamingCardController footer caching', () => {
     expect(select.initial_option).toBeUndefined();
   });
 
-  test('initial streaming card exposes a STATUS_NOTE element so the live footer can be patched', async () => {
+  test('initial streaming card includes a plain streaming note in the v1 card body', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
@@ -400,11 +458,11 @@ describe('StreamingCardController footer caching', () => {
 
     const elements = createdCards[0]?.body?.elements ?? [];
     const statusNote = elements.find(
-      (el: any) => el?.element_id === 'status_note',
+      (el: any) => el?.tag === 'markdown' && el?.content === '⏳ 生成中...',
     );
     expect(statusNote).toMatchObject({
       tag: 'markdown',
-      element_id: 'status_note',
+      content: '⏳ 生成中...',
       text_size: 'notation',
     });
 

@@ -18,10 +18,7 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { createHash } from 'crypto';
 import { logger } from './logger.js';
-import {
-  normalizeStreamingMarkdown,
-  optimizeMarkdownStyle,
-} from './feishu-markdown-style.js';
+import { normalizeStreamingMarkdown } from './feishu-markdown-style.js';
 import {
   formatAssistantCardFooter,
   type AssistantFooterTokenUsage,
@@ -226,7 +223,8 @@ interface CardContentResult {
 /**
  * Build the content elements shared by both Legacy and Schema 2.0 card builders.
  * Splits long text, handles `---` section dividers, and extracts the title.
- * Applies optimizeMarkdownStyle() for proper Feishu rendering.
+ * Keeps prose formatting close to the source text so Feishu cards stay aligned
+ * with runclaw's simpler markdown rendering.
  */
 function buildCardContent(
   text: string,
@@ -235,9 +233,8 @@ function buildCardContent(
 ): CardContentResult {
   const { title: extractedTitle, body } = extractTitleAndBody(text);
   const title = overrideTitle || extractedTitle;
-  // Apply Markdown optimization for Feishu card rendering
   const rawContent = body || text.trim();
-  const contentToRender = optimizeMarkdownStyle(rawContent, 2);
+  const contentToRender = rawContent;
   const elements: Array<Record<string, unknown>> = [];
 
   if (contentToRender.length > CARD_MD_LIMIT) {
@@ -455,10 +452,11 @@ export interface AuxiliaryState {
 function buildCollapsiblePanel(
   title: string,
   body: string,
+  expanded = false,
 ): Record<string, unknown> {
   return {
     tag: 'collapsible_panel',
-    expanded: false,
+    expanded,
     border: { color: 'grey-300', corner_radius: '6px' },
     header: {
       title: {
@@ -512,32 +510,17 @@ function buildAuxiliaryElementsForState(
       aux.thinkingText.length > MAX_THINKING_CHARS
         ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
         : aux.thinkingText;
-    if (isStreamingLayout) {
-      const quoted = truncated
-        .split('\n')
-        .map((l) => `> ${l}`)
-        .join('\n');
-      before.push({
-        tag: 'markdown',
-        content:
-          `💭 **${aux.isThinking ? 'Reasoning...' : 'Reasoning'}**\n${quoted}`.slice(
-            0,
-            MAX_ELEMENT_CHARS,
-          ),
-        text_size: 'notation',
-      });
-    } else {
-      before.push(
-        buildCollapsiblePanel(
-          '💭 Thinking',
-          truncated.slice(0, MAX_ELEMENT_CHARS),
-        ),
-      );
-    }
+    before.push(
+      buildCollapsiblePanel(
+        aux.isThinking ? '💭 Thinking...' : '💭 Thinking',
+        truncated.slice(0, MAX_ELEMENT_CHARS),
+        isStreamingLayout,
+      ),
+    );
   } else if (aux.isThinking) {
     before.push({
       tag: 'markdown',
-      content: '💭 **Thinking...**',
+      content: '💭 Thinking...',
       text_size: 'notation',
     });
   }
@@ -564,20 +547,15 @@ function buildAuxiliaryElementsForState(
         : undefined;
       return formatToolStepLine(tc.name, summary);
     });
-    if (isStreamingLayout) {
-      before.push({
-        tag: 'markdown',
-        content: lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
-        text_size: 'notation',
-      });
-    } else {
-      before.push(
-        buildCollapsiblePanel(
-          `${display.length} steps`,
-          lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
-        ),
-      );
-    }
+    before.push(
+      buildCollapsiblePanel(
+        isStreamingLayout
+          ? `Working on it (${display.length} steps)`
+          : `${display.length} steps`,
+        lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
+        isStreamingLayout,
+      ),
+    );
   }
 
   // ④ Hook Status
@@ -1341,6 +1319,7 @@ class MultiCardManager {
    */
   async initialize(
     initialText: string,
+    auxiliaryState?: AuxiliaryState,
     runtimeIdentity?: RuntimeIdentity | null,
   ): Promise<string> {
     const card = new CardKitBackend(this.client);
@@ -1349,7 +1328,7 @@ class MultiCardManager {
       'streaming',
       '',
       undefined,
-      undefined,
+      auxiliaryState,
       undefined,
       runtimeIdentity,
     );
@@ -1982,43 +1961,8 @@ export class StreamingCardController {
 
   private async createInitialCard(): Promise<void> {
     const initialText = this.accumulatedText || (this.thinking ? '' : '...');
-
-    // ── Level 0: Try streaming mode (cardElement.content typewriter) ──
-    try {
-      const backend = new StreamingModeBackend(this.client);
-      const cardJson = buildStreamingModeCard(
-        initialText,
-        this.footerRuntimeIdentity,
-      );
-      await backend.createCard(cardJson);
-      const messageId = await backend.sendCard(this.chatId, this.replyToMsgId);
-
-      this.streamingBackend = backend;
-      this.messageId = messageId;
-      this.backendMode = 'streaming';
-      this.useCardKit = true;
-      this.startTime = Date.now();
-      // Streaming mode: 300ms text flush, 800ms aux flush
-      this.textFlushCtrl = new FlushController(300, 30);
-      this.auxFlushCtrl = new FlushController(800, 0);
-      this.maxPatchFailures = 3;
-
-      logger.debug(
-        { chatId: this.chatId, messageId, mode: 'streaming' },
-        'Streaming card created via streaming mode',
-      );
-
-      this.finishCardCreation();
-      return;
-    } catch (streamingErr) {
-      logger.info(
-        { err: streamingErr, chatId: this.chatId },
-        'Streaming mode unavailable, falling back to CardKit v1',
-      );
-      this.streamingBackend = null;
-    }
-
-    // ── Level 1: Try CardKit v1 full-update (card.update with full JSON) ──
+    // Prefer full-card updates so the Feishu card structure matches runclaw's
+    // collapsible thinking/tool panels during streaming.
     try {
       this.multiCard = new MultiCardManager(
         this.client,
@@ -2028,6 +1972,7 @@ export class StreamingCardController {
       );
       const messageId = await this.multiCard.initialize(
         initialText,
+        this.getAuxiliaryState(),
         this.footerRuntimeIdentity,
       );
 
@@ -2045,7 +1990,6 @@ export class StreamingCardController {
         'Streaming card created via CardKit v1',
       );
     } catch (v1Err) {
-      // ── Level 2: Legacy message.create + message.patch ──
       logger.info(
         { err: v1Err, chatId: this.chatId },
         'CardKit full-update unavailable, falling back to message.patch',
@@ -2064,9 +2008,12 @@ export class StreamingCardController {
   }
 
   private async createLegacyCard(initialText: string): Promise<void> {
-    const card = buildStreamingCard(
+    const card = buildSchema2Card(
       initialText,
       'streaming',
+      '',
+      undefined,
+      this.getAuxiliaryState(),
       undefined,
       this.footerRuntimeIdentity,
     );
@@ -2139,8 +2086,15 @@ export class StreamingCardController {
       this.onCardCreated?.(this.messageId);
     }
 
-    // If text accumulated while creating, schedule a flush/patch
-    if (this.accumulatedText.length > 3) {
+    // If text or auxiliary state changed while creating, schedule a flush/patch.
+    if (
+      this.accumulatedText.length > 3 ||
+      this.thinkingText.length > 0 ||
+      this.toolCalls.size > 0 ||
+      this.systemStatus !== null ||
+      this.activeHook !== null ||
+      (this.todos?.length ?? 0) > 0
+    ) {
       this.backendMode === 'streaming'
         ? this.scheduleTextFlush()
         : this.schedulePatch();
@@ -2509,12 +2463,15 @@ export class StreamingCardController {
         throw err;
       }
     } else {
-      // Legacy message.patch path (no auxiliary content)
+      // Legacy message.patch path
       if (!this.messageId) return;
 
-      const card = buildStreamingCard(
+      const card = buildSchema2Card(
         this.accumulatedText,
         displayState,
+        '',
+        undefined,
+        this.getAuxiliaryState(),
         footerNote || this.getFooterNote(),
         this.footerRuntimeIdentity,
       );
