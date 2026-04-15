@@ -5,6 +5,10 @@ import { GROUPS_DIR } from './config.js';
 import { logger } from './logger.js';
 import { getSystemSettings } from './runtime-config.js';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
+import {
+  BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE,
+  detectUnsafeCliClawServiceControl,
+} from '../shared/dist/service-restart-guard.js';
 
 export interface ScriptRunResult {
   stdout: string;
@@ -35,6 +39,24 @@ export async function runScript(
   const { scriptTimeout } = getSystemSettings();
   const cwd = cwdOverride || path.join(GROUPS_DIR, groupFolder);
   const startTime = Date.now();
+  const blocked = detectUnsafeCliClawServiceControl(command, {
+    backendPid: process.pid,
+    launchdServiceName: process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME || null,
+  });
+
+  if (blocked) {
+    logger.warn(
+      { command: command.slice(0, 200), groupFolder, reason: blocked.reason },
+      'Blocked unsafe direct cli-claw service control script',
+    );
+    return {
+      stdout: '',
+      stderr: BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE,
+      exitCode: 1,
+      timedOut: false,
+      durationMs: Date.now() - startTime,
+    };
+  }
 
   activeScriptCount++;
 

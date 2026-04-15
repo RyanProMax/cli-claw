@@ -51,6 +51,11 @@ export interface ConnectOptions {
   ignoreMessagesBefore?: number;
   /** 斜杠指令回调（如 /clear），返回回复文本或 null */
   onCommand?: (chatJid: string, command: string) => Promise<string | null>;
+  /** 显式运维短语改写成受管命令（如“重启服务” -> self-restart） */
+  resolveManagedCommandText?: (
+    chatJid: string,
+    text: string,
+  ) => string | null;
   /** 根据 chatJid 解析群组 folder，用于下载文件/图片到工作区 */
   resolveGroupFolder?: (chatJid: string) => string | undefined;
   /** 将 IM chatJid 解析为绑定目标 JID（conversation agent 或工作区主对话） */
@@ -789,6 +794,7 @@ export function createFeishuConnection(
       onNewChat,
       ignoreMessagesBefore,
       onCommand,
+      resolveManagedCommandText,
       resolveGroupFolder,
       resolveEffectiveChatJid,
       onAgentMessage,
@@ -1004,6 +1010,38 @@ export function createFeishuConnection(
           logger.error(
             { chatJid, sendErr },
             'Failed to send slash command error feedback',
+          );
+        }
+        return;
+      }
+    }
+
+    const managedCommandText =
+      !slashMatch && resolveManagedCommandText
+        ? resolveManagedCommandText(chatJid, textForSlash)
+        : null;
+    if (managedCommandText && onCommand) {
+      logger.info(
+        { chatJid, managedCommandText, text: textForSlash },
+        'Feishu managed command detected',
+      );
+      try {
+        const reply = await onCommand(chatJid, managedCommandText);
+        if (reply) {
+          await sendTextToChat(chatId, reply);
+        }
+        return;
+      } catch (err) {
+        logger.error(
+          { chatJid, managedCommandText, err },
+          'Feishu managed command failed',
+        );
+        try {
+          await sendTextToChat(chatId, '⚠️ 命令执行失败，请稍后重试');
+        } catch (sendErr) {
+          logger.error(
+            { chatJid, sendErr },
+            'Failed to send managed command error feedback',
           );
         }
         return;

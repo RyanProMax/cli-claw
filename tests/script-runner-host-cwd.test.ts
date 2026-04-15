@@ -41,4 +41,19 @@ describe('runScript', () => {
       }),
     );
   });
+
+  test('rejects unsafe direct cli-claw service control commands before exec', async () => {
+    execMock.mockClear();
+
+    const result = await runScript(
+      'launchctl bootout gui/501/com.ryan.cli-claw',
+      'main',
+      '/srv/project',
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('禁止直接控制正在运行的 Cli Claw 服务');
+    expect(result.stderr).toContain('cli-claw restart');
+    expect(execMock).not.toHaveBeenCalled();
+  });
 });

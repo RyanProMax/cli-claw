@@ -22,6 +22,12 @@
 - PM2 进程管理（启动/停止/删除进程）
 - 系统服务管理（`systemctl start/stop/restart`）
 
+### Cli Claw 服务自重启
+
+- 如果任务涉及当前运行中的 `cli-claw` 服务变更，**禁止**直接执行 `kill`、`pkill`、`killall`、`launchctl bootout`、`launchctl kickstart` 等进程/服务控制命令来重启当前服务。
+- 正确做法是使用安全入口：`cli-claw restart`；如果是 IM 管理场景，则使用 `/self-restart`。
+- 当直接进程控制被拒绝时，不要重复尝试同类命令，立即改走安全重启入口。
+
 ### Skill / MCP 安装审查
 
 安装任何外部 Skill 或 MCP Server 前，必须：

@@ -139,6 +139,7 @@ import {
 } from './runtime-command-registry.js';
 import { createImNewWorkspaceGroup } from './im-new-workspace.js';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
+import { resolveManagedSelfRestartCommand } from '../shared/dist/service-restart-guard.js';
 import { invalidateSessionCache, getWebDeps } from './web-context.js';
 import {
   getFeishuProviderConfigWithSource,
@@ -1512,6 +1513,14 @@ function isSelfIterationAdmin(chatJid: string): boolean {
   const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
   if (!group?.created_by) return false;
   return getUserById(group.created_by)?.role === 'admin';
+}
+
+function resolveManagedFeishuCommandText(
+  chatJid: string,
+  text: string,
+): string | null {
+  if (!isSelfIterationAdmin(chatJid)) return null;
+  return resolveManagedSelfRestartCommand(text);
 }
 
 function handleSelfStatusCommand(chatJid: string): string {
@@ -7170,6 +7179,7 @@ async function connectUserIMChannels(
       {
         ignoreMessagesBefore,
         onCommand: handleCommand,
+        resolveManagedCommandText: resolveManagedFeishuCommandText,
         resolveGroupFolder,
         resolveEffectiveChatJid,
         onAgentMessage,

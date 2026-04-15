@@ -1056,6 +1056,13 @@ export async function runHostAgent(
       pathValue: hostEnv['PATH'],
       homeDir: hostEnv['HOME'],
     });
+    hostEnv['CLI_CLAW_BACKEND_PID'] = String(process.pid);
+    hostEnv['CLI_CLAW_SAFE_RESTART_COMMAND'] = 'cli-claw restart';
+    hostEnv['CLI_CLAW_SAFE_IM_RESTART_COMMAND'] = '/self-restart';
+    const launchdServiceName = process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME?.trim();
+    if (launchdServiceName) {
+      hostEnv['CLI_CLAW_LAUNCHD_SERVICE_NAME'] = launchdServiceName;
+    }
 
     // 路径映射
     hostEnv['CLI_CLAW_WORKSPACE_GROUP'] = groupDir;

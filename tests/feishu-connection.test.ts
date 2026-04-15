@@ -271,6 +271,57 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     });
   });
 
+  test('routes explicit managed restart phrases through the command handler before normal message storage', async () => {
+    const onCommand = vi.fn().mockResolvedValue('自重启受理成功');
+    const resolveManagedCommandText = vi
+      .fn()
+      .mockReturnValue('self-restart');
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCommand,
+      resolveManagedCommandText,
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_restart_chat',
+        message_id: 'msg-managed-restart',
+        create_time: Date.now().toString(),
+        message_type: 'text',
+        content: JSON.stringify({ text: '重启服务' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    expect(resolveManagedCommandText).toHaveBeenCalledWith(
+      'feishu:oc_restart_chat',
+      '重启服务',
+    );
+    expect(onCommand).toHaveBeenCalledWith(
+      'feishu:oc_restart_chat',
+      'self-restart',
+    );
+    expect(hoisted.resolveImSlashCommandReplySpy).not.toHaveBeenCalled();
+    expect(hoisted.createSpy).toHaveBeenCalledWith({
+      params: { receive_id_type: 'chat_id' },
+      data: {
+        receive_id: 'oc_restart_chat',
+        msg_type: 'text',
+        content: JSON.stringify({ text: '自重启受理成功' }),
+      },
+    });
+  });
+
   test('registers slash-command runtime picker message ids for later card action routing', async () => {
     hoisted.createSpy.mockResolvedValueOnce({
       data: { message_id: 'msg-runtime-picker' },

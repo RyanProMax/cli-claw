@@ -67,6 +67,10 @@ export interface DingTalkConnectConfig {
 export interface ConnectFeishuOptions {
   ignoreMessagesBefore?: number;
   onCommand?: (chatJid: string, command: string) => Promise<string | null>;
+  resolveManagedCommandText?: (
+    chatJid: string,
+    text: string,
+  ) => string | null;
   resolveGroupFolder?: (chatJid: string) => string | undefined;
   resolveEffectiveChatJid?: (
     chatJid: string,
@@ -358,6 +362,7 @@ class IMConnectionManager {
       onNewChat,
       ignoreMessagesBefore: options?.ignoreMessagesBefore,
       onCommand: options?.onCommand,
+      resolveManagedCommandText: options?.resolveManagedCommandText,
       resolveGroupFolder: options?.resolveGroupFolder,
       resolveEffectiveChatJid: options?.resolveEffectiveChatJid,
       onAgentMessage: options?.onAgentMessage,

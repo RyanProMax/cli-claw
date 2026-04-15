@@ -36,6 +36,10 @@ import { getChannelFromJid } from './channel-prefixes.js';
 import { spawn } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
+import {
+  detectUnsafeCliClawServiceControl,
+  extractShellCommandText,
+} from '../../../shared/dist/service-restart-guard.js';
 
 import type {
   ContainerInput,
@@ -94,6 +98,11 @@ let hadCompaction = false;
 // Updated in main() whenever a query returns a new session.
 let latestSessionId: string | undefined;
 let activeRuntimeIdentity: StreamRuntimeIdentity | null = null;
+
+const CLI_CLAW_SERVICE_CONTROL_CONTEXT = {
+  backendPid: Number.parseInt(process.env.CLI_CLAW_BACKEND_PID || '', 10) || null,
+  launchdServiceName: process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME || null,
+};
 
 function normalizeRuntimeText(value: string | undefined): string | null {
   if (!value) return null;
@@ -1351,13 +1360,71 @@ function buildAcpMcpServers(): McpServer[] {
   return servers;
 }
 
-function choosePermissionOption(options: PermissionOption[]): string | null {
-  const preferredKinds = ['allow_once', 'allow_always'];
+function choosePermissionOption(
+  options: PermissionOption[],
+  preferredKinds: Array<PermissionOption['kind']> = [
+    'allow_once',
+    'allow_always',
+  ],
+): string | null {
   for (const kind of preferredKinds) {
     const match = options.find((option) => option.kind === kind);
     if (match) return match.optionId;
   }
   return options[0]?.optionId ?? null;
+}
+
+function extractAcpToolCallCommandText(toolCall: {
+  rawInput?: unknown;
+  content?: Array<{ type?: string; content?: { type?: string; text?: string } }>;
+}): string | null {
+  const direct = extractShellCommandText(toolCall.rawInput);
+  if (direct) return direct;
+
+  for (const block of toolCall.content || []) {
+    if (
+      block?.type === 'content' &&
+      block.content?.type === 'text' &&
+      typeof block.content.text === 'string' &&
+      block.content.text.trim()
+    ) {
+      return block.content.text.trim();
+    }
+  }
+
+  return null;
+}
+
+function createPreToolUseHook(): HookCallback {
+  return async (input) => {
+    const preTool = input as {
+      hook_event_name: 'PreToolUse';
+      tool_name: string;
+      tool_input: unknown;
+    };
+    if (preTool.tool_name !== 'Bash') return {};
+
+    const commandText = extractShellCommandText(preTool.tool_input);
+    if (!commandText) return {};
+
+    const blocked = detectUnsafeCliClawServiceControl(
+      commandText,
+      CLI_CLAW_SERVICE_CONTROL_CONTEXT,
+    );
+    if (!blocked) return {};
+
+    log(
+      `Blocked unsafe Bash tool use: ${blocked.reason}; command=${blocked.matchedText}`,
+    );
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: blocked.message,
+        additionalContext: blocked.reason,
+      },
+    };
+  };
 }
 
 function summarizeUnknown(value: unknown, maxLength = 240): string | undefined {
@@ -1471,6 +1538,31 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
   const connection = new ClientSideConnection(
     () => ({
       requestPermission: async (params) => {
+        const commandText = extractAcpToolCallCommandText(params.toolCall);
+        if (commandText) {
+          const blocked = detectUnsafeCliClawServiceControl(
+            commandText,
+            CLI_CLAW_SERVICE_CONTROL_CONTEXT,
+          );
+          if (blocked) {
+            log(
+              `Rejected unsafe Codex tool call: ${blocked.reason}; command=${blocked.matchedText}`,
+            );
+            const rejectOptionId = choosePermissionOption(params.options, [
+              'reject_once',
+              'reject_always',
+            ]);
+            if (rejectOptionId) {
+              return {
+                outcome: {
+                  outcome: 'selected',
+                  optionId: rejectOptionId,
+                },
+              };
+            }
+            return { outcome: { outcome: 'cancelled' } };
+          }
+        }
         const optionId = choosePermissionOption(params.options);
         if (!optionId) {
           return { outcome: { outcome: 'cancelled' } };
@@ -2108,6 +2200,11 @@ async function runQuery(
           'cli-claw': mcpServerConfig, // 内置 SDK MCP 放最后，确保不被同名覆盖
         },
         hooks: {
+          PreToolUse: [
+            {
+              hooks: [createPreToolUseHook()],
+            },
+          ],
           PreCompact: [
             {
               hooks: [
