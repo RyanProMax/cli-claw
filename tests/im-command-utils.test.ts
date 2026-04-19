@@ -168,14 +168,9 @@ describe('formatConversationStatus', () => {
 });
 
 describe('formatSystemStatus', () => {
-  test('renders the compact status template with runtime lines inline', () => {
+  test('renders the IM status template with agent and runtime sections', () => {
     expect(
       formatSystemStatus(
-        {
-          locationLine: '主工作区 / 主对话',
-          folder: 'main',
-          replyPolicy: null,
-        },
         {
           activeContainerCount: 0,
           activeHostProcessCount: 0,
@@ -186,28 +181,38 @@ describe('formatSystemStatus', () => {
         },
         false,
         null,
-        [
-          '🗂️ 当前工作区: 主工作区',
-          '🤖 当前 runtime: codex',
-          '🧠 当前模型: gpt-5.4',
-          '⚙️ 当前思考强度: medium',
-          '⏳ 5h 剩余: 42%（重置时间：2026-04-13 02:09）',
-          '📅 7d 剩余: 75%（重置时间：2026-04-19 11:50）',
-        ],
+        {
+          agentType: 'codex',
+          model: 'gpt-5.4',
+          reasoningEffort: 'xhigh',
+          primaryRemaining: '42%',
+          primaryReset: '2026-04-13 02:09',
+          secondaryRemaining: '75%',
+          secondaryReset: '2026-04-19 11:50',
+          workspaceName: '主工作区',
+          currentSessionName: '主对话',
+          sessionCount: 3,
+          cwd: '/Users/ryan/projects/cli-claw',
+        },
       ),
     ).toBe(
       [
-        '📊 系统状态',
+        '🤖 Agent',
         '━━━━━━━━━━',
-        '📍 位置: 主工作区 / 主对话',
-        '⚡ 状态: 空闲',
-        '📦 负载: 0/20 容器, 0/5 进程',
-        '🗂️ 当前工作区: 主工作区',
-        '🤖 当前 runtime: codex',
+        '🤖 当前 Agent: codex',
         '🧠 当前模型: gpt-5.4',
-        '⚙️ 当前思考强度: medium',
+        '⚙️ 当前推理强度: xhigh',
         '⏳ 5h 剩余: 42%（重置时间：2026-04-13 02:09）',
         '📅 7d 剩余: 75%（重置时间：2026-04-19 11:50）',
+        '',
+        '📊 运行状态',
+        '━━━━━━━━━━',
+        '🗂️ 当前工作区: 主工作区',
+        '💬 当前会话: 主对话',
+        '🧵 会话数: 3',
+        '⚡ 状态: 空闲',
+        '📦 负载: 0/20 容器, 0/5 进程',
+        '📂 cwd: /Users/ryan/projects/cli-claw',
       ].join('\n'),
     );
   });

@@ -217,29 +217,53 @@ export interface QueueStatusInfo {
   waitingGroupJids: string[];
 }
 
+export interface StatusDisplayInfo {
+  agentType: string;
+  model: string;
+  reasoningEffort: string | null;
+  primaryRemaining: string;
+  primaryReset: string;
+  secondaryRemaining: string;
+  secondaryReset: string;
+  workspaceName: string;
+  currentSessionName: string;
+  sessionCount: number;
+  cwd: string;
+}
+
 /**
  * Format system status output for /status command.
  */
 export function formatSystemStatus(
-  location: LocationInfo,
   queueStatus: QueueStatusInfo,
   isActive: boolean,
   queuePosition: number | null,
-  runtimeLines: string[] = [],
+  status: StatusDisplayInfo,
 ): string {
   const statusText = isActive
     ? '运行中'
     : queuePosition !== null
       ? `排队中 (#${queuePosition})`
       : '空闲';
+  const reasoningEffort = status.reasoningEffort?.trim() || '不支持';
 
   const lines = [
-    '📊 系统状态',
+    '🤖 Agent',
     '━━━━━━━━━━',
-    `📍 位置: ${location.locationLine}`,
+    `🤖 当前 Agent: ${status.agentType}`,
+    `🧠 当前模型: ${status.model}`,
+    `⚙️ 当前推理强度: ${reasoningEffort}`,
+    `⏳ 5h 剩余: ${status.primaryRemaining}（重置时间：${status.primaryReset}）`,
+    `📅 7d 剩余: ${status.secondaryRemaining}（重置时间：${status.secondaryReset}）`,
+    '',
+    '📊 运行状态',
+    '━━━━━━━━━━',
+    `🗂️ 当前工作区: ${status.workspaceName}`,
+    `💬 当前会话: ${status.currentSessionName}`,
+    `🧵 会话数: ${status.sessionCount}`,
     `⚡ 状态: ${statusText}`,
     `📦 负载: ${queueStatus.activeContainerCount}/${queueStatus.maxContainers} 容器, ${queueStatus.activeHostProcessCount}/${queueStatus.maxHostProcesses} 进程`,
-    ...runtimeLines,
+    `📂 cwd: ${status.cwd}`,
   ];
 
   return lines.join('\n');

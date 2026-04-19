@@ -15,12 +15,12 @@ Cli Claw 的“命令”分成两层：
 
 以下命令由 npm 包 `cli-claw-kit` 安装后的 `cli-claw` 二进制直接处理：
 
-| 命令 | 别名 | 作用 |
-| --- | --- | --- |
-| `cli-claw start` | - | 启动主服务，并把当前 shell 目录作为 host 工作区默认启动目录 |
-| `cli-claw restart` | - | 读取当前服务保存的 restart 状态并请求一次安全自重启；适合从外部 shell 或正在处理任务的 agent 内触发 |
-| `cli-claw help` | `cli-claw -h` / `cli-claw --help` | 查看 launcher 帮助 |
-| `cli-claw version` | `cli-claw -v` / `cli-claw --version` | 输出已安装版本 |
+| 命令               | 别名                                 | 作用                                                                                                |
+| ------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为 host 工作区默认启动目录                                         |
+| `cli-claw restart` | -                                    | 读取当前服务保存的 restart 状态并请求一次安全自重启；适合从外部 shell 或正在处理任务的 agent 内触发 |
+| `cli-claw help`    | `cli-claw -h` / `cli-claw --help`    | 查看 launcher 帮助                                                                                  |
+| `cli-claw version` | `cli-claw -v` / `cli-claw --version` | 输出已安装版本                                                                                      |
 
 说明：
 
@@ -57,13 +57,13 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 
 以下命令在 IM 与 Web 都可直接识别：
 
-| 命令 | 别名 | 作用 |
-| --- | --- | --- |
-| `/help` | - | 查看当前入口、当前 runtime 下真正可用的命令 |
-| `/clear` | - | 清除当前工作区或当前绑定 Agent 的会话上下文 |
-| `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务 |
-| `/model` | - | 打开当前工作区模型选择器 |
-| `/effort` | - | 打开当前工作区思考强度选择器；仅 `codex` 支持 |
+| 命令             | 别名                | 作用                                          |
+| ---------------- | ------------------- | --------------------------------------------- |
+| `/help`          | -                   | 查看当前入口、当前 runtime 下真正可用的命令   |
+| `/clear`         | -                   | 清除当前工作区或当前绑定 Agent 的会话上下文   |
+| `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务                      |
+| `/model`         | -                   | 打开当前工作区模型选择器                      |
+| `/effort`        | -                   | 打开当前工作区思考强度选择器；仅 `codex` 支持 |
 
 说明：
 
@@ -78,25 +78,27 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 
 以下命令仅在 IM 入口可用：
 
-| 命令 | 别名 | 作用 |
-| --- | --- | --- |
-| `/list` | `/ls` | 查看当前用户可访问的工作区与对话列表 |
-| `/status` | - | 查看当前工作区、运行状态、当前 runtime 摘要与当前 Codex 5h / 7d 余额 |
-| `/self-status` | - | 查看 cli-claw 服务版本、自检状态、restartability 与当前重启命令 |
-| `/self-check` | - | 隔离启动候选服务做冷启动健康检查，不重启当前服务 |
-| `/self-restart` | - | 创建自重启 intent，并交给独立 watchdog 执行 |
-| `/recall` | `/rc` | 汇总当前工作区最近消息并生成回顾摘要 |
-| `/where` | - | 查看当前 IM 会话绑定到了哪个工作区 / Agent |
-| `/bind <workspace>` | - | 将当前 IM 会话绑定到指定工作区 |
-| `/bind <workspace>/<agent短ID>` | - | 将当前 IM 会话绑定到指定工作区下的 conversation agent |
-| `/unbind` | - | 解除绑定，回到默认工作区 |
-| `/new <名称>` | - | 创建新工作区并把当前 IM 会话绑定过去 |
-| `/require_mention true` | - | 群聊里只有被 @ 时才响应 |
-| `/require_mention false` | - | 群聊里不需要 @ 也会响应 |
+| 命令                            | 别名  | 作用                                                                 |
+| ------------------------------- | ----- | -------------------------------------------------------------------- |
+| `/list`                         | `/ls` | 查看当前用户可访问的工作区与对话列表                                 |
+| `/status`                       | -     | 查看当前工作区、运行状态、当前 runtime 摘要与当前 Codex 5h / 7d 余额 |
+| `/self-status`                  | -     | 查看 cli-claw 服务版本、自检状态、restartability 与当前重启命令      |
+| `/self-check`                   | -     | 隔离启动候选服务做冷启动健康检查，不重启当前服务                     |
+| `/self-restart`                 | -     | 创建自重启 intent，并交给独立 watchdog 执行                          |
+| `/recall`                       | `/rc` | 汇总当前工作区最近消息并生成回顾摘要                                 |
+| `/where`                        | -     | 查看当前 IM 会话绑定到了哪个工作区 / Agent                           |
+| `/bind <workspace>`             | -     | 将当前 IM 会话绑定到指定工作区                                       |
+| `/bind <workspace>/<agent短ID>` | -     | 将当前 IM 会话绑定到指定工作区下的 conversation agent                |
+| `/unbind`                       | -     | 解除绑定，回到默认工作区                                             |
+| `/new <名称>`                   | -     | 创建新工作区并把当前 IM 会话绑定过去                                 |
+| `/require_mention true`         | -     | 群聊里只有被 @ 时才响应                                              |
+| `/require_mention false`        | -     | 群聊里不需要 @ 也会响应                                              |
 
 说明：
 
-- `/status` 会同时展示系统队列状态、当前工作区定位、当前 workspace 的主对话 / conversation agent 列表、IM 绑定关系，以及 runtime 摘要（当前 workspace、runtime、模型、思考强度）和当前 Codex 5h / 7d 余额。
+- `/status` 会以 “Agent” 与 “运行状态” 两段展示当前 runtime 摘要（Agent
+  类型、模型、推理强度）、当前 Codex 5h / 7d
+  余额、当前工作区、当前会话、会话数、队列负载与服务进程 cwd。
 - Codex 余额读取自本机 `~/.codex/sessions/**/*.jsonl` 的最新 usage 快照；当前 runtime 不是 `codex` 或本地快照不可用时，对应余额会显示 `unavailable` / `unknown`。
 - `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-status` 会直接展示当前 backend 解析到的 self-restart launch source 和精确命令，便于判断当前进程是否真的可安全重启。`/self-check` 会用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，不会停止或重启当前服务。
 - `/self-restart` 仅管理员可用；backend 只会在当前 launch spec 已通过结构校验时写入 restart intent 并启动独立 watchdog。若当前进程的启动命令不安全或不完整（例如只剩 `bun` 空参数），命令会直接失败，不会生成一个注定错误的 intent。watchdog 会先做 shadow self-check，通过后才停止旧 PID、启动同一启动命令并检查生产端口 `/api/health`。它不是 blue-green/rollback 机制，结果以 `~/.cli-claw/ops/restarts/*.json` 为准；重启成功后，新进程会向发起命令的 IM 会话补发一条成功回执，附带当前服务状态和残留进程检查摘要。若摘要里发现真正孤儿的 runner residue，服务会 best-effort 发送 `SIGTERM` 清理。

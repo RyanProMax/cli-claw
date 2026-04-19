@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 vi.mock('../src/workspace-runtime-reset.ts', () => ({
   resetWorkspaceRuntimeState: async (
@@ -9,6 +9,14 @@ vi.mock('../src/workspace-runtime-reset.ts', () => ({
   ) => {
     await deps.queue.stopGroup(jid, { force: true });
   },
+}));
+
+const getCodexRuntimeFallbackMock = vi.hoisted(() =>
+  vi.fn(() => ({ model: null, reasoningEffort: null })),
+);
+
+vi.mock('../src/codex-config.js', () => ({
+  getCodexRuntimeFallback: getCodexRuntimeFallbackMock,
 }));
 
 import {
@@ -47,6 +55,13 @@ function createDeps(groups: Record<string, RegisteredGroup>) {
 }
 
 describe('runtime command handler', () => {
+  beforeEach(() => {
+    getCodexRuntimeFallbackMock.mockReturnValue({
+      model: null,
+      reasoningEffort: null,
+    });
+  });
+
   test('resolves IM chats to their home workspace runtime target', () => {
     const { deps } = createDeps({
       'web:proj-home': {
@@ -339,6 +354,33 @@ describe('runtime command handler', () => {
       '⚙️ 当前思考强度: medium',
     );
     expect(buildRuntimeStatusReply(target!)).not.toContain('模型预设:');
+  });
+
+  test('uses Codex runtime fallback when workspace settings are unset', () => {
+    getCodexRuntimeFallbackMock.mockReturnValue({
+      model: 'gpt-5.4-mini',
+      reasoningEffort: 'xhigh',
+    });
+    const { deps } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+      },
+    });
+
+    const target = resolveRuntimeWorkspaceTarget('web:proj-home', deps);
+
+    expect(target).not.toBeNull();
+    expect(buildRuntimeStatusReply(target!)).toContain(
+      '🧠 当前模型: gpt-5.4-mini',
+    );
+    expect(buildRuntimeStatusReply(target!)).toContain(
+      '⚙️ 当前思考强度: xhigh',
+    );
   });
 
   test('exposes one effective runtime identity for status, picker cards, and dispatch fallback', () => {

@@ -115,7 +115,6 @@ import {
 } from './streaming-runtime-meta.js';
 import {
   formatContextMessages,
-  formatConversationStatus,
   formatSelfCheckResult,
   formatSelfRestartAccepted,
   formatSelfRestartSuccess,
@@ -128,7 +127,6 @@ import {
 } from './im-command-utils.js';
 import {
   applyRuntimeWorkspaceSelection,
-  buildRuntimeStatusReply,
   executeRuntimeWorkspaceCommand,
   resolveRuntimeWorkspaceTarget,
 } from './runtime-command-handler.js';
@@ -1447,24 +1445,11 @@ function handleStatusCommand(chatJid: string): string {
       : null;
 
   const workspace = resolveStatusWorkspaceInfo(group, location);
-  const bindingLabel =
-    group.target_agent_id || group.target_main_jid
-      ? location.locationLine
-      : '默认路由到当前 IM 工作区';
-  const conversationStatus = formatConversationStatus({
-    workspace,
-    currentAgentId: group.target_agent_id ?? null,
-    currentOnMain: !group.target_agent_id,
-    binding: {
-      type: group.target_agent_id
-        ? 'agent'
-        : group.target_main_jid
-          ? 'main'
-          : 'default',
-      label: bindingLabel,
-      replyPolicy: location.replyPolicy,
-    },
-  });
+  const currentAgentId = group.target_agent_id ?? null;
+  const currentSessionName = currentAgentId
+    ? (workspace.agents.find((agent) => agent.id === currentAgentId)?.name ??
+      'conversation agent')
+    : '主对话';
 
   const runtimeTarget = resolveRuntimeWorkspaceTarget(chatJid, {
     getGroup: lookupGroup,
@@ -1480,15 +1465,8 @@ function handleStatusCommand(chatJid: string): string {
     runtimeTarget?.effectiveRuntimeIdentity.agentType === 'codex'
       ? getCodexUsageSnapshot()
       : null;
-  const runtimeLines = runtimeTarget
-    ? [
-        ...buildRuntimeStatusReply(runtimeTarget).split('\n'),
-        `⏳ 5h 剩余: ${formatQuotaValue(codexUsage?.primaryRemainingPct)}（重置时间：${formatResetValue(codexUsage?.primaryResetAt)}）`,
-        `📅 7d 剩余: ${formatQuotaValue(codexUsage?.secondaryRemainingPct)}（重置时间：${formatResetValue(codexUsage?.secondaryResetAt)}）`,
-      ]
-    : [];
+  const runtimeIdentity = runtimeTarget?.effectiveRuntimeIdentity ?? null;
   const systemStatus = formatSystemStatus(
-    location,
     {
       activeContainerCount: queueStatus.activeContainerCount,
       activeHostProcessCount: queueStatus.activeHostProcessCount,
@@ -1499,14 +1477,22 @@ function handleStatusCommand(chatJid: string): string {
     },
     isActive,
     queuePosition,
-    runtimeLines,
+    {
+      agentType: runtimeIdentity?.agentType === 'codex' ? 'codex' : 'claude',
+      model: runtimeIdentity?.model ?? 'unknown',
+      reasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
+      primaryRemaining: formatQuotaValue(codexUsage?.primaryRemainingPct),
+      primaryReset: formatResetValue(codexUsage?.primaryResetAt),
+      secondaryRemaining: formatQuotaValue(codexUsage?.secondaryRemainingPct),
+      secondaryReset: formatResetValue(codexUsage?.secondaryResetAt),
+      workspaceName: workspace.name,
+      currentSessionName,
+      sessionCount: workspace.agents.length + 1,
+      cwd: process.cwd(),
+    },
   );
 
-  if (!runtimeTarget) {
-    return `${systemStatus}\n\n${conversationStatus}`;
-  }
-
-  return `${systemStatus}\n\n${conversationStatus}`;
+  return systemStatus;
 }
 
 function isSelfIterationAdmin(chatJid: string): boolean {
