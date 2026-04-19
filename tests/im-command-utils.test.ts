@@ -209,10 +209,10 @@ describe('formatSystemStatus', () => {
         '━━━━━━━━━━',
         '🗂️ 当前工作区: 主工作区',
         '💬 当前会话: 主对话',
-        '🧵 会话数: 3',
+        '🔢 会话数: 3',
         '⚡ 状态: 空闲',
         '📦 负载: 0/20 容器, 0/5 进程',
-        '📂 cwd: /Users/ryan/projects/cli-claw',
+        '📍 cwd: /Users/ryan/projects/cli-claw',
       ].join('\n'),
     );
   });

@@ -260,10 +260,10 @@ export function formatSystemStatus(
     '━━━━━━━━━━',
     `🗂️ 当前工作区: ${status.workspaceName}`,
     `💬 当前会话: ${status.currentSessionName}`,
-    `🧵 会话数: ${status.sessionCount}`,
+    `🔢 会话数: ${status.sessionCount}`,
     `⚡ 状态: ${statusText}`,
     `📦 负载: ${queueStatus.activeContainerCount}/${queueStatus.maxContainers} 容器, ${queueStatus.activeHostProcessCount}/${queueStatus.maxHostProcesses} 进程`,
-    `📂 cwd: ${status.cwd}`,
+    `📍 cwd: ${status.cwd}`,
   ];
 
   return lines.join('\n');
