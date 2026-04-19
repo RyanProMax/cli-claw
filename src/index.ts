@@ -375,6 +375,59 @@ let lastAgentTimestamp: Record<string, MessageCursor> = {};
 // Recovery-safe cursor: only advances when an agent actually finishes processing.
 // recoverPendingMessages() uses this to detect IPC-injected but unprocessed messages.
 let lastCommittedCursor: Record<string, MessageCursor> = {};
+interface StreamingShutdownCommitTarget {
+  commitJid: string;
+  cursor: MessageCursor;
+}
+const streamingShutdownCommitTargets = new Map<
+  string,
+  StreamingShutdownCommitTarget
+>();
+
+export function buildStreamingShutdownKey(
+  chatJid: string,
+  relatedJids: string[] = [],
+  agentId?: string,
+): string {
+  const baseJid = chatJid.startsWith('web:')
+    ? chatJid
+    : relatedJids.find((jid) => jid.startsWith('web:')) || chatJid;
+  return agentId ? `${baseJid}#agent:${agentId}` : baseJid;
+}
+
+export function applyStreamingShutdownCommittedCursor(
+  committedCursors: Record<string, MessageCursor>,
+  streamingKey: string,
+  commitTargets: ReadonlyMap<string, StreamingShutdownCommitTarget>,
+): Record<string, MessageCursor> {
+  const target = commitTargets.get(streamingKey);
+  if (!target) return committedCursors;
+  const current = committedCursors[target.commitJid];
+  if (current && !isCursorAfter(target.cursor, current)) {
+    return committedCursors;
+  }
+  return {
+    ...committedCursors,
+    [target.commitJid]: target.cursor,
+  };
+}
+
+function resolveStreamingShutdownKey(
+  chatJid: string,
+  agentId?: string,
+): string {
+  const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
+  const relatedJids = group ? getJidsByFolder(group.folder) : [];
+  return buildStreamingShutdownKey(chatJid, relatedJids, agentId);
+}
+
+function registerStreamingShutdownCommitTarget(
+  streamingKey: string,
+  commitJid: string,
+  cursor: MessageCursor,
+): void {
+  streamingShutdownCommitTargets.set(streamingKey, { commitJid, cursor });
+}
 
 /** Set both cursors directly (no max-merge) and persist. */
 function setCursors(jid: string, cursor: MessageCursor): void {
@@ -2616,6 +2669,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let lastSavedTurnId: string | undefined; // tracks last turnId saved to DB, prevents UPSERT overwrite
   const queryTaskIds = new Set<string>();
   const lastProcessed = missedMessages[missedMessages.length - 1];
+  const shutdownStreamingKey = resolveStreamingShutdownKey(chatJid);
+  registerStreamingShutdownCommitTarget(shutdownStreamingKey, chatJid, {
+    timestamp: lastProcessed.timestamp,
+    id: lastProcessed.id,
+  });
 
   // ── Feishu Streaming Card ──
   // Create a streaming session for Feishu channels (typing-machine effect).
@@ -3413,6 +3471,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         logger.warn({ err, chatJid }, 'Failed to save overflow partial text');
       }
     }
+    streamingShutdownCommitTargets.delete(shutdownStreamingKey);
   }
 
   // runAgent threw — output is undefined, cannot proceed with post-processing.
@@ -4046,6 +4105,7 @@ function saveInterruptedStreamingMessages(): void {
   try {
     const activeTexts = getActiveStreamingTexts();
     if (activeTexts.size === 0) return;
+    let committedCursorChanged = false;
 
     logger.info(
       { count: activeTexts.size },
@@ -4078,6 +4138,18 @@ function saveInterruptedStreamingMessages(): void {
       );
       // Mark as saved so the per-group finally blocks don't duplicate
       shutdownSavedJids.add(jid);
+      const nextCommitted = applyStreamingShutdownCommittedCursor(
+        lastCommittedCursor,
+        jid,
+        streamingShutdownCommitTargets,
+      );
+      if (nextCommitted !== lastCommittedCursor) {
+        lastCommittedCursor = nextCommitted;
+        committedCursorChanged = true;
+      }
+    }
+    if (committedCursorChanged) {
+      saveState();
     }
   } catch (err) {
     logger.warn({ err }, 'Error saving interrupted streaming messages');
@@ -5531,6 +5603,11 @@ async function processAgentConversation(
   let lastAgentReplyMsgId: string | undefined;
   let lastAgentReplyText: string | undefined;
   const lastProcessed = missedMessages[missedMessages.length - 1];
+  const shutdownStreamingKey = resolveStreamingShutdownKey(chatJid, agentId);
+  registerStreamingShutdownCommitTarget(shutdownStreamingKey, virtualChatJid, {
+    timestamp: lastProcessed.timestamp,
+    id: lastProcessed.id,
+  });
   const commitCursor = (): void => {
     if (cursorCommitted) return;
     advanceCursors(virtualChatJid, {
@@ -6311,6 +6388,7 @@ async function processAgentConversation(
       agent.prompt,
       hadError ? lastError : undefined,
     );
+    streamingShutdownCommitTargets.delete(shutdownStreamingKey);
 
     ipcWatcherManager?.unwatchGroup(effectiveGroup.folder);
   }
@@ -6461,6 +6539,14 @@ async function startMessageLoop(): Promise<void> {
               timestamp: lastProcessed.timestamp,
               id: lastProcessed.id,
             };
+            registerStreamingShutdownCommitTarget(
+              resolveStreamingShutdownKey(chatJid),
+              chatJid,
+              {
+                timestamp: lastProcessed.timestamp,
+                id: lastProcessed.id,
+              },
+            );
             saveState();
           } else {
             // no_active — enqueue for a new one
@@ -7009,6 +7095,17 @@ function buildOnAgentMessage(): (baseChatJid: string, agentId: string) => void {
             undefined,
           )
         : 'no_active';
+      if (sendResult === 'sent' && missedMessages.length > 0) {
+        const lastProcessed = missedMessages[missedMessages.length - 1];
+        registerStreamingShutdownCommitTarget(
+          resolveStreamingShutdownKey(homeChatJid, agentId),
+          virtualChatJid,
+          {
+            timestamp: lastProcessed.timestamp,
+            id: lastProcessed.id,
+          },
+        );
+      }
       if (sendResult === 'no_active') {
         const taskId = `agent-conv:${agentId}:${Date.now()}`;
         queue.enqueueTask(virtualChatJid, taskId, async () => {
