@@ -174,12 +174,6 @@ export function resolveRuntimeWorkspaceTarget(
   };
 }
 
-function formatRuntimeScopeLabel(
-  target: ResolvedRuntimeWorkspaceTarget,
-): string {
-  return target.workspaceGroup.name || target.effectiveGroup.folder;
-}
-
 function buildHelpReply(
   entrypoint: RuntimeCommandEntrypoint,
   target: ResolvedRuntimeWorkspaceTarget,
@@ -197,13 +191,14 @@ export function buildRuntimeStatusReply(
   const agentType = normalizeAgentType(runtimeIdentity.agentType);
   const currentEffort = runtimeIdentity.reasoningEffort?.trim() || null;
   const lines = [
-    `🗂️ 当前工作区: ${formatRuntimeScopeLabel(target)}`,
-    `🤖 当前 runtime: ${agentType}`,
+    '🤖 Agent',
+    '━━━━━━━━━━',
+    `🤖 当前 Agent: ${agentType}`,
     `🧠 当前模型: ${runtimeIdentity.model}`,
   ];
 
   if (currentEffort) {
-    lines.push(`⚙️ 当前思考强度: ${currentEffort}`);
+    lines.push(`⚙️ 当前推理强度: ${currentEffort}`);
   }
 
   return lines.join('\n');

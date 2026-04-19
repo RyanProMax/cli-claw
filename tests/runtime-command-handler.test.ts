@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 vi.mock('../src/workspace-runtime-reset.ts', () => ({
   resetWorkspaceRuntimeState: async (
     deps: {
-      queue: { stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown> };
+      queue: {
+        stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown>;
+      };
     },
     jid: string,
   ) => {
@@ -349,10 +351,13 @@ describe('runtime command handler', () => {
     const target = resolveRuntimeWorkspaceTarget('web:proj-home', deps);
     expect(target).not.toBeNull();
 
+    expect(buildRuntimeStatusReply(target!)).toContain('🤖 Agent');
+    expect(buildRuntimeStatusReply(target!)).toContain('🤖 当前 Agent: codex');
     expect(buildRuntimeStatusReply(target!)).toContain('🧠 当前模型: gpt-5.4');
     expect(buildRuntimeStatusReply(target!)).toContain(
-      '⚙️ 当前思考强度: medium',
+      '⚙️ 当前推理强度: medium',
     );
+    expect(buildRuntimeStatusReply(target!)).not.toContain('当前 runtime:');
     expect(buildRuntimeStatusReply(target!)).not.toContain('模型预设:');
   });
 
@@ -379,7 +384,7 @@ describe('runtime command handler', () => {
       '🧠 当前模型: gpt-5.4-mini',
     );
     expect(buildRuntimeStatusReply(target!)).toContain(
-      '⚙️ 当前思考强度: xhigh',
+      '⚙️ 当前推理强度: xhigh',
     );
   });
 
@@ -404,8 +409,6 @@ describe('runtime command handler', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     });
-    expect(buildRuntimeStatusReply(target!)).toContain(
-      '⚙️ 当前思考强度: high',
-    );
+    expect(buildRuntimeStatusReply(target!)).toContain('⚙️ 当前推理强度: high');
   });
 });
