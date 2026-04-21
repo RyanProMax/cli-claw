@@ -30,6 +30,7 @@ export interface WebDeps {
   ensureTerminalContainerStarted: (chatJid: string) => boolean;
   formatMessages: (messages: NewMessage[], isShared?: boolean) => string;
   getLastAgentTimestamp: () => Record<string, MessageCursor>;
+  advanceAcceptedCursor: (jid: string, cursor: MessageCursor) => void;
   setLastAgentTimestamp: (jid: string, cursor: MessageCursor) => void;
   advanceGlobalCursor: (cursor: MessageCursor) => void;
   reloadFeishuConnection?: (config: {

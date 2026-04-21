@@ -7,6 +7,7 @@ import { killProcessTree } from './container-runner.js';
 import { getTaskById } from './db.js';
 import { getSystemSettings } from './runtime-config.js';
 import { logger } from './logger.js';
+import type { MessageCursor } from './types.js';
 export type SendMessageResult = 'sent' | 'no_active';
 
 interface QueuedTask {
@@ -457,6 +458,7 @@ export class GroupQueue {
     text: string,
     images?: Array<{ data: string; mimeType?: string }>,
     onInjected?: () => void,
+    cursor?: MessageCursor,
   ): SendMessageResult {
     const state = this.resolveActiveState(groupJid);
     if (!state) return 'no_active';
@@ -494,7 +496,7 @@ export class GroupQueue {
       const tempPath = `${filepath}.tmp`;
       fs.writeFileSync(
         tempPath,
-        JSON.stringify({ type: 'message', text, images }),
+        JSON.stringify({ type: 'message', text, images, cursor }),
       );
       fs.renameSync(tempPath, filepath);
       state.queryInFlight = true;

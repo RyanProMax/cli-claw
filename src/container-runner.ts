@@ -39,6 +39,7 @@ import type { ClaudeProviderConfig } from './runtime-config.js';
 import { loadUserMcpServers } from './mcp-utils.js';
 import {
   AgentType,
+  MessageCursor,
   MessageSourceKind,
   RegisteredGroup,
   RuntimeIdentity,
@@ -118,6 +119,7 @@ export interface ContainerInput {
   /** @deprecated Use isHome + isAdminHome instead */
   isMain: boolean;
   turnId?: string;
+  messageCursor?: MessageCursor;
   isHome?: boolean;
   isAdminHome?: boolean;
   isScheduledTask?: boolean;
@@ -1059,7 +1061,8 @@ export async function runHostAgent(
     hostEnv['CLI_CLAW_BACKEND_PID'] = String(process.pid);
     hostEnv['CLI_CLAW_SAFE_RESTART_COMMAND'] = 'cli-claw restart';
     hostEnv['CLI_CLAW_SAFE_IM_RESTART_COMMAND'] = '/self-restart';
-    const launchdServiceName = process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME?.trim();
+    const launchdServiceName =
+      process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME?.trim();
     if (launchdServiceName) {
       hostEnv['CLI_CLAW_LAUNCHD_SERVICE_NAME'] = launchdServiceName;
     }

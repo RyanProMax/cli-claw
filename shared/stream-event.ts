@@ -7,13 +7,20 @@
  */
 
 export type StreamEventType =
-  | 'text_delta' | 'thinking_delta'
-  | 'tool_use_start' | 'tool_use_end' | 'tool_progress'
-  | 'hook_started' | 'hook_progress' | 'hook_response'
-  | 'task_start' | 'task_notification'
+  | 'text_delta'
+  | 'thinking_delta'
+  | 'tool_use_start'
+  | 'tool_use_end'
+  | 'tool_progress'
+  | 'hook_started'
+  | 'hook_progress'
+  | 'hook_response'
+  | 'task_start'
+  | 'task_notification'
   | 'todo_update'
   | 'usage'
-  | 'status' | 'init';
+  | 'status'
+  | 'init';
 
 export interface StreamRuntimeIdentity {
   agentType: 'claude' | 'codex';
@@ -28,6 +35,8 @@ export interface StreamEvent {
   turnId?: string;
   /** SDK session identifier if known. */
   sessionId?: string;
+  /** Source-message cursor for an IPC-drained query turn, when known. */
+  messageCursor?: { timestamp: string; id?: string };
   /** SDK message uuid if known. */
   messageUuid?: string;
   /** Reserved — whether this event was synthesized locally rather than emitted directly by SDK semantics. */
@@ -52,7 +61,11 @@ export interface StreamEvent {
   isTeammate?: boolean;
   runtimeIdentity?: StreamRuntimeIdentity | null;
   toolInput?: Record<string, unknown>;
-  todos?: Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed' }>;
+  todos?: Array<{
+    id: string;
+    content: string;
+    status: 'pending' | 'in_progress' | 'completed';
+  }>;
   /** Token usage data emitted at query completion */
   usage?: {
     inputTokens: number;
@@ -62,7 +75,10 @@ export interface StreamEvent {
     costUSD: number;
     durationMs: number;
     numTurns: number;
-    modelUsage?: Record<string, { inputTokens: number; outputTokens: number; costUSD: number }>;
+    modelUsage?: Record<
+      string,
+      { inputTokens: number; outputTokens: number; costUSD: number }
+    >;
   };
 }
 
@@ -110,7 +126,10 @@ export function appendStreamTextDelta(
     previousMessageUuid !== event.messageUuid;
 
   return {
-    text: currentText + (needsBoundary ? getMessageBoundarySeparator(currentText) : '') + deltaText,
+    text:
+      currentText +
+      (needsBoundary ? getMessageBoundarySeparator(currentText) : '') +
+      deltaText,
     lastMessageUuid: nextMessageUuid,
   };
 }

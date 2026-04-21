@@ -375,14 +375,15 @@ let lastAgentTimestamp: Record<string, MessageCursor> = {};
 // Recovery-safe cursor: only advances when an agent actually finishes processing.
 // recoverPendingMessages() uses this to detect IPC-injected but unprocessed messages.
 let lastCommittedCursor: Record<string, MessageCursor> = {};
-interface StreamingShutdownCommitTarget {
+export interface PersistedStreamingTurnState {
   commitJid: string;
   cursor: MessageCursor;
 }
-const streamingShutdownCommitTargets = new Map<
-  string,
-  StreamingShutdownCommitTarget
->();
+export interface StreamingRecoveryEntry extends PersistedStreamingTurnState {
+  streamingKey: string;
+  partialText: string;
+}
+let activeStreamingTurns: Record<string, PersistedStreamingTurnState> = {};
 
 export function buildStreamingShutdownKey(
   chatJid: string,
@@ -395,20 +396,47 @@ export function buildStreamingShutdownKey(
   return agentId ? `${baseJid}#agent:${agentId}` : baseJid;
 }
 
-export function applyStreamingShutdownCommittedCursor(
+export function applyActiveStreamingTurnCommittedCursor(
   committedCursors: Record<string, MessageCursor>,
-  streamingKey: string,
-  commitTargets: ReadonlyMap<string, StreamingShutdownCommitTarget>,
+  recoveryEntry: Pick<PersistedStreamingTurnState, 'commitJid' | 'cursor'>,
 ): Record<string, MessageCursor> {
-  const target = commitTargets.get(streamingKey);
-  if (!target) return committedCursors;
-  const current = committedCursors[target.commitJid];
-  if (current && !isCursorAfter(target.cursor, current)) {
+  const current = committedCursors[recoveryEntry.commitJid];
+  if (current && !isCursorAfter(recoveryEntry.cursor, current)) {
     return committedCursors;
   }
   return {
     ...committedCursors,
-    [target.commitJid]: target.cursor,
+    [recoveryEntry.commitJid]: recoveryEntry.cursor,
+  };
+}
+
+export function buildStreamingRecoveryEntries(
+  streamingTurns: Readonly<Record<string, PersistedStreamingTurnState>>,
+  activeTexts: ReadonlyMap<string, string>,
+): StreamingRecoveryEntry[] {
+  return Object.entries(streamingTurns)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([streamingKey, state]) => ({
+      streamingKey,
+      commitJid: state.commitJid,
+      cursor: state.cursor,
+      partialText: activeTexts.get(streamingKey)?.trim() ?? '',
+    }));
+}
+
+function normalizeStreamingTurnState(
+  value: unknown,
+): PersistedStreamingTurnState | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const maybeCommitJid = (value as { commitJid?: unknown }).commitJid;
+  if (typeof maybeCommitJid !== 'string' || !maybeCommitJid) {
+    return null;
+  }
+  return {
+    commitJid: maybeCommitJid,
+    cursor: normalizeCursor((value as { cursor?: unknown }).cursor),
   };
 }
 
@@ -421,18 +449,51 @@ function resolveStreamingShutdownKey(
   return buildStreamingShutdownKey(chatJid, relatedJids, agentId);
 }
 
-function registerStreamingShutdownCommitTarget(
+function setActiveStreamingTurn(
   streamingKey: string,
   commitJid: string,
   cursor: MessageCursor,
 ): void {
-  streamingShutdownCommitTargets.set(streamingKey, { commitJid, cursor });
+  const current = activeStreamingTurns[streamingKey];
+  if (
+    current &&
+    current.commitJid === commitJid &&
+    !isCursorAfter(cursor, current.cursor)
+  ) {
+    return;
+  }
+  activeStreamingTurns = {
+    ...activeStreamingTurns,
+    [streamingKey]: { commitJid, cursor },
+  };
+  saveState();
+}
+
+function clearActiveStreamingTurns(streamingKeys: Iterable<string>): boolean {
+  const next = { ...activeStreamingTurns };
+  let changed = false;
+  for (const streamingKey of streamingKeys) {
+    if (streamingKey in next) {
+      delete next[streamingKey];
+      changed = true;
+    }
+  }
+  if (changed) {
+    activeStreamingTurns = next;
+  }
+  return changed;
 }
 
 /** Set both cursors directly (no max-merge) and persist. */
 function setCursors(jid: string, cursor: MessageCursor): void {
   lastAgentTimestamp[jid] = cursor;
   lastCommittedCursor[jid] = cursor;
+  saveState();
+}
+
+/** Advance only the accepted-message cursor without changing committed recovery state. */
+function setLastAgentCursor(jid: string, cursor: MessageCursor): void {
+  lastAgentTimestamp[jid] = cursor;
   saveState();
 }
 
@@ -2210,8 +2271,28 @@ function loadState(): void {
       return {};
     }
   };
+  const loadStreamingTurnMap = (
+    key: string,
+  ): Record<string, PersistedStreamingTurnState> => {
+    const raw = getRouterState(key);
+    try {
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const normalized: Record<string, PersistedStreamingTurnState> = {};
+      for (const [streamingKey, value] of Object.entries(parsed)) {
+        const normalizedState = normalizeStreamingTurnState(value);
+        if (normalizedState) {
+          normalized[streamingKey] = normalizedState;
+        }
+      }
+      return normalized;
+    } catch {
+      logger.warn(`Corrupted ${key} in DB, resetting`);
+      return {};
+    }
+  };
   lastAgentTimestamp = loadCursorMap('last_agent_timestamp');
   lastCommittedCursor = loadCursorMap('last_committed_cursor');
+  activeStreamingTurns = loadStreamingTurnMap('active_streaming_turns');
 
   // Migration: fill in missing lastCommittedCursor entries from lastAgentTimestamp.
   // The original migration only triggered when lastCommittedCursor was completely empty,
@@ -2403,6 +2484,10 @@ function saveState(): void {
   setRouterState('last_timestamp_id', globalMessageCursor.id);
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
   setRouterState('last_committed_cursor', JSON.stringify(lastCommittedCursor));
+  setRouterState(
+    'active_streaming_turns',
+    JSON.stringify(activeStreamingTurns),
+  );
 }
 
 function registerGroup(jid: string, group: RegisteredGroup): void {
@@ -2664,16 +2749,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let sentReply = false;
   let lastError = '';
-  let cursorCommitted = false;
   let lastReplyMsgId: string | undefined;
   let lastSavedTurnId: string | undefined; // tracks last turnId saved to DB, prevents UPSERT overwrite
   const queryTaskIds = new Set<string>();
   const lastProcessed = missedMessages[missedMessages.length - 1];
-  const shutdownStreamingKey = resolveStreamingShutdownKey(chatJid);
-  registerStreamingShutdownCommitTarget(shutdownStreamingKey, chatJid, {
+  let activeTurnCursor: MessageCursor = {
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
-  });
+  };
+  const shutdownStreamingKey = resolveStreamingShutdownKey(chatJid);
 
   // ── Feishu Streaming Card ──
   // Create a streaming session for Feishu channels (typing-machine effect).
@@ -2761,12 +2845,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
 
   const commitCursor = (): void => {
-    if (cursorCommitted) return;
-    advanceCursors(chatJid, {
-      timestamp: lastProcessed.timestamp,
-      id: lastProcessed.id,
-    });
-    cursorCommitted = true;
+    advanceCursors(chatJid, activeTurnCursor);
+    if (clearActiveStreamingTurns([shutdownStreamingKey])) {
+      saveState();
+    }
   };
 
   if (effectiveGroup.created_by) {
@@ -2811,6 +2893,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       prompt,
       chatJid,
       lastProcessed.id,
+      activeTurnCursor,
       async (result) => {
         try {
           if (result.newSessionId && result.status !== 'error') {
@@ -2822,6 +2905,19 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             activeRuntimeIdentity;
           // 流式事件处理 - 广播 WebSocket + 持久化 SDK Task 生命周期到 DB
           if (result.status === 'stream' && result.streamEvent) {
+            if (
+              result.streamEvent.eventType === 'init' &&
+              result.streamEvent.messageCursor
+            ) {
+              setActiveStreamingTurn(
+                shutdownStreamingKey,
+                chatJid,
+                normalizeCursor(result.streamEvent.messageCursor),
+              );
+              activeTurnCursor = normalizeCursor(
+                result.streamEvent.messageCursor,
+              );
+            }
             broadcastStreamEvent(chatJid, result.streamEvent);
 
             // ── 累积 text_delta / thinking_delta 文本（中断时用于保存已输出内容）──
@@ -3471,7 +3567,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         logger.warn({ err, chatJid }, 'Failed to save overflow partial text');
       }
     }
-    streamingShutdownCommitTargets.delete(shutdownStreamingKey);
+    if (clearActiveStreamingTurns([shutdownStreamingKey])) {
+      saveState();
+    }
   }
 
   // runAgent threw — output is undefined, cannot proceed with post-processing.
@@ -3736,6 +3834,7 @@ async function runTerminalWarmup(chatJid: string): Promise<void> {
       warmupPrompt,
       chatJid,
       undefined,
+      undefined,
       async (result) => {
         if (result.status === 'stream' && result.streamEvent) {
           broadcastStreamEvent(chatJid, result.streamEvent);
@@ -3810,6 +3909,7 @@ async function runAgent(
   prompt: string,
   chatJid: string,
   turnId?: string,
+  messageCursor?: MessageCursor,
   onOutput?: (output: ContainerOutput) => Promise<void>,
   images?: Array<{ data: string; mimeType?: string }>,
 ): Promise<{ status: 'success' | 'error' | 'closed'; error?: string }> {
@@ -3916,6 +4016,7 @@ async function runAgent(
           prompt,
           sessionId,
           turnId,
+          messageCursor,
           groupFolder: group.folder,
           chatJid,
           agentType,
@@ -3937,6 +4038,7 @@ async function runAgent(
           prompt,
           sessionId,
           turnId,
+          messageCursor,
           groupFolder: group.folder,
           chatJid,
           model: effectiveRuntimeIdentity.model ?? null,
@@ -4077,6 +4179,9 @@ export function buildInterruptedReply(
 ): string {
   const trimmed = partialText.trimEnd();
   const trimmedThinking = thinkingText?.trimEnd();
+  if (!trimmed && !trimmedThinking) {
+    return '*⚠️ 已中断*';
+  }
   const parts: string[] = [];
   if (trimmedThinking) {
     parts.push(
@@ -4103,27 +4208,26 @@ export function buildOverflowPartialReply(partialText: string): string {
  */
 function saveInterruptedStreamingMessages(): void {
   try {
-    const activeTexts = getActiveStreamingTexts();
-    if (activeTexts.size === 0) return;
-    let committedCursorChanged = false;
+    const recoveryEntries = buildStreamingRecoveryEntries(
+      activeStreamingTurns,
+      getActiveStreamingTexts(),
+    );
+    if (recoveryEntries.length === 0) return;
+    let stateChanged = false;
 
     logger.info(
-      { count: activeTexts.size },
+      { count: recoveryEntries.length },
       'Saving interrupted streaming messages to DB',
     );
 
-    for (const [jid, partialText] of activeTexts) {
-      if (!partialText.trim()) {
-        shutdownSavedJids.add(jid);
-        continue;
-      }
-      const interruptedText = buildInterruptedReply(partialText);
+    for (const entry of recoveryEntries) {
+      const interruptedText = buildInterruptedReply(entry.partialText);
       const msgId = crypto.randomUUID();
       const timestamp = new Date().toISOString();
-      ensureChatExists(jid);
+      ensureChatExists(entry.streamingKey);
       storeMessageDirect(
         msgId,
-        jid,
+        entry.streamingKey,
         'cli-claw-agent',
         ASSISTANT_NAME,
         interruptedText,
@@ -4137,18 +4241,24 @@ function saveInterruptedStreamingMessages(): void {
         },
       );
       // Mark as saved so the per-group finally blocks don't duplicate
-      shutdownSavedJids.add(jid);
-      const nextCommitted = applyStreamingShutdownCommittedCursor(
+      shutdownSavedJids.add(entry.streamingKey);
+      const nextCommitted = applyActiveStreamingTurnCommittedCursor(
         lastCommittedCursor,
-        jid,
-        streamingShutdownCommitTargets,
+        entry,
       );
       if (nextCommitted !== lastCommittedCursor) {
         lastCommittedCursor = nextCommitted;
-        committedCursorChanged = true;
+        stateChanged = true;
       }
     }
-    if (committedCursorChanged) {
+    if (
+      clearActiveStreamingTurns(
+        recoveryEntries.map((entry) => entry.streamingKey),
+      )
+    ) {
+      stateChanged = true;
+    }
+    if (stateChanged) {
       saveState();
     }
   } catch (err) {
@@ -4166,21 +4276,33 @@ function saveInterruptedStreamingMessages(): void {
 const STREAMING_BUFFER_DIR = path.join(DATA_DIR, 'streaming-buffer');
 const STREAMING_BUFFER_INTERVAL_MS = 5000;
 let streamingBufferInterval: ReturnType<typeof setInterval> | null = null;
+interface StreamingBufferPayload {
+  text: string;
+  commitJid?: string;
+  cursor?: MessageCursor;
+}
 
 export function encodeJidForFilename(jid: string): string {
   return Buffer.from(jid).toString('base64url');
 }
 
 export function decodeJidFromFilename(filename: string): string {
-  const name = filename.endsWith('.txt') ? filename.slice(0, -4) : filename;
+  const name = filename.endsWith('.json')
+    ? filename.slice(0, -5)
+    : filename.endsWith('.txt')
+      ? filename.slice(0, -4)
+      : filename;
   return Buffer.from(name, 'base64url').toString();
 }
 
 /** Write all active streaming texts to disk (atomic write per file). */
 function flushStreamingBuffer(): void {
   try {
-    const activeTexts = getActiveStreamingTexts();
-    if (activeTexts.size === 0) {
+    const recoveryEntries = buildStreamingRecoveryEntries(
+      activeStreamingTurns,
+      getActiveStreamingTexts(),
+    );
+    if (recoveryEntries.length === 0) {
       // Nothing streaming — clean up any stale files
       cleanStreamingBufferDir();
       return;
@@ -4189,19 +4311,27 @@ function flushStreamingBuffer(): void {
     fs.mkdirSync(STREAMING_BUFFER_DIR, { recursive: true });
 
     const activeFiles = new Set<string>();
-    for (const [jid, text] of activeTexts) {
-      const filename = encodeJidForFilename(jid) + '.txt';
+    for (const entry of recoveryEntries) {
+      const filename = encodeJidForFilename(entry.streamingKey) + '.json';
       activeFiles.add(filename);
       const filePath = path.join(STREAMING_BUFFER_DIR, filename);
       const tmpPath = filePath + '.tmp';
-      fs.writeFileSync(tmpPath, text);
+      const payload: StreamingBufferPayload = {
+        text: entry.partialText,
+        commitJid: entry.commitJid,
+        cursor: entry.cursor,
+      };
+      fs.writeFileSync(tmpPath, JSON.stringify(payload));
       fs.renameSync(tmpPath, filePath);
     }
 
     // Remove files for JIDs that are no longer streaming
     try {
       for (const f of fs.readdirSync(STREAMING_BUFFER_DIR)) {
-        if (f.endsWith('.txt') && !activeFiles.has(f)) {
+        if (
+          (f.endsWith('.json') || f.endsWith('.txt')) &&
+          !activeFiles.has(f)
+        ) {
           fs.unlinkSync(path.join(STREAMING_BUFFER_DIR, f));
         }
       }
@@ -4216,58 +4346,125 @@ function flushStreamingBuffer(): void {
 /** On startup, recover interrupted responses from buffer files left by a crash. */
 function recoverStreamingBuffer(): void {
   try {
-    if (!fs.existsSync(STREAMING_BUFFER_DIR)) return;
+    const recoveryEntries = new Map<string, StreamingRecoveryEntry>();
+    for (const [streamingKey, state] of Object.entries(activeStreamingTurns)) {
+      recoveryEntries.set(streamingKey, {
+        streamingKey,
+        commitJid: state.commitJid,
+        cursor: state.cursor,
+        partialText: '',
+      });
+    }
 
-    const txtFiles = fs
-      .readdirSync(STREAMING_BUFFER_DIR)
-      .filter((f) => f.endsWith('.txt'));
-    if (txtFiles.length === 0) return;
+    const bufferFiles = fs.existsSync(STREAMING_BUFFER_DIR)
+      ? fs
+          .readdirSync(STREAMING_BUFFER_DIR)
+          .filter((file) => file.endsWith('.json') || file.endsWith('.txt'))
+      : [];
 
-    logger.info(
-      { count: txtFiles.length },
-      'Recovering interrupted streaming messages from buffer files',
-    );
-
-    for (const filename of txtFiles) {
+    for (const filename of bufferFiles) {
+      const streamingKey = decodeJidFromFilename(filename);
+      const filePath = path.join(STREAMING_BUFFER_DIR, filename);
       try {
-        const jid = decodeJidFromFilename(filename);
-        const text = fs.readFileSync(
-          path.join(STREAMING_BUFFER_DIR, filename),
-          'utf-8',
-        );
-        if (text.trim()) {
-          const interruptedText = buildInterruptedReply(text);
-          const msgId = crypto.randomUUID();
-          const timestamp = new Date().toISOString();
-          ensureChatExists(jid);
-          storeMessageDirect(
-            msgId,
-            jid,
-            'cli-claw-agent',
-            ASSISTANT_NAME,
-            interruptedText,
-            timestamp,
-            true,
-            {
-              meta: {
-                sourceKind: 'interrupt_partial',
-                finalizationReason: 'crash_recovery',
-              },
-            },
-          );
-          logger.info(
-            { jid, textLen: text.length },
-            'Recovered interrupted streaming message',
+        const payload: StreamingBufferPayload = filename.endsWith('.json')
+          ? (JSON.parse(
+              fs.readFileSync(filePath, 'utf-8'),
+            ) as StreamingBufferPayload)
+          : { text: fs.readFileSync(filePath, 'utf-8') };
+        const partialText =
+          typeof payload.text === 'string' ? payload.text.trim() : '';
+        const existing = recoveryEntries.get(streamingKey);
+        if (existing) {
+          existing.partialText = partialText;
+          continue;
+        }
+        if (typeof payload.commitJid === 'string' && payload.commitJid) {
+          recoveryEntries.set(streamingKey, {
+            streamingKey,
+            commitJid: payload.commitJid,
+            cursor: normalizeCursor(payload.cursor),
+            partialText,
+          });
+          continue;
+        }
+        if (partialText) {
+          logger.warn(
+            { streamingKey, filename },
+            'Recovered orphaned streaming buffer text without commit cursor',
           );
         }
-        fs.unlinkSync(path.join(STREAMING_BUFFER_DIR, filename));
       } catch (err) {
         logger.warn(
           { err, filename },
-          'Error recovering streaming buffer file',
+          'Error reading streaming buffer payload',
         );
       }
     }
+
+    if (recoveryEntries.size === 0) {
+      if (bufferFiles.length > 0) {
+        cleanStreamingBufferDir();
+      }
+      return;
+    }
+
+    logger.info(
+      { count: recoveryEntries.size },
+      'Recovering interrupted streaming messages from buffer state',
+    );
+
+    let stateChanged = false;
+    for (const entry of recoveryEntries.values()) {
+      try {
+        const interruptedText = buildInterruptedReply(entry.partialText);
+        const msgId = crypto.randomUUID();
+        const timestamp = new Date().toISOString();
+        ensureChatExists(entry.streamingKey);
+        storeMessageDirect(
+          msgId,
+          entry.streamingKey,
+          'cli-claw-agent',
+          ASSISTANT_NAME,
+          interruptedText,
+          timestamp,
+          true,
+          {
+            meta: {
+              sourceKind: 'interrupt_partial',
+              finalizationReason: 'crash_recovery',
+            },
+          },
+        );
+        const nextCommitted = applyActiveStreamingTurnCommittedCursor(
+          lastCommittedCursor,
+          entry,
+        );
+        if (nextCommitted !== lastCommittedCursor) {
+          lastCommittedCursor = nextCommitted;
+          stateChanged = true;
+        }
+        logger.info(
+          { jid: entry.streamingKey, textLen: entry.partialText.length },
+          'Recovered interrupted streaming message',
+        );
+      } catch (err) {
+        logger.warn(
+          { err, entry },
+          'Error recovering interrupted streaming turn',
+        );
+      }
+    }
+    if (
+      clearActiveStreamingTurns(
+        [...recoveryEntries.values()].map((entry) => entry.streamingKey),
+      )
+    ) {
+      stateChanged = true;
+    }
+    if (stateChanged) {
+      saveState();
+    }
+    cleanStreamingBufferDir();
   } catch (err) {
     logger.warn({ err }, 'Error recovering streaming buffer');
   }
@@ -5597,24 +5794,25 @@ async function processAgentConversation(
     }, getSystemSettings().idleTimeout);
   };
 
-  let cursorCommitted = false;
   let hadError = false;
   let lastError = '';
   let lastAgentReplyMsgId: string | undefined;
   let lastAgentReplyText: string | undefined;
   const lastProcessed = missedMessages[missedMessages.length - 1];
-  const shutdownStreamingKey = resolveStreamingShutdownKey(chatJid, agentId);
-  registerStreamingShutdownCommitTarget(shutdownStreamingKey, virtualChatJid, {
+  let activeTurnCursor: MessageCursor = {
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
-  });
+  };
+  const shutdownStreamingKey = resolveStreamingShutdownKey(chatJid, agentId);
   const commitCursor = (): void => {
-    if (cursorCommitted) return;
-    advanceCursors(virtualChatJid, {
-      timestamp: lastProcessed.timestamp,
-      id: lastProcessed.id,
-    });
-    cursorCommitted = true;
+    advanceCursors(virtualChatJid, activeTurnCursor);
+    if (clearActiveStreamingTurns([shutdownStreamingKey])) {
+      saveState();
+    }
+  };
+  const isCurrentTurnCommitted = (): boolean => {
+    const committed = lastCommittedCursor[virtualChatJid];
+    return !!committed && !isCursorAfter(activeTurnCursor, committed);
   };
 
   // Get or use agent-specific session
@@ -5640,6 +5838,17 @@ async function processAgentConversation(
 
     // Stream events
     if (output.status === 'stream' && output.streamEvent) {
+      if (
+        output.streamEvent.eventType === 'init' &&
+        output.streamEvent.messageCursor
+      ) {
+        setActiveStreamingTurn(
+          shutdownStreamingKey,
+          virtualChatJid,
+          normalizeCursor(output.streamEvent.messageCursor),
+        );
+        activeTurnCursor = normalizeCursor(output.streamEvent.messageCursor);
+      }
       broadcastStreamEvent(chatJid, output.streamEvent, agentId);
 
       // ── 累积 text_delta 文本（中断时用于保存已输出内容）──
@@ -5674,7 +5883,7 @@ async function processAgentConversation(
         const provisionalUsage = buildProvisionalTokenUsage(
           agentConversationStartedAt,
         );
-        if (!cursorCommitted) {
+        if (!isCurrentTurnCommitted()) {
           const interruptedText = buildInterruptedReply(agentStreamingAccText);
           try {
             if (agentStreamingSession?.isActive()) {
@@ -6041,6 +6250,7 @@ async function processAgentConversation(
       prompt,
       sessionId,
       turnId: lastProcessed.id,
+      messageCursor: activeTurnCursor,
       groupFolder: effectiveGroup.folder,
       chatJid,
       agentType,
@@ -6148,7 +6358,7 @@ async function processAgentConversation(
   } finally {
     if (idleTimer) clearTimeout(idleTimer);
 
-    const wasInterrupted = agentStreamInterrupted && !cursorCommitted;
+    const wasInterrupted = agentStreamInterrupted && !isCurrentTurnCommitted();
 
     // ── Streaming card cleanup ──
     if (agentStreamingSession) {
@@ -6239,7 +6449,7 @@ async function processAgentConversation(
     }
 
     // ── 兜底：进程异常退出导致累积文本未持久化 ──
-    if (!cursorCommitted && agentStreamingAccText.trim()) {
+    if (!isCurrentTurnCommitted() && agentStreamingAccText.trim()) {
       try {
         const provisionalUsage = buildProvisionalTokenUsage(
           agentConversationStartedAt,
@@ -6296,7 +6506,7 @@ async function processAgentConversation(
           agentId,
           replySourceImJid,
           accLen: agentStreamingAccText.length,
-          cursorCommitted,
+          cursorCommitted: isCurrentTurnCommitted(),
         });
         if (replySourceImJid) {
           const localImagePaths = extractLocalImImagePaths(
@@ -6388,7 +6598,9 @@ async function processAgentConversation(
       agent.prompt,
       hadError ? lastError : undefined,
     );
-    streamingShutdownCommitTargets.delete(shutdownStreamingKey);
+    if (clearActiveStreamingTurns([shutdownStreamingKey])) {
+      saveState();
+    }
 
     ipcWatcherManager?.unwatchGroup(effectiveGroup.folder);
   }
@@ -6523,6 +6735,10 @@ async function startMessageLoop(): Promise<void> {
               // IPC write succeeded — update reply route for the running agent
               activeRouteUpdaters.get(group.folder)?.(lastSourceJidForRoute);
             },
+            {
+              timestamp: messagesToSend[messagesToSend.length - 1]!.timestamp,
+              id: messagesToSend[messagesToSend.length - 1]!.id,
+            },
           );
           if (sendResult === 'sent') {
             logger.debug(
@@ -6535,19 +6751,11 @@ async function startMessageLoop(): Promise<void> {
               'Piped messages to active container',
             );
             const lastProcessed = messagesToSend[messagesToSend.length - 1];
-            lastAgentTimestamp[chatJid] = {
+            setLastAgentCursor(chatJid, {
               timestamp: lastProcessed.timestamp,
               id: lastProcessed.id,
-            };
-            registerStreamingShutdownCommitTarget(
-              resolveStreamingShutdownKey(chatJid),
-              chatJid,
-              {
-                timestamp: lastProcessed.timestamp,
-                id: lastProcessed.id,
-              },
-            );
-            saveState();
+            });
+            queue.markIpcInjectedMessage(chatJid);
           } else {
             // no_active — enqueue for a new one
             queue.enqueueMessageCheck(chatJid);
@@ -6667,7 +6875,7 @@ function recoverConversationAgents(): void {
 
       // Check for pending messages on the virtual JID
       const virtualChatJid = `${chatJid}#agent:${agentId}`;
-      const sinceCursor = lastAgentTimestamp[virtualChatJid] || EMPTY_CURSOR;
+      const sinceCursor = lastCommittedCursor[virtualChatJid] || EMPTY_CURSOR;
       const pending = getMessagesSince(virtualChatJid, sinceCursor);
 
       if (pending.length > 0) {
@@ -7093,18 +7301,19 @@ function buildOnAgentMessage(): (baseChatJid: string, agentId: string) => void {
             formatted,
             imagesForAgent,
             undefined,
+            {
+              timestamp: missedMessages[missedMessages.length - 1]!.timestamp,
+              id: missedMessages[missedMessages.length - 1]!.id,
+            },
           )
         : 'no_active';
       if (sendResult === 'sent' && missedMessages.length > 0) {
         const lastProcessed = missedMessages[missedMessages.length - 1];
-        registerStreamingShutdownCommitTarget(
-          resolveStreamingShutdownKey(homeChatJid, agentId),
-          virtualChatJid,
-          {
-            timestamp: lastProcessed.timestamp,
-            id: lastProcessed.id,
-          },
-        );
+        setLastAgentCursor(virtualChatJid, {
+          timestamp: lastProcessed.timestamp,
+          id: lastProcessed.id,
+        });
+        queue.markIpcInjectedMessage(virtualChatJid);
       }
       if (sendResult === 'no_active') {
         const taskId = `agent-conv:${agentId}:${Date.now()}`;
@@ -7833,6 +8042,7 @@ export async function startCliClaw(
     ensureTerminalContainerStarted,
     formatMessages,
     getLastAgentTimestamp: () => lastAgentTimestamp,
+    advanceAcceptedCursor: setLastAgentCursor,
     setLastAgentTimestamp: setCursors,
     advanceGlobalCursor: (cursor: MessageCursor) => {
       if (isCursorAfter(cursor, globalMessageCursor)) {

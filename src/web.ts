@@ -553,11 +553,17 @@ async function handleWebUserMessage(
   let pipedToActive = false;
   const images = toAgentImages(normalizedAttachments);
   const updateRoute = deps.updateReplyRoute;
-  const sendResult = deps.queue.sendMessage(chatJid, formatted, images, () => {
-    // IPC write succeeded — update reply route for home groups.
-    // Web messages have no IM source, so clear the IM route.
-    updateRoute?.(group.folder, null);
-  });
+  const sendResult = deps.queue.sendMessage(
+    chatJid,
+    formatted,
+    images,
+    () => {
+      // IPC write succeeded — update reply route for home groups.
+      // Web messages have no IM source, so clear the IM route.
+      updateRoute?.(group.folder, null);
+    },
+    { timestamp, id: messageId },
+  );
   if (sendResult === 'sent') {
     pipedToActive = true;
   } else {
@@ -570,7 +576,7 @@ async function handleWebUserMessage(
   // messages. If the agent crashes without processing them, the close handler
   // resets pendingMessages so drainGroup re-reads from DB.
   if (pipedToActive) {
-    deps.setLastAgentTimestamp(chatJid, { timestamp, id: messageId });
+    deps.advanceAcceptedCursor(chatJid, { timestamp, id: messageId });
     deps.queue.markIpcInjectedMessage(chatJid);
   }
   deps.advanceGlobalCursor({ timestamp, id: messageId });
@@ -666,6 +672,8 @@ async function handleAgentConversationMessage(
     virtualChatJid,
     formatted,
     agentImages,
+    undefined,
+    { timestamp, id: messageId },
   );
   if (agentSendResult === 'no_active') {
     // No running process — force close any stale state and start fresh.
@@ -678,7 +686,10 @@ async function handleAgentConversationMessage(
       });
     }
   }
-  // 'sent' needs no further action
+  if (agentSendResult === 'sent') {
+    deps.advanceAcceptedCursor(virtualChatJid, { timestamp, id: messageId });
+    deps.queue.markIpcInjectedMessage(virtualChatJid);
+  }
 }
 
 // --- Static Files ---

@@ -76,10 +76,7 @@ const WORKSPACE_IPC = process.env.CLI_CLAW_WORKSPACE_IPC || '/workspace/ipc';
 // 别名自动解析为最新版本，如 opus → Opus 4.6
 // [1m] 后缀启用 1M 上下文窗口（CLI 内部 jG() 识别后缀，sM() 返回 1M 窗口）
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'opus[1m]';
-const CODEX_MODEL =
-  process.env.OPENAI_MODEL ||
-  process.env.CODEX_MODEL ||
-  '';
+const CODEX_MODEL = process.env.OPENAI_MODEL || process.env.CODEX_MODEL || '';
 const CODEX_REASONING_EFFORT =
   process.env.OPENAI_REASONING_EFFORT ||
   process.env.CODEX_REASONING_EFFORT ||
@@ -100,7 +97,8 @@ let latestSessionId: string | undefined;
 let activeRuntimeIdentity: StreamRuntimeIdentity | null = null;
 
 const CLI_CLAW_SERVICE_CONTROL_CONTEXT = {
-  backendPid: Number.parseInt(process.env.CLI_CLAW_BACKEND_PID || '', 10) || null,
+  backendPid:
+    Number.parseInt(process.env.CLI_CLAW_BACKEND_PID || '', 10) || null,
   launchdServiceName: process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME || null,
 };
 
@@ -1046,6 +1044,29 @@ interface IpcDrainResult {
     text: string;
     images?: Array<{ data: string; mimeType?: string }>;
   }>;
+  cursor?: { timestamp: string; id?: string };
+}
+
+function normalizeIpcMessageCursor(
+  value: unknown,
+): { timestamp: string; id?: string } | null {
+  if (!value || typeof value !== 'object') return null;
+  const timestamp = (value as { timestamp?: unknown }).timestamp;
+  if (typeof timestamp !== 'string' || !timestamp) return null;
+  const id = (value as { id?: unknown }).id;
+  return {
+    timestamp,
+    id: typeof id === 'string' ? id : undefined,
+  };
+}
+
+function isIpcCursorAfter(
+  candidate: { timestamp: string; id?: string },
+  base: { timestamp: string; id?: string },
+): boolean {
+  if (candidate.timestamp > base.timestamp) return true;
+  if (candidate.timestamp < base.timestamp) return false;
+  return (candidate.id || '') > (base.id || '');
 }
 
 function drainIpcInput(): IpcDrainResult {
@@ -1062,6 +1083,13 @@ function drainIpcInput(): IpcDrainResult {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         fs.unlinkSync(filePath);
         if (data.type === 'message' && data.text) {
+          const cursor = normalizeIpcMessageCursor(data.cursor);
+          if (
+            cursor &&
+            (!result.cursor || isIpcCursorAfter(cursor, result.cursor))
+          ) {
+            result.cursor = cursor;
+          }
           result.messages.push({
             text: data.text,
             images: data.images,
@@ -1157,6 +1185,7 @@ function createIpcWatcher(onFileDetected: () => void): { close: () => void } {
 function waitForIpcMessage(): Promise<{
   text: string;
   images?: Array<{ data: string; mimeType?: string }>;
+  cursor?: { timestamp: string; id?: string };
 } | null> {
   return new Promise((resolve) => {
     let resolved = false;
@@ -1183,7 +1212,7 @@ function waitForIpcMessage(): Promise<{
         clearInterruptRequested();
       }
 
-      const { messages } = drainIpcInput();
+      const { messages, cursor } = drainIpcInput();
 
       if (messages.length > 0) {
         const combinedText = messages.map((m) => m.text).join('\n');
@@ -1193,6 +1222,7 @@ function waitForIpcMessage(): Promise<{
         resolve({
           text: combinedText,
           images: allImages.length > 0 ? allImages : undefined,
+          cursor,
         });
         return;
       }
@@ -1201,6 +1231,25 @@ function waitForIpcMessage(): Promise<{
     const ipcWatcher = createIpcWatcher(tryDrain);
     // Initial check in case files already exist
     tryDrain();
+  });
+}
+
+function emitTurnInitEvent(
+  sessionId: string | undefined,
+  turnId: string | undefined,
+  messageCursor?: { timestamp: string; id?: string },
+): void {
+  if (!messageCursor) return;
+  writeOutput({
+    status: 'stream',
+    result: null,
+    newSessionId: sessionId,
+    streamEvent: {
+      eventType: 'init',
+      turnId,
+      sessionId,
+      messageCursor,
+    },
   });
 }
 
@@ -1376,7 +1425,10 @@ function choosePermissionOption(
 
 function extractAcpToolCallCommandText(toolCall: {
   rawInput?: unknown;
-  content?: Array<{ type?: string; content?: { type?: string; text?: string } }>;
+  content?: Array<{
+    type?: string;
+    content?: { type?: string; text?: string };
+  }>;
 }): string | null {
   const direct = extractShellCommandText(toolCall.rawInput);
   if (direct) return direct;
@@ -1728,8 +1780,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       sessionId = newSession.sessionId;
       latestSessionId = sessionId;
       activeRuntimeIdentity =
-        extractCodexRuntimeIdentity(newSession) ??
-        activeRuntimeIdentity;
+        extractCodexRuntimeIdentity(newSession) ?? activeRuntimeIdentity;
       if (
         newSession.modes?.availableModes?.some(
           (mode: SessionMode) => mode.id === 'auto',
@@ -1751,6 +1802,12 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       clearInterruptRequested();
       activeTurnText = '';
       activeTurnMessageUuid = undefined;
+      emitTurnInitEvent(
+        sessionId,
+        containerInput.turnId,
+        containerInput.messageCursor,
+      );
+      containerInput.messageCursor = undefined;
 
       let closeRequested = false;
       let interruptRequested = false;
@@ -1807,6 +1864,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
         prompt = nextMessage.text;
         promptImages = nextMessage.images;
         containerInput.turnId = generateTurnId();
+        containerInput.messageCursor = nextMessage.cursor;
         continue;
       }
 
@@ -1823,6 +1881,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       prompt = nextMessage.text;
       promptImages = nextMessage.images;
       containerInput.turnId = generateTurnId();
+      containerInput.messageCursor = nextMessage.cursor;
     }
   } catch (err) {
     const errorMessage = serializeErrorForOutput(err);
@@ -2660,9 +2719,7 @@ function formatCodexRuntimeError(errorMessage: string): string {
   if (!isCodexRuntime) return normalized;
 
   if (
-    /auth_required|login required|please login|not logged in/i.test(
-      normalized,
-    )
+    /auth_required|login required|please login|not logged in/i.test(normalized)
   ) {
     return 'Codex CLI 未登录。请先在服务器上执行：codex login';
   }
@@ -2673,8 +2730,9 @@ function formatCodexRuntimeError(errorMessage: string): string {
     /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized)
   ) {
     const usageUrl =
-      normalized.match(/https:\/\/chatgpt\.com\/codex\/settings\/usage/i)?.[0] ||
-      'https://chatgpt.com/codex/settings/usage';
+      normalized.match(
+        /https:\/\/chatgpt\.com\/codex\/settings\/usage/i,
+      )?.[0] || 'https://chatgpt.com/codex/settings/usage';
     const retryAt = normalized.match(/try again at ([^.]+)\.?/i)?.[1]?.trim();
     return retryAt
       ? `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或在 ${retryAt} 后重试。`
@@ -2812,6 +2870,12 @@ async function main(): Promise<void> {
         /* ignore */
       }
       clearInterruptRequested();
+      emitTurnInitEvent(
+        sessionId,
+        containerInput.turnId,
+        containerInput.messageCursor,
+      );
+      containerInput.messageCursor = undefined;
 
       log(
         `Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`,
@@ -2943,6 +3007,7 @@ async function main(): Promise<void> {
         prompt = nextMessage.text;
         promptImages = nextMessage.images;
         containerInput.turnId = generateTurnId();
+        containerInput.messageCursor = nextMessage.cursor;
         continue;
       }
 
@@ -3113,6 +3178,7 @@ async function main(): Promise<void> {
       prompt = nextMessage.text;
       promptImages = nextMessage.images;
       containerInput.turnId = generateTurnId();
+      containerInput.messageCursor = nextMessage.cursor;
     }
   } catch (err) {
     const errorMessage = serializeErrorForOutput(err);

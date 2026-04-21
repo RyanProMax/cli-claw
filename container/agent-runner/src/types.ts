@@ -6,12 +6,16 @@
 
 // Streaming event types (canonical source: shared/stream-event.ts)
 export type { StreamEventType, StreamEvent } from './stream-event.types.js';
-import type { StreamEvent, StreamRuntimeIdentity } from './stream-event.types.js';
+import type {
+  StreamEvent,
+  StreamRuntimeIdentity,
+} from './stream-event.types.js';
 
 export interface ContainerInput {
   prompt: string;
   sessionId?: string;
   turnId?: string;
+  messageCursor?: { timestamp: string; id?: string };
   groupFolder: string;
   chatJid: string;
   agentType?: 'claude' | 'codex';
@@ -40,7 +44,14 @@ export interface ContainerOutput {
   turnId?: string;
   sessionId?: string;
   sdkMessageUuid?: string;
-  sourceKind?: 'sdk_final' | 'sdk_send_message' | 'interrupt_partial' | 'overflow_partial' | 'compact_partial' | 'legacy' | 'auto_continue';
+  sourceKind?:
+    | 'sdk_final'
+    | 'sdk_send_message'
+    | 'interrupt_partial'
+    | 'overflow_partial'
+    | 'compact_partial'
+    | 'legacy'
+    | 'auto_continue';
   finalizationReason?: 'completed' | 'interrupted' | 'error';
 }
 
@@ -55,7 +66,11 @@ export interface SessionsIndex {
   entries: SessionEntry[];
 }
 
-export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+export type ImageMediaType =
+  | 'image/jpeg'
+  | 'image/png'
+  | 'image/gif'
+  | 'image/webp';
 
 export interface SDKUserMessage {
   type: 'user';
@@ -63,7 +78,17 @@ export interface SDKUserMessage {
     role: 'user';
     content:
       | string
-      | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: ImageMediaType; data: string } }>;
+      | Array<
+          | { type: 'text'; text: string }
+          | {
+              type: 'image';
+              source: {
+                type: 'base64';
+                media_type: ImageMediaType;
+                data: string;
+              };
+            }
+        >;
   };
   parent_tool_use_id: null;
   session_id: string;
