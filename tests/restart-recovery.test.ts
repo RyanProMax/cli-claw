@@ -55,6 +55,7 @@ describe('restart recovery cursor handling', () => {
         {
           'web:main': {
             commitJid: 'feishu:chat-1',
+            replyJid: 'feishu:chat-1',
             cursor: {
               timestamp: '2026-04-19T09:05:00.000Z',
               id: 'msg-2',
@@ -70,11 +71,43 @@ describe('restart recovery cursor handling', () => {
       {
         streamingKey: 'web:main',
         commitJid: 'feishu:chat-1',
+        replyJid: 'feishu:chat-1',
         cursor: {
           timestamp: '2026-04-19T09:05:00.000Z',
           id: 'msg-2',
         },
         partialText: '',
+      },
+    ]);
+  });
+
+  test('preserves the IM reply target when a shared runner uses a normalized web streaming key', async () => {
+    const { buildStreamingRecoveryEntries } = await loadIndexModule();
+
+    expect(
+      buildStreamingRecoveryEntries(
+        {
+          'web:main': {
+            commitJid: 'feishu:chat-1',
+            replyJid: 'feishu:chat-1',
+            cursor: {
+              timestamp: '2026-04-22T04:04:26.364Z',
+              id: 'msg-feishu-1',
+            },
+          },
+        } as any,
+        new Map([['web:main', 'partial from shared runner']]),
+      ),
+    ).toEqual([
+      {
+        streamingKey: 'web:main',
+        commitJid: 'feishu:chat-1',
+        replyJid: 'feishu:chat-1',
+        cursor: {
+          timestamp: '2026-04-22T04:04:26.364Z',
+          id: 'msg-feishu-1',
+        },
+        partialText: 'partial from shared runner',
       },
     ]);
   });
