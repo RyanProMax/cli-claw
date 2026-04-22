@@ -4287,11 +4287,33 @@ export function buildOverflowPartialReply(partialText: string): string {
     : '*⚠️ 上下文压缩中，稍后自动继续*';
 }
 
+export async function persistInterruptedStreamingReply(
+  entry: Pick<StreamingRecoveryEntry, 'replyJid' | 'partialText'>,
+  finalizationReason: 'shutdown' | 'crash_recovery',
+  deliverMessage: (
+    jid: string,
+    text: string,
+    options?: SendMessageOptions,
+  ) => Promise<string | undefined> = sendMessage,
+): Promise<string | undefined> {
+  return deliverMessage(
+    entry.replyJid,
+    buildInterruptedReply(entry.partialText),
+    {
+      sendToIM: getChannelType(entry.replyJid) !== null,
+      messageMeta: {
+        sourceKind: 'interrupt_partial',
+        finalizationReason,
+      },
+    },
+  );
+}
+
 /**
  * Save any in-progress streaming responses to DB before shutdown.
  * Without this, partial bot responses are lost when the service restarts.
  */
-function saveInterruptedStreamingMessages(): void {
+async function saveInterruptedStreamingMessages(): Promise<void> {
   try {
     const recoveryEntries = buildStreamingRecoveryEntries(
       activeStreamingTurns,
@@ -4306,25 +4328,7 @@ function saveInterruptedStreamingMessages(): void {
     );
 
     for (const entry of recoveryEntries) {
-      const interruptedText = buildInterruptedReply(entry.partialText);
-      const msgId = crypto.randomUUID();
-      const timestamp = new Date().toISOString();
-      ensureChatExists(entry.replyJid);
-      storeMessageDirect(
-        msgId,
-        entry.replyJid,
-        'cli-claw-agent',
-        ASSISTANT_NAME,
-        interruptedText,
-        timestamp,
-        true,
-        {
-          meta: {
-            sourceKind: 'interrupt_partial',
-            finalizationReason: 'shutdown',
-          },
-        },
-      );
+      await persistInterruptedStreamingReply(entry, 'shutdown');
       // Mark as saved so the per-group finally blocks don't duplicate
       shutdownSavedJids.add(entry.streamingKey);
       shutdownSavedJids.add(entry.snapshotJid);
@@ -7830,7 +7834,7 @@ export async function startCliClaw(
 
     // Stop periodic buffer, then persist streaming text to DB + clean buffer files.
     stopStreamingBuffer();
-    saveInterruptedStreamingMessages();
+    await saveInterruptedStreamingMessages();
 
     // Run cleanup tasks concurrently with a tight timeout
     await Promise.allSettled([

@@ -168,4 +168,58 @@ describe('restart recovery cursor handling', () => {
 
     expect(buildInterruptedReply('')).toBe('*⚠️ 已中断*');
   });
+
+  test('routes graceful-shutdown partial replies back through the normal IM delivery path', async () => {
+    const { buildInterruptedReply, persistInterruptedStreamingReply } =
+      await loadIndexModule();
+    const deliverMessage = vi.fn().mockResolvedValue('msg-1');
+
+    await persistInterruptedStreamingReply(
+      {
+        replyJid: 'feishu:chat-1',
+        partialText: 'partial from shutdown',
+      },
+      'shutdown',
+      deliverMessage,
+    );
+
+    expect(deliverMessage).toHaveBeenCalledWith(
+      'feishu:chat-1',
+      buildInterruptedReply('partial from shutdown'),
+      {
+        sendToIM: true,
+        messageMeta: {
+          sourceKind: 'interrupt_partial',
+          finalizationReason: 'shutdown',
+        },
+      },
+    );
+  });
+
+  test('keeps shutdown partial persistence DB-only for web snapshot chats', async () => {
+    const { buildInterruptedReply, persistInterruptedStreamingReply } =
+      await loadIndexModule();
+    const deliverMessage = vi.fn().mockResolvedValue('msg-2');
+
+    await persistInterruptedStreamingReply(
+      {
+        replyJid: 'web:main',
+        partialText: 'partial for web only',
+      },
+      'shutdown',
+      deliverMessage,
+    );
+
+    expect(deliverMessage).toHaveBeenCalledWith(
+      'web:main',
+      buildInterruptedReply('partial for web only'),
+      {
+        sendToIM: false,
+        messageMeta: {
+          sourceKind: 'interrupt_partial',
+          finalizationReason: 'shutdown',
+        },
+      },
+    );
+  });
 });
