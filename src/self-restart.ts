@@ -151,6 +151,7 @@ interface WatchdogDeps {
 const RESTART_HEALTH_TIMEOUT_MS = 15_000;
 const RESTART_HEALTH_INTERVAL_MS = 250;
 const STOP_TIMEOUT_MS = 10_000;
+const LAUNCHD_NOTIFICATION_MATCH_WINDOW_MS = 10 * 60 * 1000;
 
 function defaultNow(): Date {
   return new Date();
@@ -163,6 +164,12 @@ function defaultRandomId(): string {
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseTimestampMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function resolveSelfRestartRequestChatJidFromEnv(
@@ -479,18 +486,62 @@ export function requestSelfRestartFromSavedState(
   });
 }
 
+export function hasPendingSelfRestartForChat(options: {
+  dataDir?: string;
+  pid?: number;
+  requestChatJid: string;
+}): boolean {
+  const dataDir = options.dataDir || DATA_DIR;
+  const pid = options.pid || process.pid;
+  const requestChatJid = options.requestChatJid?.trim();
+  if (!requestChatJid) return false;
+  const intentDir = getIntentDir(dataDir);
+  if (!fs.existsSync(intentDir)) return false;
+
+  const fileNames = fs
+    .readdirSync(intentDir)
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .reverse();
+
+  for (const fileName of fileNames) {
+    const intentPath = path.join(intentDir, fileName);
+    try {
+      const intent = readIntent(intentPath);
+      if (
+        intent.pid === pid &&
+        intent.requestChatJid === requestChatJid &&
+        (intent.status === 'requested' ||
+          intent.status === 'preflight' ||
+          intent.status === 'restarting')
+      ) {
+        return true;
+      }
+    } catch {
+      // Ignore malformed intents during shutdown checks.
+    }
+  }
+
+  return false;
+}
+
 export function findPendingSelfRestartNotifications(
   options: {
     dataDir?: string;
     pid?: number;
+    startedAt?: string | null;
+    launchdServiceName?: string | null;
   } = {},
 ): PendingSelfRestartNotification[] {
   const dataDir = options.dataDir || DATA_DIR;
   const pid = options.pid || process.pid;
+  const currentStartedAtMs = parseTimestampMs(options.startedAt);
+  const launchdServiceName = options.launchdServiceName?.trim() || null;
   const intentDir = getIntentDir(dataDir);
   if (!fs.existsSync(intentDir)) return [];
 
   const pending: PendingSelfRestartNotification[] = [];
+  const launchdCandidates: PendingSelfRestartNotification[] = [];
   const fileNames = fs
     .readdirSync(intentDir)
     .filter((name) => name.endsWith('.json'))
@@ -502,18 +553,40 @@ export function findPendingSelfRestartNotifications(
       const intent = readIntent(intentPath);
       if (
         intent.status === 'passed' &&
-        intent.newPid === pid &&
         intent.requestChatJid &&
         !intent.notifiedAt
       ) {
-        pending.push({ intentPath, intent });
+        if (intent.newPid === pid) {
+          pending.push({ intentPath, intent });
+          continue;
+        }
+        if (
+          intent.newPid == null &&
+          launchdServiceName &&
+          intent.launchdServiceName === launchdServiceName &&
+          currentStartedAtMs !== null
+        ) {
+          const createdAtMs = parseTimestampMs(intent.createdAt);
+          if (createdAtMs === null) continue;
+          const ageMs = currentStartedAtMs - createdAtMs;
+          if (ageMs >= 0 && ageMs <= LAUNCHD_NOTIFICATION_MATCH_WINDOW_MS) {
+            launchdCandidates.push({ intentPath, intent });
+          }
+        }
       }
     } catch {
       // Ignore malformed intents during notification scan.
     }
   }
 
-  return pending;
+  if (pending.length > 0) return pending;
+  if (launchdCandidates.length === 0) return [];
+  launchdCandidates.sort(
+    (left, right) =>
+      parseTimestampMs(right.intent.createdAt)! -
+      parseTimestampMs(left.intent.createdAt)!,
+  );
+  return [launchdCandidates[0]];
 }
 
 export function markSelfRestartNotificationSent(

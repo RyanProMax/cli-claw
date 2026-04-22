@@ -234,8 +234,10 @@ import { getCodexUsageSnapshot } from './usage-command.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
 import {
   cleanupOrphanRunnerProcesses,
+  hasPendingSelfRestartForChat,
   findPendingSelfRestartNotifications,
   markSelfRestartNotificationSent,
+  readCurrentBackendRestartState,
   requestSelfRestart,
   resolveLaunchdServiceNameFromEnv,
   summarizeResidualProcesses,
@@ -1814,8 +1816,11 @@ async function buildSelfRestartResidualSummary(): Promise<string> {
 }
 
 async function notifyCompletedSelfRestartIntents(): Promise<void> {
+  const currentRestartState = readCurrentBackendRestartState();
   const pending = findPendingSelfRestartNotifications({
     pid: process.pid,
+    startedAt: currentRestartState?.startedAt || null,
+    launchdServiceName: currentRestartState?.launchdServiceName || null,
   });
   if (pending.length === 0) return;
 
@@ -4331,12 +4336,14 @@ export async function persistInterruptedStreamingReply(
     text: string,
     options?: SendMessageOptions,
   ) => Promise<string | undefined> = sendMessage,
+  deliveryOptions: { sendToIM?: boolean } = {},
 ): Promise<string | undefined> {
   return deliverMessage(
     entry.replyJid,
     buildInterruptedReply(entry.partialText, undefined, entry.commentaryText),
     {
-      sendToIM: getChannelType(entry.replyJid) !== null,
+      sendToIM:
+        deliveryOptions.sendToIM ?? getChannelType(entry.replyJid) !== null,
       messageMeta: {
         sourceKind: 'interrupt_partial',
         finalizationReason,
@@ -4364,7 +4371,24 @@ async function saveInterruptedStreamingMessages(): Promise<void> {
     );
 
     for (const entry of recoveryEntries) {
-      await persistInterruptedStreamingReply(entry, 'shutdown');
+      const replyRouteJid = stripVirtualJidSuffix(entry.replyJid);
+      const suppressImDuringSelfRestart =
+        getChannelType(replyRouteJid) !== null &&
+        hasPendingSelfRestartForChat({
+          pid: process.pid,
+          requestChatJid: replyRouteJid,
+        });
+      if (suppressImDuringSelfRestart) {
+        logger.info(
+          { replyJid: entry.replyJid, streamingKey: entry.streamingKey },
+          'Suppressing shutdown partial IM delivery during self-restart',
+        );
+      }
+      await persistInterruptedStreamingReply(entry, 'shutdown', sendMessage, {
+        sendToIM: suppressImDuringSelfRestart
+          ? false
+          : getChannelType(entry.replyJid) !== null,
+      });
       // Mark as saved so the per-group finally blocks don't duplicate
       shutdownSavedJids.add(entry.streamingKey);
       shutdownSavedJids.add(entry.snapshotJid);

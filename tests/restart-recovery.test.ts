@@ -260,4 +260,37 @@ describe('restart recovery cursor handling', () => {
       },
     );
   });
+
+  test('can suppress IM delivery for shutdown partials while still persisting the interrupted reply', async () => {
+    const { buildInterruptedReply, persistInterruptedStreamingReply } =
+      await loadIndexModule();
+    const deliverMessage = vi.fn().mockResolvedValue('msg-3');
+
+    await persistInterruptedStreamingReply(
+      {
+        replyJid: 'feishu:chat-1',
+        partialText: 'partial from intentional self-restart',
+        commentaryText: 'tool trace that should not hit IM',
+      },
+      'shutdown',
+      deliverMessage,
+      { sendToIM: false },
+    );
+
+    expect(deliverMessage).toHaveBeenCalledWith(
+      'feishu:chat-1',
+      buildInterruptedReply(
+        'partial from intentional self-restart',
+        undefined,
+        'tool trace that should not hit IM',
+      ),
+      {
+        sendToIM: false,
+        messageMeta: {
+          sourceKind: 'interrupt_partial',
+          finalizationReason: 'shutdown',
+        },
+      },
+    );
+  });
 });

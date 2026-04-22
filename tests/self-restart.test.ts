@@ -9,6 +9,7 @@ import {
   createCliStartLaunchSpec,
   inferDirectBackendLaunchSpec,
   cleanupOrphanRunnerProcesses,
+  hasPendingSelfRestartForChat,
   findPendingSelfRestartNotifications,
   markSelfRestartNotificationSent,
   readCurrentBackendRestartState,
@@ -397,6 +398,108 @@ describe('self-restart success notifications', () => {
         pid: 222,
       }),
     ).toEqual([]);
+  });
+
+  test('matches the latest launchd-managed success notification once for the current startup window', () => {
+    const dataDir = makeTempDir();
+    const intentDir = path.join(dataDir, 'ops', 'restarts');
+    fs.mkdirSync(intentDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(intentDir, 'restart-old.json'),
+      JSON.stringify({
+        id: 'restart-old',
+        status: 'passed',
+        createdAt: '2026-04-22T08:43:39.369Z',
+        updatedAt: '2026-04-22T08:43:45.111Z',
+        appRoot: '/repo',
+        pid: 74606,
+        port: 3000,
+        command: 'node',
+        args: ['/repo/dist/index.js'],
+        cwd: '/repo',
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        healthUrl: 'http://127.0.0.1:3000/api/health',
+        newPid: null,
+        requestChatJid: 'feishu:chat-old',
+      }),
+    );
+    const latestIntentPath = path.join(intentDir, 'restart-latest.json');
+    fs.writeFileSync(
+      latestIntentPath,
+      JSON.stringify({
+        id: 'restart-latest',
+        status: 'passed',
+        createdAt: '2026-04-22T11:33:37.486Z',
+        updatedAt: '2026-04-22T11:33:43.567Z',
+        appRoot: '/repo',
+        pid: 77141,
+        port: 3000,
+        command: 'node',
+        args: ['/repo/dist/index.js'],
+        cwd: '/repo',
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        healthUrl: 'http://127.0.0.1:3000/api/health',
+        newPid: null,
+        requestChatJid: 'feishu:chat-new',
+      }),
+    );
+
+    expect(
+      findPendingSelfRestartNotifications({
+        dataDir,
+        pid: 8566,
+        startedAt: '2026-04-22T11:33:43.450Z',
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+      }),
+    ).toMatchObject([
+      {
+        intentPath: latestIntentPath,
+        intent: {
+          id: 'restart-latest',
+          requestChatJid: 'feishu:chat-new',
+          status: 'passed',
+        },
+      },
+    ]);
+  });
+
+  test('detects a pending self-restart for the same pid and IM chat before shutdown completes', () => {
+    const dataDir = makeTempDir();
+    const intentDir = path.join(dataDir, 'ops', 'restarts');
+    fs.mkdirSync(intentDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(intentDir, 'restart-pending.json'),
+      JSON.stringify({
+        id: 'restart-pending',
+        status: 'restarting',
+        createdAt: '2026-04-22T11:33:37.486Z',
+        updatedAt: '2026-04-22T11:33:38.121Z',
+        appRoot: '/repo',
+        pid: 77141,
+        port: 3000,
+        command: 'node',
+        args: ['/repo/dist/index.js'],
+        cwd: '/repo',
+        healthUrl: 'http://127.0.0.1:3000/api/health',
+        requestChatJid: 'feishu:chat-1',
+      }),
+    );
+
+    expect(
+      hasPendingSelfRestartForChat({
+        dataDir,
+        pid: 77141,
+        requestChatJid: 'feishu:chat-1',
+      }),
+    ).toBe(true);
+    expect(
+      hasPendingSelfRestartForChat({
+        dataDir,
+        pid: 77141,
+        requestChatJid: 'feishu:chat-2',
+      }),
+    ).toBe(false);
   });
 
   test('summarizes extra backend processes and orphaned runner chains', () => {
