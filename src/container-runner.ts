@@ -58,6 +58,7 @@ import {
   type CloseHandlerContext,
 } from './agent-output-parser.js';
 import { getRuntimeBuildLogFields } from './runtime-build.js';
+import { writeSelfRestartRequestChatJidToEnv } from './self-restart.js';
 
 /**
  * Required env flags for settings.json — 每次容器/进程启动时强制写入，不可被用户覆盖。
@@ -1061,6 +1062,7 @@ export async function runHostAgent(
     hostEnv['CLI_CLAW_BACKEND_PID'] = String(process.pid);
     hostEnv['CLI_CLAW_SAFE_RESTART_COMMAND'] = 'cli-claw restart';
     hostEnv['CLI_CLAW_SAFE_IM_RESTART_COMMAND'] = '/self-restart';
+    writeSelfRestartRequestChatJidToEnv(hostEnv, input.chatJid);
     const launchdServiceName =
       process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME?.trim();
     if (launchdServiceName) {

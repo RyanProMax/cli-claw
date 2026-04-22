@@ -14,6 +14,7 @@ import {
   readCurrentBackendRestartState,
   requestSelfRestart,
   requestSelfRestartFromSavedState,
+  SELF_RESTART_REQUEST_CHAT_JID_ENV,
   resolveLaunchdServiceNameFromEnv,
   runSelfRestartWatchdog,
   summarizeResidualProcesses,
@@ -246,6 +247,102 @@ describe('requestSelfRestart', () => {
       }),
     ).toBe('gui/501/com.ryan.cli-claw');
     expect(resolveLaunchdServiceNameFromEnv({})).toBeNull();
+  });
+
+  test('reuses IM restart reply context from env for external restart requests', () => {
+    const dataDir = makeTempDir();
+    const child = Object.assign(new EventEmitter(), {
+      pid: 9876,
+      unref: vi.fn(),
+    });
+    const spawnFn = vi.fn(() => child);
+    const watchdogScriptPath = path.join(dataDir, 'watchdog.js');
+    fs.writeFileSync(watchdogScriptPath, '');
+
+    writeCurrentBackendRestartState(
+      {
+        pid: 111,
+        startedAt: '2026-04-12T13:00:00.000Z',
+        appRoot: '/repo',
+        port: 3000,
+        launchSpec: {
+          command: '/Users/ryan/.bun/bin/bun',
+          args: ['src/index.ts'],
+          cwd: '/repo',
+          source: 'direct_backend',
+          restartable: true,
+          validationError: null,
+          displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
+        },
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+      },
+      { dataDir },
+    );
+
+    const result = requestSelfRestartFromSavedState({
+      dataDir,
+      env: {
+        [SELF_RESTART_REQUEST_CHAT_JID_ENV]: 'feishu:chat-1',
+      },
+      now: () => new Date('2026-04-12T13:00:00.000Z'),
+      randomId: () => 'restart-from-env',
+      spawnFn,
+      watchdogCommand: 'node',
+      watchdogScriptPath,
+    });
+
+    const intent = JSON.parse(
+      fs.readFileSync(result.intentPath!, 'utf8'),
+    ) as SelfRestartIntent;
+    expect(intent.requestChatJid).toBe('feishu:chat-1');
+  });
+
+  test('ignores non-IM restart reply context from env for external restart requests', () => {
+    const dataDir = makeTempDir();
+    const child = Object.assign(new EventEmitter(), {
+      pid: 9876,
+      unref: vi.fn(),
+    });
+    const spawnFn = vi.fn(() => child);
+    const watchdogScriptPath = path.join(dataDir, 'watchdog.js');
+    fs.writeFileSync(watchdogScriptPath, '');
+
+    writeCurrentBackendRestartState(
+      {
+        pid: 111,
+        startedAt: '2026-04-12T13:00:00.000Z',
+        appRoot: '/repo',
+        port: 3000,
+        launchSpec: {
+          command: '/Users/ryan/.bun/bin/bun',
+          args: ['src/index.ts'],
+          cwd: '/repo',
+          source: 'direct_backend',
+          restartable: true,
+          validationError: null,
+          displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
+        },
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+      },
+      { dataDir },
+    );
+
+    const result = requestSelfRestartFromSavedState({
+      dataDir,
+      env: {
+        [SELF_RESTART_REQUEST_CHAT_JID_ENV]: 'web:main',
+      },
+      now: () => new Date('2026-04-12T13:00:00.000Z'),
+      randomId: () => 'restart-from-web-env',
+      spawnFn,
+      watchdogCommand: 'node',
+      watchdogScriptPath,
+    });
+
+    const intent = JSON.parse(
+      fs.readFileSync(result.intentPath!, 'utf8'),
+    ) as SelfRestartIntent;
+    expect(intent.requestChatJid).toBeNull();
   });
 });
 

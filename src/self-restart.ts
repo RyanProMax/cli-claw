@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { DATA_DIR, WEB_PORT } from './config.js';
 import { APP_ROOT } from './app-root.js';
+import { getChannelFromJid } from './channel-prefixes.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
 import {
   createStartupLaunchSpec,
@@ -123,6 +124,8 @@ export interface SelfRestartWatchdogResult {
   error?: string | null;
 }
 
+export const SELF_RESTART_REQUEST_CHAT_JID_ENV = 'CLI_CLAW_REQUEST_CHAT_JID';
+
 export {
   createCliStartLaunchSpec,
   inferDirectBackendLaunchSpec,
@@ -160,6 +163,22 @@ function defaultRandomId(): string {
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function resolveSelfRestartRequestChatJidFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const chatJid = env[SELF_RESTART_REQUEST_CHAT_JID_ENV]?.trim();
+  if (!chatJid) return null;
+  return getChannelFromJid(chatJid) === 'web' ? null : chatJid;
+}
+
+export function writeSelfRestartRequestChatJidToEnv(
+  env: NodeJS.ProcessEnv,
+  chatJid: string,
+): void {
+  if (!chatJid || getChannelFromJid(chatJid) === 'web') return;
+  env[SELF_RESTART_REQUEST_CHAT_JID_ENV] = chatJid;
 }
 
 function writeIntent(intentPath: string, intent: SelfRestartIntent): void {
@@ -409,6 +428,7 @@ export function requestSelfRestartFromSavedState(
   options: {
     dataDir?: string;
     requestChatJid?: string;
+    env?: NodeJS.ProcessEnv;
     now?: () => Date;
     randomId?: () => string;
     watchdogCommand?: string;
@@ -439,6 +459,10 @@ export function requestSelfRestartFromSavedState(
     };
   }
 
+  const requestChatJid =
+    options.requestChatJid ||
+    resolveSelfRestartRequestChatJidFromEnv(options.env);
+
   return requestSelfRestart({
     dataDir: options.dataDir,
     appRoot: state.appRoot,
@@ -446,7 +470,7 @@ export function requestSelfRestartFromSavedState(
     port: state.port,
     launchSpec: state.launchSpec,
     launchdServiceName: state.launchdServiceName || null,
-    requestChatJid: options.requestChatJid,
+    requestChatJid: requestChatJid ?? undefined,
     now: options.now,
     randomId: options.randomId,
     watchdogCommand: options.watchdogCommand,
