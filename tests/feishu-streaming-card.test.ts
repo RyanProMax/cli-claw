@@ -300,7 +300,7 @@ describe('StreamingCardController footer caching', () => {
     });
   });
 
-  test('keeps plain prose paragraph spacing in static reply cards without extra Feishu breaks', () => {
+  test('renders visible paragraph spacing in static reply cards for plain prose', () => {
     const card = buildStaticReplyCard(
       '第一段说明当前方案。\n\n第二段说明原因。\n\n第三段确认下一步。',
     ) as any;
@@ -312,9 +312,45 @@ describe('StreamingCardController footer caching', () => {
 
     expect(markdownElements).toHaveLength(1);
     expect(markdownElements[0]?.content).toBe(
-      '第一段说明当前方案。\n\n第二段说明原因。\n\n第三段确认下一步。',
+      '第一段说明当前方案。\n<br>\n<br>\n第二段说明原因。\n<br>\n<br>\n第三段确认下一步。',
     );
-    expect(JSON.stringify(card)).not.toContain('<br>');
+  });
+
+  test('converts interrupted reasoning details blocks into a collapsible panel in static reply cards', () => {
+    const card = buildStaticReplyCard(
+      [
+        '<details>',
+        '<summary>💭 Reasoning (已中断)</summary>',
+        '',
+        '先检查消息接入。',
+        '',
+        '再检查飞书卡片发送。',
+        '',
+        '</details>',
+        '',
+        '---',
+        '*⚠️ 已中断*',
+      ].join('\n'),
+    ) as any;
+
+    const reasoningPanel = (card.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💭 Reasoning (已中断)',
+    );
+
+    expect(reasoningPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: false,
+      elements: [
+        {
+          tag: 'markdown',
+          content: '先检查消息接入。\n\n再检查飞书卡片发送。',
+          text_size: 'notation',
+        },
+      ],
+    });
+    expect(JSON.stringify(card)).not.toContain('<details>');
   });
 
   test('creates streaming cards with an expanded thinking collapsible panel like runclaw', async () => {

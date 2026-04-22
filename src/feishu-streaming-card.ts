@@ -18,7 +18,10 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { createHash } from 'crypto';
 import { logger } from './logger.js';
-import { normalizeStreamingMarkdown } from './feishu-markdown-style.js';
+import {
+  normalizeStreamingMarkdown,
+  optimizeMarkdownStyle,
+} from './feishu-markdown-style.js';
 import {
   formatAssistantCardFooter,
   type AssistantFooterTokenUsage,
@@ -220,32 +223,125 @@ interface CardContentResult {
   contentElements: Array<Record<string, unknown>>;
 }
 
+type CardBodySegment =
+  | { type: 'markdown'; content: string }
+  | { type: 'details'; title: string; body: string };
+
+interface CardContentOptions {
+  formatMarkdown?: (text: string) => string;
+}
+
+const DETAILS_BLOCK_RE =
+  /<details>\s*<summary>([\s\S]*?)<\/summary>\s*([\s\S]*?)\s*<\/details>/gi;
+
+function sanitizeTitleCandidate(value: string): string {
+  return value
+    .replace(/<[^>]+>/g, '')
+    .replace(/[*_`#\[\]]/g, '')
+    .trim();
+}
+
+function parseCardBodySegments(content: string): CardBodySegment[] {
+  const segments: CardBodySegment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  DETAILS_BLOCK_RE.lastIndex = 0;
+
+  while ((match = DETAILS_BLOCK_RE.exec(content)) !== null) {
+    const leading = content.slice(lastIndex, match.index);
+    if (leading.trim()) {
+      segments.push({ type: 'markdown', content: leading.trim() });
+    }
+
+    const summary = sanitizeTitleCandidate(match[1] || '') || 'Details';
+    const body = (match[2] || '').trim();
+    segments.push({
+      type: 'details',
+      title: summary,
+      body,
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  const trailing = content.slice(lastIndex);
+  if (trailing.trim()) {
+    segments.push({ type: 'markdown', content: trailing.trim() });
+  }
+
+  return segments;
+}
+
+function resolveCardTitle(
+  extractedTitle: string,
+  segments: CardBodySegment[],
+): string {
+  const sanitizedExtracted = sanitizeTitleCandidate(extractedTitle);
+  if (
+    sanitizedExtracted &&
+    !/^\/?details$/i.test(sanitizedExtracted) &&
+    !/^summary$/i.test(sanitizedExtracted)
+  ) {
+    return extractedTitle;
+  }
+
+  for (const segment of segments) {
+    if (segment.type !== 'markdown') continue;
+    const firstLine = segment.content
+      .split('\n')
+      .map((line) => sanitizeTitleCandidate(line))
+      .find((line) => line && line !== '---');
+    if (firstLine) {
+      return firstLine.length > 40 ? `${firstLine.slice(0, 37)}...` : firstLine;
+    }
+  }
+
+  return 'Reply';
+}
+
 /**
  * Build the content elements shared by both Legacy and Schema 2.0 card builders.
  * Splits long text, handles `---` section dividers, and extracts the title.
- * Keeps prose formatting close to the source text so Feishu cards stay aligned
- * with runclaw's simpler markdown rendering.
+ * Also upgrades markdown-embedded <details> blocks into native Feishu
+ * collapsible panels when building static/completed cards.
  */
 function buildCardContent(
   text: string,
   splitFn: (text: string, maxLen: number) => string[],
   overrideTitle?: string,
+  options: CardContentOptions = {},
 ): CardContentResult {
   const { title: extractedTitle, body } = extractTitleAndBody(text);
-  const title = overrideTitle || extractedTitle;
   const rawContent = body || text.trim();
-  const contentToRender = rawContent;
+  const segments = parseCardBodySegments(rawContent);
+  const title = overrideTitle || resolveCardTitle(extractedTitle, segments);
   const elements: Array<Record<string, unknown>> = [];
+  const formatMarkdown = options.formatMarkdown || ((value: string) => value);
 
-  if (contentToRender.length > CARD_MD_LIMIT) {
-    for (const chunk of splitFn(contentToRender, CARD_MD_LIMIT)) {
-      elements.push({
-        tag: 'markdown',
-        content: chunk,
-        text_size: 'normal_text',
-      });
+  const markdownSegments: CardBodySegment[] =
+    segments.length > 0
+      ? segments
+      : [{ type: 'markdown', content: rawContent }];
+
+  for (const segment of markdownSegments) {
+    if (segment.type === 'details') {
+      elements.push(buildCollapsiblePanel(segment.title, segment.body, false));
+      continue;
     }
-  } else if (contentToRender) {
+
+    const contentToRender = formatMarkdown(segment.content);
+    if (!contentToRender) continue;
+
+    if (contentToRender.length > CARD_MD_LIMIT) {
+      for (const chunk of splitFn(contentToRender, CARD_MD_LIMIT)) {
+        elements.push({
+          tag: 'markdown',
+          content: chunk,
+          text_size: 'normal_text',
+        });
+      }
+      continue;
+    }
+
     // Keep --- as markdown content instead of using { tag: 'hr' }
     // because Schema 2.0 (CardKit) does not support the hr tag.
     elements.push({
@@ -258,7 +354,7 @@ function buildCardContent(
   if (elements.length === 0) {
     elements.push({
       tag: 'markdown',
-      content: text.trim() || '...',
+      content: formatMarkdown(text.trim() || '...'),
       text_size: 'normal_text',
     });
   }
@@ -673,6 +769,12 @@ function buildSchema2Card(
     text,
     splitCodeBlockSafe,
     overrideTitle,
+    {
+      formatMarkdown:
+        state === 'streaming'
+          ? undefined
+          : (value) => optimizeMarkdownStyle(value, 2),
+    },
   );
   const displayTitle = titlePrefix ? `${titlePrefix}${title}` : title;
 
