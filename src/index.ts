@@ -388,6 +388,47 @@ export function feedStreamEventToCard(
   }
 }
 
+export interface StreamingTurnBoundaryState {
+  turnId?: string;
+  presentationText: StreamPresentationTextState;
+  thinkingText: string;
+  interrupted: boolean;
+}
+
+export function applyStreamingTurnBoundary(
+  current: StreamingTurnBoundaryState,
+  event: Pick<StreamEvent, 'turnId'>,
+): { nextState: StreamingTurnBoundaryState; turnChanged: boolean } {
+  const nextTurnId = event.turnId?.trim() || undefined;
+  if (!nextTurnId) {
+    return { nextState: current, turnChanged: false };
+  }
+
+  if (!current.turnId) {
+    return {
+      nextState: {
+        ...current,
+        turnId: nextTurnId,
+      },
+      turnChanged: false,
+    };
+  }
+
+  if (current.turnId === nextTurnId) {
+    return { nextState: current, turnChanged: false };
+  }
+
+  return {
+    nextState: {
+      turnId: nextTurnId,
+      presentationText: createEmptyStreamPresentationTextState(),
+      thinkingText: '',
+      interrupted: false,
+    },
+    turnChanged: true,
+  };
+}
+
 let globalMessageCursor: MessageCursor = { timestamp: '', id: '' };
 let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
@@ -2884,6 +2925,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let streamingPresentationText = createEmptyStreamPresentationTextState();
   let streamingAccumulatedThinking = '';
   let streamInterrupted = false;
+  let activeStreamingEventTurnId: string | undefined;
   if (streamingSession) {
     registerStreamingSession(streamingSessionJid, streamingSession);
     logger.debug({ chatJid }, 'Streaming card session created for Feishu');
@@ -3026,6 +3068,43 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                     ...result.streamEvent,
                     runtimeIdentity: activeRuntimeIdentity,
                   };
+            const turnBoundary = applyStreamingTurnBoundary(
+              {
+                turnId: activeStreamingEventTurnId,
+                presentationText: streamingPresentationText,
+                thinkingText: streamingAccumulatedThinking,
+                interrupted: streamInterrupted,
+              },
+              streamEvent,
+            );
+            if (turnBoundary.turnChanged) {
+              streamingPresentationText =
+                turnBoundary.nextState.presentationText;
+              streamingAccumulatedThinking =
+                turnBoundary.nextState.thinkingText;
+              streamInterrupted = turnBoundary.nextState.interrupted;
+              if (streamingSession) {
+                if (streamingSession.isActive()) {
+                  await streamingSession
+                    .abort('新的回复已开始')
+                    .catch(() => {});
+                } else {
+                  streamingSession.dispose();
+                }
+                unregisterStreamingSession(streamingSessionJid);
+                streamingSession = imManager.createStreamingSession(
+                  streamingSessionJid,
+                  makeOnCardCreated(streamingSessionJid),
+                );
+                if (streamingSession) {
+                  registerStreamingSession(
+                    streamingSessionJid,
+                    streamingSession,
+                  );
+                }
+              }
+            }
+            activeStreamingEventTurnId = turnBoundary.nextState.turnId;
             if (streamEvent.eventType === 'init' && streamEvent.messageCursor) {
               setActiveStreamingTurn(
                 activeStreamingTurnKey,
@@ -3138,6 +3217,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   streamingPresentationText =
                     createEmptyStreamPresentationTextState();
                   streamingAccumulatedThinking = '';
+                  activeStreamingEventTurnId = undefined;
                   commitCursor();
                 } catch (err) {
                   logger.warn(
@@ -3557,6 +3637,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               streamingPresentationText =
                 createEmptyStreamPresentationTextState();
               streamingAccumulatedThinking = '';
+              activeStreamingEventTurnId = undefined;
               // Persist cursor as soon as a visible reply is emitted.
               // Long-lived runners may stay alive for idleTimeout, and waiting
               // until process exit would cause duplicate replay after restart.
@@ -5973,6 +6054,7 @@ async function processAgentConversation(
   let agentStreamingPresentationText = createEmptyStreamPresentationTextState();
   let agentStreamingThinking = '';
   let agentStreamInterrupted = false;
+  let agentStreamingEventTurnId: string | undefined;
   if (agentStreamingSession && streamingSessionJid) {
     registerStreamingSession(streamingSessionJid, agentStreamingSession);
     logger.debug(
@@ -6046,6 +6128,45 @@ async function processAgentConversation(
               ...output.streamEvent,
               runtimeIdentity: currentAgentRuntimeIdentity,
             };
+      const turnBoundary = applyStreamingTurnBoundary(
+        {
+          turnId: agentStreamingEventTurnId,
+          presentationText: agentStreamingPresentationText,
+          thinkingText: agentStreamingThinking,
+          interrupted: agentStreamInterrupted,
+        },
+        streamEvent,
+      );
+      if (turnBoundary.turnChanged) {
+        agentStreamingPresentationText =
+          turnBoundary.nextState.presentationText;
+        agentStreamingThinking = turnBoundary.nextState.thinkingText;
+        agentStreamInterrupted = turnBoundary.nextState.interrupted;
+        if (streamingSessionJid) {
+          if (agentStreamingSession) {
+            if (agentStreamingSession.isActive()) {
+              await agentStreamingSession
+                .abort('新的回复已开始')
+                .catch(() => {});
+            } else {
+              agentStreamingSession.dispose();
+            }
+            unregisterStreamingSession(streamingSessionJid);
+          }
+          agentStreamingSession = replySourceImJid
+            ? imManager.createStreamingSession(replySourceImJid, (messageId) =>
+                registerMessageIdMapping(messageId, streamingSessionJid),
+              )
+            : undefined;
+          if (agentStreamingSession) {
+            registerStreamingSession(
+              streamingSessionJid,
+              agentStreamingSession,
+            );
+          }
+        }
+      }
+      agentStreamingEventTurnId = turnBoundary.nextState.turnId;
       if (streamEvent.eventType === 'init' && streamEvent.messageCursor) {
         setActiveStreamingTurn(
           activeStreamingTurnKey,
@@ -6154,6 +6275,7 @@ async function processAgentConversation(
               agentId,
             );
             commitCursor();
+            agentStreamingEventTurnId = undefined;
           } catch (err) {
             logger.warn(
               { err, chatJid, agentId },
@@ -6319,6 +6441,7 @@ async function processAgentConversation(
           agentStreamingPresentationText =
             createEmptyStreamPresentationTextState();
           agentStreamingThinking = '';
+          agentStreamingEventTurnId = undefined;
           unregisterStreamingSession(streamingSessionJid);
           agentStreamingSession = imManager.createStreamingSession(
             replySourceImJid!,
@@ -6654,6 +6777,7 @@ async function processAgentConversation(
           agentId,
         );
         commitCursor();
+        agentStreamingEventTurnId = undefined;
       } catch (err) {
         logger.warn(
           { err, chatJid, agentId },
@@ -6754,6 +6878,7 @@ async function processAgentConversation(
           );
         }
         commitCursor();
+        agentStreamingEventTurnId = undefined;
       } catch (err) {
         logger.warn(
           { err, chatJid, agentId },
