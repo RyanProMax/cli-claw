@@ -623,22 +623,7 @@ function buildAuxiliaryElementsForState(
     });
   }
 
-  // ②b Commentary
-  if (aux.commentaryText) {
-    const truncated =
-      aux.commentaryText.length > MAX_COMMENTARY_CHARS
-        ? '...' + aux.commentaryText.slice(-(MAX_COMMENTARY_CHARS - 3))
-        : aux.commentaryText;
-    before.push(
-      buildCollapsiblePanel(
-        state === 'streaming' ? '💬 Commentary...' : '💬 Commentary',
-        truncated.slice(0, MAX_ELEMENT_CHARS),
-        isStreamingLayout,
-      ),
-    );
-  }
-
-  // ③ Active Tools (running first, then recent completed, max MAX_TOOL_DISPLAY)
+  // ②b Active Tools (running first, then recent completed, max MAX_TOOL_DISPLAY)
   const running: Array<[string, ToolCallState]> = [];
   const completed: Array<[string, ToolCallState]> = [];
   for (const [id, tc] of aux.toolCalls) {
@@ -671,7 +656,22 @@ function buildAuxiliaryElementsForState(
     );
   }
 
-  // ④ Hook Status
+  // ②c Commentary
+  if (aux.commentaryText) {
+    const truncated =
+      aux.commentaryText.length > MAX_COMMENTARY_CHARS
+        ? '...' + aux.commentaryText.slice(-(MAX_COMMENTARY_CHARS - 3))
+        : aux.commentaryText;
+    before.push(
+      buildCollapsiblePanel(
+        state === 'streaming' ? '💬 Commentary...' : '💬 Commentary',
+        truncated.slice(0, MAX_ELEMENT_CHARS),
+        isStreamingLayout,
+      ),
+    );
+  }
+
+  // ③ Hook Status
   if (aux.activeHook) {
     before.push({
       tag: 'markdown',
@@ -734,15 +734,15 @@ function buildStreamingCard(
     aborted: 'orange',
   };
 
-  if (state === 'streaming') {
-    elements.push(INTERRUPT_BUTTON);
-  }
-
   if (noteMap[state]) {
     elements.push({
       tag: 'note',
       elements: [{ tag: 'plain_text', content: noteMap[state] }],
     });
+  }
+
+  if (state === 'streaming') {
+    elements.push(INTERRUPT_BUTTON);
   }
 
   if (footerNote) {
@@ -810,20 +810,20 @@ function buildSchema2Card(
     elements.push(...contentElements);
   }
 
-  const runtimeControlRow = buildSchema2RuntimeControlRow({
-    runtimeIdentity,
-    includeInterrupt: state === 'streaming',
-  });
-  if (runtimeControlRow) {
-    elements.push(runtimeControlRow);
-  }
-
   if (SCHEMA2_NOTE_MAP[state]) {
     elements.push({
       tag: 'markdown',
       content: SCHEMA2_NOTE_MAP[state],
       text_size: 'notation',
     });
+  }
+
+  const runtimeControlRow = buildSchema2RuntimeControlRow({
+    runtimeIdentity,
+    includeInterrupt: state === 'streaming',
+  });
+  if (runtimeControlRow) {
+    elements.push(runtimeControlRow);
   }
 
   if (footerNote) {
@@ -938,6 +938,12 @@ function buildStreamingModeCard(
           element_id: ELEMENT_IDS.AUX_AFTER,
           text_size: 'notation',
         },
+        {
+          tag: 'markdown',
+          content: '⏳ 生成中...',
+          element_id: ELEMENT_IDS.STATUS_NOTE,
+          text_size: 'notation',
+        },
         buildSchema2RuntimeControlRow({
           runtimeIdentity,
           includeInterrupt: true,
@@ -945,12 +951,6 @@ function buildStreamingModeCard(
         }) || {
           tag: 'markdown',
           content: '',
-          text_size: 'notation',
-        },
-        {
-          tag: 'markdown',
-          content: '⏳ 生成中...',
-          element_id: ELEMENT_IDS.STATUS_NOTE,
           text_size: 'notation',
         },
       ],

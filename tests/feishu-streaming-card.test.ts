@@ -290,6 +290,46 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('renders active steps above commentary in streaming auxiliary panels', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.appendCommentary('先收集上下文');
+    controller.startTool('tool-1', 'exec_command');
+    controller.updateToolSummary('tool-1', 'ls -la');
+    controller.append('最终结论');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await (controller as any).patchCard('streaming');
+
+    const lastCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const elements = lastCard?.body?.elements ?? [];
+    const stepsIndex = elements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        typeof element?.header?.title?.content === 'string' &&
+        element.header.title.content.includes('steps'),
+    );
+    const commentaryIndex = elements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💬 Commentary...',
+    );
+
+    expect(stepsIndex).toBeGreaterThanOrEqual(0);
+    expect(commentaryIndex).toBeGreaterThanOrEqual(0);
+    expect(stepsIndex).toBeLessThan(commentaryIndex);
+
+    controller.dispose();
+  });
+
   test('creates standalone streaming cards without replying to the triggering Feishu message', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
@@ -572,6 +612,43 @@ describe('StreamingCardController footer caching', () => {
       content: '⏳ 生成中...',
       text_size: 'notation',
     });
+
+    controller.dispose();
+  });
+
+  test('initial streaming card places the interrupt button below the streaming status note', async () => {
+    const { client, createdCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.append('First answer');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+    });
+
+    const elements = createdCards[0]?.body?.elements ?? [];
+    const statusIndex = elements.findIndex(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.content === '⏳ 生成中...',
+    );
+    const interruptIndex = elements.findIndex((element: any) =>
+      element?.tag === 'column_set'
+        ? element?.columns?.some((column: any) =>
+            column?.elements?.some(
+              (child: any) =>
+                child?.tag === 'button' &&
+                child?.text?.content === '⏹ 中断回复',
+            ),
+          )
+        : false,
+    );
+
+    expect(statusIndex).toBeGreaterThanOrEqual(0);
+    expect(interruptIndex).toBeGreaterThanOrEqual(0);
+    expect(statusIndex).toBeLessThan(interruptIndex);
 
     controller.dispose();
   });
