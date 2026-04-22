@@ -61,7 +61,7 @@ export function resolvePackageDependency(specifier: string): string {
 
 export function isInstalledNodeModulesPackageRoot(
   packageRoot: string = PACKAGE_ROOT,
-  packageName = 'cli-claw-kit',
+  packageName = 'cli-claw',
 ): boolean {
   const normalizedRoot = path.resolve(packageRoot);
   const expectedSuffix = path.join('node_modules', packageName);

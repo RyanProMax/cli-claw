@@ -1,5 +1,5 @@
 {
-  "name": "cli-claw-kit",
+  "name": "cli-claw",
   "version": "0.0.6",
   "description": "Self-hosted multi-user AI agent platform powered by CLI runtimes.",
   "type": "module",

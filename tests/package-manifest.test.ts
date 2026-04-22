@@ -12,7 +12,7 @@ describe('npm package manifest', () => {
       dependencies?: Record<string, string>;
     };
 
-    expect(pkg.name).toBe('cli-claw-kit');
+    expect(pkg.name).toBe('cli-claw');
     expect(pkg.bin).toEqual({
       'cli-claw': 'dist/cli.js',
     });

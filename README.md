@@ -66,10 +66,10 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
   - Claude Runtime：在 Web 设置向导中配置 Claude Provider
   - Codex Runtime：在宿主机执行 `codex login`
 
-### 从 npm 安装
+### 通过同名 launcher 启动
 
 ```bash
-npm install -g cli-claw-kit
+npm install -g cli-claw
 cli-claw help
 cli-claw version
 cli-claw start
@@ -79,7 +79,8 @@ cli-claw start
 
 外部 launcher 说明：
 
-- npm 包名是 `cli-claw-kit`，安装后的可执行命令保持为 `cli-claw <command>`。
+- 仓库服务、launcher 和发布包统一使用 `cli-claw` 这个名字。
+- 如需把 launcher 暴露到 PATH，可安装同名 npm 包 `cli-claw`；可执行命令保持为 `cli-claw <command>`。
 - `cli-claw start` 启动服务。
 - `cli-claw help` / `-h` / `--help` 查看 launcher 帮助。
 - `cli-claw version` / `-v` / `--version` 查看已安装版本。
@@ -87,13 +88,15 @@ cli-claw start
 - `cli-claw start` 会把“你启动命令时所在的目录”当作 host 工作区默认执行目录，并在缺失时物化到 `custom_cwd`。
 - 数据库存储、sessions、memory、logs、downloads 和工作区元数据仍保留在 `~/.cli-claw`，不会迁到启动目录。
 
-### 从源码启动
+### 从当前仓库启动（推荐）
 
 ```bash
 git clone https://github.com/RyanProMax/cli-claw.git cli-claw
 cd cli-claw
 make start
 ```
+
+推荐把这条路径当作日常运维和开发的主入口；这样 repo、服务和 launcher 都对应同一份工作树，不会再出现额外的包名心智负担。
 
 首次进入后按设置向导完成：
 
@@ -151,8 +154,8 @@ npm run release:check
 2. 确认版本号已更新：`package.json` / `npm version <patch|minor|major>`
 3. 确认 npm 身份与包权限可用：
    - `npm whoami`
-   - 首次发布时确认 `cli-claw-kit` 包名可用
-   - 后续发布时确认自己仍是 maintainer：`npm owner ls cli-claw-kit`
+   - 首次发布时确认 `cli-claw` 包名可用
+   - 后续发布时确认自己仍是 maintainer：`npm owner ls cli-claw`
 4. 跑本地发布检查：`npm run release:check`
 5. 手工检查 packlist 与体积是否符合预期：
 
@@ -178,7 +181,7 @@ npm --cache /tmp/cli-claw-npm-cache pack --dry-run
 npm --cache /tmp/cli-claw-npm-cache pack
 TMP_HOME="$(mktemp -d)"
 TMP_PREFIX="$(mktemp -d)"
-HOME="$TMP_HOME" npm install -g --prefix "$TMP_PREFIX" ./cli-claw-kit-<version>.tgz
+HOME="$TMP_HOME" npm install -g --prefix "$TMP_PREFIX" ./cli-claw-<version>.tgz
 "$TMP_PREFIX/bin/cli-claw" help
 "$TMP_PREFIX/bin/cli-claw" version
 ```
