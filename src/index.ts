@@ -378,6 +378,7 @@ let lastCommittedCursor: Record<string, MessageCursor> = {};
 export interface PersistedStreamingTurnState {
   commitJid: string;
   replyJid: string;
+  snapshotJid: string;
   cursor: MessageCursor;
 }
 export interface StreamingRecoveryEntry extends PersistedStreamingTurnState {
@@ -395,6 +396,13 @@ export function buildStreamingShutdownKey(
     ? chatJid
     : relatedJids.find((jid) => jid.startsWith('web:')) || chatJid;
   return agentId ? `${baseJid}#agent:${agentId}` : baseJid;
+}
+
+export function buildStreamingTurnStateKey(
+  chatJid: string,
+  agentId?: string,
+): string {
+  return agentId ? `${chatJid}#agent:${agentId}` : chatJid;
 }
 
 export function applyActiveStreamingTurnCommittedCursor(
@@ -421,12 +429,17 @@ export function buildStreamingRecoveryEntries(
       streamingKey,
       commitJid: state.commitJid,
       replyJid: state.replyJid,
+      snapshotJid: state.snapshotJid,
       cursor: state.cursor,
-      partialText: activeTexts.get(streamingKey)?.trim() ?? '',
+      partialText:
+        activeTexts.get(state.snapshotJid)?.trim() ??
+        activeTexts.get(streamingKey)?.trim() ??
+        '',
     }));
 }
 
 function normalizeStreamingTurnState(
+  streamingKey: string,
   value: unknown,
 ): PersistedStreamingTurnState | null {
   if (!value || typeof value !== 'object') {
@@ -437,17 +450,22 @@ function normalizeStreamingTurnState(
     return null;
   }
   const maybeReplyJid = (value as { replyJid?: unknown }).replyJid;
+  const maybeSnapshotJid = (value as { snapshotJid?: unknown }).snapshotJid;
   return {
     commitJid: maybeCommitJid,
     replyJid:
       typeof maybeReplyJid === 'string' && maybeReplyJid
         ? maybeReplyJid
         : maybeCommitJid,
+    snapshotJid:
+      typeof maybeSnapshotJid === 'string' && maybeSnapshotJid
+        ? maybeSnapshotJid
+        : streamingKey,
     cursor: normalizeCursor((value as { cursor?: unknown }).cursor),
   };
 }
 
-function resolveStreamingShutdownKey(
+function resolveStreamingSnapshotKey(
   chatJid: string,
   agentId?: string,
 ): string {
@@ -461,19 +479,21 @@ function setActiveStreamingTurn(
   commitJid: string,
   cursor: MessageCursor,
   replyJid: string,
+  snapshotJid: string,
 ): void {
   const current = activeStreamingTurns[streamingKey];
   if (
     current &&
     current.commitJid === commitJid &&
     current.replyJid === replyJid &&
+    current.snapshotJid === snapshotJid &&
     !isCursorAfter(cursor, current.cursor)
   ) {
     return;
   }
   activeStreamingTurns = {
     ...activeStreamingTurns,
-    [streamingKey]: { commitJid, replyJid, cursor },
+    [streamingKey]: { commitJid, replyJid, snapshotJid, cursor },
   };
   saveState();
 }
@@ -2327,9 +2347,19 @@ function loadState(): void {
       const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
       const normalized: Record<string, PersistedStreamingTurnState> = {};
       for (const [streamingKey, value] of Object.entries(parsed)) {
-        const normalizedState = normalizeStreamingTurnState(value);
+        const normalizedState = normalizeStreamingTurnState(
+          streamingKey,
+          value,
+        );
         if (normalizedState) {
-          normalized[streamingKey] = normalizedState;
+          const targetKey = normalizedState.commitJid || streamingKey;
+          const current = normalized[targetKey];
+          if (
+            !current ||
+            isCursorAfter(normalizedState.cursor, current.cursor)
+          ) {
+            normalized[targetKey] = normalizedState;
+          }
         }
       }
       return normalized;
@@ -2805,7 +2835,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
   };
-  const shutdownStreamingKey = resolveStreamingShutdownKey(chatJid);
+  const activeStreamingTurnKey = buildStreamingTurnStateKey(chatJid);
+  const streamingSnapshotKey = resolveStreamingSnapshotKey(chatJid);
 
   // ── Feishu Streaming Card ──
   // Create a streaming session for Feishu channels (typing-machine effect).
@@ -2846,7 +2877,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     replySourceImJid = newImJid;
     activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
     updateActiveStreamingTurnReplyJid(
-      shutdownStreamingKey,
+      activeStreamingTurnKey,
       replySourceImJid ?? chatJid,
     );
 
@@ -2898,7 +2929,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const commitCursor = (): void => {
     advanceCursors(chatJid, activeTurnCursor);
-    if (clearActiveStreamingTurns([shutdownStreamingKey])) {
+    if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
     }
   };
@@ -2962,10 +2993,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               result.streamEvent.messageCursor
             ) {
               setActiveStreamingTurn(
-                shutdownStreamingKey,
+                activeStreamingTurnKey,
                 chatJid,
                 normalizeCursor(result.streamEvent.messageCursor),
                 replySourceImJid ?? chatJid,
+                streamingSnapshotKey,
               );
               activeTurnCursor = normalizeCursor(
                 result.streamEvent.messageCursor,
@@ -3620,7 +3652,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         logger.warn({ err, chatJid }, 'Failed to save overflow partial text');
       }
     }
-    if (clearActiveStreamingTurns([shutdownStreamingKey])) {
+    if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
     }
   }
@@ -4295,6 +4327,8 @@ function saveInterruptedStreamingMessages(): void {
       );
       // Mark as saved so the per-group finally blocks don't duplicate
       shutdownSavedJids.add(entry.streamingKey);
+      shutdownSavedJids.add(entry.snapshotJid);
+      shutdownSavedJids.add(entry.replyJid);
       const nextCommitted = applyActiveStreamingTurnCommittedCursor(
         lastCommittedCursor,
         entry,
@@ -4331,6 +4365,8 @@ const STREAMING_BUFFER_INTERVAL_MS = 5000;
 let streamingBufferInterval: ReturnType<typeof setInterval> | null = null;
 interface StreamingBufferPayload {
   text: string;
+  streamingKey?: string;
+  snapshotJid?: string;
   commitJid?: string;
   replyJid?: string;
   cursor?: MessageCursor;
@@ -4366,12 +4402,14 @@ function flushStreamingBuffer(): void {
 
     const activeFiles = new Set<string>();
     for (const entry of recoveryEntries) {
-      const filename = encodeJidForFilename(entry.streamingKey) + '.json';
+      const filename = encodeJidForFilename(entry.snapshotJid) + '.json';
       activeFiles.add(filename);
       const filePath = path.join(STREAMING_BUFFER_DIR, filename);
       const tmpPath = filePath + '.tmp';
       const payload: StreamingBufferPayload = {
         text: entry.partialText,
+        streamingKey: entry.streamingKey,
+        snapshotJid: entry.snapshotJid,
         commitJid: entry.commitJid,
         replyJid: entry.replyJid,
         cursor: entry.cursor,
@@ -4402,14 +4440,21 @@ function flushStreamingBuffer(): void {
 function recoverStreamingBuffer(): void {
   try {
     const recoveryEntries = new Map<string, StreamingRecoveryEntry>();
+    const recoveryEntriesBySnapshotJid = new Map<
+      string,
+      StreamingRecoveryEntry
+    >();
     for (const [streamingKey, state] of Object.entries(activeStreamingTurns)) {
-      recoveryEntries.set(streamingKey, {
+      const entry: StreamingRecoveryEntry = {
         streamingKey,
         commitJid: state.commitJid,
         replyJid: state.replyJid,
+        snapshotJid: state.snapshotJid,
         cursor: state.cursor,
         partialText: '',
-      });
+      };
+      recoveryEntries.set(streamingKey, entry);
+      recoveryEntriesBySnapshotJid.set(state.snapshotJid, entry);
     }
 
     const bufferFiles = fs.existsSync(STREAMING_BUFFER_DIR)
@@ -4419,7 +4464,7 @@ function recoverStreamingBuffer(): void {
       : [];
 
     for (const filename of bufferFiles) {
-      const streamingKey = decodeJidFromFilename(filename);
+      const decodedKey = decodeJidFromFilename(filename);
       const filePath = path.join(STREAMING_BUFFER_DIR, filename);
       try {
         const payload: StreamingBufferPayload = filename.endsWith('.json')
@@ -4427,29 +4472,43 @@ function recoverStreamingBuffer(): void {
               fs.readFileSync(filePath, 'utf-8'),
             ) as StreamingBufferPayload)
           : { text: fs.readFileSync(filePath, 'utf-8') };
+        const snapshotJid =
+          typeof payload.snapshotJid === 'string' && payload.snapshotJid
+            ? payload.snapshotJid
+            : decodedKey;
+        const streamingKey =
+          typeof payload.streamingKey === 'string' && payload.streamingKey
+            ? payload.streamingKey
+            : decodedKey;
         const partialText =
           typeof payload.text === 'string' ? payload.text.trim() : '';
-        const existing = recoveryEntries.get(streamingKey);
+        const existing =
+          recoveryEntriesBySnapshotJid.get(snapshotJid) ||
+          recoveryEntries.get(streamingKey) ||
+          recoveryEntries.get(decodedKey);
         if (existing) {
           existing.partialText = partialText;
           continue;
         }
         if (typeof payload.commitJid === 'string' && payload.commitJid) {
-          recoveryEntries.set(streamingKey, {
+          const entry: StreamingRecoveryEntry = {
             streamingKey,
             commitJid: payload.commitJid,
             replyJid:
               typeof payload.replyJid === 'string' && payload.replyJid
                 ? payload.replyJid
                 : payload.commitJid,
+            snapshotJid,
             cursor: normalizeCursor(payload.cursor),
             partialText,
-          });
+          };
+          recoveryEntries.set(streamingKey, entry);
+          recoveryEntriesBySnapshotJid.set(snapshotJid, entry);
           continue;
         }
         if (partialText) {
           logger.warn(
-            { streamingKey, filename },
+            { streamingKey, snapshotJid, filename },
             'Recovered orphaned streaming buffer text without commit cursor',
           );
         }
@@ -5867,10 +5926,11 @@ async function processAgentConversation(
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
   };
-  const shutdownStreamingKey = resolveStreamingShutdownKey(chatJid, agentId);
+  const activeStreamingTurnKey = buildStreamingTurnStateKey(chatJid, agentId);
+  const streamingSnapshotKey = resolveStreamingSnapshotKey(chatJid, agentId);
   const commitCursor = (): void => {
     advanceCursors(virtualChatJid, activeTurnCursor);
-    if (clearActiveStreamingTurns([shutdownStreamingKey])) {
+    if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
     }
   };
@@ -5907,10 +5967,11 @@ async function processAgentConversation(
         output.streamEvent.messageCursor
       ) {
         setActiveStreamingTurn(
-          shutdownStreamingKey,
+          activeStreamingTurnKey,
           virtualChatJid,
           normalizeCursor(output.streamEvent.messageCursor),
-          shutdownStreamingKey,
+          virtualChatJid,
+          streamingSnapshotKey,
         );
         activeTurnCursor = normalizeCursor(output.streamEvent.messageCursor);
       }
@@ -6663,7 +6724,7 @@ async function processAgentConversation(
       agent.prompt,
       hadError ? lastError : undefined,
     );
-    if (clearActiveStreamingTurns([shutdownStreamingKey])) {
+    if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
     }
 

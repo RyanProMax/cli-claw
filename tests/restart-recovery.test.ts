@@ -56,6 +56,7 @@ describe('restart recovery cursor handling', () => {
           'web:main': {
             commitJid: 'feishu:chat-1',
             replyJid: 'feishu:chat-1',
+            snapshotJid: 'web:main',
             cursor: {
               timestamp: '2026-04-19T09:05:00.000Z',
               id: 'msg-2',
@@ -72,6 +73,7 @@ describe('restart recovery cursor handling', () => {
         streamingKey: 'web:main',
         commitJid: 'feishu:chat-1',
         replyJid: 'feishu:chat-1',
+        snapshotJid: 'web:main',
         cursor: {
           timestamp: '2026-04-19T09:05:00.000Z',
           id: 'msg-2',
@@ -87,9 +89,10 @@ describe('restart recovery cursor handling', () => {
     expect(
       buildStreamingRecoveryEntries(
         {
-          'web:main': {
+          'feishu:chat-1': {
             commitJid: 'feishu:chat-1',
             replyJid: 'feishu:chat-1',
+            snapshotJid: 'web:main',
             cursor: {
               timestamp: '2026-04-22T04:04:26.364Z',
               id: 'msg-feishu-1',
@@ -100,9 +103,10 @@ describe('restart recovery cursor handling', () => {
       ),
     ).toEqual([
       {
-        streamingKey: 'web:main',
+        streamingKey: 'feishu:chat-1',
         commitJid: 'feishu:chat-1',
         replyJid: 'feishu:chat-1',
+        snapshotJid: 'web:main',
         cursor: {
           timestamp: '2026-04-22T04:04:26.364Z',
           id: 'msg-feishu-1',
