@@ -344,7 +344,7 @@ describe('StreamingCardController footer caching', () => {
     });
   });
 
-  test('renders visible paragraph spacing in static reply cards for plain prose', () => {
+  test('renders compact paragraph spacing in static reply cards for plain prose', () => {
     const card = buildStaticReplyCard(
       '第一段说明当前方案。\n\n第二段说明原因。\n\n第三段确认下一步。',
     ) as any;
@@ -356,7 +356,7 @@ describe('StreamingCardController footer caching', () => {
 
     expect(markdownElements).toHaveLength(1);
     expect(markdownElements[0]?.content).toBe(
-      '第一段说明当前方案。\n<br>\n<br>\n第二段说明原因。\n<br>\n<br>\n第三段确认下一步。',
+      '第一段说明当前方案。\n<br>\n第二段说明原因。\n<br>\n第三段确认下一步。',
     );
   });
 

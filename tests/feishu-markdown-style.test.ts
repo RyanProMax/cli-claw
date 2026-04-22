@@ -47,12 +47,12 @@ describe('normalizeStreamingMarkdown', () => {
     );
   });
 
-  test('keeps plain prose paragraphs separated in Feishu card markdown', () => {
+  test('keeps plain prose paragraphs separated without oversized blank gaps in Feishu card markdown', () => {
     expect(
       optimizeMarkdownStyle(
         '第一段说明服务状态。\n\n第二段说明根因。\n\n第三段说明下一步。',
         2,
       ),
-    ).toBe('第一段说明服务状态。\n<br>\n<br>\n第二段说明根因。\n<br>\n<br>\n第三段说明下一步。');
+    ).toBe('第一段说明服务状态。\n<br>\n第二段说明根因。\n<br>\n第三段说明下一步。');
   });
 });

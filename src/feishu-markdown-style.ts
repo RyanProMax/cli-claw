@@ -190,9 +190,9 @@ function _optimizeMarkdownStyle(text: string, cardVersion = 2): string {
 
     // ── 5b. Preserve plain prose paragraph breaks in Schema 2 cards ───────
     // Feishu card markdown can visually collapse bare blank lines between
-    // normal text paragraphs. Convert only text↔text paragraph gaps into
-    // explicit `<br>` spacing, while leaving headings/lists/tables/fences
-    // on their existing markdown-specific spacing rules.
+    // normal text paragraphs. Convert only text↔text paragraph gaps into a
+    // single explicit `<br>` break so cards keep normal paragraph separation
+    // without inflating prose into oversized blank gaps.
     r = preservePlainParagraphBreaks(r);
   } else {
     // ── 5. Restore code blocks (no <br>) ───────────────────────────
@@ -229,9 +229,7 @@ function preservePlainParagraphBreaks(text: string): string {
     const previousKind = getParagraphBlockKind(previous);
     const currentKind = getParagraphBlockKind(current);
     const separator =
-      previousKind === 'text' && currentKind === 'text'
-        ? '\n<br>\n<br>\n'
-        : '\n\n';
+      previousKind === 'text' && currentKind === 'text' ? '\n<br>\n' : '\n\n';
     result += separator + current;
   }
   return result;
