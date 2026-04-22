@@ -396,6 +396,7 @@ export type WsMessageOut =
       chatJid: string;
       snapshot: {
         partialText: string;
+        commentaryText?: string;
         activeTools: Array<{
           toolName: string;
           toolUseId: string;

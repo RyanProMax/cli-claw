@@ -78,6 +78,7 @@ function createStreamingState(
     runtimeIdentity: overrides.runtimeIdentity ?? null,
     tokenUsage: overrides.tokenUsage,
     partialText: overrides.partialText ?? '',
+    commentaryText: overrides.commentaryText ?? '',
     thinkingText: overrides.thinkingText ?? '',
     isThinking: overrides.isThinking ?? false,
     activeTools: overrides.activeTools ?? [],
@@ -153,6 +154,43 @@ describe('chat streaming store', () => {
     expect(next?.partialText).toBe('first update\n\nsecond update');
   });
 
+  test('routes codex text deltas into commentary text instead of the answer slot', () => {
+    useChatStore.setState((state) => ({
+      ...state,
+      groups: {
+        'web:proj-home': {
+          name: 'Proj Home',
+          folder: 'proj-home',
+          added_at: '2026-04-22T10:00:00.000Z',
+          agent_type: 'codex',
+        },
+      },
+      waiting: {
+        'web:proj-home': true,
+      },
+    }));
+
+    useChatStore.getState().handleStreamEvent('web:proj-home', {
+      eventType: 'text_delta',
+      text: '先收集上下文',
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      messageUuid: 'msg-1',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'gpt-5.4',
+        reasoningEffort: 'high',
+        supportsReasoningEffort: true,
+      },
+    });
+
+    flushAnimationFrames();
+
+    const next = useChatStore.getState().streaming['web:proj-home'];
+    expect(next?.commentaryText).toBe('先收集上下文');
+    expect(next?.partialText).toBe('');
+  });
+
   test('clears orphaned streaming residue on restore when backend no longer has an active runner', async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ groups: [] } as any);
     sessionStorageMock.setItem(
@@ -223,5 +261,34 @@ describe('chat streaming store', () => {
     expect(next?.partialText).toBe('fresh output');
     expect(next?.turnId).toBe('turn-new');
     expect(next?.sessionId).toBe('session-new');
+  });
+
+  test('restores codex commentary text from stream snapshots without treating it as answer text', () => {
+    useChatStore.setState((state) => ({
+      ...state,
+      waiting: {
+        'web:proj-home': true,
+      },
+    }));
+
+    useChatStore.getState().handleStreamSnapshot('web:proj-home', {
+      partialText: '',
+      commentaryText: '正在核对 ACP 事件',
+      activeTools: [],
+      recentEvents: [],
+      systemStatus: null,
+      turnId: 'turn-2',
+      sessionId: 'session-2',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'gpt-5.4',
+        reasoningEffort: 'high',
+        supportsReasoningEffort: true,
+      },
+    });
+
+    const next = useChatStore.getState().streaming['web:proj-home'];
+    expect(next?.commentaryText).toBe('正在核对 ACP 事件');
+    expect(next?.partialText).toBe('');
   });
 });

@@ -528,6 +528,7 @@ interface ToolCallState {
 // ─── Auxiliary State & Builder ────────────────────────────────
 
 const MAX_THINKING_CHARS = 800;
+const MAX_COMMENTARY_CHARS = 1600;
 const MAX_RECENT_EVENTS = 5;
 const MAX_TOOL_DISPLAY = 5;
 const MAX_TODO_DISPLAY = 10;
@@ -537,6 +538,7 @@ const MAX_COMPLETED_TOOL_AGE = 30000; // 30s — purge completed tools after thi
 
 export interface AuxiliaryState {
   thinkingText: string;
+  commentaryText: string;
   isThinking: boolean;
   toolCalls: Map<string, ToolCallState>;
   systemStatus: string | null;
@@ -619,6 +621,21 @@ function buildAuxiliaryElementsForState(
       content: '💭 Thinking...',
       text_size: 'notation',
     });
+  }
+
+  // ②b Commentary
+  if (aux.commentaryText) {
+    const truncated =
+      aux.commentaryText.length > MAX_COMMENTARY_CHARS
+        ? '...' + aux.commentaryText.slice(-(MAX_COMMENTARY_CHARS - 3))
+        : aux.commentaryText;
+    before.push(
+      buildCollapsiblePanel(
+        state === 'streaming' ? '💬 Commentary...' : '💬 Commentary',
+        truncated.slice(0, MAX_ELEMENT_CHARS),
+        isStreamingLayout,
+      ),
+    );
   }
 
   // ③ Active Tools (running first, then recent completed, max MAX_TOOL_DISPLAY)
@@ -1601,6 +1618,7 @@ export class StreamingCardController {
   // Streaming state
   private thinking = false;
   private thinkingText = '';
+  private commentaryText = '';
   private toolCalls = new Map<string, ToolCallState>();
   private startTime = 0;
   private backendMode: 'streaming' | 'v1' | 'legacy' = 'v1';
@@ -1747,6 +1765,28 @@ export class StreamingCardController {
         logger.warn(
           { err, chatId: this.chatId },
           'Streaming card: initial create failed (thinking), will use fallback',
+        );
+        this.state = 'error';
+        this.onFallback?.();
+      });
+    } else if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  appendCommentary(text: string): void {
+    if (this.isTerminal()) return;
+    this.commentaryText = text;
+    this.thinking = false;
+    this.stateVersion++;
+    if (this.state === 'idle') {
+      this.state = 'creating';
+      this.createInitialCard().catch((err) => {
+        logger.warn(
+          { err, chatId: this.chatId },
+          'Streaming card: initial create failed (commentary), will use fallback',
         );
         this.state = 'error';
         this.onFallback?.();
@@ -1909,7 +1949,10 @@ export class StreamingCardController {
     if (this.state !== 'streaming' && this.state !== 'creating') return;
 
     const prevState = this.state;
-    this.settleAuxiliaryState({ dropThinkingText: finalState === 'aborted' });
+    this.settleAuxiliaryState({
+      dropThinkingText: finalState === 'aborted',
+      dropCommentaryText: finalState === 'completed',
+    });
     this.accumulatedText = finalText;
     this.state = finalState;
     this.flushCtrl.dispose();
@@ -2169,6 +2212,7 @@ export class StreamingCardController {
     if (
       this.accumulatedText.length > 3 ||
       this.thinkingText.length > 0 ||
+      this.commentaryText.length > 0 ||
       this.toolCalls.size > 0 ||
       this.systemStatus !== null ||
       this.activeHook !== null ||
@@ -2223,11 +2267,14 @@ export class StreamingCardController {
   }
 
   private settleAuxiliaryState(
-    options: { dropThinkingText?: boolean } = {},
+    options: { dropThinkingText?: boolean; dropCommentaryText?: boolean } = {},
   ): void {
     this.thinking = false;
     if (options.dropThinkingText) {
       this.thinkingText = '';
+    }
+    if (options.dropCommentaryText) {
+      this.commentaryText = '';
     }
     this.systemStatus = null;
     this.activeHook = null;
@@ -2241,6 +2288,7 @@ export class StreamingCardController {
   private getAuxiliaryState(): AuxiliaryState {
     return {
       thinkingText: this.thinkingText,
+      commentaryText: this.commentaryText,
       isThinking: this.thinking,
       toolCalls: this.toolCalls,
       systemStatus: this.systemStatus,

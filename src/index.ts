@@ -4,7 +4,12 @@ import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import { pathToFileURL } from 'url';
-import { appendStreamTextDelta } from '../shared/dist/stream-event.js';
+import {
+  appendStreamPresentationText,
+  classifyStreamPresentationTextChannel,
+  createEmptyStreamPresentationTextState,
+  type StreamPresentationTextState,
+} from '../shared/dist/stream-presentation.js';
 
 import { CronExpressionParser } from 'cron-parser';
 
@@ -276,19 +281,32 @@ function getCodexRuntimeIdentityOptions(): {
 export function feedStreamEventToCard(
   session: StreamingCardController,
   se: StreamEvent,
-  accumulatedText: string,
+  presentationText: StreamPresentationTextState,
 ): void {
   if (se.runtimeIdentity) {
     session.setRuntimeIdentity(se.runtimeIdentity);
   }
   switch (se.eventType) {
     case 'text_delta':
-      if (se.text) session.append(accumulatedText);
+      if (se.text) {
+        const channel = classifyStreamPresentationTextChannel(
+          se,
+          se.runtimeIdentity,
+        );
+        if (channel === 'commentary') {
+          session.appendCommentary(presentationText.commentaryText);
+        } else {
+          session.append(presentationText.answerText);
+        }
+      }
       break;
     case 'thinking_delta':
       if (se.text) {
         session.appendThinking(se.text);
-      } else if (!accumulatedText) {
+      } else if (
+        !presentationText.answerText &&
+        !presentationText.commentaryText
+      ) {
         // Only call setThinking() when no text was appended
         // (appendThinking already sets thinking=true and triggers card creation)
         session.setThinking();
@@ -384,6 +402,12 @@ export interface PersistedStreamingTurnState {
 export interface StreamingRecoveryEntry extends PersistedStreamingTurnState {
   streamingKey: string;
   partialText: string;
+  commentaryText: string;
+}
+
+export interface ActiveStreamingTextSnapshot {
+  partialText: string;
+  commentaryText: string;
 }
 let activeStreamingTurns: Record<string, PersistedStreamingTurnState> = {};
 
@@ -421,7 +445,7 @@ export function applyActiveStreamingTurnCommittedCursor(
 
 export function buildStreamingRecoveryEntries(
   streamingTurns: Readonly<Record<string, PersistedStreamingTurnState>>,
-  activeTexts: ReadonlyMap<string, string>,
+  activeTexts: ReadonlyMap<string, ActiveStreamingTextSnapshot>,
 ): StreamingRecoveryEntry[] {
   return Object.entries(streamingTurns)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -432,8 +456,12 @@ export function buildStreamingRecoveryEntries(
       snapshotJid: state.snapshotJid,
       cursor: state.cursor,
       partialText:
-        activeTexts.get(state.snapshotJid)?.trim() ??
-        activeTexts.get(streamingKey)?.trim() ??
+        activeTexts.get(state.snapshotJid)?.partialText.trim() ??
+        activeTexts.get(streamingKey)?.partialText.trim() ??
+        '',
+      commentaryText:
+        activeTexts.get(state.snapshotJid)?.commentaryText.trim() ??
+        activeTexts.get(streamingKey)?.commentaryText.trim() ??
         '',
     }));
 }
@@ -2848,8 +2876,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     streamingSessionJid,
     makeOnCardCreated(streamingSessionJid),
   );
-  let streamingAccumulatedText = '';
-  let streamingLastMessageUuid: string | undefined;
+  let streamingPresentationText = createEmptyStreamPresentationTextState();
   let streamingAccumulatedThinking = '';
   let streamInterrupted = false;
   if (streamingSession) {
@@ -2898,8 +2925,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         streamingSessionJid,
         makeOnCardCreated(streamingSessionJid),
       );
-      streamingAccumulatedText = '';
-      streamingLastMessageUuid = undefined;
+      streamingPresentationText = createEmptyStreamPresentationTextState();
       streamingAccumulatedThinking = '';
       if (streamingSession) {
         registerStreamingSession(streamingSessionJid, streamingSession);
@@ -2988,41 +3014,38 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             activeRuntimeIdentity;
           // 流式事件处理 - 广播 WebSocket + 持久化 SDK Task 生命周期到 DB
           if (result.status === 'stream' && result.streamEvent) {
-            if (
-              result.streamEvent.eventType === 'init' &&
-              result.streamEvent.messageCursor
-            ) {
+            const streamEvent =
+              result.streamEvent.runtimeIdentity || !activeRuntimeIdentity
+                ? result.streamEvent
+                : {
+                    ...result.streamEvent,
+                    runtimeIdentity: activeRuntimeIdentity,
+                  };
+            if (streamEvent.eventType === 'init' && streamEvent.messageCursor) {
               setActiveStreamingTurn(
                 activeStreamingTurnKey,
                 chatJid,
-                normalizeCursor(result.streamEvent.messageCursor),
+                normalizeCursor(streamEvent.messageCursor),
                 replySourceImJid ?? chatJid,
                 streamingSnapshotKey,
               );
-              activeTurnCursor = normalizeCursor(
-                result.streamEvent.messageCursor,
-              );
+              activeTurnCursor = normalizeCursor(streamEvent.messageCursor);
             }
-            broadcastStreamEvent(chatJid, result.streamEvent);
+            broadcastStreamEvent(chatJid, streamEvent);
 
             // ── 累积 text_delta / thinking_delta 文本（中断时用于保存已输出内容）──
-            if (
-              result.streamEvent.eventType === 'text_delta' &&
-              result.streamEvent.text
-            ) {
-              const appended = appendStreamTextDelta(
-                streamingAccumulatedText,
-                result.streamEvent,
-                streamingLastMessageUuid,
+            if (streamEvent.eventType === 'text_delta' && streamEvent.text) {
+              streamingPresentationText = appendStreamPresentationText(
+                streamingPresentationText,
+                streamEvent,
+                activeRuntimeIdentity,
               );
-              streamingAccumulatedText = appended.text;
-              streamingLastMessageUuid = appended.lastMessageUuid;
             }
             if (
-              result.streamEvent.eventType === 'thinking_delta' &&
-              result.streamEvent.text
+              streamEvent.eventType === 'thinking_delta' &&
+              streamEvent.text
             ) {
-              streamingAccumulatedThinking += result.streamEvent.text;
+              streamingAccumulatedThinking += streamEvent.text;
             }
 
             // ── Feed stream events into Feishu streaming card ──
@@ -3030,8 +3053,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             // 需要为新 query 重建流式卡片并重置会话级状态。
             if (streamingSession && !streamingSession.isActive()) {
               unregisterStreamingSession(streamingSessionJid);
-              streamingAccumulatedText = '';
-              streamingLastMessageUuid = undefined;
+              streamingPresentationText =
+                createEmptyStreamPresentationTextState();
               streamingAccumulatedThinking = '';
               // Note: sentReply is NOT reset here. Resetting it would cause
               // subsequent SDK Task results to be sent to IM as separate messages,
@@ -3053,8 +3076,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             if (streamingSession) {
               feedStreamEventToCard(
                 streamingSession,
-                result.streamEvent,
-                streamingAccumulatedText,
+                streamEvent,
+                streamingPresentationText,
               );
             }
 
@@ -3062,8 +3085,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             // agent-runner 中断后不退出进程（进入 waitForIpcMessage），
             // finally 块不会执行，必须在此处立即保存。
             if (
-              result.streamEvent.eventType === 'status' &&
-              result.streamEvent.statusText === 'interrupted'
+              streamEvent.eventType === 'status' &&
+              streamEvent.statusText === 'interrupted'
             ) {
               streamInterrupted = true;
               const provisionalUsage =
@@ -3077,8 +3100,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 shutdownSavedJids.has(inlineWebJid);
               if (!sentReply && !inlineAlreadySaved) {
                 const interruptedText = buildInterruptedReply(
-                  streamingAccumulatedText,
+                  streamingPresentationText.answerText,
                   streamingAccumulatedThinking,
+                  streamingPresentationText.commentaryText,
                 );
                 try {
                   if (streamingSession?.isActive()) {
@@ -3096,9 +3120,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
                     sendToIM: false,
                     messageMeta: {
-                      turnId: result.streamEvent.turnId || lastProcessed.id,
-                      sessionId:
-                        result.streamEvent.sessionId || activeSessionId,
+                      turnId: streamEvent.turnId || lastProcessed.id,
+                      sessionId: streamEvent.sessionId || activeSessionId,
                       sourceKind: 'interrupt_partial',
                       finalizationReason: 'interrupted',
                       runtimeIdentity: activeRuntimeIdentity,
@@ -3107,8 +3130,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   });
                   sentReply = true;
                   clearStreamingSnapshot(chatJid);
-                  streamingAccumulatedText = '';
-                  streamingLastMessageUuid = undefined;
+                  streamingPresentationText =
+                    createEmptyStreamPresentationTextState();
                   streamingAccumulatedThinking = '';
                   commitCursor();
                 } catch (err) {
@@ -3432,8 +3455,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   result.sourceKind === 'overflow_partial')
               ) {
                 unregisterStreamingSession(streamingSessionJid);
-                streamingAccumulatedText = '';
-                streamingLastMessageUuid = undefined;
+                streamingPresentationText =
+                  createEmptyStreamPresentationTextState();
                 streamingAccumulatedThinking = '';
                 streamingSession = imManager.createStreamingSession(
                   streamingSessionJid,
@@ -3526,8 +3549,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               // Without this, saveInterruptedStreamingMessages() would merge
               // text from multiple turns into one message on shutdown.
               clearStreamingSnapshot(chatJid);
-              streamingAccumulatedText = '';
-              streamingLastMessageUuid = undefined;
+              streamingPresentationText =
+                createEmptyStreamPresentationTextState();
               streamingAccumulatedThinking = '';
               // Persist cursor as soon as a visible reply is emitted.
               // Long-lived runners may stay alive for idleTimeout, and waiting
@@ -3598,8 +3621,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (wasInterrupted && !alreadySavedByShutdown) {
       const provisionalUsage = buildProvisionalTokenUsage(agentRunStartedAt);
       const interruptedText = buildInterruptedReply(
-        streamingAccumulatedText,
+        streamingPresentationText.answerText,
         streamingAccumulatedThinking,
+        streamingPresentationText.commentaryText,
       );
       try {
         // sendToIM: false — 飞书卡片已通过 abort() 展示内容，不重复发送
@@ -3627,13 +3651,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (
       !sentReply &&
       !alreadySavedByShutdown &&
-      streamingAccumulatedText.trim()
+      (streamingPresentationText.answerText.trim() ||
+        streamingPresentationText.commentaryText.trim())
     ) {
       try {
         const provisionalUsage = buildProvisionalTokenUsage(agentRunStartedAt);
         const partialReply = buildInterruptedReply(
-          streamingAccumulatedText,
+          streamingPresentationText.answerText,
           streamingAccumulatedThinking,
+          streamingPresentationText.commentaryText,
         );
         lastReplyMsgId = await sendMessage(chatJid, partialReply, {
           sendToIM: false,
@@ -4261,16 +4287,23 @@ async function sendMessage(
 export function buildInterruptedReply(
   partialText: string,
   thinkingText?: string,
+  commentaryText?: string,
 ): string {
   const trimmed = partialText.trimEnd();
   const trimmedThinking = thinkingText?.trimEnd();
-  if (!trimmed && !trimmedThinking) {
+  const trimmedCommentary = commentaryText?.trimEnd();
+  if (!trimmed && !trimmedThinking && !trimmedCommentary) {
     return '*⚠️ 已中断*';
   }
   const parts: string[] = [];
   if (trimmedThinking) {
     parts.push(
       `<details>\n<summary>💭 Reasoning (已中断)</summary>\n\n${trimmedThinking}\n\n</details>`,
+    );
+  }
+  if (trimmedCommentary) {
+    parts.push(
+      `<details>\n<summary>💬 Commentary (已中断)</summary>\n\n${trimmedCommentary}\n\n</details>`,
     );
   }
   if (trimmed) {
@@ -4288,7 +4321,10 @@ export function buildOverflowPartialReply(partialText: string): string {
 }
 
 export async function persistInterruptedStreamingReply(
-  entry: Pick<StreamingRecoveryEntry, 'replyJid' | 'partialText'>,
+  entry: Pick<
+    StreamingRecoveryEntry,
+    'replyJid' | 'partialText' | 'commentaryText'
+  >,
   finalizationReason: 'shutdown' | 'crash_recovery',
   deliverMessage: (
     jid: string,
@@ -4298,7 +4334,7 @@ export async function persistInterruptedStreamingReply(
 ): Promise<string | undefined> {
   return deliverMessage(
     entry.replyJid,
-    buildInterruptedReply(entry.partialText),
+    buildInterruptedReply(entry.partialText, undefined, entry.commentaryText),
     {
       sendToIM: getChannelType(entry.replyJid) !== null,
       messageMeta: {
@@ -4369,6 +4405,7 @@ const STREAMING_BUFFER_INTERVAL_MS = 5000;
 let streamingBufferInterval: ReturnType<typeof setInterval> | null = null;
 interface StreamingBufferPayload {
   text: string;
+  commentaryText?: string;
   streamingKey?: string;
   snapshotJid?: string;
   commitJid?: string;
@@ -4412,6 +4449,7 @@ function flushStreamingBuffer(): void {
       const tmpPath = filePath + '.tmp';
       const payload: StreamingBufferPayload = {
         text: entry.partialText,
+        commentaryText: entry.commentaryText,
         streamingKey: entry.streamingKey,
         snapshotJid: entry.snapshotJid,
         commitJid: entry.commitJid,
@@ -4456,6 +4494,7 @@ function recoverStreamingBuffer(): void {
         snapshotJid: state.snapshotJid,
         cursor: state.cursor,
         partialText: '',
+        commentaryText: '',
       };
       recoveryEntries.set(streamingKey, entry);
       recoveryEntriesBySnapshotJid.set(state.snapshotJid, entry);
@@ -4486,12 +4525,17 @@ function recoverStreamingBuffer(): void {
             : decodedKey;
         const partialText =
           typeof payload.text === 'string' ? payload.text.trim() : '';
+        const commentaryText =
+          typeof payload.commentaryText === 'string'
+            ? payload.commentaryText.trim()
+            : '';
         const existing =
           recoveryEntriesBySnapshotJid.get(snapshotJid) ||
           recoveryEntries.get(streamingKey) ||
           recoveryEntries.get(decodedKey);
         if (existing) {
           existing.partialText = partialText;
+          existing.commentaryText = commentaryText;
           continue;
         }
         if (typeof payload.commitJid === 'string' && payload.commitJid) {
@@ -4505,6 +4549,7 @@ function recoverStreamingBuffer(): void {
             snapshotJid,
             cursor: normalizeCursor(payload.cursor),
             partialText,
+            commentaryText,
           };
           recoveryEntries.set(streamingKey, entry);
           recoveryEntriesBySnapshotJid.set(snapshotJid, entry);
@@ -4539,7 +4584,11 @@ function recoverStreamingBuffer(): void {
     let stateChanged = false;
     for (const entry of recoveryEntries.values()) {
       try {
-        const interruptedText = buildInterruptedReply(entry.partialText);
+        const interruptedText = buildInterruptedReply(
+          entry.partialText,
+          undefined,
+          entry.commentaryText,
+        );
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
         ensureChatExists(entry.replyJid);
@@ -4570,7 +4619,7 @@ function recoverStreamingBuffer(): void {
           {
             streamingKey: entry.streamingKey,
             replyJid: entry.replyJid,
-            textLen: entry.partialText.length,
+            textLen: entry.partialText.length + entry.commentaryText.length,
           },
           'Recovered interrupted streaming message',
         );
@@ -5897,8 +5946,8 @@ async function processAgentConversation(
         registerMessageIdMapping(messageId, streamingSessionJid!),
       )
     : undefined;
-  let agentStreamingAccText = '';
-  let agentStreamingLastMessageUuid: string | undefined;
+  let agentStreamingPresentationText = createEmptyStreamPresentationTextState();
+  let agentStreamingThinking = '';
   let agentStreamInterrupted = false;
   if (agentStreamingSession && streamingSessionJid) {
     registerStreamingSession(streamingSessionJid, agentStreamingSession);
@@ -5966,55 +6015,61 @@ async function processAgentConversation(
 
     // Stream events
     if (output.status === 'stream' && output.streamEvent) {
-      if (
-        output.streamEvent.eventType === 'init' &&
-        output.streamEvent.messageCursor
-      ) {
+      const streamEvent =
+        output.streamEvent.runtimeIdentity || !currentAgentRuntimeIdentity
+          ? output.streamEvent
+          : {
+              ...output.streamEvent,
+              runtimeIdentity: currentAgentRuntimeIdentity,
+            };
+      if (streamEvent.eventType === 'init' && streamEvent.messageCursor) {
         setActiveStreamingTurn(
           activeStreamingTurnKey,
           virtualChatJid,
-          normalizeCursor(output.streamEvent.messageCursor),
+          normalizeCursor(streamEvent.messageCursor),
           virtualChatJid,
           streamingSnapshotKey,
         );
-        activeTurnCursor = normalizeCursor(output.streamEvent.messageCursor);
+        activeTurnCursor = normalizeCursor(streamEvent.messageCursor);
       }
-      broadcastStreamEvent(chatJid, output.streamEvent, agentId);
+      broadcastStreamEvent(chatJid, streamEvent, agentId);
 
       // ── 累积 text_delta 文本（中断时用于保存已输出内容）──
-      if (
-        output.streamEvent.eventType === 'text_delta' &&
-        output.streamEvent.text
-      ) {
-        const appended = appendStreamTextDelta(
-          agentStreamingAccText,
-          output.streamEvent,
-          agentStreamingLastMessageUuid,
+      if (streamEvent.eventType === 'text_delta' && streamEvent.text) {
+        agentStreamingPresentationText = appendStreamPresentationText(
+          agentStreamingPresentationText,
+          streamEvent,
+          currentAgentRuntimeIdentity,
         );
-        agentStreamingAccText = appended.text;
-        agentStreamingLastMessageUuid = appended.lastMessageUuid;
+      }
+      if (streamEvent.eventType === 'thinking_delta' && streamEvent.text) {
+        agentStreamingThinking += streamEvent.text;
       }
 
       // ── Feed stream events into Feishu streaming card ──
       if (agentStreamingSession) {
         feedStreamEventToCard(
           agentStreamingSession,
-          output.streamEvent,
-          agentStreamingAccText,
+          streamEvent,
+          agentStreamingPresentationText,
         );
       }
 
       // ── 中断时立即保存已输出内容 ──
       if (
-        output.streamEvent.eventType === 'status' &&
-        output.streamEvent.statusText === 'interrupted'
+        streamEvent.eventType === 'status' &&
+        streamEvent.statusText === 'interrupted'
       ) {
         agentStreamInterrupted = true;
         const provisionalUsage = buildProvisionalTokenUsage(
           agentConversationStartedAt,
         );
         if (!isCurrentTurnCommitted()) {
-          const interruptedText = buildInterruptedReply(agentStreamingAccText);
+          const interruptedText = buildInterruptedReply(
+            agentStreamingPresentationText.answerText,
+            agentStreamingThinking,
+            agentStreamingPresentationText.commentaryText,
+          );
           try {
             if (agentStreamingSession?.isActive()) {
               await agentStreamingSession
@@ -6237,8 +6292,9 @@ async function processAgentConversation(
             output.sourceKind === 'overflow_partial') &&
           streamingSessionJid
         ) {
-          agentStreamingAccText = '';
-          agentStreamingLastMessageUuid = undefined;
+          agentStreamingPresentationText =
+            createEmptyStreamPresentationTextState();
+          agentStreamingThinking = '';
           unregisterStreamingSession(streamingSessionJid);
           agentStreamingSession = imManager.createStreamingSession(
             replySourceImJid!,
@@ -6523,7 +6579,11 @@ async function processAgentConversation(
       const provisionalUsage = buildProvisionalTokenUsage(
         agentConversationStartedAt,
       );
-      const interruptedText = buildInterruptedReply(agentStreamingAccText);
+      const interruptedText = buildInterruptedReply(
+        agentStreamingPresentationText.answerText,
+        agentStreamingThinking,
+        agentStreamingPresentationText.commentaryText,
+      );
       try {
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
@@ -6579,12 +6639,20 @@ async function processAgentConversation(
     }
 
     // ── 兜底：进程异常退出导致累积文本未持久化 ──
-    if (!isCurrentTurnCommitted() && agentStreamingAccText.trim()) {
+    if (
+      !isCurrentTurnCommitted() &&
+      (agentStreamingPresentationText.answerText.trim() ||
+        agentStreamingPresentationText.commentaryText.trim())
+    ) {
       try {
         const provisionalUsage = buildProvisionalTokenUsage(
           agentConversationStartedAt,
         );
-        const partialReply = buildInterruptedReply(agentStreamingAccText);
+        const partialReply = buildInterruptedReply(
+          agentStreamingPresentationText.answerText,
+          agentStreamingThinking,
+          agentStreamingPresentationText.commentaryText,
+        );
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
         const serializedTokenUsage =
@@ -6635,7 +6703,9 @@ async function processAgentConversation(
           chatJid,
           agentId,
           replySourceImJid,
-          accLen: agentStreamingAccText.length,
+          accLen:
+            agentStreamingPresentationText.answerText.length +
+            agentStreamingPresentationText.commentaryText.length,
           cursorCommitted: isCurrentTurnCommitted(),
         });
         if (replySourceImJid) {

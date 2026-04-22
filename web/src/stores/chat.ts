@@ -16,7 +16,9 @@ import {
 } from '../lib/messageIdentity';
 import { setHistoryCursorParams } from '../lib/messageHistoryCursor';
 import { formatToolStepLine } from '../lib/toolStepDisplay';
-import { appendStreamTextDelta } from '../../../shared/dist/stream-event.js';
+import {
+  appendStreamPresentationText,
+} from '../../../shared/dist/stream-presentation.js';
 
 export type { GroupInfo, AgentInfo };
 
@@ -40,7 +42,11 @@ export interface Message {
 }
 
 // Streaming event types (canonical source: shared/stream-event.ts)
-import type { StreamEventType, StreamEvent } from '../stream-event.types';
+import type {
+  StreamEventType,
+  StreamEvent,
+  StreamRuntimeIdentity,
+} from '../stream-event.types';
 export type { StreamEventType, StreamEvent };
 
 export interface StreamingTimelineEvent {
@@ -53,6 +59,7 @@ export interface StreamingTimelineEvent {
 /** Shape of the snapshot payload pushed from the backend on WS reconnect (stream_snapshot). */
 export interface StreamSnapshotData {
   partialText: string;
+  commentaryText?: string;
   activeTools: Array<{
     toolName: string;
     toolUseId: string;
@@ -77,9 +84,11 @@ export interface StreamingState {
   turnId?: string;
   sessionId?: string;
   lastTextMessageUuid?: string;
+  lastCommentaryMessageUuid?: string;
   runtimeIdentity?: RuntimeIdentity | null;
   tokenUsage?: string;
   partialText: string;
+  commentaryText: string;
   thinkingText: string;
   isThinking: boolean;
   activeTools: Array<{
@@ -221,7 +230,10 @@ const DEFAULT_STREAMING_STATE: StreamingState = {
   sessionId: undefined,
   runtimeIdentity: null,
   tokenUsage: undefined,
-  partialText: '', thinkingText: '', isThinking: false,
+  partialText: '',
+  commentaryText: '',
+  thinkingText: '',
+  isThinking: false,
   activeTools: [], activeHook: null, systemStatus: null, recentEvents: [],
 };
 
@@ -264,9 +276,16 @@ function saveStreamingToSession(chatJid: string, state: StreamingState | undefin
     streamingSaveTimers.delete(chatJid);
     try {
       const stored = JSON.parse(sessionStorage.getItem(STREAMING_STORAGE_KEY) || '{}');
-      if (state && (state.partialText || state.activeTools.length > 0 || state.recentEvents.length > 0)) {
+      if (
+        state &&
+        (state.partialText ||
+          state.commentaryText ||
+          state.activeTools.length > 0 ||
+          state.recentEvents.length > 0)
+      ) {
         stored[chatJid] = {
           partialText: state.partialText.slice(-4000), // cap size
+          commentaryText: state.commentaryText.slice(-4000),
           thinkingText: '',  // don't persist thinking
           isThinking: false,
           activeTools: state.activeTools,
@@ -312,6 +331,7 @@ function restoreStreamingFromSession(chatJid: string): StreamingState | null {
     return {
       ...DEFAULT_STREAMING_STATE,
       partialText: entry.partialText || '',
+      commentaryText: entry.commentaryText || '',
       activeTools: entry.activeTools || [],
       recentEvents: entry.recentEvents || [],
       todos: entry.todos,
@@ -343,6 +363,7 @@ function hasStreamingData(state: StreamingState | null | undefined): boolean {
   return !!(
     state &&
     (state.partialText ||
+      state.commentaryText ||
       state.thinkingText ||
       state.activeTools.length > 0 ||
       state.activeHook ||
@@ -350,6 +371,21 @@ function hasStreamingData(state: StreamingState | null | undefined): boolean {
       state.recentEvents.length > 0 ||
       (state.todos && state.todos.length > 0))
   );
+}
+
+function toPresentationRuntimeIdentity(
+  identity?: RuntimeIdentity | null,
+): StreamRuntimeIdentity | null {
+  if (!identity) return null;
+  if (identity.agentType !== 'claude' && identity.agentType !== 'codex') {
+    return null;
+  }
+  return {
+    agentType: identity.agentType,
+    model: identity.model,
+    reasoningEffort: identity.reasoningEffort,
+    supportsReasoningEffort: identity.supportsReasoningEffort,
+  };
 }
 
 function cancelPendingDeltaEntry(key: string): void {
@@ -431,19 +467,41 @@ function flushPendingDelta(
       );
       const next = { ...prev };
       if (entry.texts.length > 0) {
-        let combined = prev.partialText;
-        let lastMessageUuid = prev.lastTextMessageUuid;
+        let accumulated: {
+          answerText: string;
+          commentaryText: string;
+          lastAnswerMessageUuid?: string;
+          lastCommentaryMessageUuid?: string;
+        } = {
+          answerText: prev.partialText,
+          commentaryText: prev.commentaryText,
+          lastAnswerMessageUuid: prev.lastTextMessageUuid,
+          lastCommentaryMessageUuid: prev.lastCommentaryMessageUuid,
+        };
         for (const item of entry.texts) {
-          const appended = appendStreamTextDelta(
-            combined,
-            { text: item.text, messageUuid: item.messageUuid },
-            lastMessageUuid,
+          accumulated = appendStreamPresentationText(
+            accumulated,
+            {
+              eventType: 'text_delta',
+              text: item.text,
+              messageUuid: item.messageUuid,
+            },
+            toPresentationRuntimeIdentity(
+              entry.runtimeIdentity ?? prev.runtimeIdentity,
+            ),
           );
-          combined = appended.text;
-          lastMessageUuid = appended.lastMessageUuid;
         }
-        next.partialText = combined.length > MAX_STREAMING_TEXT ? combined.slice(-MAX_STREAMING_TEXT) : combined;
-        next.lastTextMessageUuid = lastMessageUuid;
+        next.partialText =
+          accumulated.answerText.length > MAX_STREAMING_TEXT
+            ? accumulated.answerText.slice(-MAX_STREAMING_TEXT)
+            : accumulated.answerText;
+        next.commentaryText =
+          accumulated.commentaryText.length > MAX_STREAMING_TEXT
+            ? accumulated.commentaryText.slice(-MAX_STREAMING_TEXT)
+            : accumulated.commentaryText;
+        next.lastTextMessageUuid = accumulated.lastAnswerMessageUuid;
+        next.lastCommentaryMessageUuid =
+          accumulated.lastCommentaryMessageUuid;
         next.isThinking = false;
       }
       if (mergedThinking) {
@@ -460,19 +518,41 @@ function flushPendingDelta(
       const prev = resolveBufferedStreamingPrev(s.streaming[chatJid], entry);
       const next = { ...prev };
       if (entry.texts.length > 0) {
-        let combined = prev.partialText;
-        let lastMessageUuid = prev.lastTextMessageUuid;
+        let accumulated: {
+          answerText: string;
+          commentaryText: string;
+          lastAnswerMessageUuid?: string;
+          lastCommentaryMessageUuid?: string;
+        } = {
+          answerText: prev.partialText,
+          commentaryText: prev.commentaryText,
+          lastAnswerMessageUuid: prev.lastTextMessageUuid,
+          lastCommentaryMessageUuid: prev.lastCommentaryMessageUuid,
+        };
         for (const item of entry.texts) {
-          const appended = appendStreamTextDelta(
-            combined,
-            { text: item.text, messageUuid: item.messageUuid },
-            lastMessageUuid,
+          accumulated = appendStreamPresentationText(
+            accumulated,
+            {
+              eventType: 'text_delta',
+              text: item.text,
+              messageUuid: item.messageUuid,
+            },
+            toPresentationRuntimeIdentity(
+              entry.runtimeIdentity ?? prev.runtimeIdentity,
+            ),
           );
-          combined = appended.text;
-          lastMessageUuid = appended.lastMessageUuid;
         }
-        next.partialText = combined.length > MAX_STREAMING_TEXT ? combined.slice(-MAX_STREAMING_TEXT) : combined;
-        next.lastTextMessageUuid = lastMessageUuid;
+        next.partialText =
+          accumulated.answerText.length > MAX_STREAMING_TEXT
+            ? accumulated.answerText.slice(-MAX_STREAMING_TEXT)
+            : accumulated.answerText;
+        next.commentaryText =
+          accumulated.commentaryText.length > MAX_STREAMING_TEXT
+            ? accumulated.commentaryText.slice(-MAX_STREAMING_TEXT)
+            : accumulated.commentaryText;
+        next.lastTextMessageUuid = accumulated.lastAnswerMessageUuid;
+        next.lastCommentaryMessageUuid =
+          accumulated.lastCommentaryMessageUuid;
         next.isThinking = false;
       }
       if (mergedThinking) {
@@ -684,14 +764,28 @@ function applyStreamEvent(
   if (event.runtimeIdentity) next.runtimeIdentity = event.runtimeIdentity;
   switch (event.eventType) {
     case 'text_delta': {
-      const appended = appendStreamTextDelta(
-        prev.partialText,
+      const appended = appendStreamPresentationText(
+        {
+          answerText: prev.partialText,
+          commentaryText: prev.commentaryText,
+          lastAnswerMessageUuid: prev.lastTextMessageUuid,
+          lastCommentaryMessageUuid: prev.lastCommentaryMessageUuid,
+        },
         event,
-        prev.lastTextMessageUuid,
+        toPresentationRuntimeIdentity(
+          event.runtimeIdentity ?? prev.runtimeIdentity,
+        ),
       );
-      const combined = appended.text;
-      next.partialText = combined.length > maxText ? combined.slice(-maxText) : combined;
-      next.lastTextMessageUuid = appended.lastMessageUuid;
+      next.partialText =
+        appended.answerText.length > maxText
+          ? appended.answerText.slice(-maxText)
+          : appended.answerText;
+      next.commentaryText =
+        appended.commentaryText.length > maxText
+          ? appended.commentaryText.slice(-maxText)
+          : appended.commentaryText;
+      next.lastTextMessageUuid = appended.lastAnswerMessageUuid;
+      next.lastCommentaryMessageUuid = appended.lastCommentaryMessageUuid;
       next.isThinking = false;
       break;
     }
@@ -1603,6 +1697,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         const hasData = streamState && (
           streamState.partialText ||
+          streamState.commentaryText ||
           streamState.thinkingText ||
           streamState.activeTools.length > 0 ||
           streamState.activeHook ||
@@ -2379,6 +2474,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const restored: StreamingState = {
       ...DEFAULT_STREAMING_STATE,
       partialText: snapshot.partialText || '',
+      commentaryText: snapshot.commentaryText || '',
       activeTools: (snapshot.activeTools || []).map((t) => ({
         toolName: t.toolName,
         toolUseId: t.toolUseId,

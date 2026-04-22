@@ -246,6 +246,50 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('renders Codex commentary in a dedicated collapsible panel instead of the main body', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.appendCommentary('先收集上下文');
+    controller.append('最终结论');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await (controller as any).patchCard('streaming');
+
+    const lastCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const commentaryPanel = lastCard?.body?.elements?.find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💬 Commentary...',
+    );
+    const mainMarkdown = lastCard?.body?.elements?.find(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+
+    expect(commentaryPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: true,
+      elements: [
+        {
+          tag: 'markdown',
+          content: '先收集上下文',
+          text_size: 'notation',
+        },
+      ],
+    });
+    expect(mainMarkdown?.content).toBe('最终结论');
+
+    controller.dispose();
+  });
+
   test('creates standalone streaming cards without replying to the triggering Feishu message', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({

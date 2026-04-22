@@ -64,8 +64,14 @@ describe('restart recovery cursor handling', () => {
           },
         },
         new Map([
-          ['web:main', ''],
-          ['web:orphan', 'partial text without active turn'],
+          ['web:main', { partialText: '', commentaryText: '' }],
+          [
+            'web:orphan',
+            {
+              partialText: 'partial text without active turn',
+              commentaryText: '',
+            },
+          ],
         ]),
       ),
     ).toEqual([
@@ -79,6 +85,7 @@ describe('restart recovery cursor handling', () => {
           id: 'msg-2',
         },
         partialText: '',
+        commentaryText: '',
       },
     ]);
   });
@@ -99,7 +106,15 @@ describe('restart recovery cursor handling', () => {
             },
           },
         } as any,
-        new Map([['web:main', 'partial from shared runner']]),
+        new Map([
+          [
+            'web:main',
+            {
+              partialText: 'partial from shared runner',
+              commentaryText: '',
+            },
+          ],
+        ]),
       ),
     ).toEqual([
       {
@@ -112,6 +127,7 @@ describe('restart recovery cursor handling', () => {
           id: 'msg-feishu-1',
         },
         partialText: 'partial from shared runner',
+        commentaryText: '',
       },
     ]);
   });
@@ -167,6 +183,28 @@ describe('restart recovery cursor handling', () => {
     const { buildInterruptedReply } = await loadIndexModule();
 
     expect(buildInterruptedReply('')).toBe('*⚠️ 已中断*');
+  });
+
+  test('renders interrupted Codex commentary in its own collapsible block', async () => {
+    const { buildInterruptedReply } = await loadIndexModule();
+
+    expect(
+      buildInterruptedReply('', undefined, '先检查 ACP 事件\n\n再检查最终结果'),
+    ).toBe(
+      [
+        '<details>',
+        '<summary>💬 Commentary (已中断)</summary>',
+        '',
+        '先检查 ACP 事件',
+        '',
+        '再检查最终结果',
+        '',
+        '</details>',
+        '',
+        '---',
+        '*⚠️ 已中断*',
+      ].join('\n'),
+    );
   });
 
   test('routes graceful-shutdown partial replies back through the normal IM delivery path', async () => {

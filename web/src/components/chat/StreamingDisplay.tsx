@@ -147,6 +147,21 @@ function TaskAgentBlock({ agent, groupJid }: { agent: AgentInfo; groupJid: strin
                   ))}
                 </div>
               )}
+              {streaming.commentaryText && (
+                <div className="rounded-lg border border-slate-200/80 bg-slate-50/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-200">
+                  <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Commentary
+                  </div>
+                  <MarkdownRenderer
+                    content={streaming.commentaryText.length > 2000
+                      ? '...' + streaming.commentaryText.slice(-1500)
+                      : streaming.commentaryText}
+                    groupJid={groupJid}
+                    variant="chat"
+                    streaming
+                  />
+                </div>
+              )}
               {streaming.partialText && (
                 <div className="max-w-none overflow-hidden text-sm [&>div>*:first-child]:!mt-0">
                   <MarkdownRenderer
@@ -285,6 +300,25 @@ function StreamingContent({
                 {item.text}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Commentary */}
+      {streaming.commentaryText && (
+        <div className="mb-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-slate-700/60 dark:bg-slate-900/40">
+          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Commentary
+          </div>
+          <div className="max-w-none overflow-hidden [&>div>*:first-child]:!mt-0">
+            <MarkdownRenderer
+              content={streaming.commentaryText.length > 3000
+                ? '...' + streaming.commentaryText.slice(-2000)
+                : streaming.commentaryText}
+              groupJid={groupJid}
+              variant="chat"
+              streaming
+            />
           </div>
         </div>
       )}
@@ -452,6 +486,7 @@ export function StreamingDisplay({ groupJid, isWaiting, senderName: senderNamePr
   // 计算是否有流式数据（含中断后冻结的 partialText）
   const hasStreamData = (streaming && (
     streaming.partialText ||
+    streaming.commentaryText ||
     streaming.thinkingText ||
     streaming.activeTools.length > 0 ||
     streaming.activeHook ||

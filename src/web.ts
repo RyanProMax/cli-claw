@@ -90,7 +90,10 @@ import {
   SESSION_COOKIE_NAME_PLAIN,
   ASSISTANT_NAME,
 } from './config.js';
-import { appendStreamTextDelta } from '../shared/dist/stream-event.js';
+import {
+  appendStreamPresentationText,
+  createEmptyStreamPresentationTextState,
+} from '../shared/dist/stream-presentation.js';
 import { logger } from './logger.js';
 import { executeSessionReset } from './commands.js';
 import {
@@ -815,6 +818,7 @@ function setupWebSocket(server: any): WebSocketServer {
         // Skip empty snapshots
         if (
           !snap.partialText &&
+          !snap.commentaryText &&
           snap.activeTools.length === 0 &&
           snap.recentEvents.length === 0
         ) {
@@ -831,6 +835,7 @@ function setupWebSocket(server: any): WebSocketServer {
               chatJid: jid,
               snapshot: {
                 partialText: snap.partialText,
+                commentaryText: snap.commentaryText,
                 activeTools: snap.activeTools,
                 recentEvents: snap.recentEvents,
                 todos: snap.todos,
@@ -1516,6 +1521,8 @@ export function broadcastTyping(chatJid: string, isTyping: boolean): void {
 interface StreamingSnapshotEntry {
   partialText: string;
   lastTextMessageUuid?: string;
+  commentaryText: string;
+  lastCommentaryMessageUuid?: string;
   activeTools: Array<{
     toolName: string;
     toolUseId: string;
@@ -1538,8 +1545,16 @@ interface StreamingSnapshotEntry {
 }
 
 const streamingSnapshots = new Map<string, StreamingSnapshotEntry>();
-/** Accumulates full (non-truncated) text per group for shutdown persistence & disk buffer. */
-const streamingFullTexts = new Map<string, string>();
+/** Accumulates full (non-truncated) answer/commentary text per group for shutdown persistence & disk buffer. */
+const streamingFullTexts = new Map<
+  string,
+  {
+    partialText: string;
+    commentaryText: string;
+    lastTextMessageUuid?: string;
+    lastCommentaryMessageUuid?: string;
+  }
+>();
 const MAX_SNAPSHOT_TEXT = 4000;
 const MAX_SNAPSHOT_EVENTS = 20;
 
@@ -1572,8 +1587,10 @@ function updateStreamingSnapshot(
   }
 
   if (!snap) {
+    const initialText = createEmptyStreamPresentationTextState();
     snap = {
-      partialText: '',
+      partialText: initialText.answerText,
+      commentaryText: initialText.commentaryText,
       activeTools: [],
       recentEvents: [],
       systemStatus: null,
@@ -1591,24 +1608,48 @@ function updateStreamingSnapshot(
   switch (event.eventType) {
     case 'text_delta':
       if (event.text) {
-        const previousMessageUuid = snap.lastTextMessageUuid;
-        const appended = appendStreamTextDelta(
-          snap.partialText,
+        const appended = appendStreamPresentationText(
+          {
+            answerText: snap.partialText,
+            commentaryText: snap.commentaryText,
+            lastAnswerMessageUuid: snap.lastTextMessageUuid,
+            lastCommentaryMessageUuid: snap.lastCommentaryMessageUuid,
+          },
           event,
-          previousMessageUuid,
+          snap.runtimeIdentity,
         );
-        snap.partialText = appended.text;
-        snap.lastTextMessageUuid = appended.lastMessageUuid;
+        snap.partialText = appended.answerText;
+        snap.commentaryText = appended.commentaryText;
+        snap.lastTextMessageUuid = appended.lastAnswerMessageUuid;
+        snap.lastCommentaryMessageUuid = appended.lastCommentaryMessageUuid;
         if (snap.partialText.length > MAX_SNAPSHOT_TEXT) {
           snap.partialText = snap.partialText.slice(-MAX_SNAPSHOT_TEXT);
         }
-        // Accumulate full (non-truncated) text for shutdown persistence
-        const fullAppended = appendStreamTextDelta(
-          streamingFullTexts.get(normalizedJid) || '',
+        if (snap.commentaryText.length > MAX_SNAPSHOT_TEXT) {
+          snap.commentaryText = snap.commentaryText.slice(-MAX_SNAPSHOT_TEXT);
+        }
+        // Accumulate full (non-truncated) answer/commentary text for shutdown persistence
+        const fullAppended = appendStreamPresentationText(
+          (() => {
+            const current = streamingFullTexts.get(normalizedJid);
+            return current
+              ? {
+                  answerText: current.partialText,
+                  commentaryText: current.commentaryText,
+                  lastAnswerMessageUuid: current.lastTextMessageUuid,
+                  lastCommentaryMessageUuid: current.lastCommentaryMessageUuid,
+                }
+              : createEmptyStreamPresentationTextState();
+          })(),
           event,
-          previousMessageUuid,
+          snap.runtimeIdentity,
         );
-        streamingFullTexts.set(normalizedJid, fullAppended.text);
+        streamingFullTexts.set(normalizedJid, {
+          partialText: fullAppended.answerText,
+          commentaryText: fullAppended.commentaryText,
+          lastTextMessageUuid: fullAppended.lastAnswerMessageUuid,
+          lastCommentaryMessageUuid: fullAppended.lastCommentaryMessageUuid,
+        });
       }
       break;
 
@@ -1697,12 +1738,19 @@ export function clearStreamingSnapshot(chatJid: string): void {
  * Return all active streaming texts with non-empty content.
  * Uses the full (non-truncated) text accumulator for shutdown persistence & disk buffer.
  */
-export function getActiveStreamingTexts(): Map<string, string> {
-  const result = new Map<string, string>();
+export function getActiveStreamingTexts(): Map<
+  string,
+  { partialText: string; commentaryText: string }
+> {
+  const result = new Map<
+    string,
+    { partialText: string; commentaryText: string }
+  >();
   for (const [jid, fullText] of streamingFullTexts) {
-    const text = fullText.trim();
-    if (text) {
-      result.set(jid, text);
+    const partialText = fullText.partialText.trim();
+    const commentaryText = fullText.commentaryText.trim();
+    if (partialText || commentaryText) {
+      result.set(jid, { partialText, commentaryText });
     }
   }
   return result;

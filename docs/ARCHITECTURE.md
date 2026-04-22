@@ -23,7 +23,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 4. 主进程写入数据库，并把请求按工作区路由到队列。
 5. 队列启动宿主机进程或 Docker 容器，再由 `agent-runner` 根据工作区 runtime 配置选择 Claude Runtime 或 Codex Runtime。
 6. runner 产生文本、思考、工具调用和任务事件，经 stdout / IPC 回到主进程。
-7. 主进程把流式事件通过 WebSocket 或 IM 通道回推给用户。
+7. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 8. 任务调度、技能安装、记忆读写和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
 
 ## 边界

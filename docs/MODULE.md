@@ -99,6 +99,7 @@
 │           └── types.ts            # runner 侧共享类型
 ├── shared/
 │   ├── stream-event.ts             # 前后端与 runner 共用的 StreamEvent 定义
+│   ├── stream-presentation.ts      # 多端共享的流式展示语义；把 answer / commentary 文本槽与 messageUuid 续写规则集中到一处
 │   └── assistant-meta-footer.ts    # 多端共享 footer 格式化
 ├── PLANS/
 │   └── _TEMPLATE.md                # 复杂任务计划模板；本地执行时复制为 ACTIVE.md
