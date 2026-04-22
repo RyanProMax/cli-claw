@@ -52,10 +52,7 @@ export interface ConnectOptions {
   /** 斜杠指令回调（如 /clear），返回回复文本或 null */
   onCommand?: (chatJid: string, command: string) => Promise<string | null>;
   /** 显式运维短语改写成受管命令（如“重启服务” -> self-restart） */
-  resolveManagedCommandText?: (
-    chatJid: string,
-    text: string,
-  ) => string | null;
+  resolveManagedCommandText?: (chatJid: string, text: string) => string | null;
   /** 根据 chatJid 解析群组 folder，用于下载文件/图片到工作区 */
   resolveGroupFolder?: (chatJid: string) => string | undefined;
   /** 将 IM chatJid 解析为绑定目标 JID（conversation agent 或工作区主对话） */
@@ -979,7 +976,17 @@ export function createFeishuConnection(
     if (slashMatch && onCommand) {
       const cmdBody = (slashMatch[1] + slashMatch[2]).trim();
       logger.info(
-        { chatJid, cmd: slashMatch[1], cmdBody },
+        {
+          chatJid,
+          cmd: slashMatch[1],
+          cmdBody,
+          messageId,
+          createTimeMs,
+          senderOpenId,
+          senderName: resolvedSenderName,
+          source,
+          chatType,
+        },
         'Feishu slash command detected',
       );
       try {
@@ -1022,7 +1029,17 @@ export function createFeishuConnection(
         : null;
     if (managedCommandText && onCommand) {
       logger.info(
-        { chatJid, managedCommandText, text: textForSlash },
+        {
+          chatJid,
+          managedCommandText,
+          text: textForSlash,
+          messageId,
+          createTimeMs,
+          senderOpenId,
+          senderName: resolvedSenderName,
+          source,
+          chatType,
+        },
         'Feishu managed command detected',
       );
       try {
@@ -1775,26 +1792,14 @@ export function createFeishuConnection(
         const prebuiltInteractiveContent =
           extractPrebuiltInteractiveCardContent(text);
         if (prebuiltInteractiveContent) {
-          const lastMsgId = lastMessageIdByChat.get(chatId);
-          let resp: unknown;
-          if (lastMsgId) {
-            resp = await client.im.message.reply({
-              path: { message_id: lastMsgId },
-              data: {
-                content: prebuiltInteractiveContent,
-                msg_type: 'interactive',
-              },
-            });
-          } else {
-            resp = await client.im.v1.message.create({
-              params: { receive_id_type: 'chat_id' },
-              data: {
-                receive_id: chatId,
-                msg_type: 'interactive',
-                content: prebuiltInteractiveContent,
-              },
-            });
-          }
+          const resp = await client.im.v1.message.create({
+            params: { receive_id_type: 'chat_id' },
+            data: {
+              receive_id: chatId,
+              msg_type: 'interactive',
+              content: prebuiltInteractiveContent,
+            },
+          });
           registerSentMessageMapping(resp, chatId);
           clearAckReaction();
           return;
@@ -1808,70 +1813,39 @@ export function createFeishuConnection(
         if (usePostMd) {
           // Too many tables for card format, go directly to post+md
           const postContent = buildPostMdFallback(text);
-          const lastMsgId = lastMessageIdByChat.get(chatId);
-          if (lastMsgId) {
-            await client.im.message.reply({
-              path: { message_id: lastMsgId },
-              data: { content: postContent, msg_type: 'post' },
+          await client.im.v1.message.create({
+            params: { receive_id_type: 'chat_id' },
+            data: {
+              receive_id: chatId,
+              msg_type: 'post',
+              content: postContent,
+            },
+          });
+        } else {
+          const card = buildInteractiveCard(text);
+          const content = JSON.stringify(card);
+          try {
+            await client.im.v1.message.create({
+              params: { receive_id_type: 'chat_id' },
+              data: {
+                receive_id: chatId,
+                msg_type: 'interactive',
+                content,
+              },
             });
-          } else {
+          } catch (err) {
+            logger.warn(
+              { err, chatId },
+              'Feishu interactive create failed, fallback to post+md',
+            );
             await client.im.v1.message.create({
               params: { receive_id_type: 'chat_id' },
               data: {
                 receive_id: chatId,
                 msg_type: 'post',
-                content: postContent,
+                content: buildPostMdFallback(text),
               },
             });
-          }
-        } else {
-          const card = buildInteractiveCard(text);
-          const content = JSON.stringify(card);
-
-          const lastMsgId = lastMessageIdByChat.get(chatId);
-          if (lastMsgId) {
-            try {
-              await client.im.message.reply({
-                path: { message_id: lastMsgId },
-                data: { content, msg_type: 'interactive' },
-              });
-            } catch (err) {
-              logger.warn(
-                { err, chatId },
-                'Feishu interactive reply failed, fallback to post+md',
-              );
-              await client.im.message.reply({
-                path: { message_id: lastMsgId },
-                data: {
-                  content: buildPostMdFallback(text),
-                  msg_type: 'post',
-                },
-              });
-            }
-          } else {
-            try {
-              await client.im.v1.message.create({
-                params: { receive_id_type: 'chat_id' },
-                data: {
-                  receive_id: chatId,
-                  msg_type: 'interactive',
-                  content,
-                },
-              });
-            } catch (err) {
-              logger.warn(
-                { err, chatId },
-                'Feishu interactive create failed, fallback to post+md',
-              );
-              await client.im.v1.message.create({
-                params: { receive_id_type: 'chat_id' },
-                data: {
-                  receive_id: chatId,
-                  msg_type: 'post',
-                  content: buildPostMdFallback(text),
-                },
-              });
-            }
           }
         }
         logger.debug({ chatId }, 'Sent Feishu card message');

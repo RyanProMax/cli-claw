@@ -65,10 +65,7 @@ export interface IMChannelConnectOpts {
    */
   onCommand?: (chatJid: string, command: string) => Promise<string | null>;
   /** Explicit operator phrases rewritten to managed commands before model execution */
-  resolveManagedCommandText?: (
-    chatJid: string,
-    text: string,
-  ) => string | null;
+  resolveManagedCommandText?: (chatJid: string, text: string) => string | null;
   /** 根据 jid 解析群组 folder，用于下载文件/图片到工作区 */
   resolveGroupFolder?: (jid: string) => string | undefined;
   /** 将 IM chatJid 解析为绑定目标 JID（conversation agent 或工作区主对话） */

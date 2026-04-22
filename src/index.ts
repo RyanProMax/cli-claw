@@ -1224,6 +1224,16 @@ async function handleCommand(
   const cmd = parsed.name;
   const rawArgs = parsed.argsText;
 
+  logger.info(
+    {
+      chatJid,
+      command: normalizedCommand,
+      cmd,
+      hasArgs: rawArgs.length > 0,
+    },
+    'IM command invoked',
+  );
+
   if (cmd === 'help' || cmd === 'model' || cmd === 'effort') {
     if (
       (cmd === 'model' || cmd === 'effort') &&
@@ -1580,6 +1590,19 @@ function handleStatusCommand(chatJid: string): string {
       ? getCodexUsageSnapshot()
       : null;
   const runtimeIdentity = runtimeTarget?.effectiveRuntimeIdentity ?? null;
+  logger.info(
+    {
+      chatJid,
+      folder: location.folder,
+      targetAgentId: group.target_agent_id ?? null,
+      active: isActive,
+      queuePosition,
+      runtimeAgentType: runtimeIdentity?.agentType ?? null,
+      runtimeModel: runtimeIdentity?.model ?? null,
+      runtimeReasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
+    },
+    'Status command rendered',
+  );
   const systemStatus = formatSystemStatus(
     {
       activeContainerCount: queueStatus.activeContainerCount,

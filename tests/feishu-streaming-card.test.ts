@@ -246,6 +246,33 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('creates standalone streaming cards without replying to the triggering Feishu message', async () => {
+    const { client, createdCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+      replyToMsgId: 'incoming-msg-1',
+    });
+
+    controller.append('First answer');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    expect(client.im.v1.message.create).toHaveBeenCalledWith({
+      params: { receive_id_type: 'chat_id' },
+      data: expect.objectContaining({
+        receive_id: 'chat-test',
+        msg_type: 'interactive',
+      }),
+    });
+    expect(client.im.message.reply).not.toHaveBeenCalled();
+
+    controller.dispose();
+  });
+
   test('builds static replies with the same schema 2 card shape as streaming cards', () => {
     expect(
       buildStaticReplyCard('# Runtime Update\n\n已切换到 `gpt-5.4`', {

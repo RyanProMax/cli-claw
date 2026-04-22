@@ -196,7 +196,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(hoisted.replySpy).not.toHaveBeenCalled();
   });
 
-  test('sends only the inner card payload when replying with a prebuilt interactive message', async () => {
+  test('sends standalone prebuilt interactive cards even when the chat has a previous inbound message', async () => {
     const connection = createFeishuConnection({
       appId: 'app-id',
       appSecret: 'app-secret',
@@ -224,13 +224,15 @@ describe('feishu connection prebuilt interactive card delivery', () => {
 
     await connection.sendMessage('chat-reply', PREBUILT_CARD_WRAPPER);
 
-    expect(hoisted.replySpy).toHaveBeenCalledWith({
-      path: { message_id: 'msg-123' },
+    expect(hoisted.createSpy).toHaveBeenCalledWith({
+      params: { receive_id_type: 'chat_id' },
       data: {
+        receive_id: 'chat-reply',
         content: EXPECTED_CARD_CONTENT,
         msg_type: 'interactive',
       },
     });
+    expect(hoisted.replySpy).not.toHaveBeenCalled();
   });
 
   test('sends slash-command interactive replies as interactive cards instead of text', async () => {
@@ -273,9 +275,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
 
   test('routes explicit managed restart phrases through the command handler before normal message storage', async () => {
     const onCommand = vi.fn().mockResolvedValue('自重启受理成功');
-    const resolveManagedCommandText = vi
-      .fn()
-      .mockReturnValue('self-restart');
+    const resolveManagedCommandText = vi.fn().mockReturnValue('self-restart');
     const connection = createFeishuConnection({
       appId: 'app-id',
       appSecret: 'app-secret',

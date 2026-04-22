@@ -998,28 +998,21 @@ class CardKitBackend {
     if (!this.cardId) {
       throw new Error('Cannot sendCard before createCard');
     }
+    void replyToMsgId;
 
     const content = JSON.stringify({
       type: 'card',
       data: { card_id: this.cardId },
     });
 
-    let resp: any;
-    if (replyToMsgId) {
-      resp = await this.client.im.message.reply({
-        path: { message_id: replyToMsgId },
-        data: { content, msg_type: 'interactive' },
-      });
-    } else {
-      resp = await this.client.im.v1.message.create({
-        params: { receive_id_type: 'chat_id' },
-        data: {
-          receive_id: chatId,
-          msg_type: 'interactive',
-          content,
-        },
-      });
-    }
+    const resp = await this.client.im.v1.message.create({
+      params: { receive_id_type: 'chat_id' },
+      data: {
+        receive_id: chatId,
+        msg_type: 'interactive',
+        content,
+      },
+    });
 
     const messageId = resp?.data?.message_id;
     if (!messageId) {
@@ -1126,24 +1119,17 @@ class StreamingModeBackend {
    */
   async sendCard(chatId: string, replyToMsgId?: string): Promise<string> {
     if (!this.cardId) throw new Error('Cannot sendCard before createCard');
+    void replyToMsgId;
 
     const content = JSON.stringify({
       type: 'card',
       data: { card_id: this.cardId },
     });
 
-    let resp: any;
-    if (replyToMsgId) {
-      resp = await this.client.im.message.reply({
-        path: { message_id: replyToMsgId },
-        data: { content, msg_type: 'interactive' },
-      });
-    } else {
-      resp = await this.client.im.v1.message.create({
-        params: { receive_id_type: 'chat_id' },
-        data: { receive_id: chatId, msg_type: 'interactive', content },
-      });
-    }
+    const resp = await this.client.im.v1.message.create({
+      params: { receive_id_type: 'chat_id' },
+      data: { receive_id: chatId, msg_type: 'interactive', content },
+    });
 
     const messageId = resp?.data?.message_id;
     if (!messageId)
@@ -2020,23 +2006,14 @@ export class StreamingCardController {
     const content = JSON.stringify(card);
 
     try {
-      let resp: any;
-
-      if (this.replyToMsgId) {
-        resp = await this.client.im.message.reply({
-          path: { message_id: this.replyToMsgId },
-          data: { content, msg_type: 'interactive' },
-        });
-      } else {
-        resp = await this.client.im.v1.message.create({
-          params: { receive_id_type: 'chat_id' },
-          data: {
-            receive_id: this.chatId,
-            msg_type: 'interactive',
-            content,
-          },
-        });
-      }
+      const resp = await this.client.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: this.chatId,
+          msg_type: 'interactive',
+          content,
+        },
+      });
 
       this.messageId = resp?.data?.message_id || null;
       if (!this.messageId) {
