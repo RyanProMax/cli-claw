@@ -756,8 +756,15 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
             cmdBody,
             opts.onCommand,
           );
-          await sendQQMessage('c2c', userOpenId, markdownToPlainText(reply));
-          return;
+          if (reply.kind === 'reply') {
+            await sendQQMessage(
+              'c2c',
+              userOpenId,
+              markdownToPlainText(reply.content),
+            );
+            return;
+          }
+          content = reply.content;
         } catch (err) {
           logger.error({ jid, err }, 'QQ slash command failed');
           await sendQQMessage('c2c', userOpenId, '命令执行失败，请稍后重试');
@@ -915,8 +922,15 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
             cmdBody,
             opts.onCommand,
           );
-          await sendQQMessage('group', groupOpenId, markdownToPlainText(reply));
-          return;
+          if (reply.kind === 'reply') {
+            await sendQQMessage(
+              'group',
+              groupOpenId,
+              markdownToPlainText(reply.content),
+            );
+            return;
+          }
+          content = reply.content;
         } catch (err) {
           logger.error({ jid, err }, 'QQ group slash command failed');
           await sendQQMessage('group', groupOpenId, '命令执行失败，请稍后重试');

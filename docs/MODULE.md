@@ -26,12 +26,14 @@
 │   ├── file-manager.ts             # 文件读写边界、系统路径保护、路径安全
 │   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区上下文解析
 │   ├── project-memory.ts           # 项目内部记忆文件名与路径 helper
+│   ├── skill-command-dispatch.ts   # skill command 声明发现、冲突检查与 executor 执行
 │   ├── im-manager.ts               # per-user IM 连接池
 │   ├── feishu.ts                   # 飞书接入与消息适配
 │   ├── telegram.ts                 # Telegram 接入与消息适配
 │   ├── qq.ts                       # QQ 接入与消息适配
 │   ├── dingtalk.ts                 # 钉钉接入与消息适配
 │   ├── wechat.ts                   # 企业微信接入与消息适配
+│   ├── im-slash-command.ts         # IM slash command 解析；支持直接回复或改写为普通消息
 │   ├── message-attachments.ts      # 图片 / 文件附件规范化
 │   ├── agent-output-parser.ts      # runner 输出解析与结果收尾
 │   ├── assistant-meta-footer.ts    # 响应时长 / 模型 / cost 等 footer 聚合

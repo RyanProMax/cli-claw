@@ -38,6 +38,8 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 - `/help` 输出
 - 本文档
 
+除内建命令外，当前工作区已启用的 skill 也可以通过 `commands.json` 声明自己的 slash command。内建命令优先；只有内建未命中时，才会继续尝试 skill command 分发。
+
 命令最终是否可用，取决于：
 
 - 当前入口：`im` / `web`
@@ -45,13 +47,19 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 
 因此 `/help` 不是静态文档回显，而是按“当前入口 + 当前工作区 runtime”动态输出真正可执行的命令列表。
 
-任何以 `/` 开头、并被入口识别为 slash command 候选的输入，都会在本地命令分发层直接消费：
+任何以 `/` 开头、并被入口识别为 slash command 候选的输入，都会先经过本地命令分发层：
 
-- 已知命令：返回 hardcode / 本地 handler 结果
+- 已知内建命令：返回 hardcode / 本地 handler 结果
+- 已声明的 skill command：执行 skill 自己声明的 executor
 - 当前入口不可用的命令：返回明确提示
 - 未知命令：返回“不支持的命令”
 
-这些 slash command 都不会再回落给 Agent 当作普通消息处理。
+skill command 的执行结果有两类：
+
+- 直接回复一段最终 markdown
+- 把 slash command 改写成一段由 skill 生成的普通用户消息，再继续进入 Agent 主流程
+
+因此，并不是所有 slash command 都会在本地层终止；skill command 可以选择把命令解析结果继续交给 Agent。
 
 ## 全局可用命令
 
@@ -69,10 +77,23 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 
 - `/model` 与 `/effort` 都是“当前工作区级”设置，会持久化到工作区 runtime 配置。
 - 当工作区未显式设置 `codex` 的模型或思考强度时，`/status`、选择卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 Codex CLI fallback（环境变量与 `~/.codex/config.toml`），避免不同入口看到不同值。
-- `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要。
+- `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
 - Web 输入框只在输入 bare `/model` 或 `/effort` 时展示选择 UI；飞书会返回对应的选择卡；不再默认在普通回复卡片 footer 常驻下拉。
 - `claude` 不支持 `reasoning_effort`；在该 runtime 下执行 `/effort` 会返回明确提示。
 - 历史的 `/model <preset>` / `/effort <preset>` 参数式交互不再作为用户命令保留。
+
+## Skill Command
+
+skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发约定如下：
+
+- 先搜索当前工作区 `.claude/skills/`，再搜索用户级同步 skill 目录；项目内 skill 可以覆盖用户级同名声明。
+- 若多个 skill 在同一搜索优先级上声明了相同命令，命令不会静默二选一，而是直接返回冲突提示。
+- executor 通过 stdin 接收 JSON payload，并通过 stdout 返回 JSON 结果。
+- 结果类型目前支持：
+  - `final_markdown`：本地直接返回最终文本
+  - `assistant_prompt`：把命令改写成一段普通用户消息，再继续走 Agent 主流程
+
+这层协议只负责“发现 + 执行 + 回填结果”，不承载任何业务特定语义。
 
 ## IM 专属命令
 
@@ -138,6 +159,8 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 可用命
 
 如果在 Web 输入框输入了已知但当前入口不可用的命令（例如 `/bind`），系统会直接返回明确提示，而不会把它当普通消息交给 Agent。
 当输入 `/model` 或 `/effort` 时，输入框上方会展示对应选项；点击后由前端发送实际切换命令。
+
+如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容。
 
 ## 运行时相关命令
 

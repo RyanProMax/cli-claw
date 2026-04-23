@@ -59,4 +59,16 @@ describe('resolveVisibleReplyText', () => {
       ),
     ).toBe('普通回复');
   });
+
+  test('strips commentary-prefixed final text when runtime identity is unavailable but commentary state exists', () => {
+    expect(
+      resolveVisibleReplyText(
+        '我会先核对招股书。\n\n## 港股 IPO 池\n\n这是最终报告。',
+        {
+          commentaryText: '我会先核对招股书。',
+        },
+        null,
+      ),
+    ).toBe(['## 港股 IPO 池', '', '这是最终报告。'].join('\n'));
+  });
 });

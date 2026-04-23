@@ -528,11 +528,18 @@ export function createWeChatConnection(
             cmdBody,
             opts.onCommand,
           );
-          const ct = contextTokenCache.get(fromUserId);
-          if (ct) {
-            await sendMessageApi(fromUserId, ct, markdownToPlainText(reply));
+          if (reply.kind === 'reply') {
+            const ct = contextTokenCache.get(fromUserId);
+            if (ct) {
+              await sendMessageApi(
+                fromUserId,
+                ct,
+                markdownToPlainText(reply.content),
+              );
+            }
+            return;
           }
-          return;
+          content = reply.content;
         } catch (err) {
           logger.error({ jid, err }, 'WeChat slash command failed');
           const ct = contextTokenCache.get(fromUserId);

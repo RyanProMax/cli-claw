@@ -428,7 +428,7 @@ export function createTelegramConnection(
             [ctx.from?.first_name, ctx.from?.last_name]
               .filter(Boolean)
               .join(' ') || 'Unknown';
-          const text = ctx.message.text;
+          let text = ctx.message.text;
 
           // ── /pair <code> command ──
           const pairMatch = text.match(/^\/pair\s+(\S+)/i);
@@ -514,8 +514,11 @@ export function createTelegramConnection(
                 cmdBody,
                 opts.onCommand,
               );
-              await ctx.reply(reply);
-              return;
+              if (reply.kind === 'reply') {
+                await ctx.reply(reply.content);
+                return;
+              }
+              text = reply.content;
             } catch (err) {
               logger.error(
                 { jid, cmd: tgSlashMatch[1], err },

@@ -135,7 +135,16 @@ import {
   applyRuntimeWorkspaceSelection,
   executeRuntimeWorkspaceCommand,
   resolveRuntimeWorkspaceTarget,
+  type ResolvedRuntimeWorkspaceTarget,
 } from './runtime-command-handler.js';
+import {
+  discoverSkillCommands,
+  executeDiscoveredSkillCommandResult,
+  formatSkillCommandHelpLines,
+  resolveSkillCommandRoots,
+  type SkillCommandDiscoveryResult,
+} from './skill-command-dispatch.js';
+import { encodeImSlashRewriteMessage } from './im-slash-command.js';
 import {
   formatUnknownRuntimeCommandReply,
   parseRuntimeCommand,
@@ -1333,8 +1342,21 @@ async function handleCommand(
   });
   if (!slashCandidate) return null;
 
+  const target = resolveRuntimeWorkspaceTarget(chatJid, {
+    getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
+    getSiblingJids: getJidsByFolder,
+    getAgent,
+  });
   const parsed = parseRuntimeCommand(normalizedCommand);
   if (!parsed) {
+    const skillReply = await maybeHandleImSkillCommand({
+      chatJid,
+      slashCandidate,
+      target,
+    });
+    if (skillReply) {
+      return skillReply;
+    }
     return formatUnknownRuntimeCommandReply(slashCandidate.rawName);
   }
 
@@ -1390,7 +1412,13 @@ async function handleCommand(
         getSessions: () => sessions,
       },
     });
-    return result.reply;
+
+    if (cmd !== 'help' || !result.reply || !target) {
+      return result.reply;
+    }
+
+    const discovered = await discoverSkillCommandsForTarget('im', target);
+    return appendSkillCommandHelp(result.reply, discovered);
   }
 
   switch (cmd) {
@@ -1426,6 +1454,98 @@ async function handleCommand(
     default:
       return null;
   }
+}
+
+function resolveSkillCommandUserId(
+  target: ResolvedRuntimeWorkspaceTarget,
+): string | null {
+  return (
+    target.workspaceGroup.created_by ??
+    target.sourceGroup.created_by ??
+    target.runtimeOwnerGroup.created_by ??
+    null
+  );
+}
+
+async function discoverSkillCommandsForTarget(
+  entrypoint: 'im' | 'web',
+  target: ResolvedRuntimeWorkspaceTarget,
+): Promise<SkillCommandDiscoveryResult> {
+  return discoverSkillCommands({
+    entrypoint,
+    roots: resolveSkillCommandRoots({
+      workspaceGroup: target.workspaceGroup,
+      homeGroup: target.runtimeOwnerGroup.is_home
+        ? target.runtimeOwnerGroup
+        : null,
+      userId: resolveSkillCommandUserId(target),
+    }),
+  });
+}
+
+function appendSkillCommandHelp(
+  baseReply: string,
+  discovered: SkillCommandDiscoveryResult,
+): string {
+  const skillLines = formatSkillCommandHelpLines(discovered.commands);
+  const sections: string[] = [baseReply];
+
+  if (skillLines.length > 0) {
+    sections.push(['技能命令：', ...skillLines].join('\n'));
+  }
+
+  if (discovered.errors.length > 0) {
+    sections.push(
+      ['技能命令冲突：', ...discovered.errors.map((line) => `- ${line}`)].join(
+        '\n',
+      ),
+    );
+  }
+
+  return sections.join('\n\n');
+}
+
+async function maybeHandleImSkillCommand(options: {
+  chatJid: string;
+  slashCandidate: NonNullable<ReturnType<typeof parseSlashCommandCandidate>>;
+  target: ResolvedRuntimeWorkspaceTarget | null;
+}): Promise<string | null> {
+  if (!options.target) return null;
+
+  const discovered = await discoverSkillCommandsForTarget('im', options.target);
+  const normalizedName = options.slashCandidate.rawName.trim().toLowerCase();
+  const conflictMessage =
+    discovered.errors.find((message) =>
+      message.includes(`/${normalizedName}`),
+    ) ?? null;
+  if (conflictMessage) {
+    return conflictMessage;
+  }
+
+  const matched = discovered.commands.find(
+    (command) => command.name === normalizedName,
+  );
+  if (!matched) return null;
+
+  const result = await executeDiscoveredSkillCommandResult({
+    commandName: normalizedName,
+    discovered,
+    entrypoint: 'im',
+    chatJid: options.chatJid,
+    argsText: options.slashCandidate.argsText,
+    args: options.slashCandidate.args,
+    workspace: {
+      jid: options.target.workspaceJid,
+      folder: options.target.workspaceGroup.folder,
+      name: options.target.workspaceGroup.name,
+    },
+  });
+
+  if (result.kind === 'assistant_prompt') {
+    return encodeImSlashRewriteMessage(result.prompt);
+  }
+
+  return result.content;
 }
 
 async function handleClearCommand(chatJid: string): Promise<string> {

@@ -790,7 +790,8 @@ function buildSchema2Card(
       formatMarkdown:
         state === 'streaming'
           ? undefined
-          : (value) => optimizeMarkdownStyle(value, 2),
+          : (value) =>
+              optimizeMarkdownStyle(normalizeStreamingMarkdown(value), 2),
     },
   );
   const displayTitle = titlePrefix ? `${titlePrefix}${title}` : title;

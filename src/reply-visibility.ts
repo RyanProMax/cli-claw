@@ -16,7 +16,12 @@ export function resolveVisibleReplyText(
   presentationText?: ReplyVisibilityPresentationText,
   runtimeIdentity?: ReplyVisibilityRuntimeIdentity | null,
 ): string {
-  if (runtimeIdentity?.agentType !== 'codex') {
+  const commentaryText = normalizeReplyText(presentationText?.commentaryText);
+  const shouldApplyCodexVisibility =
+    runtimeIdentity?.agentType === 'codex' ||
+    (!runtimeIdentity?.agentType && Boolean(commentaryText));
+
+  if (!shouldApplyCodexVisibility) {
     return rawText;
   }
 
@@ -26,7 +31,6 @@ export function resolveVisibleReplyText(
   }
 
   const normalizedRawText = normalizeReplyText(rawText);
-  const commentaryText = normalizeReplyText(presentationText?.commentaryText);
   if (
     !normalizedRawText ||
     !commentaryText ||

@@ -7,7 +7,10 @@ const hoisted = vi.hoisted(() => {
       chatJid: string,
       command: string,
       onCommand?: (chatJid: string, command: string) => Promise<string | null>,
-    ) => (await onCommand?.(chatJid, command)) ?? '',
+    ) => ({
+      kind: 'reply',
+      content: (await onCommand?.(chatJid, command)) ?? '',
+    }),
   );
   return {
     handlers,

@@ -100,12 +100,24 @@ import {
   normalizeImageAttachments,
   toAgentImages,
 } from './message-attachments.js';
-import { executeRuntimeWorkspaceCommand } from './runtime-command-handler.js';
+import {
+  executeRuntimeWorkspaceCommand,
+  resolveRuntimeWorkspaceTarget,
+  type ResolvedRuntimeWorkspaceTarget,
+} from './runtime-command-handler.js';
 import {
   formatUnknownRuntimeCommandReply,
   parseRuntimeCommand,
   parseSlashCommandCandidate,
 } from './runtime-command-registry.js';
+import {
+  discoverSkillCommands,
+  executeDiscoveredSkillCommandResult,
+  formatSkillCommandHelpLines,
+  resolveSkillCommandRoots,
+  type SkillCommandExecutionResult,
+  type SkillCommandDiscoveryResult,
+} from './skill-command-dispatch.js';
 
 // --- App Setup ---
 
@@ -289,6 +301,7 @@ async function handleWebSlashCommand(options: {
   attachments?: Array<{ type: 'image'; data: string; mimeType?: string }>;
 }): Promise<
   | { handled: false }
+  | { handled: false; rewrittenContent: string }
   | {
       handled: true;
       messageId: string;
@@ -322,18 +335,25 @@ async function handleWebSlashCommand(options: {
     normalizedAttachments.length > 0
       ? JSON.stringify(normalizedAttachments)
       : undefined;
-
-  const { messageId, timestamp } = persistImmediateMessage({
-    chatJid: displayChatJid,
-    sender: options.userId,
-    senderName: options.displayName,
-    content: options.content.trim(),
-    isFromMe: false,
-    attachments: attachmentsStr,
-    sourceKind: 'user_command',
+  const target = resolveRuntimeWorkspaceTarget(displayChatJid, {
+    getGroup: (jid) =>
+      deps!.getRegisteredGroups()[jid] ?? getRegisteredGroup(jid),
+    getSiblingJids: getJidsByFolder,
+    getAgent,
   });
 
-  const replyWithText = (text: string) => {
+  const persistCommand = () =>
+    persistImmediateMessage({
+      chatJid: displayChatJid,
+      sender: options.userId,
+      senderName: options.displayName,
+      content: options.content.trim(),
+      isFromMe: false,
+      attachments: attachmentsStr,
+      sourceKind: 'user_command',
+    });
+
+  const persistReply = (text: string) => {
     persistImmediateMessage({
       chatJid: displayChatJid,
       sender: 'cli-claw-agent',
@@ -344,28 +364,43 @@ async function handleWebSlashCommand(options: {
   };
 
   if (!parsed) {
-    replyWithText(formatUnknownRuntimeCommandReply(slashCandidate.rawName));
+    const skillResult = await maybeHandleWebSkillCommand({
+      displayChatJid,
+      slashCandidate,
+      userId: options.userId,
+      target,
+    });
+    if (skillResult?.kind === 'assistant_prompt') {
+      return { handled: false, rewrittenContent: skillResult.prompt };
+    }
+    const { messageId, timestamp } = persistCommand();
+    persistReply(
+      skillResult?.content ??
+        formatUnknownRuntimeCommandReply(slashCandidate.rawName),
+    );
     return { handled: true, messageId, timestamp };
   }
 
   if (parsed.name === 'sw') {
+    const { messageId, timestamp } = persistCommand();
     if (deps.handleSpawnCommand && parsed.argsText) {
       try {
         await deps.handleSpawnCommand(displayChatJid, parsed.argsText);
       } catch (err) {
         logger.error({ chatJid: displayChatJid, err }, '/sw command failed');
-        replyWithText('并行任务创建失败，请稍后重试');
+        persistReply('并行任务创建失败，请稍后重试');
       }
     } else {
-      replyWithText('用法: /sw <任务描述>');
+      persistReply('用法: /sw <任务描述>');
     }
     return { handled: true, messageId, timestamp };
   }
 
   if (parsed.name === 'clear') {
+    const { messageId, timestamp } = persistCommand();
     const targetGroup = getRegisteredGroup(options.chatJid);
     if (!targetGroup) {
-      replyWithText('未找到当前工作区');
+      persistReply('未找到当前工作区');
       return { handled: true, messageId, timestamp };
     }
 
@@ -383,7 +418,7 @@ async function handleWebSlashCommand(options: {
       );
     } catch (err) {
       logger.error({ chatJid: displayChatJid, err }, '/clear command failed');
-      replyWithText('清除上下文失败，请稍后重试');
+      persistReply('清除上下文失败，请稍后重试');
     }
     return { handled: true, messageId, timestamp };
   }
@@ -407,16 +442,114 @@ async function handleWebSlashCommand(options: {
   });
 
   if (runtimeResult.handled) {
+    const { messageId, timestamp } = persistCommand();
     if (runtimeResult.reply) {
-      replyWithText(runtimeResult.reply);
+      const replyText =
+        parsed.name === 'help' && target
+          ? appendSkillCommandHelp(
+              runtimeResult.reply,
+              await discoverSkillCommandsForWebTarget(target, options.userId),
+            )
+          : runtimeResult.reply;
+      persistReply(replyText);
     }
     return { handled: true, messageId, timestamp };
   }
 
-  replyWithText(
+  const { messageId, timestamp } = persistCommand();
+  persistReply(
     `当前 Web 入口不支持 /${parsed.name}，请使用 /help 查看当前可用命令`,
   );
   return { handled: true, messageId, timestamp };
+}
+
+function resolveSkillCommandUserId(
+  target: ResolvedRuntimeWorkspaceTarget,
+  fallbackUserId: string,
+): string | null {
+  return (
+    target.workspaceGroup.created_by ??
+    target.sourceGroup.created_by ??
+    fallbackUserId ??
+    null
+  );
+}
+
+async function discoverSkillCommandsForWebTarget(
+  target: ResolvedRuntimeWorkspaceTarget,
+  fallbackUserId: string,
+): Promise<SkillCommandDiscoveryResult> {
+  return discoverSkillCommands({
+    entrypoint: 'web',
+    roots: resolveSkillCommandRoots({
+      workspaceGroup: target.workspaceGroup,
+      homeGroup: target.runtimeOwnerGroup.is_home
+        ? target.runtimeOwnerGroup
+        : null,
+      userId: resolveSkillCommandUserId(target, fallbackUserId),
+    }),
+  });
+}
+
+function appendSkillCommandHelp(
+  baseReply: string,
+  discovered: SkillCommandDiscoveryResult,
+): string {
+  const skillLines = formatSkillCommandHelpLines(discovered.commands);
+  const sections: string[] = [baseReply];
+
+  if (skillLines.length > 0) {
+    sections.push(['技能命令：', ...skillLines].join('\n'));
+  }
+
+  if (discovered.errors.length > 0) {
+    sections.push(
+      ['技能命令冲突：', ...discovered.errors.map((line) => `- ${line}`)].join(
+        '\n',
+      ),
+    );
+  }
+
+  return sections.join('\n\n');
+}
+
+async function maybeHandleWebSkillCommand(options: {
+  displayChatJid: string;
+  slashCandidate: NonNullable<ReturnType<typeof parseSlashCommandCandidate>>;
+  userId: string;
+  target: ResolvedRuntimeWorkspaceTarget | null;
+}): Promise<SkillCommandExecutionResult | null> {
+  if (!options.target) return null;
+
+  const discovered = await discoverSkillCommandsForWebTarget(
+    options.target,
+    options.userId,
+  );
+  const normalizedName = options.slashCandidate.rawName.trim().toLowerCase();
+  const conflictMessage =
+    discovered.errors.find((message) =>
+      message.includes(`/${normalizedName}`),
+    ) ?? null;
+  if (conflictMessage) return { kind: 'error', content: conflictMessage };
+
+  const matched = discovered.commands.find(
+    (command) => command.name === normalizedName,
+  );
+  if (!matched) return null;
+
+  return executeDiscoveredSkillCommandResult({
+    commandName: normalizedName,
+    discovered,
+    entrypoint: 'web',
+    chatJid: options.displayChatJid,
+    argsText: options.slashCandidate.argsText,
+    args: options.slashCandidate.args,
+    workspace: {
+      jid: options.target.workspaceJid,
+      folder: options.target.workspaceGroup.folder,
+      name: options.target.workspaceGroup.name,
+    },
+  });
 }
 
 // --- handleWebUserMessage ---
@@ -464,6 +597,11 @@ async function handleWebUserMessage(
     };
   }
 
+  const contentForProcessing =
+    'rewrittenContent' in commandResult && commandResult.rewrittenContent
+      ? commandResult.rewrittenContent
+      : content;
+
   ensureChatExists(chatJid);
 
   const messageId = crypto.randomUUID();
@@ -485,7 +623,7 @@ async function handleWebUserMessage(
     chatJid,
     userId,
     displayName,
-    content,
+    contentForProcessing,
     timestamp,
     false,
     { attachments: attachmentsStr },
@@ -496,7 +634,7 @@ async function handleWebUserMessage(
     chat_jid: chatJid,
     sender: userId,
     sender_name: displayName,
-    content,
+    content: contentForProcessing,
     timestamp,
     is_from_me: false,
     attachments: attachmentsStr,
@@ -543,7 +681,7 @@ async function handleWebUserMessage(
         chat_jid: chatJid,
         sender: userId,
         sender_name: displayName,
-        content,
+        content: contentForProcessing,
         timestamp,
       },
     ],

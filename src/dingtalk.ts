@@ -1423,15 +1423,18 @@ export function createDingTalkConnection(
             cmdBody,
             opts.onCommand,
           );
-          const plainText = markdownToPlainText(reply);
-          if (data.sessionWebhook) {
-            await sendViaSessionWebhook(
-              data.sessionWebhook,
-              plainText,
-              isGroup,
-            );
+          if (reply.kind === 'reply') {
+            const plainText = markdownToPlainText(reply.content);
+            if (data.sessionWebhook) {
+              await sendViaSessionWebhook(
+                data.sessionWebhook,
+                plainText,
+                isGroup,
+              );
+            }
+            return;
           }
-          return;
+          content = reply.content;
         } catch (err) {
           logger.error({ jid, err }, 'DingTalk slash command failed');
           return;

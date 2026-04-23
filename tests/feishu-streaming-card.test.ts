@@ -246,6 +246,16 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('normalizes completed card markdown with the same block spacing used during streaming', () => {
+    const card = buildStaticReplyCard('Intro\n## Result\n- first') as any;
+    const mainMarkdown = card?.body?.elements?.find(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+
+    expect(mainMarkdown?.content).toBe('Intro\n\n##### Result\n\n- first');
+  });
+
   test('renders Codex commentary in a dedicated collapsible panel instead of the main body', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({

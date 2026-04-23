@@ -995,17 +995,20 @@ export function createFeishuConnection(
           cmdBody,
           onCommand,
         );
-        logger.info(
-          {
-            chatJid,
-            cmd: slashMatch[1],
-            hasReply: true,
-            replyLen: reply.length,
-          },
-          'Feishu slash command processed',
-        );
-        await sendTextToChat(chatId, reply);
-        return;
+        if (reply.kind === 'reply') {
+          logger.info(
+            {
+              chatJid,
+              cmd: slashMatch[1],
+              hasReply: true,
+              replyLen: reply.content.length,
+            },
+            'Feishu slash command processed',
+          );
+          await sendTextToChat(chatId, reply.content);
+          return;
+        }
+        text = reply.content;
       } catch (err) {
         logger.error(
           { chatJid, cmd: slashMatch[1], err },
