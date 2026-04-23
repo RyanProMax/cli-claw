@@ -396,7 +396,7 @@ describe('StreamingCardController footer caching', () => {
 
     expect(markdownElements).toHaveLength(1);
     expect(markdownElements[0]?.content).toBe(
-      '第一段说明当前方案。\n<br>\n第二段说明原因。\n<br>\n第三段确认下一步。',
+      '第一段说明当前方案。\n\n第二段说明原因。\n\n第三段确认下一步。',
     );
   });
 

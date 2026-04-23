@@ -113,6 +113,7 @@ import {
   getStreamingSession,
   StreamingCardController,
 } from './feishu-streaming-card.js';
+import { resolveVisibleReplyText } from './reply-visibility.js';
 import {
   buildProvisionalTokenUsage,
   normalizeStreamingStatusText,
@@ -3493,8 +3494,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               // Stop typing indicator before sending — clears the 4s refresh timer
               // so it doesn't keep firing while the agent stays alive in idle state.
               await setTyping(chatJid, false);
-              const localImagePaths = extractLocalImImagePaths(
+              const visibleText = resolveVisibleReplyText(
                 text,
+                streamingPresentationText,
+                activeRuntimeIdentity,
+              );
+              const localImagePaths = extractLocalImImagePaths(
+                visibleText,
                 effectiveGroup.folder,
               );
 
@@ -3506,9 +3512,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 try {
                   streamingSession.setRuntimeIdentity(activeRuntimeIdentity);
                   if (result.finalizationReason === 'error') {
-                    await streamingSession.fail(text);
+                    await streamingSession.fail(visibleText);
                   } else {
-                    await streamingSession.complete(text);
+                    await streamingSession.complete(visibleText);
                   }
                   streamingCardHandledIM = true;
                   // Streaming card replaced the normal sendMessage path,
@@ -3585,7 +3591,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   ? undefined // no turnId → fresh INSERT, no UPSERT dedup
                   : effectiveTurnId;
 
-              lastReplyMsgId = await sendMessage(chatJid, text, {
+              lastReplyMsgId = await sendMessage(chatJid, visibleText, {
                 sendToIM: directImReply && !skipImSend,
                 localImagePaths,
                 messageMeta: {
@@ -3607,7 +3613,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 if (!streamingCardHandledIM && !sentReply) {
                   sendImWithFailTracking(
                     replySourceImJid,
-                    text,
+                    visibleText,
                     localImagePaths,
                   );
                 }
@@ -3626,7 +3632,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   continue;
                 if (g.reply_policy !== 'mirror') continue;
                 if (getChannelType(imJid))
-                  sendImWithFailTracking(imJid, text, localImagePaths);
+                  sendImWithFailTracking(imJid, visibleText, localImagePaths);
               }
 
               sentReply = true;
@@ -6355,10 +6361,15 @@ async function processAgentConversation(
         return;
       }
       if (text) {
+        const visibleText = resolveVisibleReplyText(
+          text,
+          agentStreamingPresentationText,
+          currentAgentRuntimeIdentity,
+        );
         const isFirstReply = !lastAgentReplyMsgId;
         const msgId = crypto.randomUUID();
         lastAgentReplyMsgId = msgId;
-        lastAgentReplyText = text;
+        lastAgentReplyText = visibleText;
         const timestamp = new Date().toISOString();
         ensureChatExists(virtualChatJid);
         const persistedMsgId = storeMessageDirect(
@@ -6366,7 +6377,7 @@ async function processAgentConversation(
           virtualChatJid,
           'cli-claw-agent',
           ASSISTANT_NAME,
-          text,
+          visibleText,
           timestamp,
           true,
           {
@@ -6387,7 +6398,7 @@ async function processAgentConversation(
             chat_jid: virtualChatJid,
             sender: 'cli-claw-agent',
             sender_name: ASSISTANT_NAME,
-            content: text,
+            content: visibleText,
             timestamp,
             is_from_me: true,
             turn_id: output.turnId || lastProcessed.id,
@@ -6401,7 +6412,7 @@ async function processAgentConversation(
         );
 
         const localImagePaths = extractLocalImImagePaths(
-          text,
+          visibleText,
           effectiveGroup.folder,
         );
 
@@ -6413,9 +6424,9 @@ async function processAgentConversation(
               currentAgentRuntimeIdentity,
             );
             if (output.finalizationReason === 'error') {
-              await agentStreamingSession.fail(text);
+              await agentStreamingSession.fail(visibleText);
             } else {
-              await agentStreamingSession.complete(text);
+              await agentStreamingSession.complete(visibleText);
             }
             streamingCardHandledIM = true;
           } catch (err) {
@@ -6465,7 +6476,7 @@ async function processAgentConversation(
           // (SDK Task completions) are stored in DB but not spammed to IM.
           const imSent = await sendImWithRetry(
             replySourceImJid,
-            text,
+            visibleText,
             localImagePaths,
           );
           if (imSent) {
@@ -6475,7 +6486,7 @@ async function processAgentConversation(
                 agentId,
                 replySourceImJid,
                 sourceKind: output.sourceKind,
-                textLen: text.length,
+                textLen: visibleText.length,
               },
               'Agent conversation: static IM message sent',
             );
@@ -6503,7 +6514,7 @@ async function processAgentConversation(
             continue;
           if (g.reply_policy !== 'mirror') continue;
           if (getChannelType(imJid))
-            sendImWithFailTracking(imJid, text, localImagePaths);
+            sendImWithFailTracking(imJid, visibleText, localImagePaths);
         }
 
         commitCursor();

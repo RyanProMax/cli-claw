@@ -15,15 +15,6 @@
 
 type StreamingBlockKind = 'heading' | 'list' | 'rule' | 'fence' | 'text';
 
-type ParagraphBlockKind =
-  | 'blank'
-  | 'heading'
-  | 'list'
-  | 'rule'
-  | 'fence'
-  | 'table'
-  | 'text';
-
 /**
  * Normalize streaming Markdown for Feishu card updates.
  *
@@ -187,13 +178,6 @@ function _optimizeMarkdownStyle(text: string, cardVersion = 2): string {
     codeBlocks.forEach((block, i) => {
       r = r.replace(`${MARK}${i}___`, `\n<br>\n${block}\n<br>\n`);
     });
-
-    // ── 5b. Preserve plain prose paragraph breaks in Schema 2 cards ───────
-    // Feishu card markdown can visually collapse bare blank lines between
-    // normal text paragraphs. Convert only text↔text paragraph gaps into a
-    // single explicit `<br>` break so cards keep normal paragraph separation
-    // without inflating prose into oversized blank gaps.
-    r = preservePlainParagraphBreaks(r);
   } else {
     // ── 5. Restore code blocks (no <br>) ───────────────────────────
     codeBlocks.forEach((block, i) => {
@@ -205,34 +189,6 @@ function _optimizeMarkdownStyle(text: string, cardVersion = 2): string {
   r = r.replace(/\n{3,}/g, '\n\n');
 
   return r;
-}
-
-function getParagraphBlockKind(block: string): ParagraphBlockKind {
-  const trimmed = block.trim();
-  if (!trimmed) return 'blank';
-  if (/^```/.test(trimmed)) return 'fence';
-  if (/^#{1,6}\s+\S/.test(trimmed)) return 'heading';
-  if (/^(?:[-*+]\s+\S|\d+[.)]\s+\S)/.test(trimmed)) return 'list';
-  if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(trimmed)) return 'rule';
-  if (/^\|.+\|(?:\n\|.+\|)*$/.test(trimmed)) return 'table';
-  return 'text';
-}
-
-function preservePlainParagraphBreaks(text: string): string {
-  const blocks = text.split(/\n{2,}/);
-  if (blocks.length <= 1) return text;
-
-  let result = blocks[0] ?? '';
-  for (let i = 1; i < blocks.length; i += 1) {
-    const previous = blocks[i - 1] ?? '';
-    const current = blocks[i] ?? '';
-    const previousKind = getParagraphBlockKind(previous);
-    const currentKind = getParagraphBlockKind(current);
-    const separator =
-      previousKind === 'text' && currentKind === 'text' ? '\n<br>\n' : '\n\n';
-    result += separator + current;
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------
