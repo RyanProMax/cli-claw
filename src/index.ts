@@ -1325,10 +1325,19 @@ export function resolveMessageProcessingCursor(
 const NON_RECOVERABLE_RESTART_SOURCE_KINDS: ReadonlySet<MessageSourceKind> =
   new Set(['scheduled_task_prompt', 'user_command']);
 
+type RestartPendingMessage = Pick<NewMessage, 'sender' | 'source_kind'> & {
+  is_from_me?: boolean | number | null;
+};
+
+function hasNonRecoverableRestartSourceKind(
+  message: Pick<NewMessage, 'source_kind'>,
+): boolean {
+  const sourceKind = message.source_kind ?? null;
+  return !!(sourceKind && NON_RECOVERABLE_RESTART_SOURCE_KINDS.has(sourceKind));
+}
+
 export function isRecoverableRestartPendingMessage(
-  message: Pick<NewMessage, 'sender' | 'source_kind'> & {
-    is_from_me?: boolean | number | null;
-  },
+  message: RestartPendingMessage,
 ): boolean {
   if (message.is_from_me === true || message.is_from_me === 1) return false;
   if (
@@ -1338,8 +1347,22 @@ export function isRecoverableRestartPendingMessage(
   ) {
     return false;
   }
-  const sourceKind = message.source_kind ?? null;
-  return !(sourceKind && NON_RECOVERABLE_RESTART_SOURCE_KINDS.has(sourceKind));
+  return !hasNonRecoverableRestartSourceKind(message);
+}
+
+export function selectRecoverableRestartPendingMessages<
+  T extends RestartPendingMessage,
+>(messages: readonly T[]): T[] {
+  return messages.filter(isRecoverableRestartPendingMessage);
+}
+
+export function isRestartRecoveryHistoryMessage(
+  message: Pick<NewMessage, 'sender' | 'source_kind'>,
+): boolean {
+  if (message.sender === '__system__' || message.sender === 'system') {
+    return false;
+  }
+  return !hasNonRecoverableRestartSourceKind(message);
 }
 
 function sendSystemMessage(jid: string, type: string, detail: string): void {
@@ -3100,7 +3123,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     lastCommittedCursor,
     isRecovery,
   );
-  const missedMessages = getMessagesSince(chatJid, sinceCursor);
+  const rawMissedMessages = getMessagesSince(chatJid, sinceCursor);
+  const missedMessages = isRecovery
+    ? selectRecoverableRestartPendingMessages(rawMissedMessages)
+    : rawMissedMessages;
 
   if (missedMessages.length === 0) {
     if (isRecovery) recoveryGroups.delete(chatJid);
@@ -3167,11 +3193,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       RECOVERY_HISTORY_LIMIT,
     );
     // getMessagesPage returns DESC order; reverse to chronological, exclude
-    // the pending messages themselves (already in prompt).
+    // the pending messages themselves (already in prompt) and internal control
+    // rows that should not be replayed as recovery context.
     const pendingIds = new Set(missedMessages.map((m) => m.id));
     const historyMsgs = recentHistory
       .reverse()
-      .filter((m) => !pendingIds.has(m.id));
+      .filter((m) => !pendingIds.has(m.id))
+      .filter(isRestartRecoveryHistoryMessage);
     const recoveryContext = buildRecoveryContext(historyMsgs);
     if (recoveryContext) {
       prompt = `${recoveryContext}\n\n${prompt}`;
@@ -3189,6 +3217,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     {
       group: group.name,
       messageCount: missedMessages.length,
+      ignoredRecoveryMessageCount: isRecovery
+        ? rawMissedMessages.length - missedMessages.length
+        : 0,
       forwardedMessageCount: messagesForAgent.length,
       directImReply,
       imageCount: images.length,
@@ -7649,9 +7680,7 @@ function recoverPendingMessages(): void {
     if (!sinceCursor) continue;
 
     const pending = getMessagesSince(chatJid, sinceCursor);
-    const recoverablePending = pending.filter(
-      isRecoverableRestartPendingMessage,
-    );
+    const recoverablePending = selectRecoverableRestartPendingMessages(pending);
     if (recoverablePending.length > 0) {
       // Clear stale session to avoid "session ghost" — the agent will start
       // a fresh conversation and process the pending messages cleanly.

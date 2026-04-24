@@ -47,6 +47,7 @@ Risks / Notes / Handoff:
 - Implemented:
   - `src/db.ts` now exposes `source_kind` from `getMessagesSince()`.
   - `src/index.ts` now filters startup recovery through `isRecoverableRestartPendingMessage()`, ignoring internal scheduled prompt rows, command mirrors, and assistant/system rows.
+  - Supplemental: recovery replay now applies the same filter before formatting pending rows for the fresh agent session, so mixed internal/user pending batches only replay real inbound work.
   - `tests/restart-recovery.test.ts` covers real user/IM recovery and ignored internal rows.
 - Validation evidence:
   - `npm test -- --run tests/restart-recovery.test.ts`
@@ -58,6 +59,8 @@ Risks / Notes / Handoff:
 - Safe restart:
   - `restart-2026-04-24T15-45-15-537Z-7d38d20e` passed via `node dist/cli.js restart`.
   - Post-restart backend PID is `1823`; `/api/health` is healthy and `active_streaming_turns` is `{}`.
+  - Supplemental restart `restart-2026-04-24T15-51-48-791Z-d77107e0` passed via `node dist/cli.js restart`.
+  - Post-supplemental-restart backend PID is `5206`; `/api/health` is healthy and `active_streaming_turns` is `{}`.
 
 ## Working Rules
 
@@ -73,7 +76,7 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- Done. Restart recovery no longer injects compact history for internal scheduled prompt, command mirror, assistant, or system rows.
+- Done. Restart recovery replay now filters internal rows before formatting pending messages for a fresh session.
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -83,10 +86,10 @@ Changed files:
 - `tests/restart-recovery.test.ts`
 
 Last failure summary:
-- First review helper run failed on Prettier formatting for `src/index.ts`; fixed with Prettier and reran validation successfully.
+- First review helper run failed on Prettier formatting for `src/index.ts`; fixed with Prettier and reran validation successfully. Supplemental review helper had the same formatting-only failure and passed after Prettier.
 
 Suspected cause:
 - Internal non-user rows after the committed cursor can be misclassified as restart-recoverable pending work.
 
 Next step:
-- Commit the focused restart recovery guard fix.
+- Commit the supplemental restart recovery replay filtering fix.

@@ -303,6 +303,60 @@ describe('restart recovery cursor handling', () => {
     ).toBe(false);
   });
 
+  test('selects only recoverable rows for restart replay', async () => {
+    const { selectRecoverableRestartPendingMessages } = await loadIndexModule();
+    const pending = [
+      {
+        id: 'cmd-1',
+        sender: 'admin',
+        source_kind: 'user_command' as const,
+      },
+      {
+        id: 'task-1',
+        sender: 'autopilot',
+        source_kind: 'scheduled_task_prompt' as const,
+      },
+      {
+        id: 'user-1',
+        sender: 'ou_feishu_user',
+        source_kind: null,
+      },
+    ];
+
+    expect(
+      selectRecoverableRestartPendingMessages(pending).map((m) => m.id),
+    ).toEqual(['user-1']);
+  });
+
+  test('keeps recovery history free of internal control rows', async () => {
+    const { isRestartRecoveryHistoryMessage } = await loadIndexModule();
+
+    expect(
+      isRestartRecoveryHistoryMessage({
+        sender: 'admin',
+        source_kind: 'user_command',
+      }),
+    ).toBe(false);
+    expect(
+      isRestartRecoveryHistoryMessage({
+        sender: 'autopilot',
+        source_kind: 'scheduled_task_prompt',
+      }),
+    ).toBe(false);
+    expect(
+      isRestartRecoveryHistoryMessage({
+        sender: '__system__',
+        source_kind: null,
+      }),
+    ).toBe(false);
+    expect(
+      isRestartRecoveryHistoryMessage({
+        sender: 'cli-claw-agent',
+        source_kind: 'sdk_final',
+      }),
+    ).toBe(true);
+  });
+
   test('builds a placeholder interrupted reply when a turn was active but produced no text', async () => {
     const { buildInterruptedReply } = await loadIndexModule();
 
