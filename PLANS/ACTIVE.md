@@ -61,7 +61,7 @@ Validation:
 - `git diff --check`
 
 Status:
-- in_progress
+- done
 
 Validation status:
 - passed
@@ -71,7 +71,9 @@ Review status:
 
 Risks / Notes / Handoff:
 - Prefer freezing the card’s existing accumulated content into a completed terminal card rather than synthesizing a new visible reply string in `index.ts`.
-- Safe restart happens only after validation and review both pass.
+- Applied through the safe restart path after validation and review passed.
+- Latest restart record: `~/.cli-claw/ops/restarts/restart-2026-04-24T05-27-34-063Z-3bdb642e.json` (`status: passed`).
+- Fresh post-restart health check passed at `http://127.0.0.1:3000/api/health`.
 
 ## Working Rules
 
@@ -84,10 +86,10 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 2
+- none
 
 Current status:
-- validated, awaiting apply
+- completed, committed, and applied
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -97,14 +99,18 @@ Changed files:
 - `tests/feishu-streaming-card.test.ts`
 
 Last failure summary:
-- Reproduced and fixed. Fresh validation passed:
+- Reproduced and fixed. Fresh validation passed before apply:
   - `npm test -- tests/feishu-streaming-card.test.ts`
   - `npm run typecheck`
   - `git diff --check`
   - `./scripts/review.sh`
+- Safe restart passed:
+  - `~/.cli-claw/ops/restarts/restart-2026-04-24T05-27-34-063Z-3bdb642e.json`
+- Fresh health check passed:
+  - `curl -sS http://127.0.0.1:3000/api/health`
 
 Suspected cause:
 - Confirmed: active Feishu streaming cards were finalized only when a final visible reply existed. Success cleanup paths without visible final text fell through to `dispose()` in `finally`, leaving the card visually stuck in streaming state.
 
 Next step:
-- Commit the fix, then apply it through `cli-claw restart` so the running backend picks up the new terminal-state cleanup behavior.
+- Monitor the next Feishu completion with no final visible reply to confirm the card now freezes into a terminal state in production.
