@@ -1,14 +1,14 @@
-# Feishu Post-Restart Reply Stall
+# Shared Runner IM Reply Route Hijack
 
 ## Goal
 
-- Reproduce and fix the regression where Feishu user messages sent after a service restart are stored but do not receive an assistant reply.
-- Confirm the root cause in the post-restart consumption path instead of assuming a startup backfill gap.
+- Reproduce and fix the regression where a shared `main` runner accepts a Feishu IM turn, then a follow-up `web:main` autopilot/web turn clears the IM reply route and commits only the web cursor.
+- Ensure post-restart pending Feishu replies are not starved by shared web/autopilot work in the same folder.
 
 ## Done when
 
-- We have a focused failing test that proves the affected Feishu messages remain unconsumed because of a restart/recovery state bug in the main processing path.
-- The smallest production fix restores reply delivery for the affected post-restart Feishu messages without breaking existing restart/backfill behavior.
+- We have a focused failing regression test that proves web-originated work is deferred once an active shared runner has accepted IM-originated IPC work.
+- The minimal production fix prevents web/autopilot work from re-entering that shared runner until the IM turn is committed or the runner exits.
 - Validation and review pass for the scoped change.
 
 ## Milestones
@@ -16,20 +16,15 @@
 ### Milestone 1
 
 Objective:
-- Capture the confirmed post-restart Feishu reply stall in tests and implement the minimal fix in the pending-message / recovery path.
+- Capture the shared-runner IM/web route-hijack in tests and implement the smallest queue-side fix.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/index.ts`
-- `src/feishu.ts`
-- `src/message-notifier.ts`
 - `src/group-queue.ts`
-- `tests/restart-recovery.test.ts`
 - `tests/group-queue.test.ts`
-- `tests/feishu-connection.test.ts`
 
 Validation:
-- `npm test -- --run tests/restart-recovery.test.ts tests/group-queue.test.ts tests/feishu-connection.test.ts`
+- `npm test -- --run tests/group-queue.test.ts`
 - `npm run typecheck`
 - `./scripts/review.sh`
 - `git diff --check`
@@ -45,27 +40,26 @@ Review status:
 
 Risks / Notes / Handoff:
 - Evidence gathered on 2026-04-24 before implementation:
-  - chat `feishu:oc_98f0bb60f284627bf20f9386704f8c82` is already present in `registered_groups`, so this regression is not explained by missing startup backfill targets
-  - restart record `~/.cli-claw/ops/restarts/restart-2026-04-24T07-47-40-722Z-97405a3e.json` shows the new process was healthy by `2026-04-24T07:47:47.557Z`
-  - user messages at `2026-04-24T07:49:24.564Z` and `2026-04-24T08:00:45.023Z` were stored in `messages`, but no matching assistant reply was produced afterward
-  - the latest assistant outputs in the affected chat around restart are `interrupt_partial`, which narrowed the investigation to restart/recovery queue state instead of Feishu ingress
-- Confirmed root cause:
-  - restart recovery can leave a shared runner active for the workspace while new Feishu IM messages continue arriving
-  - `startMessageLoop()` treats a successful IPC write as handled work, advances `lastAgentTimestamp`, and marks the source chat via `queue.markIpcInjectedMessage(chatJid)`
-  - `GroupQueue.getStuckPendingGroups()` only looked at `pendingMessages`, so IPC-injected work did not count as pending and the stuck-runner watchdog never restarted the idle/hung shared runner
+  - `feishu:oc_98f0bb60f284627bf20f9386704f8c82` received a user message at `2026-04-24T08:45:11.753Z` and no assistant reply afterward.
+  - `web:main` received `[WORKSPACE_AUTOPILOT]` at `2026-04-24T08:45:11.903Z`, then stored an assistant `error` reply at `2026-04-24T08:45:12.459Z`.
+  - `router_state.last_committed_cursor` advanced `web:main` to `08:45:11.903Z` but left the Feishu chat at `08:40:53.796Z`.
+  - `router_state.active_streaming_turns` still contains the Feishu turn with `snapshotJid: "web:main"` and cursor `08:45:11.753Z`, which means the IM turn was accepted into the shared runner but never committed.
+- Root cause hypothesis:
+  - A shared web-owned runner can accept an IM IPC message and then later accept another web/autopilot IPC message before the IM turn is committed.
+  - The later web IPC clears the active IM reply route and lets the runner finish on behalf of `web:main`, so the IM cursor is left pending and the visible reply is stored only under the web chat.
 - Fix implemented:
-  - `GroupQueue.getStuckPendingGroups()` now treats `hasIpcInjectedMessages` and `ipcInjectedMessageJids` as pending work, matching the existing exit-time requeue semantics for IPC-injected chats
-  - added a regression test that covers a shared runner receiving IPC-injected work from a sibling Feishu chat
+  - `GroupQueue.sendMessage()` and `enqueueMessageCheck()` now defer web-originated work not only behind an IM-owned runner, but also behind any active shared runner that has already accepted IM-originated IPC work.
+  - `GroupQueue.drainGroup()` now lets waiting IM sibling chats run before restarting queued web/autopilot work on the same serialization key.
+  - added a regression test that reproduces `web:main` accepting Feishu IPC and verifies the follow-up web/autopilot turn stays queued until the Feishu sibling runs.
 - Validation evidence:
-  - `npm test -- --run tests/restart-recovery.test.ts tests/group-queue.test.ts tests/feishu-connection.test.ts`
+  - `npm test -- --run tests/group-queue.test.ts`
   - `npm run typecheck`
   - `./scripts/review.sh`
   - `git diff --check`
 - Review result:
-  - passed local semantic review; the change does not widen the watchdog beyond already-active shared message runners, and `activeRunnerIsTask` plus the existing idle threshold remain intact
-- Out of scope for this milestone:
-  - `/model` discovery alignment
-  - unrelated Feishu card layout/contract work unless the confirmed fix requires touching that code and the plan is updated first
+  - passed local semantic review; the change stays inside queue ordering, does not widen runtime contracts, and preserves web work by queueing it behind the IM sibling instead of dropping it.
+- Scope guard:
+  - Do not widen into restart-recovery or streaming-card code unless the queue-side fix proves insufficient and `PLANS/ACTIVE.md` is updated first.
 
 ## Working Rules
 
@@ -81,7 +75,7 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- implementation, validation, and review completed
+- implementation, validation, and review completed; pending commit and safe restart apply
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -89,10 +83,10 @@ Changed files:
 - `tests/group-queue.test.ts`
 
 Last failure summary:
-- After restart, Feishu user messages are persisted for the affected chat, but the main assistant pipeline does not produce a reply.
+- After restart, the Feishu message is stored but a near-simultaneous `web:main` autopilot turn reclaims the shared runner and the visible assistant reply lands under `web:main` instead of the IM chat.
 
 Suspected cause:
-- Fixed: the stuck-runner watchdog ignored IPC-injected work, so post-restart Feishu messages could sit behind an idle shared runner with no restart trigger.
+- Fixed: shared-runner queueing only deferred web work behind an active IM-owned runner; it still allowed web work to re-enter an active web-owned runner after that runner had already accepted IM IPC work.
 
 Next step:
-- Commit the scoped fix and apply it through the safe restart path so the next post-restart Feishu message exercises the corrected watchdog behavior.
+- Commit the scoped queue fix and apply it through the safe restart path so the next Feishu/autopilot overlap exercises the corrected ordering.

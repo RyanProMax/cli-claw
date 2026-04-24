@@ -215,6 +215,26 @@ export class GroupQueue {
     return shared as ActiveGroupState;
   }
 
+  private hasInjectedImSource(
+    state: Pick<GroupState, 'ipcInjectedMessageJids'>,
+  ) {
+    for (const jid of state.ipcInjectedMessageJids) {
+      if (getChannelType(jid) !== null) return true;
+    }
+    return false;
+  }
+
+  private hasWaitingImSibling(groupJid: string): boolean {
+    const key = this.getSerializationKey(groupJid);
+    for (const jid of this.waitingGroups) {
+      if (jid === groupJid) continue;
+      if (getChannelType(jid) === null) continue;
+      if (this.getSerializationKey(jid) !== key) continue;
+      return true;
+    }
+    return false;
+  }
+
   /**
    * Web/workspace-originated work must not hijack an active sibling IM runner.
    * Otherwise a queued `web:main` task can clear the IM reply route, turning a
@@ -223,12 +243,16 @@ export class GroupQueue {
   private shouldDeferWebWorkBehindImRunner(
     groupJid: string,
     activeRunnerJid: string | null,
+    activeState: ActiveGroupState | null = null,
   ): boolean {
-    if (!activeRunnerJid || activeRunnerJid === groupJid) return false;
-    return (
-      getChannelType(groupJid) === null &&
+    if (getChannelType(groupJid) !== null) return false;
+    if (!activeRunnerJid) return false;
+    if (
+      activeRunnerJid !== groupJid &&
       getChannelType(activeRunnerJid) !== null
-    );
+    )
+      return true;
+    return !!activeState && this.hasInjectedImSource(activeState);
   }
 
   /**
@@ -364,10 +388,17 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
 
     const activeRunner = this.findActiveRunnerFor(groupJid);
+    const activeState = this.resolveActiveState(groupJid);
     if (state.active || (activeRunner && activeRunner !== groupJid)) {
       state.pendingMessages = true;
       this.waitingGroups.add(groupJid);
-      if (!this.shouldDeferWebWorkBehindImRunner(groupJid, activeRunner)) {
+      if (
+        !this.shouldDeferWebWorkBehindImRunner(
+          groupJid,
+          activeRunner,
+          activeState,
+        )
+      ) {
         // Write _drain to the actual active runner so sibling JIDs sharing one
         // folder also unblock immediately instead of waiting for idle timeout.
         this.requestDrainForActiveRunner(
@@ -514,7 +545,7 @@ export class GroupQueue {
     const activeRunner = this.findActiveRunnerFor(groupJid);
     const state = this.resolveActiveState(groupJid);
     if (!state) return 'no_active';
-    if (this.shouldDeferWebWorkBehindImRunner(groupJid, activeRunner)) {
+    if (this.shouldDeferWebWorkBehindImRunner(groupJid, activeRunner, state)) {
       logger.debug(
         { groupJid, activeRunner },
         'Deferring web-originated IPC behind active IM runner',
@@ -1216,6 +1247,19 @@ export class GroupQueue {
     }
     if (!this.hasCapacityFor(groupJid)) {
       this.waitingGroups.add(groupJid);
+      return;
+    }
+
+    if (
+      getChannelType(groupJid) === null &&
+      state.pendingMessages &&
+      this.hasWaitingImSibling(groupJid)
+    ) {
+      // An IM sibling was re-queued from a shared runner exit. Let that IM
+      // turn commit before restarting web/autopilot work on the same folder.
+      this.waitingGroups.delete(groupJid);
+      this.waitingGroups.add(groupJid);
+      this.drainWaiting();
       return;
     }
 
