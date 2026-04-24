@@ -19,10 +19,10 @@ import { broadcastNewMessage } from './web.js';
 import { detectImageMimeType } from './image-detector.js';
 import { resolveImSlashCommandReply } from './im-slash-command.js';
 import {
+  abortStreamingSessionsForChatJid,
   buildStaticReplyCard,
   registerMessageIdMapping,
   resolveJidByMessageId,
-  getStreamingSession,
 } from './feishu-streaming-card.js';
 import { optimizeMarkdownStyle } from './feishu-markdown-style.js';
 import {
@@ -567,14 +567,7 @@ export function createFeishuConnection(
   }
 
   function abortSupersededStreamingSession(chatJid: string): void {
-    const session = getStreamingSession(chatJid);
-    if (!session?.isActive()) return;
-    session.abort('新的回复已开始').catch((err) => {
-      logger.debug(
-        { err, chatJid },
-        'Failed to abort superseded Feishu streaming session',
-      );
-    });
+    abortStreamingSessionsForChatJid(chatJid, '新的回复已开始');
   }
 
   /**
@@ -1142,12 +1135,7 @@ export function createFeishuConnection(
       addReaction(messageId, 'OnIt')
         .then((reactionId) => {
           if (reactionId) {
-            rememberReaction(
-              ackReactionByChat,
-              chatId,
-              messageId,
-              reactionId,
-            );
+            rememberReaction(ackReactionByChat, chatId, messageId, reactionId);
           }
         })
         .catch(() => {});
@@ -2114,12 +2102,7 @@ export function createFeishuConnection(
         await clearReactionsForChat(typingReactionByChat, chatId);
         const reactionId = await addReaction(lastMsgId, 'OnIt');
         if (reactionId) {
-          rememberReaction(
-            typingReactionByChat,
-            chatId,
-            lastMsgId,
-            reactionId,
-          );
+          rememberReaction(typingReactionByChat, chatId, lastMsgId, reactionId);
         }
       } else {
         await clearReactionsForChat(typingReactionByChat, chatId);

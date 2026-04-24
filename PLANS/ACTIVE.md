@@ -1,14 +1,15 @@
-# Feishu Streaming State Cleanup
+# Feishu Agent Streaming Cleanup Parity
 
 ## Goal
 
-- Fix Feishu reply-state cleanup when the same chat sends consecutive requests.
-- Old streaming cards must leave `Working on it`, and request-message `OnIt` reactions must not linger after the reply finishes.
+- Fix Feishu cleanup gaps that still exist on conversation-agent streaming paths.
+- Old agent-scoped streaming cards must leave `Working on it` when a new message arrives in the same chat.
+- Request-message `OnIt` reactions must clear when a streaming card reaches terminal state, even when the reply is handled by the Feishu streaming card instead of normal `sendMessage()`.
 
 ## Done when
 
-- A new inbound Feishu message in the same chat proactively aborts any active streaming card from the superseded reply.
-- Pending Feishu `OnIt` reactions are cleaned up correctly even when multiple requests arrive in the same chat before earlier cleanup runs.
+- A new inbound Feishu message aborts both the main-session streaming card and any agent-scoped streaming cards for the same IM chat.
+- Feishu streaming cards clear pending ack reactions on terminal transitions without relying on the caller to remember an extra cleanup step.
 - Focused regression tests cover both behaviors and pass.
 
 ## Milestones
@@ -16,13 +17,15 @@
 ### Milestone 1
 
 Objective:
-- Reproduce the two Feishu state bugs with failing tests before changing production code.
+- Reproduce the remaining agent-path cleanup gaps with failing tests before changing production code.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `tests/feishu-connection.test.ts`
+- `tests/feishu-streaming-card.test.ts`
 
 Validation:
+- `npm test -- tests/feishu-streaming-card.test.ts`
 - `npm test -- tests/feishu-connection.test.ts`
 - `git diff --check`
 
@@ -36,20 +39,27 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Root cause hypothesis 1: `ackReactionByChat` is keyed only by `chatId`, so a later request overwrites the earlier pending reaction entry and cleanup only removes the newest one.
-- Root cause hypothesis 2: a new inbound message does not proactively abort the previous active streaming card early enough in the Feishu receive path, so the old card can remain in streaming UI state.
+- Root cause hypothesis 1: Feishu receive path only aborts the exact `chatJid` session, but conversation-agent cards are registered under scoped keys like `${chatJid}#agent:${agentId}`.
+- Root cause hypothesis 2: ack reaction cleanup depends on the caller invoking `clearAckReaction()`, so conversation-agent streaming completion can miss cleanup entirely.
+- Reproduced via focused red tests:
+  - `tests/feishu-connection.test.ts` shows inbound Feishu messages never trigger scoped-session cleanup for the same base chat.
+  - `tests/feishu-streaming-card.test.ts` shows the controller never fires a terminal cleanup hook on `complete()`.
 
 ### Milestone 2
 
 Objective:
-- Implement the Feishu cleanup fix and verify the repaired state transitions.
+- Implement the agent-path cleanup fix and verify the repaired state transitions.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
+- `src/feishu-streaming-card.ts`
 - `src/feishu.ts`
+- `src/im-channel.ts`
 - `tests/feishu-connection.test.ts`
+- `tests/feishu-streaming-card.test.ts`
 
 Validation:
+- `npm test -- tests/feishu-streaming-card.test.ts`
 - `npm test -- tests/feishu-connection.test.ts`
 - `git diff --check`
 
@@ -63,7 +73,8 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Keep the fix local to Feishu state handling unless failing tests prove a broader streaming-session lifecycle bug in `src/index.ts`.
+- Keep the fix local to Feishu streaming session lifecycle unless tests show an index-level caller contract is still required.
+- Implemented locally in Feishu streaming/session adapters; no index-level caller changes were needed.
 
 ## Working Rules
 
@@ -83,14 +94,21 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
+- `src/feishu-streaming-card.ts`
 - `src/feishu.ts`
+- `src/im-channel.ts`
 - `tests/feishu-connection.test.ts`
+- `tests/feishu-streaming-card.test.ts`
 
 Last failure summary:
-- `tests/feishu-connection.test.ts` reproduced both bugs: the Feishu receive path never touched the existing streaming session on a follow-up message, and ack cleanup only deleted the most recent `OnIt` reaction for a chat.
+- Resolved. Focused validation now passes:
+  - `npm test -- tests/feishu-connection.test.ts`
+  - `npm test -- tests/feishu-streaming-card.test.ts`
+  - `git diff --check`
+  - `./scripts/review.sh` + semantic review checklist in `RUNBOOKS/Review.md`
 
 Suspected cause:
-- Feishu kept only one pending reaction handle per chat, and accepted follow-up messages did not proactively abort the previous active streaming card.
+- Confirmed: agent-scoped Feishu streaming sessions were keyed differently from the base chat JID, and terminal ack cleanup was not owned by the streaming controller itself.
 
 Next step:
-- Commit the Feishu cleanup fix; then apply it through the safe restart path so the running service picks up the new receive/cleanup behavior.
+- Commit the fix, then apply it through the safe restart path so the running service picks up the updated Feishu cleanup behavior.

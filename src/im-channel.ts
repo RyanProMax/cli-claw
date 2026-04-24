@@ -305,6 +305,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         chatId,
         replyToMsgId: inner.getLastMessageId(chatId),
         onCardCreated,
+        onTerminal: () => inner?.clearAckReaction(chatId),
       };
       return new StreamingCardController(opts);
     },

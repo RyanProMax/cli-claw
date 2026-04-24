@@ -57,6 +57,8 @@ export interface StreamingCardOptions {
   onFallback?: () => void;
   /** Called when the initial card is created and messageId is available */
   onCardCreated?: (messageId: string) => void;
+  /** Called when the card reaches a terminal state (completed / aborted). */
+  onTerminal?: () => void;
 }
 
 // ─── Code-Block-Safe Splitting ───────────────────────────────
@@ -1605,6 +1607,7 @@ export class StreamingCardController {
   private readonly replyToMsgId?: string;
   private readonly onFallback?: () => void;
   private readonly onCardCreated?: (messageId: string) => void;
+  private readonly onTerminal?: () => void;
 
   // CardKit mode
   private useCardKit = false;
@@ -1640,6 +1643,7 @@ export class StreamingCardController {
     this.replyToMsgId = opts.replyToMsgId;
     this.onFallback = opts.onFallback;
     this.onCardCreated = opts.onCardCreated;
+    this.onTerminal = opts.onTerminal;
     this.flushCtrl = new FlushController();
   }
 
@@ -1966,6 +1970,7 @@ export class StreamingCardController {
       } else if (this.messageId || this.multiCard) {
         await this.patchCard(finalState);
       }
+      this.onTerminal?.();
     } catch (err) {
       // Revert state so abort() doesn't bail on the terminal-state check
       this.state = prevState;
@@ -2089,6 +2094,8 @@ export class StreamingCardController {
         );
       }
     }
+
+    this.onTerminal?.();
   }
 
   dispose(): void {
@@ -2715,6 +2722,25 @@ export function getStreamingSession(
   chatJid: string,
 ): StreamingCardController | undefined {
   return activeSessions.get(chatJid);
+}
+
+export function abortStreamingSessionsForChatJid(
+  chatJid: string,
+  reason = '新的回复已开始',
+): void {
+  const scopedPrefix = `${chatJid}#`;
+  for (const [sessionJid, session] of activeSessions.entries()) {
+    if (sessionJid !== chatJid && !sessionJid.startsWith(scopedPrefix)) {
+      continue;
+    }
+    if (!session.isActive()) continue;
+    session.abort(reason).catch((err) => {
+      logger.debug(
+        { err, chatJid: sessionJid, baseChatJid: chatJid },
+        'Failed to abort scoped streaming session for chat',
+      );
+    });
+  }
 }
 
 /**

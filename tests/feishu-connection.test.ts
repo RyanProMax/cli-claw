@@ -24,6 +24,7 @@ const hoisted = vi.hoisted(() => {
     reactionDeleteSpy: vi.fn().mockResolvedValue({}),
     resolveJidByMessageIdSpy: vi.fn(),
     registerMessageIdMappingSpy: vi.fn(),
+    abortStreamingSessionsForChatJidSpy: vi.fn(),
     getStreamingSessionSpy: vi.fn(() => null),
     wsStartSpy: vi.fn().mockResolvedValue(undefined),
     wsCloseSpy: vi.fn().mockResolvedValue(undefined),
@@ -133,6 +134,7 @@ vi.mock('../src/feishu-streaming-card.js', () => ({
     schema: '2.0',
     body: { text },
   })),
+  abortStreamingSessionsForChatJid: hoisted.abortStreamingSessionsForChatJidSpy,
   resolveJidByMessageId: hoisted.resolveJidByMessageIdSpy,
   registerMessageIdMapping: hoisted.registerMessageIdMappingSpy,
   getStreamingSession: hoisted.getStreamingSessionSpy,
@@ -172,6 +174,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.reactionDeleteSpy.mockClear();
     hoisted.resolveJidByMessageIdSpy.mockReset();
     hoisted.registerMessageIdMappingSpy.mockClear();
+    hoisted.abortStreamingSessionsForChatJidSpy.mockReset();
     hoisted.getStreamingSessionSpy.mockReset();
     hoisted.getStreamingSessionSpy.mockReturnValue(null);
     hoisted.wsStartSpy.mockClear();
@@ -368,13 +371,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     );
   });
 
-  test('aborts an active streaming session when a new message is accepted in the same chat', async () => {
-    const abortSpy = vi.fn().mockResolvedValue(undefined);
-    hoisted.getStreamingSessionSpy.mockReturnValue({
-      isActive: () => true,
-      abort: abortSpy,
-    });
-
+  test('aborts all streaming sessions for the same chat when a new message is accepted', async () => {
     const connection = createFeishuConnection({
       appId: 'app-id',
       appSecret: 'app-secret',
@@ -400,10 +397,10 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       },
     });
 
-    expect(hoisted.getStreamingSessionSpy).toHaveBeenCalledWith(
+    expect(hoisted.abortStreamingSessionsForChatJidSpy).toHaveBeenCalledWith(
       'feishu:oc_same_chat',
+      '新的回复已开始',
     );
-    expect(abortSpy).toHaveBeenCalledWith('新的回复已开始');
   });
 
   test('clears every pending ack reaction when multiple requests arrive before reply delivery', async () => {

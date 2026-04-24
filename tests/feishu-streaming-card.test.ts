@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
+import * as feishuStreamingCard from '../src/feishu-streaming-card.ts';
 import {
   buildRuntimeSelectionCard,
   buildStaticReplyCard,
@@ -837,5 +838,62 @@ describe('StreamingCardController footer caching', () => {
 
     expect(resolveJidByMessageId('old-msg')).toBeUndefined();
     unregisterStreamingSession('feishu:room');
+  });
+
+  test('aborts agent-scoped streaming sessions when the base Feishu chat is superseded', async () => {
+    const mainAbort = vi.fn().mockResolvedValue(undefined);
+    const agentAbort = vi.fn().mockResolvedValue(undefined);
+    const otherAbort = vi.fn().mockResolvedValue(undefined);
+
+    registerStreamingSession('feishu:room', {
+      isActive: () => true,
+      abort: mainAbort,
+      getAllMessageIds: () => [],
+    } as any);
+    registerStreamingSession('feishu:room#agent:agent-1', {
+      isActive: () => true,
+      abort: agentAbort,
+      getAllMessageIds: () => [],
+    } as any);
+    registerStreamingSession('feishu:other#agent:agent-2', {
+      isActive: () => true,
+      abort: otherAbort,
+      getAllMessageIds: () => [],
+    } as any);
+
+    const abortForChat = (feishuStreamingCard as any)
+      .abortStreamingSessionsForChatJid;
+    expect(typeof abortForChat).toBe('function');
+
+    if (typeof abortForChat === 'function') {
+      abortForChat('feishu:room', '新的回复已开始');
+    }
+
+    expect(mainAbort).toHaveBeenCalledWith('新的回复已开始');
+    expect(agentAbort).toHaveBeenCalledWith('新的回复已开始');
+    expect(otherAbort).not.toHaveBeenCalled();
+
+    unregisterStreamingSession('feishu:room');
+    unregisterStreamingSession('feishu:room#agent:agent-1');
+    unregisterStreamingSession('feishu:other#agent:agent-2');
+  });
+
+  test('invokes terminal cleanup hooks when the streaming card completes', async () => {
+    const onTerminal = vi.fn();
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+      onTerminal,
+    } as any);
+
+    (controller as any).state = 'streaming';
+    (controller as any).backendMode = 'legacy';
+    (controller as any).messageId = null;
+
+    await controller.complete('final answer');
+
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+
+    controller.dispose();
   });
 });
