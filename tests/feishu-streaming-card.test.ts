@@ -10,6 +10,7 @@ import {
   StreamingCardController,
   unregisterStreamingSession,
 } from '../src/feishu-streaming-card.ts';
+import { resolveVisibleReplyParts } from '../src/reply-visibility.ts';
 import { formatToolStepLine } from '../src/tool-step-display.ts';
 
 function createStreamingModeClient() {
@@ -1049,6 +1050,65 @@ describe('StreamingCardController footer caching', () => {
     );
 
     expect(mainMarkdown?.content).toBe('最终结论');
+    expect(commentaryPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: false,
+      elements: [
+        {
+          tag: 'markdown',
+          content: '先收集上下文',
+          text_size: 'notation',
+        },
+      ],
+    });
+
+    controller.dispose();
+  });
+
+  test('strips commentary-prefixed terminal text while preserving the commentary panel', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.append('流式正文');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    const presentationText = {
+      answerText: '',
+      commentaryText: '先收集上下文',
+    };
+    const visibleReplyParts = resolveVisibleReplyParts(
+      '先收集上下文\n\n## 最终结论\n\n正文',
+      presentationText,
+      { agentType: 'codex' },
+    );
+    controller.appendCommentary(visibleReplyParts.commentaryText);
+    await controller.complete(visibleReplyParts.visibleText);
+
+    await vi.waitFor(() => {
+      expect(updatedCards.length).toBeGreaterThan(0);
+    });
+
+    const finalCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const commentaryPanel = (finalCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💬 Commentary',
+    );
+    const mainMarkdown = (finalCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+
+    expect(finalCard?.config?.summary?.content).toBe('最终结论');
+    expect(mainMarkdown?.content).toBe('正文');
+    expect(JSON.stringify(mainMarkdown)).not.toContain('先收集上下文');
     expect(commentaryPanel).toMatchObject({
       tag: 'collapsible_panel',
       expanded: false,

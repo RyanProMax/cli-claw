@@ -68,6 +68,7 @@
   - `tests/stream-presentation.test.ts`
   - `tests/chat-streaming-store.test.ts`
   - `tests/feishu-streaming-card.test.ts`
+  - 2026-04-24 card-layering fix: Feishu streaming body uses cumulative stream text, terminal cards sync commentary into a dedicated panel, and Codex process-prefix leakage before Markdown report headings is stripped from final body
 - Next action:
   - 继续补足 interrupted/static-reply/发送失败路径的 contract coverage，确保内部进度内容不会通过其他出口再泄露到 Feishu，且 Feishu API 失败不会被当作已送达回复提交游标
 

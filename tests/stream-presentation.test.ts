@@ -1,6 +1,9 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { feedStreamEventToCard } from '../src/index.ts';
+import {
+  feedStreamEventToCard,
+  syncTerminalPresentationTextToCard,
+} from '../src/index.ts';
 import {
   appendStreamPresentationText,
   createEmptyStreamPresentationTextState,
@@ -85,12 +88,13 @@ describe('stream presentation', () => {
     expect(third).toMatchObject({
       answerText: '最终结论\n\n- 已完成',
       commentaryText: '先收集上下文',
+      streamText: '先收集上下文\n\n最终结论\n\n- 已完成',
       lastAnswerMessageUuid: 'msg-2',
       lastCommentaryMessageUuid: 'msg-1',
     });
   });
 
-  test('feeds Codex text deltas into both commentary and answer slots for Feishu cards', () => {
+  test('feeds Codex text deltas into the answer slot during Feishu streaming', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -122,6 +126,7 @@ describe('stream presentation', () => {
       {
         answerText: '最终结论',
         commentaryText: '先收集上下文',
+        streamText: '先收集上下文\n\n最终结论',
       },
     );
 
@@ -131,7 +136,22 @@ describe('stream presentation', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     });
+    expect(session.appendCommentary).not.toHaveBeenCalled();
+    expect(session.append).toHaveBeenCalledWith(
+      '先收集上下文\n\n最终结论',
+    );
+  });
+
+  test('syncs Codex commentary to Feishu cards only at terminal state', () => {
+    const session = {
+      appendCommentary: vi.fn(),
+    } as any;
+
+    syncTerminalPresentationTextToCard(session, {
+      answerText: '最终结论',
+      commentaryText: '先收集上下文',
+    });
+
     expect(session.appendCommentary).toHaveBeenCalledWith('先收集上下文');
-    expect(session.append).toHaveBeenCalledWith('最终结论');
   });
 });

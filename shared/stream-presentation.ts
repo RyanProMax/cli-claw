@@ -9,8 +9,10 @@ export type StreamPresentationTextChannel = 'answer' | 'commentary';
 export interface StreamPresentationTextState {
   answerText: string;
   commentaryText: string;
+  streamText?: string;
   lastAnswerMessageUuid?: string;
   lastCommentaryMessageUuid?: string;
+  lastStreamMessageUuid?: string;
 }
 
 export function createEmptyStreamPresentationTextState(): StreamPresentationTextState {
@@ -101,30 +103,41 @@ export function appendStreamPresentationText(
     return current;
   }
 
+  const streamAppended = appendStreamTextDelta(
+    current.streamText || '',
+    event,
+    current.lastStreamMessageUuid,
+  );
+  const currentWithStreamText = {
+    ...current,
+    streamText: streamAppended.text,
+    lastStreamMessageUuid: streamAppended.lastMessageUuid,
+  };
+
   if (resolvedRuntimeIdentity?.agentType === 'codex') {
-    return appendCodexPresentationText(current, event);
+    return appendCodexPresentationText(currentWithStreamText, event);
   }
 
   if (channel === 'commentary') {
     const appended = appendStreamTextDelta(
-      current.commentaryText,
+      currentWithStreamText.commentaryText,
       event,
-      current.lastCommentaryMessageUuid,
+      currentWithStreamText.lastCommentaryMessageUuid,
     );
     return {
-      ...current,
+      ...currentWithStreamText,
       commentaryText: appended.text,
       lastCommentaryMessageUuid: appended.lastMessageUuid,
     };
   }
 
   const appended = appendStreamTextDelta(
-    current.answerText,
+    currentWithStreamText.answerText,
     event,
-    current.lastAnswerMessageUuid,
+    currentWithStreamText.lastAnswerMessageUuid,
   );
   return {
-    ...current,
+    ...currentWithStreamText,
     answerText: appended.text,
     lastAnswerMessageUuid: appended.lastMessageUuid,
   };

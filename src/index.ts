@@ -113,7 +113,7 @@ import {
   getStreamingSession,
   StreamingCardController,
 } from './feishu-streaming-card.js';
-import { resolveVisibleReplyText } from './reply-visibility.js';
+import { resolveVisibleReplyParts } from './reply-visibility.js';
 import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
 import { appendActivePlanProgressFromFile } from './active-plan-progress.js';
 import {
@@ -312,11 +312,10 @@ export function feedStreamEventToCard(
     case 'text_delta':
       if (se.text) {
         if (se.runtimeIdentity?.agentType === 'codex') {
-          if (presentationText.commentaryText) {
-            session.appendCommentary(presentationText.commentaryText);
-          }
-          if (presentationText.answerText) {
-            session.append(presentationText.answerText);
+          const streamingBodyText =
+            presentationText.streamText || presentationText.answerText;
+          if (streamingBodyText) {
+            session.append(streamingBodyText);
           }
           break;
         }
@@ -414,6 +413,18 @@ export function feedStreamEventToCard(
     case 'init':
       // Internal signal, no card display needed
       break;
+  }
+}
+
+export function syncTerminalPresentationTextToCard(
+  session: StreamingCardController,
+  presentationText: StreamPresentationTextState,
+  commentaryTextOverride?: string,
+): void {
+  const commentaryText =
+    commentaryTextOverride ?? presentationText.commentaryText;
+  if (commentaryText.trim()) {
+    session.appendCommentary(commentaryText);
   }
 }
 
@@ -3475,6 +3486,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                       activeRuntimeIdentity,
                       provisionalUsage,
                     ).catch(() => {});
+                    syncTerminalPresentationTextToCard(
+                      activeStreamingSession,
+                      streamingPresentationText,
+                    );
                     await activeStreamingSession
                       .abort('已中断')
                       .catch(() => {});
@@ -3771,12 +3786,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               // Stop typing indicator before sending — clears the 4s refresh timer
               // so it doesn't keep firing while the agent stays alive in idle state.
               await setTyping(chatJid, false);
+              const visibleReplyParts = resolveVisibleReplyParts(
+                text,
+                streamingPresentationText,
+                activeRuntimeIdentity,
+              );
               const visibleText = decorateTaskReplyText(
-                resolveVisibleReplyText(
-                  text,
-                  streamingPresentationText,
-                  activeRuntimeIdentity,
-                ),
+                visibleReplyParts.visibleText,
                 result.sourceKind || 'sdk_final',
                 chatJid,
               );
@@ -3800,6 +3816,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                     activeRuntimeIdentity,
                     buildProvisionalTokenUsage(agentRunStartedAt),
                   ).catch(() => {});
+                  syncTerminalPresentationTextToCard(
+                    activeStreamingSession,
+                    streamingPresentationText,
+                    visibleReplyParts.commentaryText,
+                  );
                   if (result.finalizationReason === 'error') {
                     await activeStreamingSession.fail(visibleText);
                   } else {
@@ -3962,6 +3983,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     const activeStreamingSession = streamingSession;
     if (activeStreamingSession) {
       if (activeStreamingSession.isActive()) {
+        syncTerminalPresentationTextToCard(
+          activeStreamingSession,
+          streamingPresentationText,
+        );
         if (hadError || !output || output.status === 'error') {
           await activeStreamingSession.abort('处理出错').catch(() => {});
         } else if (wasInterrupted) {
@@ -6605,6 +6630,10 @@ async function processAgentConversation(
                 currentAgentRuntimeIdentity,
                 provisionalUsage,
               ).catch(() => {});
+              syncTerminalPresentationTextToCard(
+                activeAgentStreamingSession,
+                agentStreamingPresentationText,
+              );
               await activeAgentStreamingSession.abort('已中断').catch(() => {});
             }
             const msgId = crypto.randomUUID();
@@ -6738,12 +6767,13 @@ async function processAgentConversation(
         return;
       }
       if (text) {
+        const visibleReplyParts = resolveVisibleReplyParts(
+          text,
+          agentStreamingPresentationText,
+          currentAgentRuntimeIdentity,
+        );
         const visibleText = decorateTaskReplyText(
-          resolveVisibleReplyText(
-            text,
-            agentStreamingPresentationText,
-            currentAgentRuntimeIdentity,
-          ),
+          visibleReplyParts.visibleText,
           output.sourceKind || 'sdk_final',
           virtualChatJid,
         );
@@ -6811,6 +6841,11 @@ async function processAgentConversation(
               currentAgentRuntimeIdentity,
               buildProvisionalTokenUsage(agentConversationStartedAt),
             ).catch(() => {});
+            syncTerminalPresentationTextToCard(
+              activeAgentStreamingSession,
+              agentStreamingPresentationText,
+              visibleReplyParts.commentaryText,
+            );
             if (output.finalizationReason === 'error') {
               await activeAgentStreamingSession.fail(visibleText);
             } else {
@@ -7088,6 +7123,10 @@ async function processAgentConversation(
     const activeAgentStreamingSession = agentStreamingSession;
     if (activeAgentStreamingSession) {
       if (activeAgentStreamingSession.isActive()) {
+        syncTerminalPresentationTextToCard(
+          activeAgentStreamingSession,
+          agentStreamingPresentationText,
+        );
         if (hadError) {
           await activeAgentStreamingSession.abort('处理出错').catch(() => {});
         } else if (wasInterrupted) {

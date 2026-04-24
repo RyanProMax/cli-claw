@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { resolveVisibleReplyText } from '../src/reply-visibility.ts';
+import {
+  resolveVisibleReplyParts,
+  resolveVisibleReplyText,
+} from '../src/reply-visibility.ts';
 
 describe('resolveVisibleReplyText', () => {
   test('strips leading Codex commentary when it leaks into the final reply body', () => {
@@ -70,5 +73,18 @@ describe('resolveVisibleReplyText', () => {
         null,
       ),
     ).toBe(['## 港股 IPO 池', '', '这是最终报告。'].join('\n'));
+  });
+
+  test('infers a short Codex process prefix before a markdown report heading as commentary', () => {
+    const rawText =
+      '我按 `stock-analysis-skill` 先联网核验当前 IPO 池。# 港股 IPO 池跟踪\n\n正文';
+
+    expect(
+      resolveVisibleReplyParts(rawText, {}, { agentType: 'codex' }),
+    ).toEqual({
+      visibleText: '# 港股 IPO 池跟踪\n\n正文',
+      commentaryText:
+        '我按 `stock-analysis-skill` 先联网核验当前 IPO 池。',
+    });
   });
 });
