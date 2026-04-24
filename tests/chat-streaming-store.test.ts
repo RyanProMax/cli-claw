@@ -154,7 +154,7 @@ describe('chat streaming store', () => {
     expect(next?.partialText).toBe('first update\n\nsecond update');
   });
 
-  test('routes codex text deltas into commentary text instead of the answer slot', () => {
+  test('keeps the latest codex assistant message in partialText and moves earlier messages into commentaryText', () => {
     useChatStore.setState((state) => ({
       ...state,
       groups: {
@@ -183,12 +183,25 @@ describe('chat streaming store', () => {
         supportsReasoningEffort: true,
       },
     });
+    useChatStore.getState().handleStreamEvent('web:proj-home', {
+      eventType: 'text_delta',
+      text: '最终结论',
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      messageUuid: 'msg-2',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'gpt-5.4',
+        reasoningEffort: 'high',
+        supportsReasoningEffort: true,
+      },
+    });
 
     flushAnimationFrames();
 
     const next = useChatStore.getState().streaming['web:proj-home'];
     expect(next?.commentaryText).toBe('先收集上下文');
-    expect(next?.partialText).toBe('');
+    expect(next?.partialText).toBe('最终结论');
   });
 
   test('clears orphaned streaming residue on restore when backend no longer has an active runner', async () => {

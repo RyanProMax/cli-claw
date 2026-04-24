@@ -62,10 +62,14 @@
 - Summary: 飞书对外消息必须严格区分用户可见回复与内部 commentary / tool steps，补足端到端契约测试
 - Evidence:
   - real-world issue observed on 2026-04-24
+  - `shared/stream-presentation.ts`
   - `src/feishu-streaming-card.ts`
+  - `src/index.ts`
+  - `tests/stream-presentation.test.ts`
+  - `tests/chat-streaming-store.test.ts`
   - `tests/feishu-streaming-card.test.ts`
 - Next action:
-- 继续补足 interrupted/static-reply 路径的 contract coverage，确保内部进度内容不会通过其他出口再泄露到 Feishu
+  - 继续补足 interrupted/static-reply 路径的 contract coverage，确保内部进度内容不会通过其他出口再泄露到 Feishu
 
 ### RM-2026-04-24-06 Minimal Necessary Reply Policy
 

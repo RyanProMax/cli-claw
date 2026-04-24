@@ -984,11 +984,127 @@ describe('StreamingCardController footer caching', () => {
       expect(updatedCards.length).toBeGreaterThan(0);
     });
 
-    const finalCardJson = JSON.stringify(updatedCards.at(-1) ?? createdCards.at(-1));
+    const finalCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const finalCardJson = JSON.stringify(finalCard);
+    const commentaryPanel = (finalCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💬 Commentary',
+    );
+
     expect(finalCardJson).toContain('已处理');
     expect(finalCardJson).not.toContain('steps');
     expect(finalCardJson).not.toContain('git status --short');
     expect(finalCardJson).not.toContain('exec_command');
+    expect(commentaryPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: false,
+      elements: [
+        {
+          tag: 'markdown',
+          content: '先收集上下文',
+          text_size: 'notation',
+        },
+      ],
+    });
+
+    controller.dispose();
+  });
+
+  test('keeps commentary in a dedicated terminal panel when completion provides explicit final text', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.appendCommentary('先收集上下文');
+    controller.append('流式正文');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await controller.complete('最终结论');
+
+    await vi.waitFor(() => {
+      expect(updatedCards.length).toBeGreaterThan(0);
+    });
+
+    const finalCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const commentaryPanel = (finalCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💬 Commentary',
+    );
+    const mainMarkdown = (finalCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+
+    expect(mainMarkdown?.content).toBe('最终结论');
+    expect(commentaryPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: false,
+      elements: [
+        {
+          tag: 'markdown',
+          content: '先收集上下文',
+          text_size: 'notation',
+        },
+      ],
+    });
+
+    controller.dispose();
+  });
+
+  test('renders a terminal completion fallback instead of literal ellipsis when no answer text exists', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.appendCommentary('先检查 restart intent');
+    controller.startTool('tool-1', 'exec_command');
+    controller.updateToolSummary('tool-1', 'cli-claw restart');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await (controller as any).completeWithCurrentText();
+
+    await vi.waitFor(() => {
+      expect(updatedCards.length).toBeGreaterThan(0);
+    });
+
+    const finalCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const markdownContents = (finalCard?.body?.elements ?? [])
+      .filter((element: any) => element?.tag === 'markdown')
+      .map((element: any) => element.content);
+    const commentaryPanel = (finalCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💬 Commentary',
+    );
+
+    expect(markdownContents).toContain('*已完成*');
+    expect(markdownContents).not.toContain('...');
+    expect(JSON.stringify(finalCard)).not.toContain('cli-claw restart');
+    expect(commentaryPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: false,
+      elements: [
+        {
+          tag: 'markdown',
+          content: '先检查 restart intent',
+          text_size: 'notation',
+        },
+      ],
+    });
 
     controller.dispose();
   });

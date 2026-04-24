@@ -232,6 +232,7 @@ type CardBodySegment =
 
 interface CardContentOptions {
   formatMarkdown?: (text: string) => string;
+  emptyContentFallback?: string;
 }
 
 const DETAILS_BLOCK_RE =
@@ -319,6 +320,7 @@ function buildCardContent(
   const title = overrideTitle || resolveCardTitle(extractedTitle, segments);
   const elements: Array<Record<string, unknown>> = [];
   const formatMarkdown = options.formatMarkdown || ((value: string) => value);
+  const emptyContentFallback = options.emptyContentFallback || '...';
 
   const markdownSegments: CardBodySegment[] =
     segments.length > 0
@@ -357,7 +359,7 @@ function buildCardContent(
   if (elements.length === 0) {
     elements.push({
       tag: 'markdown',
-      content: formatMarkdown(text.trim() || '...'),
+      content: formatMarkdown(text.trim() || emptyContentFallback),
       text_size: 'normal_text',
     });
   }
@@ -725,6 +727,10 @@ function buildStreamingCard(
   const { title, contentElements: elements } = buildCardContent(
     text,
     splitAtParagraphs,
+    undefined,
+    {
+      emptyContentFallback: state === 'completed' ? '*已完成*' : undefined,
+    },
   );
 
   const noteMap = {
@@ -791,6 +797,7 @@ function buildSchema2Card(
     splitCodeBlockSafe,
     overrideTitle,
     {
+      emptyContentFallback: state === 'completed' ? '*已完成*' : undefined,
       formatMarkdown:
         state === 'streaming'
           ? undefined
@@ -1968,7 +1975,6 @@ export class StreamingCardController {
     const prevState = this.state;
     this.settleAuxiliaryState({
       dropThinkingText: finalState === 'aborted',
-      dropCommentaryText: finalState === 'completed',
       dropToolCalls: finalState === 'completed',
     });
     this.accumulatedText = finalText;

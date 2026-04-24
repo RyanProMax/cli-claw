@@ -311,6 +311,15 @@ export function feedStreamEventToCard(
   switch (se.eventType) {
     case 'text_delta':
       if (se.text) {
+        if (se.runtimeIdentity?.agentType === 'codex') {
+          if (presentationText.commentaryText) {
+            session.appendCommentary(presentationText.commentaryText);
+          }
+          if (presentationText.answerText) {
+            session.append(presentationText.answerText);
+          }
+          break;
+        }
         const channel = classifyStreamPresentationTextChannel(
           se,
           se.runtimeIdentity,
