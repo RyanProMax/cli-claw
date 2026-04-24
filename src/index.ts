@@ -950,6 +950,28 @@ function resolveEffectiveGroup(group: RegisteredGroup): {
   return { effectiveGroup: group, isHome: false };
 }
 
+function findUncommittedImSiblingForWebWork(groupJid: string): string | null {
+  const baseJid = stripVirtualJidSuffix(groupJid);
+  if (getChannelType(baseJid) !== null) return null;
+
+  const group = registeredGroups[baseJid] ?? getRegisteredGroup(baseJid);
+  if (!group) return null;
+
+  for (const siblingJid of getJidsByFolder(group.folder)) {
+    if (siblingJid === baseJid) continue;
+    if (getChannelType(siblingJid) === null) continue;
+
+    const acceptedCursor = lastAgentTimestamp[siblingJid];
+    const committedCursor = lastCommittedCursor[siblingJid];
+    if (!acceptedCursor || !committedCursor) continue;
+    if (!isCursorAfter(acceptedCursor, committedCursor)) continue;
+    if (getMessagesSince(siblingJid, committedCursor).length === 0) continue;
+    return siblingJid;
+  }
+
+  return null;
+}
+
 /**
  * Materialize the CLI launch cwd into any persisted host workspace missing customCwd.
  * Keeps the host default explicit in the database instead of relying on an in-memory fallback.
@@ -9042,6 +9064,7 @@ export async function startCliClaw(
     const group = registeredGroups[groupJid];
     return group?.folder || groupJid;
   });
+  queue.setPendingImSiblingResolver(findUncommittedImSiblingForWebWork);
   queue.setOnMaxRetriesExceeded((groupJid: string) => {
     const group = registeredGroups[groupJid];
     const name = group?.name || groupJid;

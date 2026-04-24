@@ -69,7 +69,7 @@
   - `tests/chat-streaming-store.test.ts`
   - `tests/feishu-streaming-card.test.ts`
 - Next action:
-  - 继续补足 interrupted/static-reply 路径的 contract coverage，确保内部进度内容不会通过其他出口再泄露到 Feishu
+  - 继续补足 interrupted/static-reply/发送失败路径的 contract coverage，确保内部进度内容不会通过其他出口再泄露到 Feishu，且 Feishu API 失败不会被当作已送达回复提交游标
 
 ### RM-2026-04-24-06 Minimal Necessary Reply Policy
 
@@ -83,7 +83,7 @@
 
 ### RM-2026-04-24-07 Safe Restart Reply Recovery
 
-- Status: `verified`
+- Status: `monitoring`
 - Source: 2026-04-24 user request
 - Summary: 共享 runner 异常退出或安全重启后，IM 消息不能只留下 interrupted partial，必须从真实来源 chat 继续补发后续回复
 - Evidence:
@@ -96,16 +96,18 @@
   - `src/feishu.ts`
   - `tests/feishu-connection.test.ts`
   - startup connect now backfills known Feishu chats once after WS readiness
+  - 2026-04-24 afternoon RCA: `web:main` autopilot relaunched before a Feishu source whose `last_agent_timestamp` had advanced but `last_committed_cursor` had not; added DB-pending IM sibling priority before web/autopilot work
 - Next action:
-  - 通过安全重启路径应用并继续观察真实 IM 流量；若仍有“重启后第一条 Feishu 消息不回”，下一步优先排查其他 IM 通道是否也缺少 startup-window backfill
+  - 继续观察真实 IM 流量；若仍有“飞书消息不回”，下一步优先区分 queue/cursor starvation 与 Feishu outbound delivery failure
 
 ### RM-2026-04-24-08 Codex Model Picker Real CLI Discovery
 
-- Status: `proposed`
+- Status: `in_progress`
 - Source: 2026-04-24 user request (`/model` 未显示 GPT-5.5)
 - Summary: `/model` 需要尽量对齐当前 Codex CLI 的真实模型列表，而不是仅依赖本地 cache/preset 回退
 - Evidence:
   - `src/runtime-model-options.ts` 当前优先读取 `~/.codex/models_cache.json`，缓存缺失时回退 preset
   - real-world report: `/model` missing GPT-5.5
+  - 2026-04-24 Feishu recovery runner inherited `~/.codex/config.toml` `model = "gpt-5.5"` while `~/.codex/models_cache.json` no longer listed it, causing `codex-acp` to fail with `The model gpt-5.5 does not exist or you do not have access to it`
 - Next action:
-  - 评估是否改为读取 CLI 实时列表或增强 cache 刷新策略，并补契约测试
+  - 评估是否在 workspace 未显式配置模型时校验 inherited Codex model 是否仍在可用列表内；若不可用，提示/降级到安全默认模型，并补契约测试

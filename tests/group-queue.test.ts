@@ -76,6 +76,45 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     expect(calls[1]).toBe('feishu:chat-1');
   });
 
+  test('defers recurring web work behind a DB-pending IM sibling when waiting state was lost', async () => {
+    const { GroupQueue } = await loadGroupQueueModule();
+    const { saveSystemSettings } = await import('../src/runtime-config.js');
+    saveSystemSettings({ maxConcurrentHostProcesses: 1 });
+
+    const queue = new GroupQueue();
+    const calls: string[] = [];
+    const fakeProcess = { pid: 11334, killed: false } as any;
+    let pendingImSibling = true;
+
+    queue.setHostModeChecker(() => true);
+    queue.setSerializationKeyResolver((groupJid: string) =>
+      groupJid === 'web:main' || groupJid === 'feishu:chat-1'
+        ? 'main'
+        : groupJid,
+    );
+    queue.setPendingImSiblingResolver((groupJid: string) =>
+      groupJid === 'web:main' && pendingImSibling ? 'feishu:chat-1' : null,
+    );
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      calls.push(groupJid);
+      queue.registerProcess(groupJid, fakeProcess, null, 'main');
+      if (groupJid === 'feishu:chat-1') {
+        pendingImSibling = false;
+      }
+      return true;
+    });
+
+    queue.enqueueMessageCheck('web:main');
+
+    await vi.waitFor(() => {
+      expect(calls[0]).toBe('feishu:chat-1');
+    });
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['feishu:chat-1', 'web:main']);
+    });
+  });
+
   test('re-enqueues the originating sibling chat when unconsumed IPC survives runner exit', async () => {
     const { GroupQueue, DATA_DIR } = await loadGroupQueueModule();
     const queue = new GroupQueue();
@@ -131,9 +170,9 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     ).toBe('sent');
     queue.markIpcInjectedMessage('feishu:chat-1');
 
-    expect(fs.readdirSync(inputDir).some((name) => name.endsWith('.json'))).toBe(
-      true,
-    );
+    expect(
+      fs.readdirSync(inputDir).some((name) => name.endsWith('.json')),
+    ).toBe(true);
 
     releaseFirstRun();
 
