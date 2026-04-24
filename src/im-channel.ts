@@ -237,7 +237,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
           { chatId },
           'Feishu channel not connected, skip sending message',
         );
-        return;
+        throw new Error('Feishu channel not connected');
       }
       await inner.sendMessage(chatId, text, localImagePaths);
     },

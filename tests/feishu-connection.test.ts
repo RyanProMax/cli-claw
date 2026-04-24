@@ -173,7 +173,8 @@ describe('feishu connection prebuilt interactive card delivery', () => {
   beforeEach(() => {
     hoisted.requestSpy.mockClear();
     hoisted.replySpy.mockClear();
-    hoisted.createSpy.mockClear();
+    hoisted.createSpy.mockReset();
+    hoisted.createSpy.mockResolvedValue({});
     hoisted.messageGetSpy.mockReset();
     hoisted.messageListSpy.mockReset();
     hoisted.messageListSpy.mockResolvedValue({ data: { items: [] } });
@@ -256,6 +257,27 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       },
     });
     expect(hoisted.replySpy).not.toHaveBeenCalled();
+  });
+
+  test('rejects when both interactive card delivery and post fallback fail', async () => {
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+    });
+
+    hoisted.createSpy
+      .mockRejectedValueOnce(new Error('interactive failed'))
+      .mockRejectedValueOnce(new Error('post fallback failed'));
+
+    await expect(connection.sendMessage('chat-fail', 'hello')).rejects.toThrow(
+      'post fallback failed',
+    );
+
+    expect(hoisted.createSpy).toHaveBeenCalledTimes(2);
   });
 
   test('sends slash-command interactive replies as interactive cards instead of text', async () => {

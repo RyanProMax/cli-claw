@@ -57,7 +57,7 @@
 
 ### RM-2026-04-24-05 Feishu Outbound Message Contract
 
-- Status: `in_progress`
+- Status: `verified`
 - Source: 2026-04-24 user item `1`
 - Summary: 飞书对外消息必须严格区分用户可见回复与内部 commentary / tool steps，补足端到端契约测试
 - Evidence:
@@ -69,8 +69,11 @@
   - `tests/chat-streaming-store.test.ts`
   - `tests/feishu-streaming-card.test.ts`
   - 2026-04-24 card-layering fix: Feishu streaming body uses cumulative stream text, terminal cards sync commentary into a dedicated panel, and Codex process-prefix leakage before Markdown report headings is stripped from final body
+  - 2026-04-24 delivery-failure fix: Feishu connection/channel sends now reject on disconnected clients or final API failure, and the main `sendMessage()` path propagates direct IM delivery failures so cursor commit/retry logic does not treat failed delivery as successful
+  - tests: `tests/feishu-connection.test.ts`, `tests/im-channel.test.ts`, `tests/reply-visibility.test.ts`, `tests/restart-recovery.test.ts`, `tests/feishu-streaming-card.test.ts`, `tests/stream-presentation.test.ts`, `tests/chat-streaming-store.test.ts`
+  - safe restart `restart-2026-04-24T15-36-30-227Z-556983dc`
 - Next action:
-  - 继续补足 interrupted/static-reply/发送失败路径的 contract coverage，确保内部进度内容不会通过其他出口再泄露到 Feishu，且 Feishu API 失败不会被当作已送达回复提交游标
+  - 无；继续真实飞书流量观察，若仍出现“已回复但未送达”，下一步优先查具体 Feishu API error 与重试退避日志
 
 ### RM-2026-04-24-06 Minimal Necessary Reply Policy
 

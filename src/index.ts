@@ -4623,6 +4623,7 @@ async function sendMessage(
   const isIMChannel = getChannelType(jid) !== null;
   const sendToIM = options.sendToIM ?? isIMChannel;
   const messageMeta = await enrichOutboundMessageMeta(options.messageMeta);
+  let imDeliveryFailed = false;
   try {
     if (sendToIM && isIMChannel) {
       try {
@@ -4637,6 +4638,8 @@ async function sendMessage(
         );
       } catch (err) {
         logger.error({ jid, err }, 'Failed to send message to IM channel');
+        imDeliveryFailed = true;
+        throw err;
       }
     }
 
@@ -4693,6 +4696,9 @@ async function sendMessage(
     return persistedMsgId;
   } catch (err) {
     logger.error({ jid, err }, 'Failed to send message');
+    if (imDeliveryFailed) {
+      throw err;
+    }
     return undefined;
   }
 }

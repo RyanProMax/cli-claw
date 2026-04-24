@@ -84,7 +84,10 @@ describe('IM channel footer consumption', () => {
   const expectedText = 'Hello world\n\n2.5s | Codex | GPT-5.4 | high';
 
   beforeEach(() => {
-    hoisted.feishuInner.connect.mockClear();
+    hoisted.feishuInner.connect.mockReset();
+    hoisted.feishuInner.connect.mockResolvedValue(true);
+    hoisted.feishuInner.sendMessage.mockReset();
+    hoisted.feishuInner.sendMessage.mockResolvedValue(undefined);
     hoisted.telegramInner.connect.mockClear();
     hoisted.telegramInner.sendMessage.mockClear();
     hoisted.qqInner.connect.mockClear();
@@ -111,6 +114,33 @@ describe('IM channel footer consumption', () => {
       expect.objectContaining({
         onCardRuntimeUpdate,
       }),
+    );
+  });
+
+  test('feishu rejects sends before the channel is connected', async () => {
+    const channel = createFeishuChannel({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await expect(channel.sendMessage('chat-1', 'hello')).rejects.toThrow(
+      'Feishu channel not connected',
+    );
+    expect(hoisted.feishuInner.sendMessage).not.toHaveBeenCalled();
+  });
+
+  test('feishu propagates connection adapter send failures', async () => {
+    const channel = createFeishuChannel({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+    await channel.connect(connectOpts as any);
+    hoisted.feishuInner.sendMessage.mockRejectedValueOnce(
+      new Error('Feishu API failed'),
+    );
+
+    await expect(channel.sendMessage('chat-1', 'hello')).rejects.toThrow(
+      'Feishu API failed',
     );
   });
 

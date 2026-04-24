@@ -1848,7 +1848,7 @@ export function createFeishuConnection(
           { chatId },
           'Feishu client not initialized, skip sending message',
         );
-        return;
+        throw new Error('Feishu client not initialized');
       }
 
       const clearAckReaction = () =>
@@ -1955,6 +1955,7 @@ export function createFeishuConnection(
       } catch (err) {
         logger.error({ err, chatId }, 'Failed to send Feishu card message');
         clearAckReaction();
+        throw err;
       }
     },
 
