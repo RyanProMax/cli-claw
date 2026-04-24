@@ -106,7 +106,9 @@
 │   ├── stream-presentation.ts      # 多端共享的流式展示语义；把 answer / commentary 文本槽与 messageUuid 续写规则集中到一处
 │   └── assistant-meta-footer.ts    # 多端共享 footer 格式化与 remaining usage 规则
 ├── PLANS/
-│   └── _TEMPLATE.md                # 复杂任务计划模板；本地执行时复制为 ACTIVE.md
+│   ├── ROADMAP.md                  # 跨轮次长期迭代跟进清单
+│   ├── ACTIVE.md                   # 当前轮临时执行计划；milestone / validation / handoff 单一真相源
+│   └── _TEMPLATE.md                # 复杂任务计划模板；新一轮执行时复制为 ACTIVE.md
 ├── RUNBOOKS/
 │   ├── Implement.md                # 主 agent 实施循环、验证与 repair loop 约定
 │   ├── Review.md                   # Review gate 清单

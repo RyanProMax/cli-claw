@@ -65,6 +65,7 @@ nohup.out
 # local
 .local/
 PLANS/*
+!PLANS/ROADMAP.md
 !PLANS/_TEMPLATE.md
 shared/dist/
 *.tgz

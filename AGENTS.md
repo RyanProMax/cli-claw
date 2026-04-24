@@ -13,7 +13,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
    - 工作区 / Memory / 持久化边界：`docs/CONTEXT.md`
    - 模块树与目录定位：`docs/MODULE.md`
    - 命令行为与入口差异：`docs/COMMAND.md`
-3. 复杂任务开始编码前，必须读取并更新本地 `PLANS/ACTIVE.md`；若文件不存在，先基于 `PLANS/_TEMPLATE.md` 创建。
+3. 复杂任务开始前，先查看 `PLANS/ROADMAP.md` 了解长期跟进项，再读取并更新本地 `PLANS/ACTIVE.md`；若 `ACTIVE.md` 不存在，先基于 `PLANS/_TEMPLATE.md` 创建。
 4. 涉及实施、review、handoff 时，分别对照 `RUNBOOKS/Implement.md`、`RUNBOOKS/Review.md`、`RUNBOOKS/Handoff.md`。
 
 ## 文档分工
@@ -27,13 +27,14 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 
 ## 复杂任务底线
 
-1. 复杂任务必须先看并更新 `PLANS/ACTIVE.md`，再开始编码。
+1. 复杂任务必须先看 `PLANS/ROADMAP.md`，再更新 `PLANS/ACTIVE.md`，然后才开始编码。
 2. `PLANS/ACTIVE.md` 是任务执行期间的单一真相源；目标、milestone、scope、验证、阻塞与 handoff 都以它为准。
-3. 一次只允许一个 milestone 处于 `in_progress`。
-4. 不允许隐式扩 scope；目标、方案、验证方式或涉及文件变化时，先更新 active plan，再继续实现。
-5. 每轮实现后都必须运行验证；验证失败时留在当前 milestone 修复，不得跳过。
-6. 验证通过后仍必须经过 review gate；只有 validation 和 review 都通过，当前 milestone 才能标记为 `done`。
-7. 任务完成后必须回写 `PLANS/ACTIVE.md` 的结果与 handoff，再做最终提交。
+3. `PLANS/ROADMAP.md` 负责跨轮次的长期迭代跟进；未在本轮完成、但需要继续追踪的事项必须回写到 roadmap。
+4. 一次只允许一个 milestone 处于 `in_progress`。
+5. 不允许隐式扩 scope；目标、方案、验证方式或涉及文件变化时，先更新 active plan，再继续实现。
+6. 每轮实现后都必须运行验证；验证失败时留在当前 milestone 修复，不得跳过。
+7. 验证通过后仍必须经过 review gate；只有 validation 和 review 都通过，当前 milestone 才能标记为 `done`。
+8. 任务完成后必须回写 `PLANS/ACTIVE.md` 的结果与 handoff；若有跨轮次事项，再同步更新 `PLANS/ROADMAP.md`，然后再提交。
 
 ## Subagent 规则
 

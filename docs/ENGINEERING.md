@@ -4,13 +4,14 @@
 
 ## 工作流
 
-1. 复杂任务开始前先创建或更新本地 `PLANS/ACTIVE.md`；若文件不存在，先从 `PLANS/_TEMPLATE.md` 复制。
+1. 复杂任务开始前先查看 `PLANS/ROADMAP.md` 了解长期项，再创建或更新本地 `PLANS/ACTIVE.md`；若 `ACTIVE.md` 不存在，先从 `PLANS/_TEMPLATE.md` 复制。
 2. `PLANS/ACTIVE.md` 是复杂任务执行的单一真相源；目标、milestone、scope、验证、阻塞与 handoff 都先回写这里。
-3. 一次只推进一个 milestone；未完成当前 milestone 前，不得隐式扩 scope 或提前推进下一项。
-4. 每轮实现后必须运行验证；验证失败时停留在当前 milestone 修复，不得跳过。
-5. 验证通过后仍需经过 review gate；只有 validation 和 review 都通过，milestone 才能标记为 `done`。
-6. 连续修复仍失败、当前线程阻塞、需要换线程继续或交接给下一个 Codex 会话时，必须写 handoff。
-7. 实施、review、handoff 的具体循环分别按 `RUNBOOKS/Implement.md`、`RUNBOOKS/Review.md`、`RUNBOOKS/Handoff.md` 执行。
+3. `PLANS/ROADMAP.md` 负责跨轮次长期跟进；本轮没完成但需要继续追踪的事项必须同步回写 roadmap。
+4. 一次只推进一个 milestone；未完成当前 milestone 前，不得隐式扩 scope 或提前推进下一项。
+5. 每轮实现后必须运行验证；验证失败时停留在当前 milestone 修复，不得跳过。
+6. 验证通过后仍需经过 review gate；只有 validation 和 review 都通过，milestone 才能标记为 `done`。
+7. 连续修复仍失败、当前线程阻塞、需要换线程继续或交接给下一个 Codex 会话时，必须写 handoff。
+8. 实施、review、handoff 的具体循环分别按 `RUNBOOKS/Implement.md`、`RUNBOOKS/Review.md`、`RUNBOOKS/Handoff.md` 执行。
 
 ## 修改约束
 

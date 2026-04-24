@@ -1,32 +1,41 @@
-# Feishu Streaming Card Terminal-State Completion
+# Roadmap And Message Policy Follow-up
 
 ## Goal
 
-- Fix the remaining Feishu streaming-card gap where a task can finish but the card stays in `Working on it`.
-- Ensure normal task completion without a final visible reply still freezes the existing card into a terminal state.
-- Apply the fix through the safe `cli-claw restart` path after validation and review pass.
+- Introduce `PLANS/ROADMAP.md` as the long-term iteration tracker while keeping `PLANS/ACTIVE.md` as the current-round execution plan.
+- Verify whether quota-pause, footer remaining thresholds, and task-message progress suffix behavior already match the requested contract.
+- Record unfinished long-term messaging gaps into `PLANS/ROADMAP.md`.
 
 ## Done when
 
-- Feishu streaming cards no longer remain in streaming state when the task finishes successfully but emits no final visible text.
-- Both main-session and conversation-agent cleanup paths convert active cards to a terminal completed state instead of silently disposing them.
-- Focused regression tests cover the terminal-state fallback behavior and pass.
-- The updated backend is applied through the repo-approved safe restart path.
+- `PLANS/ROADMAP.md` exists with clear long-term tracking structure.
+- Repo entry docs explain the split between `ROADMAP.md` and `ACTIVE.md`.
+- Items `4/5/7` are verified with fresh evidence.
+- Any still-open long-term messaging gaps are captured in `PLANS/ROADMAP.md`.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Reproduce the terminal-state gap with failing focused tests before changing production code.
+- Verify the current implementation status of items `4/5/7` and define the minimal `ROADMAP.md` structure.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/feishu-streaming-card.ts`
-- `tests/feishu-streaming-card.test.ts`
+- `PLANS/ROADMAP.md`
+- `.gitignore`
+- `AGENTS.md`
+- `docs/ENGINEERING.md`
+- `docs/CONTEXT.md`
+- `docs/MODULE.md`
+- `src/runtime-usage.ts`
+- `src/active-plan-progress.ts`
+- `tests/workspace-autopilot.test.ts`
+- `tests/assistant-meta-footer.test.ts`
+- `tests/active-plan-progress.test.ts`
 
 Validation:
-- `npm test -- tests/feishu-streaming-card.test.ts`
+- `npm test -- tests/workspace-autopilot.test.ts tests/assistant-meta-footer.test.ts tests/active-plan-progress.test.ts`
 - `git diff --check`
 
 Status:
@@ -39,24 +48,26 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Root-cause hypothesis: task completion currently relies on the presence of a final visible reply to call `complete()/fail()`. When the task ends without visible final text, the `finally` cleanup path falls back to `dispose()`, which stops timers but does not patch the card to a terminal state.
-- Keep the first reproduction focused on controller/session finalization behavior. Only widen scope to `src/index.ts` after the failing test proves the gap.
+- The user’s Feishu-message complaint indicates a broader reliability gap than the already-fixed terminal-state bug; long-term items should be tracked separately in `ROADMAP.md`.
+- Fresh verification passed:
+  - `npm test -- tests/workspace-autopilot.test.ts tests/assistant-meta-footer.test.ts tests/active-plan-progress.test.ts`
+  - `git diff --check`
 
 ### Milestone 2
 
 Objective:
-- Implement the terminal-state fallback fix, validate it, review it, and apply it through safe restart.
+- Finalize docs/roadmap updates, run review, and commit the round.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/feishu-streaming-card.ts`
-- `src/feishu.ts`
-- `src/index.ts`
-- `tests/feishu-streaming-card.test.ts`
+- `PLANS/ROADMAP.md`
+- `AGENTS.md`
+- `docs/ENGINEERING.md`
+- `docs/CONTEXT.md`
+- `docs/MODULE.md`
 
 Validation:
-- `npm test -- tests/feishu-streaming-card.test.ts`
-- `npm run typecheck`
+- `npm test -- tests/workspace-autopilot.test.ts tests/assistant-meta-footer.test.ts tests/active-plan-progress.test.ts`
 - `./scripts/review.sh`
 - `git diff --check`
 
@@ -70,10 +81,12 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Prefer freezing the card’s existing accumulated content into a completed terminal card rather than synthesizing a new visible reply string in `index.ts`.
-- Applied through the safe restart path after validation and review passed.
-- Latest restart record: `~/.cli-claw/ops/restarts/restart-2026-04-24T05-27-34-063Z-3bdb642e.json` (`status: passed`).
-- Fresh post-restart health check passed at `http://127.0.0.1:3000/api/health`.
+- Keep the new roadmap file lightweight and decision-oriented; it should track long-term follow-up, not replace milestone execution details in `ACTIVE.md`.
+- `PLANS/ROADMAP.md` had to be unignored in `.gitignore` so the long-term tracker can actually be versioned.
+- Fresh validation/review evidence:
+  - `npm test -- tests/workspace-autopilot.test.ts tests/assistant-meta-footer.test.ts tests/active-plan-progress.test.ts`
+  - `./scripts/review.sh`
+  - `git diff --check`
 
 ## Working Rules
 
@@ -89,28 +102,22 @@ Current milestone:
 - none
 
 Current status:
-- completed, committed, and applied
+- completed
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/feishu-streaming-card.ts`
-- `src/feishu.ts`
-- `src/index.ts`
-- `tests/feishu-streaming-card.test.ts`
+- `PLANS/ROADMAP.md`
+- `.gitignore`
+- `AGENTS.md`
+- `docs/ENGINEERING.md`
+- `docs/CONTEXT.md`
+- `docs/MODULE.md`
 
 Last failure summary:
-- Reproduced and fixed. Fresh validation passed before apply:
-  - `npm test -- tests/feishu-streaming-card.test.ts`
-  - `npm run typecheck`
-  - `git diff --check`
-  - `./scripts/review.sh`
-- Safe restart passed:
-  - `~/.cli-claw/ops/restarts/restart-2026-04-24T05-27-34-063Z-3bdb642e.json`
-- Fresh health check passed:
-  - `curl -sS http://127.0.0.1:3000/api/health`
+- none
 
 Suspected cause:
-- Confirmed: active Feishu streaming cards were finalized only when a final visible reply existed. Success cleanup paths without visible final text fell through to `dispose()` in `finally`, leaving the card visually stuck in streaming state.
+- Feishu message issues have been caught too late because the repo currently has point tests for individual behaviors, but not enough end-to-end channel-contract coverage for what is actually allowed to reach users.
 
 Next step:
-- Monitor the next Feishu completion with no final visible reply to confirm the card now freezes into a terminal state in production.
+- Commit the roadmap/doc split. Future message-reliability gaps should be opened from `PLANS/ROADMAP.md` into new `PLANS/ACTIVE.md` rounds.

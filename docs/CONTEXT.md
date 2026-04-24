@@ -72,10 +72,12 @@ IM 入口自身也会有一条 `registered_groups` 记录。默认情况下，�
 
 - 仓库级执行协议放在 tracked 文件里：
   - `AGENTS.md`
+  - `PLANS/ROADMAP.md`
   - `PLANS/_TEMPLATE.md`
   - `RUNBOOKS/*.md`
   - `.codex/agents/*.md`
-- 本地 active plan 统一使用 `PLANS/ACTIVE.md`，它是复杂任务执行期间的单一真相源，默认不入库。
+- `PLANS/ROADMAP.md` 负责跨轮次长期跟进，`PLANS/ACTIVE.md` 负责当前轮临时执行计划。
+- 本地 active plan 统一使用 `PLANS/ACTIVE.md`，它是复杂任务执行期间的单一真相源。
 - `docs/.local/PLAN.md` 若有人自行创建，只能视为个人草稿，不再是正式执行协议的一部分。
 
 ## 持久化与权限边界
