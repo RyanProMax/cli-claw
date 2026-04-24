@@ -152,3 +152,20 @@
   - supplemental commit `df5e8f8 Filter restart recovery replay messages`
 - Next action:
   - 继续观察真实重启后的首轮飞书/Web 问答；若仍带入历史，再检查 runtime session 复用与 `/clear` 边界，而不是 startup recovery predicate
+
+### RM-2026-04-24-11 Codex GPT-5.5 Metadata Diagnostic Leakage
+
+- Status: `monitoring`
+- Source: 2026-04-24 user request
+- Summary: Codex/ACP 会把 `Model metadata for gpt-5.5 not found...` 作为 assistant text chunk 输出，cli-claw 不能把这类运行时诊断堆进用户可见正文
+- Evidence:
+  - `codex --version`: `codex-cli 0.124.0`
+  - `codex debug models` 当前返回 `gpt-5.5`
+  - `~/.codex/models_cache.json` 当前也包含 `gpt-5.5`
+  - historical host log `host-2026-04-24T14-15-01-332Z.log` shows the diagnostic as `eventType=text_delta` and final `success.result` prefix
+  - implemented: Codex ACP runner strips this runtime diagnostic before stream emission and final answer accumulation
+  - tests: `tests/codex-session-runtime.test.ts`
+  - validation: `npm test -- --run tests/codex-session-runtime.test.ts`, `npm run typecheck`, `npm --prefix container/agent-runner run build:runner`, `git diff --check`, `./scripts/review.sh`
+  - safe restart `restart-2026-04-24T15-58-12-695Z-705a3f74`
+- Next action:
+  - 继续观察下一次真实 `gpt-5.5` Codex 回复；若底层仍频繁报 metadata 缺失但已不外显，再进一步查 ACP session/model metadata load path

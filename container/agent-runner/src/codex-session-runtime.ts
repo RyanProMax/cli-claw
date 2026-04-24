@@ -8,6 +8,10 @@ export interface CodexTurnAccumulator {
   lastMessageUuid?: string;
 }
 
+const CODEX_RUNTIME_DIAGNOSTIC_PREFIXES = [
+  /^Model metadata for (?:`[^`]+`|\S+) not found\. Defaulting to fallback metadata; this can degrade performance and cause issues\.\s*/u,
+];
+
 function normalizeText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -70,6 +74,22 @@ export function buildCodexAcpLaunchArgs(options: {
   }
 
   return args;
+}
+
+export function stripCodexRuntimeDiagnosticPrefix(text: string): string {
+  let next = text;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const pattern of CODEX_RUNTIME_DIAGNOSTIC_PREFIXES) {
+      const stripped = next.replace(pattern, '');
+      if (stripped !== next) {
+        next = stripped;
+        changed = true;
+      }
+    }
+  }
+  return next;
 }
 
 export function appendCodexTurnChunk(

@@ -61,6 +61,7 @@ import { readCodexCliConfig } from './codex-config.js';
 import {
   appendCodexTurnChunk,
   buildCodexAcpLaunchArgs,
+  stripCodexRuntimeDiagnosticPrefix,
 } from './codex-session-runtime.js';
 
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
@@ -1643,10 +1644,16 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                 ? update.content.text
                 : null;
             if (chunkText) {
+              const visibleChunkText =
+                stripCodexRuntimeDiagnosticPrefix(chunkText);
+              if (visibleChunkText !== chunkText) {
+                log('Suppressed Codex runtime diagnostic from assistant chunk');
+              }
+              if (!visibleChunkText) break;
               const appended = appendCodexTurnChunk(
                 activeTurnText,
                 {
-                  text: chunkText,
+                  text: visibleChunkText,
                   messageUuid:
                     typeof update.messageId === 'string'
                       ? update.messageId
@@ -1663,7 +1670,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                 streamEvent: {
                   ...baseEvent,
                   eventType: 'text_delta',
-                  text: chunkText,
+                  text: visibleChunkText,
                 },
               });
             }
