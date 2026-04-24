@@ -115,6 +115,7 @@ import {
 } from './feishu-streaming-card.js';
 import { resolveVisibleReplyText } from './reply-visibility.js';
 import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
+import { appendActivePlanProgressFromFile } from './active-plan-progress.js';
 import {
   buildProvisionalTokenUsage,
   normalizeStreamingStatusText,
@@ -198,6 +199,7 @@ import {
 import {
   AgentStatus,
   MessageCursor,
+  MessageSourceKind,
   NewMessage,
   RegisteredGroup,
   RuntimeIdentity,
@@ -1922,7 +1924,7 @@ async function handleAutopilotCommand(
     });
 
     if (status.state === 'paused_quota') {
-      return '已开启当前工作区主动模式，但当前 5h 剩余低于 20%，已自动暂停';
+      return '已开启当前工作区主动模式，但当前 5h < 20% 或 week < 10%，已自动暂停';
     }
     return '已开启当前工作区主动模式';
   }
@@ -3678,10 +3680,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               // Stop typing indicator before sending — clears the 4s refresh timer
               // so it doesn't keep firing while the agent stays alive in idle state.
               await setTyping(chatJid, false);
-              const visibleText = resolveVisibleReplyText(
-                text,
-                streamingPresentationText,
-                activeRuntimeIdentity,
+              const visibleText = decorateTaskReplyText(
+                resolveVisibleReplyText(
+                  text,
+                  streamingPresentationText,
+                  activeRuntimeIdentity,
+                ),
+                result.sourceKind || 'sdk_final',
+                chatJid,
               );
               const localImagePaths = extractLocalImImagePaths(
                 visibleText,
@@ -4485,6 +4491,12 @@ async function sendMessage(
   text: string,
   options: SendMessageOptions = {},
 ): Promise<string | undefined> {
+  const sourceKind = options.messageMeta?.sourceKind ?? null;
+  const decoratedText = appendActivePlanProgressFromFile(
+    text,
+    sourceKind,
+    resolveActivePlanPath(jid),
+  );
   const isIMChannel = getChannelType(jid) !== null;
   const sendToIM = options.sendToIM ?? isIMChannel;
   const messageMeta = await enrichOutboundMessageMeta(options.messageMeta);
@@ -4493,8 +4505,13 @@ async function sendMessage(
       try {
         const localImagePaths =
           options.localImagePaths ??
-          extractLocalImImagePaths(text, resolveEffectiveFolder(jid));
-        await imManager.sendMessage(jid, text, localImagePaths, messageMeta);
+          extractLocalImImagePaths(decoratedText, resolveEffectiveFolder(jid));
+        await imManager.sendMessage(
+          jid,
+          decoratedText,
+          localImagePaths,
+          messageMeta,
+        );
       } catch (err) {
         logger.error({ jid, err }, 'Failed to send message to IM channel');
       }
@@ -4512,7 +4529,7 @@ async function sendMessage(
       jid,
       'cli-claw-agent',
       ASSISTANT_NAME,
-      text,
+      decoratedText,
       timestamp,
       true,
       {
@@ -4528,7 +4545,7 @@ async function sendMessage(
         chat_jid: jid,
         sender: 'cli-claw-agent',
         sender_name: ASSISTANT_NAME,
-        content: text,
+        content: decoratedText,
         timestamp,
         is_from_me: true,
         turn_id: messageMeta?.turnId ?? null,
@@ -4548,13 +4565,31 @@ async function sendMessage(
     // Safe because scheduled tasks never trigger typing indicators, so there's
     // no typing state to clear. The message is still delivered via new_message.
     if (!options.source) {
-      broadcastToWebClients(jid, text);
+      broadcastToWebClients(jid, decoratedText);
     }
     return persistedMsgId;
   } catch (err) {
     logger.error({ jid, err }, 'Failed to send message');
     return undefined;
   }
+}
+
+function decorateTaskReplyText(
+  text: string,
+  sourceKind?: MessageSourceKind | null,
+  chatJid?: string,
+): string {
+  return appendActivePlanProgressFromFile(
+    text,
+    sourceKind ?? null,
+    chatJid ? resolveActivePlanPath(chatJid) : undefined,
+  );
+}
+
+function resolveActivePlanPath(chatJid: string): string | undefined {
+  const groupFolder = resolveEffectiveFolder(chatJid);
+  if (!groupFolder) return undefined;
+  return path.resolve(GROUPS_DIR, groupFolder, 'PLANS', 'ACTIVE.md');
 }
 
 async function enrichOutboundMessageMeta(
@@ -6443,10 +6478,14 @@ async function processAgentConversation(
           agentConversationStartedAt,
         );
         if (!isCurrentTurnCommitted()) {
-          const interruptedText = buildInterruptedReply(
-            agentStreamingPresentationText.answerText,
-            agentStreamingThinking,
-            agentStreamingPresentationText.commentaryText,
+          const interruptedText = decorateTaskReplyText(
+            buildInterruptedReply(
+              agentStreamingPresentationText.answerText,
+              agentStreamingThinking,
+              agentStreamingPresentationText.commentaryText,
+            ),
+            'interrupt_partial',
+            virtualChatJid,
           );
           try {
             if (agentStreamingSession?.isActive()) {
@@ -6588,10 +6627,14 @@ async function processAgentConversation(
         return;
       }
       if (text) {
-        const visibleText = resolveVisibleReplyText(
-          text,
-          agentStreamingPresentationText,
-          currentAgentRuntimeIdentity,
+        const visibleText = decorateTaskReplyText(
+          resolveVisibleReplyText(
+            text,
+            agentStreamingPresentationText,
+            currentAgentRuntimeIdentity,
+          ),
+          output.sourceKind || 'sdk_final',
+          virtualChatJid,
         );
         const isFirstReply = !lastAgentReplyMsgId;
         const msgId = crypto.randomUUID();
@@ -6965,10 +7008,14 @@ async function processAgentConversation(
       const provisionalUsage = buildProvisionalTokenUsage(
         agentConversationStartedAt,
       );
-      const interruptedText = buildInterruptedReply(
-        agentStreamingPresentationText.answerText,
-        agentStreamingThinking,
-        agentStreamingPresentationText.commentaryText,
+      const interruptedText = decorateTaskReplyText(
+        buildInterruptedReply(
+          agentStreamingPresentationText.answerText,
+          agentStreamingThinking,
+          agentStreamingPresentationText.commentaryText,
+        ),
+        'interrupt_partial',
+        virtualChatJid,
       );
       try {
         const msgId = crypto.randomUUID();
@@ -7039,10 +7086,14 @@ async function processAgentConversation(
         const provisionalUsage = buildProvisionalTokenUsage(
           agentConversationStartedAt,
         );
-        const partialReply = buildInterruptedReply(
-          agentStreamingPresentationText.answerText,
-          agentStreamingThinking,
-          agentStreamingPresentationText.commentaryText,
+        const partialReply = decorateTaskReplyText(
+          buildInterruptedReply(
+            agentStreamingPresentationText.answerText,
+            agentStreamingThinking,
+            agentStreamingPresentationText.commentaryText,
+          ),
+          'interrupt_partial',
+          virtualChatJid,
         );
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();

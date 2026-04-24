@@ -26,10 +26,13 @@ vi.mock('../src/runtime-usage.js', () => ({
   shouldPauseAutopilotForUsage: (snapshot: {
     available?: boolean;
     primaryRemainingPct?: number;
+    secondaryRemainingPct?: number;
   }) =>
     snapshot?.available === true &&
-    typeof snapshot.primaryRemainingPct === 'number' &&
-    snapshot.primaryRemainingPct < 20,
+    ((typeof snapshot.primaryRemainingPct === 'number' &&
+      snapshot.primaryRemainingPct < 20) ||
+      (typeof snapshot.secondaryRemainingPct === 'number' &&
+        snapshot.secondaryRemainingPct < 10)),
 }));
 
 import {
@@ -104,6 +107,30 @@ describe('workspace autopilot', () => {
       available: true,
       source: 'local ~/.codex/sessions',
       primaryRemainingPct: 19,
+    });
+
+    const result = await reconcileWorkspaceAutopilotQuota(
+      {
+        id: buildWorkspaceAutopilotTaskId('proj'),
+        status: 'active',
+      } as any,
+      { agentType: 'codex', model: 'gpt-5.4' },
+    );
+
+    expect(result).toBe('paused');
+    expect(updateTaskMock).toHaveBeenCalledWith(
+      buildWorkspaceAutopilotTaskId('proj'),
+      expect.objectContaining({ status: 'paused', next_run: null }),
+    );
+  });
+
+  test('pauses active autopilot tasks when week remaining drops below 10%', async () => {
+    getRuntimeUsageSnapshotMock.mockResolvedValue({
+      provider: 'codex',
+      available: true,
+      source: 'local ~/.codex/sessions',
+      primaryRemainingPct: 42,
+      secondaryRemainingPct: 9,
     });
 
     const result = await reconcileWorkspaceAutopilotQuota(

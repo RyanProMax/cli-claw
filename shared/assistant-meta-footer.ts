@@ -73,7 +73,11 @@ function shouldShowRemainingUsage(
   usage: AssistantFooterTokenUsage | null,
 ): boolean {
   const primaryRemainingPct = normalizeNumber(usage?.primaryRemainingPct);
-  return primaryRemainingPct !== null && primaryRemainingPct < 30;
+  const secondaryRemainingPct = normalizeNumber(usage?.secondaryRemainingPct);
+  return (
+    (primaryRemainingPct !== null && primaryRemainingPct < 20) ||
+    (secondaryRemainingPct !== null && secondaryRemainingPct < 10)
+  );
 }
 
 function appendRemainingUsageParts(

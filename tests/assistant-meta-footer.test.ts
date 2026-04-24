@@ -70,7 +70,49 @@ describe('assistant meta footer', () => {
     ).toBe('4.5s | Codex | GPT-5.4');
   });
 
-  test('appends remaining usage only when the current primary window is below 30%', () => {
+  test('appends remaining usage when the current 5h window is below 20%', () => {
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    };
+    const tokenUsage = {
+      durationMs: 5_200,
+      primaryRemainingPct: 19,
+      secondaryRemainingPct: 72,
+    };
+
+    expect(
+      formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 19%(5h) | 72%(week)');
+    expect(
+      formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 19%(5h) | 72%(week)');
+  });
+
+  test('appends remaining usage when the current week window is below 10%', () => {
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    };
+    const tokenUsage = {
+      durationMs: 5_200,
+      primaryRemainingPct: 42,
+      secondaryRemainingPct: 9,
+    };
+
+    expect(
+      formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 42%(5h) | 9%(week)');
+    expect(
+      formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 42%(5h) | 9%(week)');
+  });
+
+  test('keeps footer minimal when both remaining thresholds are healthy', () => {
     const runtimeIdentity = {
       agentType: 'codex' as const,
       model: 'gpt-5.4',
@@ -85,10 +127,10 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 28%(5h) | 72%(week)');
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh');
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 28%(5h) | 72%(week)');
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh');
   });
 
   test('formats compact card footer with duration, agent type, model, and effort only', () => {

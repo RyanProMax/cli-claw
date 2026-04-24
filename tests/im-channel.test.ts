@@ -81,8 +81,7 @@ describe('IM channel footer consumption', () => {
     },
   };
 
-  const expectedText =
-    'Hello world\n\n2.5s | GPT-5.4 | high | 1.2K tokens';
+  const expectedText = 'Hello world\n\n2.5s | Codex | GPT-5.4 | high';
 
   beforeEach(() => {
     hoisted.feishuInner.connect.mockClear();

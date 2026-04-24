@@ -55,18 +55,23 @@ export function shouldPauseAutopilotForUsage(
   snapshot?: UsageProviderResult | null,
 ): boolean {
   if (!snapshot?.available) return false;
-  const remaining = snapshot.primaryRemainingPct;
-  return typeof remaining === 'number' && Number.isFinite(remaining)
-    ? remaining < 20
-    : false;
+  const primaryRemaining = snapshot.primaryRemainingPct;
+  const secondaryRemaining = snapshot.secondaryRemainingPct;
+  const primaryLow =
+    typeof primaryRemaining === 'number' && Number.isFinite(primaryRemaining)
+      ? primaryRemaining < 20
+      : false;
+  const secondaryLow =
+    typeof secondaryRemaining === 'number' &&
+    Number.isFinite(secondaryRemaining)
+      ? secondaryRemaining < 10
+      : false;
+  return primaryLow || secondaryLow;
 }
 
 export function shouldShowRemainingUsageInFooter(
   snapshot?: UsageProviderResult | null,
 ): boolean {
   if (!snapshot?.available) return false;
-  const remaining = snapshot.primaryRemainingPct;
-  return typeof remaining === 'number' && Number.isFinite(remaining)
-    ? remaining < 30
-    : false;
+  return shouldPauseAutopilotForUsage(snapshot);
 }

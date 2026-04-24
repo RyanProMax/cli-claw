@@ -20,6 +20,7 @@ import {
   getRuntimeUsageFooterMeta,
   getRuntimeUsageSnapshot,
   shouldPauseAutopilotForUsage,
+  shouldShowRemainingUsageInFooter,
 } from '../src/runtime-usage.ts';
 
 describe('runtime usage helper', () => {
@@ -127,7 +128,7 @@ describe('runtime usage helper', () => {
     ).toBe(false);
   });
 
-  test('pauses autopilot only when 5h remaining drops below 20%', () => {
+  test('pauses autopilot when 5h remaining drops below 20%', () => {
     expect(
       shouldPauseAutopilotForUsage({
         provider: 'codex',
@@ -145,5 +146,49 @@ describe('runtime usage helper', () => {
         primaryRemainingPct: 20,
       }),
     ).toBe(false);
+  });
+
+  test('pauses autopilot when week remaining drops below 10%', () => {
+    expect(
+      shouldPauseAutopilotForUsage({
+        provider: 'codex',
+        available: true,
+        source: 'local ~/.codex/sessions',
+        primaryRemainingPct: 42,
+        secondaryRemainingPct: 9,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldPauseAutopilotForUsage({
+        provider: 'codex',
+        available: true,
+        source: 'local ~/.codex/sessions',
+        primaryRemainingPct: 42,
+        secondaryRemainingPct: 10,
+      }),
+    ).toBe(false);
+  });
+
+  test('shows remaining footer only when 5h or week threshold is crossed', () => {
+    expect(
+      shouldShowRemainingUsageInFooter({
+        provider: 'codex',
+        available: true,
+        source: 'local ~/.codex/sessions',
+        primaryRemainingPct: 28,
+        secondaryRemainingPct: 72,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldShowRemainingUsageInFooter({
+        provider: 'codex',
+        available: true,
+        source: 'local ~/.codex/sessions',
+        primaryRemainingPct: 42,
+        secondaryRemainingPct: 9,
+      }),
+    ).toBe(true);
   });
 });
