@@ -90,7 +90,7 @@ Current milestone:
 - None
 
 Current status:
-- completed
+- completed and applied
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -106,9 +106,10 @@ Last failure summary:
   - `npm test -- tests/feishu-streaming-card.test.ts`
   - `git diff --check`
   - `./scripts/review.sh` + semantic review checklist in `RUNBOOKS/Review.md`
+- Landed on `main` as commit `77c737c` (`Fix Feishu agent streaming cleanup`).
 
 Suspected cause:
 - Confirmed: agent-scoped Feishu streaming sessions were keyed differently from the base chat JID, and terminal ack cleanup was not owned by the streaming controller itself.
 
 Next step:
-- Commit the fix, then apply it through the safe restart path so the running service picks up the updated Feishu cleanup behavior.
+- None. The current backend state shows PID `59465` started at `2026-04-24T04:46:54Z`, which is after commit `77c737c`, so the running service already includes this fix.
