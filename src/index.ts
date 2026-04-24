@@ -139,6 +139,7 @@ import {
   resolveRuntimeWorkspaceTarget,
   type ResolvedRuntimeWorkspaceTarget,
 } from './runtime-command-handler.js';
+import { getAvailableRuntimeModelOptions } from './runtime-model-options.js';
 import { attachRuntimeUsageFooterMeta } from './runtime-usage.js';
 import {
   disableWorkspaceAutopilot,
@@ -1401,6 +1402,12 @@ async function handleCommand(
         card: buildRuntimeSelectionCard({
           selection: cmd,
           runtimeIdentity: target.effectiveRuntimeIdentity,
+          modelChoices:
+            cmd === 'model'
+              ? getAvailableRuntimeModelOptions(
+                  target.effectiveRuntimeIdentity.agentType,
+                )
+              : undefined,
         }),
       });
     }

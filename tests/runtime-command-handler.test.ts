@@ -16,9 +16,31 @@ vi.mock('../src/workspace-runtime-reset.ts', () => ({
 const getCodexRuntimeFallbackMock = vi.hoisted(() =>
   vi.fn(() => ({ model: null, reasoningEffort: null })),
 );
+const getAvailableRuntimeModelPresetsMock = vi.hoisted(() =>
+  vi.fn((agentType: 'claude' | 'codex') =>
+    agentType === 'codex'
+      ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']
+      : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'],
+  ),
+);
+const normalizeAvailableRuntimeModelPresetMock = vi.hoisted(() =>
+  vi.fn((agentType: 'claude' | 'codex', rawValue: string) => {
+    const normalized = rawValue.trim().toLowerCase();
+    return (
+      getAvailableRuntimeModelPresetsMock(agentType).find(
+        (value: string) => value.toLowerCase() === normalized,
+      ) ?? null
+    );
+  }),
+);
 
 vi.mock('../src/codex-config.js', () => ({
   getCodexRuntimeFallback: getCodexRuntimeFallbackMock,
+}));
+vi.mock('../src/runtime-model-options.js', () => ({
+  getAvailableRuntimeModelPresets: getAvailableRuntimeModelPresetsMock,
+  normalizeAvailableRuntimeModelPreset:
+    normalizeAvailableRuntimeModelPresetMock,
 }));
 
 import {
@@ -62,6 +84,22 @@ describe('runtime command handler', () => {
       model: null,
       reasoningEffort: null,
     });
+    getAvailableRuntimeModelPresetsMock.mockImplementation(
+      (agentType: 'claude' | 'codex') =>
+        agentType === 'codex'
+          ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']
+          : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'],
+    );
+    normalizeAvailableRuntimeModelPresetMock.mockImplementation(
+      (agentType: 'claude' | 'codex', rawValue: string) => {
+        const normalized = rawValue.trim().toLowerCase();
+        return (
+          getAvailableRuntimeModelPresetsMock(agentType).find(
+            (value: string) => value.toLowerCase() === normalized,
+          ) ?? null
+        );
+      },
+    );
   });
 
   test('resolves IM chats to their home workspace runtime target', () => {
@@ -202,6 +240,39 @@ describe('runtime command handler', () => {
     });
   });
 
+  test('surfaces dynamically discovered codex models in bare /model replies', async () => {
+    getAvailableRuntimeModelPresetsMock.mockImplementation(
+      (agentType: 'claude' | 'codex') =>
+        agentType === 'codex'
+          ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.3-codex-spark']
+          : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'],
+    );
+
+    const { deps } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+        model: 'gpt-5.4-mini',
+      },
+    });
+
+    const result = await executeRuntimeWorkspaceCommand({
+      entrypoint: 'web',
+      chatJid: 'web:proj-home',
+      commandText: '/model',
+      deps,
+    });
+
+    expect(result).toEqual({
+      handled: true,
+      reply: '可用模型：gpt-5.4, gpt-5.5, gpt-5.3-codex-spark',
+    });
+  });
+
   test('returns command-only help without embedding runtime status lines', async () => {
     const { deps } = createDeps({
       'web:proj-home': {
@@ -252,6 +323,41 @@ describe('runtime command handler', () => {
       reply: '请直接输入 /model 打开模型选择器',
     });
     expect(setGroup).not.toHaveBeenCalled();
+  });
+
+  test('accepts dynamically discovered codex models when applying a selection', async () => {
+    getAvailableRuntimeModelPresetsMock.mockImplementation(
+      (agentType: 'claude' | 'codex') =>
+        agentType === 'codex'
+          ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.3-codex-spark']
+          : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'],
+    );
+
+    const { deps, groups } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+        model: 'gpt-5.4',
+        reasoningEffort: 'medium',
+      },
+    });
+
+    const result = await applyRuntimeWorkspaceSelection({
+      chatJid: 'web:proj-home',
+      selection: 'model',
+      value: 'gpt-5.3-codex-spark',
+      deps,
+    });
+
+    expect(result).toEqual({
+      handled: true,
+      reply: '已将当前工作区模型切换为 gpt-5.3-codex-spark',
+    });
+    expect(groups['web:proj-home']?.model).toBe('gpt-5.3-codex-spark');
   });
 
   test('returns a clear unsupported message for bare /effort on claude workspaces', async () => {

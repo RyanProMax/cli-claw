@@ -1,13 +1,15 @@
 import {
   formatCommandHelp,
-  getModelPresets,
   getReasoningEffortPresets,
-  normalizeModelPreset,
   normalizeReasoningEffortPreset,
   parseRuntimeCommand,
   supportsReasoningEffort,
   type RuntimeCommandEntrypoint,
 } from './runtime-command-registry.js';
+import {
+  getAvailableRuntimeModelPresets,
+  normalizeAvailableRuntimeModelPreset,
+} from './runtime-model-options.js';
 import { getClaudeProviderConfig } from './runtime-config.js';
 import {
   buildEffectiveGroupFromHomeSibling,
@@ -253,9 +255,9 @@ async function handleModelCommand(
   rawPreset: string,
 ): Promise<string> {
   const agentType = normalizeAgentType(target.effectiveGroup.agentType);
-  const preset = normalizeModelPreset(agentType, rawPreset);
+  const preset = normalizeAvailableRuntimeModelPreset(agentType, rawPreset);
   if (!preset) {
-    return `不支持的 ${agentType} 模型预设。可用值：${getModelPresets(
+    return `不支持的 ${agentType} 模型。可用值：${getAvailableRuntimeModelPresets(
       agentType,
     ).join(', ')}`;
   }
@@ -345,7 +347,7 @@ export async function executeRuntimeWorkspaceCommand(options: {
       }
       return {
         handled: true,
-        reply: `可用模型：${getModelPresets(agentType).join(', ')}`,
+        reply: `可用模型：${getAvailableRuntimeModelPresets(agentType).join(', ')}`,
       };
     case 'effort':
       if (!supportsReasoningEffort(agentType)) {

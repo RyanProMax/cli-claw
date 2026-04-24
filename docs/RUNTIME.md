@@ -63,7 +63,8 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 约束：
 
-- `model` 采用 preset-only 约束，不做动态发现。
+- `claude` 的 `model` 仍采用 preset-only 约束。
+- `codex` 的 `model` 在 backend 侧优先读取 `~/.codex/models_cache.json` 里的 CLI 本地缓存列表；若缓存缺失或损坏，再回退到内置 preset。
 - backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/model` / `/effort` 选择卡、runner dispatch 和 footer fallback 都必须读取这同一份结果，不能让 Codex CLI 全局配置只影响 runner/footer 而不影响 `/status`。
 - `reasoningEffort` 只有支持该能力的 runtime 才会真正下发。
 - 不支持 `reasoningEffort` 的 runtime 会忽略该字段，但 `model` 仍可独立生效。

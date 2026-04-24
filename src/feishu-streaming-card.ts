@@ -33,6 +33,7 @@ import {
   getModelPresetOptions,
   getReasoningEffortOptions,
   supportsReasoningEffort,
+  type RuntimePresetOption,
 } from './runtime-command-registry.js';
 import { formatToolStepLine } from './tool-step-display.js';
 
@@ -419,6 +420,7 @@ function buildRuntimeSelectElement(options: {
 function buildRuntimeSelectionElement(options: {
   selection: 'model' | 'effort';
   runtimeIdentity?: RuntimeIdentity | null;
+  modelChoices?: RuntimePresetOption[];
 }): Record<string, unknown> | null {
   const runtimeIdentity = options.runtimeIdentity;
   const agentType = runtimeIdentity?.agentType;
@@ -430,7 +432,7 @@ function buildRuntimeSelectionElement(options: {
     return buildRuntimeSelectElement({
       action: 'set_runtime_model',
       placeholder: `模型: ${currentModel}`,
-      choices: getModelPresetOptions(agentType),
+      choices: options.modelChoices ?? getModelPresetOptions(agentType),
       initialOption: currentModel,
     });
   }
@@ -873,6 +875,7 @@ export function buildStaticReplyCard(
 export function buildRuntimeSelectionCard(options: {
   selection: 'model' | 'effort';
   runtimeIdentity?: RuntimeIdentity | null;
+  modelChoices?: RuntimePresetOption[];
 }): object {
   const label = options.selection === 'model' ? '模型' : '思考强度';
   const selectElement = buildRuntimeSelectionElement(options);

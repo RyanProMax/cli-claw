@@ -77,6 +77,7 @@ skill command 的执行结果有两类：
 
 - `/model` 与 `/effort` 都是“当前工作区级”设置，会持久化到工作区 runtime 配置。
 - 当工作区未显式设置 `codex` 的模型或思考强度时，`/status`、选择卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 Codex CLI fallback（环境变量与 `~/.codex/config.toml`），避免不同入口看到不同值。
+- `codex` 的 `/model` 选项在 IM / Feishu 入口会优先读取宿主机 `~/.codex/models_cache.json` 的 CLI 本地缓存列表；缓存不可用时才回退到内置 preset。
 - 普通回复 footer 会始终保留基础 runtime 信息（时长 / Agent 类型 / 模型 / 推理强度）；只有当前 `5h < 20%` 或 `week < 10%` 时，才会额外追加 `5h` / `week` remaining 百分比。
 - 任务类回复会在正文末尾追加一行最小化 milestone 进度，来源于当前工作区 `PLANS/ACTIVE.md`；已完成 milestone 用 `✓` 标记。
 - `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
@@ -192,4 +193,4 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 可用命
 
 - `/sw` 与 `/spawn` 是同义命令。
 - `/bind` 目标里的 `agent短ID` 指 conversation agent 的短标识，不是工作区 folder。
-- `/model` / `/effort` 的真实可用值以运行时命令注册表为准；本文档只同步当前内置 preset。
+- `claude` 的 `/model` 可用值以运行时命令注册表为准；`codex` 的 `/model` 在 backend 入口会优先使用本机 Codex CLI 缓存，本文档不枚举动态列表。

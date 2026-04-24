@@ -28,11 +28,13 @@ import {
   validateHostWorkspaceCwd,
 } from '../host-workspace-cwd.js';
 import {
-  getModelPresets,
-  normalizeModelPreset,
   normalizeReasoningEffortPreset,
   supportsReasoningEffort,
 } from '../runtime-command-registry.js';
+import {
+  getAvailableRuntimeModelPresets,
+  normalizeAvailableRuntimeModelPreset,
+} from '../runtime-model-options.js';
 import {
   getRuntimeBuildStatus,
   isRuntimeBuildStale,
@@ -112,7 +114,7 @@ function normalizeOptionalRuntimeModel(
   if (rawValue == null) return null;
   const trimmed = rawValue.trim();
   if (!trimmed) return null;
-  return normalizeModelPreset(agentType, trimmed);
+  return normalizeAvailableRuntimeModelPreset(agentType, trimmed);
 }
 
 function normalizeOptionalReasoningEffort(
@@ -439,8 +441,8 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   if (validation.data.model && !model) {
     return c.json(
       {
-        error: `Unsupported ${agentType} model preset`,
-        presets: getModelPresets(agentType),
+        error: `Unsupported ${agentType} model`,
+        presets: getAvailableRuntimeModelPresets(agentType),
       },
       400,
     );
@@ -853,8 +855,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     if (model !== undefined && model !== null && !nextModel) {
       return c.json(
         {
-          error: `Unsupported ${nextAgentType} model preset`,
-          presets: getModelPresets(nextAgentType),
+          error: `Unsupported ${nextAgentType} model`,
+          presets: getAvailableRuntimeModelPresets(nextAgentType),
         },
         400,
       );

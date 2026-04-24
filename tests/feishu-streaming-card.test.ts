@@ -623,6 +623,45 @@ describe('StreamingCardController footer caching', () => {
     ]);
   });
 
+  test('prefers injected runtime model choices when building a model selection card', () => {
+    const card = buildRuntimeSelectionCard({
+      selection: 'model',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        reasoningEffort: 'high',
+        supportsReasoningEffort: true,
+      },
+      modelChoices: [
+        { value: 'gpt-5.4', label: 'GPT-5.4' },
+        { value: 'gpt-5.5', label: 'GPT-5.5' },
+        { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3-Codex-Spark' },
+      ],
+    }) as any;
+
+    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    expect(select).toMatchObject({
+      tag: 'select_static',
+      placeholder: { content: '模型: gpt-5.5' },
+      initial_option: 'gpt-5.5',
+      value: { action: 'set_runtime_model' },
+    });
+    expect(select.options).toEqual([
+      {
+        text: { tag: 'plain_text', content: 'GPT-5.4' },
+        value: 'gpt-5.4',
+      },
+      {
+        text: { tag: 'plain_text', content: 'GPT-5.5' },
+        value: 'gpt-5.5',
+      },
+      {
+        text: { tag: 'plain_text', content: 'GPT-5.3-Codex-Spark' },
+        value: 'gpt-5.3-codex-spark',
+      },
+    ]);
+  });
+
   test('falls back to the current Codex defaults when selection card inputs are unset', () => {
     const card = buildRuntimeSelectionCard({
       selection: 'effort',
