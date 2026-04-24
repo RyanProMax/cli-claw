@@ -149,5 +149,6 @@
   - supplemental replay filter: recovery replay applies the same recoverable-pending filter before formatting pending rows for the fresh agent session
   - supplemental validation: `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, `./scripts/review.sh`
   - supplemental safe restart `restart-2026-04-24T15-51-48-791Z-d77107e0`
+  - supplemental commit `df5e8f8 Filter restart recovery replay messages`
 - Next action:
   - 继续观察真实重启后的首轮飞书/Web 问答；若仍带入历史，再检查 runtime session 复用与 `/clear` 边界，而不是 startup recovery predicate

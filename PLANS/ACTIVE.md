@@ -76,7 +76,7 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- Done. Restart recovery replay now filters internal rows before formatting pending messages for a fresh session.
+- Done and committed. Restart recovery replay now filters internal rows before formatting pending messages for a fresh session.
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -92,4 +92,4 @@ Suspected cause:
 - Internal non-user rows after the committed cursor can be misclassified as restart-recoverable pending work.
 
 Next step:
-- Commit the supplemental restart recovery replay filtering fix.
+- Monitor the next real post-restart Feishu/Web first turn. If history still leaks, inspect runtime session reuse and `/clear` boundaries rather than the startup recovery predicate.
