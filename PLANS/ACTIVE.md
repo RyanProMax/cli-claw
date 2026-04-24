@@ -1,34 +1,33 @@
-# Feishu Card Layering Contract
+# Codex Model Picker Live Catalog
 
 ## Goal
 
-- Fix Feishu streaming card layer placement so user-visible answer content and commentary/internal progress stay in the correct regions during streaming and at terminal state.
-- Close the three reported cases:
-  - Streaming output puts every chunk into commentary.
-  - Terminal card drops commentary and puts everything into body.
-  - Terminal card occasionally has an empty body with commentary only.
+- Make `/model` for Codex reflect the actual local Codex CLI catalog instead of relying on stale `~/.codex/models_cache.json` or only built-in presets.
+- Keep `/model`, Feishu picker cards, Web picker data, validation, and `/status` aligned with the current effective runtime model.
+- Preserve safe fallback behavior when the CLI is missing, logged out, slow, or returns malformed JSON.
 
 ## Done when
 
-- The current data flow from runtime stream events to Feishu card rendering is mapped with source evidence.
-- A focused regression test covers streaming and terminal presentation boundaries.
-- The production fix is implemented, validated, reviewed, committed, and applied through the safe restart path if it affects the running service.
+- The model source order is explicit and tested: live `codex debug models` first, local cache second, built-in presets last.
+- Codex model selection accepts models discovered from the live CLI catalog.
+- `/model` replies and picker choices include the current effective model context when needed.
+- Docs, validation, review, commit, and safe restart are complete.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Locate the exact presentation boundary that mixes body/commentary and decide the smallest implementation scope.
+- Confirm the existing `/model` data sources and the Codex CLI command that exposes the real model catalog.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- read-only inspection of `shared/stream-presentation.ts`, `src/feishu-streaming-card.ts`, `src/index.ts`, chat streaming stores, Feishu tests, recent logs/DB rows, and related tests
+- read-only inspection of `src/runtime-model-options.ts`, `src/runtime-command-handler.ts`, `src/index.ts`, `src/feishu-streaming-card.ts`, `src/routes/groups.ts`, `src/codex-config.ts`, related tests, and local Codex CLI help/catalog output
 
 Validation:
-- Identify which event fields are intended to become Feishu body vs commentary.
-- Identify the failing code path for streaming and terminal card updates.
-- Name the regression tests needed before editing production code.
+- Identify whether current behavior is hardcoded, cache-backed, or live CLI-backed.
+- Identify the concrete live CLI command and fallback behavior.
+- Name the files and tests required for the implementation.
 
 Status:
 - done
@@ -40,37 +39,34 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- RM-2026-04-24-05 already tracks Feishu outbound message contract; this task narrows it to card layer rendering.
-- Data flow confirmed:
-  - runtime `text_delta` events update `StreamPresentationTextState`.
-  - `feedStreamEventToCard()` writes that state into `StreamingCardController`.
-  - final result handling calls `resolveVisibleReplyText()` and then `StreamingCardController.complete()/fail()`.
-- Root cause:
-  - Codex presentation state may move earlier assistant text into `commentaryText`, but `feedStreamEventToCard()` eagerly writes the full `commentaryText` into the Feishu card on every streaming `text_delta`.
-  - Terminal finalization relies on the controller already having the right commentary state; if the streaming path and final result path disagree, commentary either leaks into body, disappears, or leaves a terminal card with no answer body.
-- Regression coverage needed:
-  - Codex streaming `text_delta` should update Feishu body only, not push commentary into the commentary panel during streaming.
-  - Terminal completion must sync commentary into a dedicated panel immediately before finalizing.
-  - Completion with no answer body must render a body fallback, not an empty body.
+- Current evidence:
+  - `src/runtime-model-options.ts` reads `~/.codex/models_cache.json` and falls back to shared built-in presets.
+  - `codex debug models` exists in local Codex CLI `0.124.0` and renders the raw model catalog as JSON; `--bundled` skips refresh.
+  - Local `~/.codex/config.toml` currently sets `model = "gpt-5.5"`, while the cache seen during inspection came from an older CLI client version.
+  - Current local live CLI catalog returned `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, and `gpt-5.2`; the implementation must follow this real catalog and separately surface the effective current model when it differs.
 
 ### Milestone 2
 
 Objective:
-- Implement the card-layering fix and regression tests.
+- Implement live catalog discovery and wire current effective model context into `/model` responses and picker cards.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md` if follow-up remains
-- `shared/stream-presentation.ts`
-- `src/feishu-streaming-card.ts`
+- `PLANS/ROADMAP.md`
+- `src/runtime-model-options.ts`
+- `src/runtime-command-handler.ts`
 - `src/index.ts`
-- directly related tests under `tests/`
+- `src/routes/groups.ts`
+- `src/feishu-streaming-card.ts` only if picker rendering needs a small compatibility fix
+- directly related tests
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
 
 Validation:
-- Run focused Feishu/presentation tests identified in Milestone 1.
+- Focused runtime model/command/picker tests.
 - `npm run typecheck`
-- `./scripts/review.sh`
 - `git diff --check`
+- `./scripts/review.sh`
 
 Status:
 - done
@@ -82,33 +78,39 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Keep this focused on Feishu card presentation layers. Do not fold in unrelated outbound delivery/cursor commits unless the root cause proves they are inseparable.
+- Do not make `/model` block for a long time if Codex CLI is unavailable or slow; live discovery needs a short timeout and silent fallback.
+- Avoid treating a stale configured model as available unless it is already the current effective model shown by Cli Claw.
 - Fix implemented:
-  - `StreamPresentationTextState` now keeps a separate cumulative `streamText` for live card body rendering, so unstable Codex message UUID boundaries cannot push most live output into the commentary panel.
-  - `feedStreamEventToCard()` no longer writes Codex `commentaryText` into the card during streaming; terminal paths sync commentary immediately before `complete()` / `fail()` / `abort()`.
-  - `resolveVisibleReplyParts()` can return both final body text and commentary text, including a guarded fallback for short Codex process prefixes before Markdown report headings such as the observed `/hkipo` reply shape.
+  - Codex model discovery now tries live `codex debug models` first with a bounded timeout and larger stdout buffer, then falls back to `~/.codex/models_cache.json`, then built-in preset.
+  - `/model` text replies include the current effective model and available option values.
+  - Feishu picker cards and Web `/model` picker fetch backend model options with current-model context.
+  - Claude model options remain preset-only.
 - Validation evidence:
-  - `npm test -- --run tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/reply-visibility.test.ts tests/chat-streaming-store.test.ts tests/restart-recovery.test.ts` (passes; existing `MaxListenersExceededWarning` remains test-harness noise)
+  - `npm test -- --run tests/runtime-model-options.test.ts tests/runtime-command-handler.test.ts tests/groups-route.test.ts tests/feishu-streaming-card.test.ts`
   - `npm run typecheck`
+  - `npm --prefix web run build`
   - `git diff --check`
   - `./scripts/review.sh`
+  - live local check: `getAvailableRuntimeModelCatalog('codex', { currentModel: 'gpt-5.5' })` returned source `codex-cli` and values beginning with `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`.
 - Review result:
-  - passed local semantic review against `RUNBOOKS/Review.md`; no owner-doc update required because the public architecture/runtime contract did not change.
+  - passed local semantic review against `RUNBOOKS/Review.md`; tightened the current-model backfill to Codex only so Claude stays preset-only.
+  - follow-up semantic review found a PATCH edge case where switching from Claude to Codex could incorrectly pass the old Claude current model as the Codex current-model allowance; fixed by only carrying current-model context when the effective agent type already matches the target agent type.
+  - follow-up validation passed with the new agent-switching regression test included.
 
 ### Milestone 3
 
 Objective:
-- Apply and verify the fix against the running service.
+- Apply the fix to the running service and confirm `/model` now follows live CLI/current model behavior.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - safe restart via `bun src/cli.ts restart`
-- read-only post-restart logs/DB verification
+- read-only post-restart logs/status checks
 
 Validation:
 - Safe restart passes.
-- Feishu card update logs/DB evidence show expected finalization path.
-- Any unverified real Feishu visual state is called out explicitly.
+- Post-restart `/model` data source can be verified without disrupting active user work.
+- Any unverified live picker UI state is called out explicitly.
 
 Status:
 - done
@@ -120,13 +122,12 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- If live visual verification requires a new Feishu message and there is an active user task, avoid disrupting it; use tests and logs unless a safe live probe is available.
-- Safe restart passed via `bun src/cli.ts restart`.
-  - Restart request: `/Users/ryan/.cli-claw/ops/restarts/restart-2026-04-24T13-27-59-254Z-c8f1f8c8.json`
-  - Running backend after restart: PID 67786, port 3000, started at `2026-04-24T13:28:04.862Z`.
-  - Feishu WebSocket, startup backfill, and IM channel connection all completed after restart for user `665eb9d5-6fa8-4d08-acef-93a79c3a6aea`.
-- Router state after restart shows no active Feishu streaming turn; one unrelated `web:main` recovery run is active.
-- No new live Feishu probe was sent, to avoid interrupting active work. The previously observed `/hkipo` terminal shape is covered by regression tests.
+- If an active runner is processing user work, do not send extra live IM probes unless the queue is idle.
+- Pre-restart `active_streaming_turns` was `{}`.
+- Safe restart `restart-2026-04-24T14-01-56-608Z-14ce081a` passed.
+- Post-restart backend PID is `83028`; Feishu WebSocket and IM channel reconnected.
+- Post-restart `active_streaming_turns` remained `{}`.
+- No extra live Feishu/Web `/model` message was sent; backend helper verification covered the live catalog source without disturbing user channels.
 
 ## Working Rules
 
@@ -142,23 +143,28 @@ Current milestone:
 - Milestone 3
 
 Current status:
-- Complete. Feishu card layering fix is implemented, validated, reviewed, safely restarted, and committed.
+- Done. `/model` and picker options now use live Codex CLI discovery first, cache second, presets last, while surfacing the current effective Codex model when it differs from the catalog.
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `shared/stream-presentation.ts`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
 - `src/index.ts`
-- `src/reply-visibility.ts`
-- `tests/feishu-streaming-card.test.ts`
-- `tests/reply-visibility.test.ts`
-- `tests/stream-presentation.test.ts`
+- `src/routes/groups.ts`
+- `src/runtime-command-handler.ts`
+- `src/runtime-model-options.ts`
+- `tests/groups-route.test.ts`
+- `tests/runtime-command-handler.test.ts`
+- `tests/runtime-model-options.test.ts`
+- `web/src/components/chat/MessageInput.tsx`
+- `web/src/lib/runtimeCommandPicker.ts`
 
 Last failure summary:
-- The previous implementation mixed streaming body and commentary in `feedStreamEventToCard()` and terminal finalization, causing Codex process text to leak across Feishu card sections.
+- None after second validation. Focused tests, typecheck, Web build, diff hygiene, review script, and semantic review passed.
 
 Suspected cause:
-- Fixed. Live body rendering now uses cumulative `streamText`; commentary is synced only at terminal card finalization; terminal reply visibility strips guarded Codex process prefixes before Markdown report headings.
+- Confirmed root cause: backend options were cache/preset-backed instead of live CLI-backed, and the Web picker used shared static presets. The local effective Codex model was `gpt-5.5`, while the live local Codex catalog currently did not list it.
 
 Next step:
-- Monitor the next real Feishu card run for visual confirmation. No code follow-up is currently required.
+- Monitor whether inherited unavailable Codex models should be auto-warned or safely downgraded in a separate iteration.

@@ -35,6 +35,11 @@ const mocks = vi.hoisted(() => ({
   canDeleteGroup: vi.fn(),
   canManageGroupMembers: vi.fn(),
   checkGroupLimit: vi.fn(),
+  getCodexRuntimeFallback: vi.fn(),
+  getClaudeProviderConfig: vi.fn(),
+  getAvailableRuntimeModelOptions: vi.fn(),
+  getAvailableRuntimeModelPresets: vi.fn(),
+  normalizeAvailableRuntimeModelPreset: vi.fn(),
 }));
 
 vi.mock('../src/middleware/auth.js', () => ({
@@ -103,6 +108,27 @@ vi.mock('../src/web-context.js', () => ({
 vi.mock('../src/runtime-build.js', () => ({
   isRuntimeBuildStale: mocks.isRuntimeBuildStale,
   getRuntimeBuildStatus: mocks.getRuntimeBuildStatus,
+}));
+
+vi.mock('../src/codex-config.js', () => ({
+  getCodexRuntimeFallback: mocks.getCodexRuntimeFallback,
+}));
+
+vi.mock('../src/runtime-config.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('../src/runtime-config.js')
+  >('../src/runtime-config.js');
+  return {
+    ...actual,
+    getClaudeProviderConfig: mocks.getClaudeProviderConfig,
+  };
+});
+
+vi.mock('../src/runtime-model-options.js', () => ({
+  getAvailableRuntimeModelOptions: mocks.getAvailableRuntimeModelOptions,
+  getAvailableRuntimeModelPresets: mocks.getAvailableRuntimeModelPresets,
+  normalizeAvailableRuntimeModelPreset:
+    mocks.normalizeAvailableRuntimeModelPreset,
 }));
 
 vi.mock('../src/host-workspace-cwd.js', () => ({
@@ -202,6 +228,36 @@ describe('group runtime stale-build guard', () => {
           };
         }
         return { group, materialized: false };
+      },
+    );
+    mocks.getCodexRuntimeFallback.mockReturnValue({
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+    });
+    mocks.getClaudeProviderConfig.mockReturnValue({
+      anthropicModel: 'sonnet',
+    });
+    mocks.getAvailableRuntimeModelOptions.mockReturnValue([
+      { value: 'gpt-5.5', label: 'GPT-5.5 (current)' },
+      { value: 'gpt-5.4', label: 'GPT-5.4' },
+    ]);
+    mocks.getAvailableRuntimeModelPresets.mockReturnValue([
+      'gpt-5.5',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+    ]);
+    mocks.normalizeAvailableRuntimeModelPreset.mockImplementation(
+      (
+        _agentType: string,
+        rawValue: string,
+        options?: { currentModel?: string | null },
+      ) => {
+        const value = rawValue.trim();
+        if (options?.currentModel === value) return value;
+        if (['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.5'].includes(value)) {
+          return value;
+        }
+        return null;
       },
     );
     mocks.checkGroupLimit.mockReturnValue({ allowed: true });
@@ -385,6 +441,60 @@ describe('group runtime stale-build guard', () => {
         model: 'gpt-5.4',
         reasoningEffort: 'xhigh',
       }),
+    );
+  });
+
+  test('does not accept the previous agent current model when switching agent type', async () => {
+    const app = createApp();
+
+    const res = await app.request('/api/groups/web:main', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agent_type: 'codex',
+        model: 'sonnet',
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Unsupported codex model',
+      presets: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
+    });
+    expect(mocks.normalizeAvailableRuntimeModelPreset).toHaveBeenCalledWith(
+      'codex',
+      'sonnet',
+      { currentModel: null },
+    );
+    expect(mocks.getAvailableRuntimeModelPresets).toHaveBeenCalledWith(
+      'codex',
+      { currentModel: null },
+    );
+    expect(mocks.setRegisteredGroup).not.toHaveBeenCalled();
+  });
+
+  test('returns runtime model options with the effective current model', async () => {
+    registeredGroups['web:main'] = {
+      ...registeredGroups['web:main'],
+      agentType: 'codex',
+      executionMode: 'host',
+      model: null,
+    };
+    const app = createApp();
+
+    const res = await app.request('/api/groups/web:main/runtime-model-options');
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      current_model: 'gpt-5.5',
+      options: [
+        { value: 'gpt-5.5', label: 'GPT-5.5 (current)' },
+        { value: 'gpt-5.4', label: 'GPT-5.4' },
+      ],
+    });
+    expect(mocks.getAvailableRuntimeModelOptions).toHaveBeenCalledWith(
+      'codex',
+      { currentModel: 'gpt-5.5' },
     );
   });
 

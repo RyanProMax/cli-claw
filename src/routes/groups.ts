@@ -18,9 +18,11 @@ import { checkGroupLimit } from '../billing.js';
 import { DATA_DIR, GROUPS_DIR, isDockerAvailable } from '../config.js';
 import { LAUNCH_CWD } from '../app-root.js';
 import {
+  buildEffectiveGroupFromHomeSibling,
   enforceAgentExecutionMode,
   hasRuntimeBoundaryChange,
   normalizeAgentType,
+  resolveEffectiveRuntimeIdentity,
   validateGroupRuntimeUpdate,
 } from '../group-runtime.js';
 import {
@@ -32,6 +34,7 @@ import {
   supportsReasoningEffort,
 } from '../runtime-command-registry.js';
 import {
+  getAvailableRuntimeModelOptions,
   getAvailableRuntimeModelPresets,
   normalizeAvailableRuntimeModelPreset,
 } from '../runtime-model-options.js';
@@ -84,10 +87,12 @@ import {
 } from '../db.js';
 import { logger } from '../logger.js';
 import {
+  getClaudeProviderConfig,
   getContainerEnvConfig,
   saveContainerEnvConfig,
   toPublicContainerEnvConfig,
 } from '../runtime-config.js';
+import { getCodexRuntimeFallback } from '../codex-config.js';
 import {
   loadMountAllowlist,
   findAllowedRoot,
@@ -110,11 +115,14 @@ const execFileAsync = promisify(execFile);
 function normalizeOptionalRuntimeModel(
   agentType: AgentType,
   rawValue: string | null | undefined,
+  currentModel?: string | null,
 ): string | null {
   if (rawValue == null) return null;
   const trimmed = rawValue.trim();
   if (!trimmed) return null;
-  return normalizeAvailableRuntimeModelPreset(agentType, trimmed);
+  return normalizeAvailableRuntimeModelPreset(agentType, trimmed, {
+    currentModel,
+  });
 }
 
 function normalizeOptionalReasoningEffort(
@@ -125,6 +133,36 @@ function normalizeOptionalReasoningEffort(
   const trimmed = rawValue.trim();
   if (!trimmed) return null;
   return normalizeReasoningEffortPreset(trimmed);
+}
+
+function findHomeSiblingGroup(group: RegisteredGroup): RegisteredGroup | null {
+  for (const siblingJid of getJidsByFolder(group.folder)) {
+    const sibling = getRegisteredGroup(siblingJid);
+    if (sibling?.is_home) return sibling;
+  }
+  return null;
+}
+
+function resolveEffectiveGroupForRuntime(
+  group: RegisteredGroup,
+): RegisteredGroup {
+  if (group.is_home) return group;
+  const homeGroup = findHomeSiblingGroup(group);
+  return homeGroup
+    ? buildEffectiveGroupFromHomeSibling(group, homeGroup)
+    : group;
+}
+
+function resolveRuntimeIdentityForGroup(group: RegisteredGroup) {
+  const codexRuntimeFallback = getCodexRuntimeFallback();
+  return resolveEffectiveRuntimeIdentity(
+    resolveEffectiveGroupForRuntime(group),
+    {
+      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+      codexCliModel: codexRuntimeFallback.model,
+      codexCliReasoningEffort: codexRuntimeFallback.reasoningEffort,
+    },
+  );
 }
 
 function readHistoryCursorQuery(
@@ -410,6 +448,30 @@ groupRoutes.get('/', authMiddleware, (c) => {
   const user = c.get('user') as AuthUser;
   const groups = buildGroupsPayload(user);
   return c.json({ groups });
+});
+
+// GET /api/groups/:jid/runtime-model-options - 当前工作区模型选择列表
+groupRoutes.get('/:jid/runtime-model-options', authMiddleware, (c) => {
+  const authUser = c.get('user') as AuthUser;
+  const jid = c.req.param('jid');
+  const group = getRegisteredGroup(jid);
+  if (!group) return c.json({ error: 'Group not found' }, 404);
+  if (
+    !canAccessGroup({ id: authUser.id, role: authUser.role }, { ...group, jid })
+  ) {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  const runtimeIdentity = resolveRuntimeIdentityForGroup(group);
+  const modelCatalog = getAvailableRuntimeModelOptions(
+    runtimeIdentity.agentType,
+    { currentModel: runtimeIdentity.model },
+  );
+
+  return c.json({
+    current_model: runtimeIdentity.model,
+    options: modelCatalog,
+  });
 });
 
 // POST /api/groups - 创建新群组
@@ -848,15 +910,26 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
       execution_mode !== undefined
         ? (execution_mode as ExecutionMode)
         : existing.executionMode || 'container';
+    const currentRuntimeIdentity = resolveRuntimeIdentityForGroup(existing);
+    const currentModelForNextAgent =
+      currentRuntimeIdentity.agentType === nextAgentType
+        ? currentRuntimeIdentity.model
+        : null;
     const nextModel =
       model !== undefined
-        ? normalizeOptionalRuntimeModel(nextAgentType, model)
+        ? normalizeOptionalRuntimeModel(
+            nextAgentType,
+            model,
+            currentModelForNextAgent,
+          )
         : (existing.model ?? null);
     if (model !== undefined && model !== null && !nextModel) {
       return c.json(
         {
           error: `Unsupported ${nextAgentType} model`,
-          presets: getAvailableRuntimeModelPresets(nextAgentType),
+          presets: getAvailableRuntimeModelPresets(nextAgentType, {
+            currentModel: currentModelForNextAgent,
+          }),
         },
         400,
       );

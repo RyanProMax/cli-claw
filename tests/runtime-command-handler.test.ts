@@ -17,27 +17,63 @@ const getCodexRuntimeFallbackMock = vi.hoisted(() =>
   vi.fn(() => ({ model: null, reasoningEffort: null })),
 );
 const getAvailableRuntimeModelPresetsMock = vi.hoisted(() =>
-  vi.fn((agentType: 'claude' | 'codex') =>
-    agentType === 'codex'
-      ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']
-      : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'],
+  vi.fn(
+    (
+      agentType: 'claude' | 'codex',
+      options?: { currentModel?: string | null },
+    ) => {
+      const presets =
+        agentType === 'codex'
+          ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']
+          : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
+      const currentModel = options?.currentModel?.trim();
+      if (
+        !currentModel ||
+        presets.some(
+          (value) => value.toLowerCase() === currentModel.toLowerCase(),
+        )
+      ) {
+        return presets;
+      }
+      return [currentModel, ...presets];
+    },
+  ),
+);
+const getAvailableRuntimeModelCatalogMock = vi.hoisted(() =>
+  vi.fn(
+    (
+      agentType: 'claude' | 'codex',
+      options?: { currentModel?: string | null },
+    ) => ({
+      options: getAvailableRuntimeModelPresetsMock(agentType, options).map(
+        (value: string) => ({ value, label: value }),
+      ),
+      source: agentType === 'codex' ? 'codex-cli' : 'preset',
+    }),
   ),
 );
 const normalizeAvailableRuntimeModelPresetMock = vi.hoisted(() =>
-  vi.fn((agentType: 'claude' | 'codex', rawValue: string) => {
-    const normalized = rawValue.trim().toLowerCase();
-    return (
-      getAvailableRuntimeModelPresetsMock(agentType).find(
-        (value: string) => value.toLowerCase() === normalized,
-      ) ?? null
-    );
-  }),
+  vi.fn(
+    (
+      agentType: 'claude' | 'codex',
+      rawValue: string,
+      options?: { currentModel?: string | null },
+    ) => {
+      const normalized = rawValue.trim().toLowerCase();
+      return (
+        getAvailableRuntimeModelPresetsMock(agentType, options).find(
+          (value: string) => value.toLowerCase() === normalized,
+        ) ?? null
+      );
+    },
+  ),
 );
 
 vi.mock('../src/codex-config.js', () => ({
   getCodexRuntimeFallback: getCodexRuntimeFallbackMock,
 }));
 vi.mock('../src/runtime-model-options.js', () => ({
+  getAvailableRuntimeModelCatalog: getAvailableRuntimeModelCatalogMock,
   getAvailableRuntimeModelPresets: getAvailableRuntimeModelPresetsMock,
   normalizeAvailableRuntimeModelPreset:
     normalizeAvailableRuntimeModelPresetMock,
@@ -85,16 +121,46 @@ describe('runtime command handler', () => {
       reasoningEffort: null,
     });
     getAvailableRuntimeModelPresetsMock.mockImplementation(
-      (agentType: 'claude' | 'codex') =>
-        agentType === 'codex'
-          ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']
-          : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'],
+      (
+        agentType: 'claude' | 'codex',
+        options?: { currentModel?: string | null },
+      ) => {
+        const presets =
+          agentType === 'codex'
+            ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']
+            : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
+        const currentModel = options?.currentModel?.trim();
+        if (
+          !currentModel ||
+          presets.some(
+            (value) => value.toLowerCase() === currentModel.toLowerCase(),
+          )
+        ) {
+          return presets;
+        }
+        return [currentModel, ...presets];
+      },
+    );
+    getAvailableRuntimeModelCatalogMock.mockImplementation(
+      (
+        agentType: 'claude' | 'codex',
+        options?: { currentModel?: string | null },
+      ) => ({
+        options: getAvailableRuntimeModelPresetsMock(agentType, options).map(
+          (value: string) => ({ value, label: value }),
+        ),
+        source: agentType === 'codex' ? 'codex-cli' : 'preset',
+      }),
     );
     normalizeAvailableRuntimeModelPresetMock.mockImplementation(
-      (agentType: 'claude' | 'codex', rawValue: string) => {
+      (
+        agentType: 'claude' | 'codex',
+        rawValue: string,
+        options?: { currentModel?: string | null },
+      ) => {
         const normalized = rawValue.trim().toLowerCase();
         return (
-          getAvailableRuntimeModelPresetsMock(agentType).find(
+          getAvailableRuntimeModelPresetsMock(agentType, options).find(
             (value: string) => value.toLowerCase() === normalized,
           ) ?? null
         );
@@ -236,16 +302,29 @@ describe('runtime command handler', () => {
 
     expect(result).toEqual({
       handled: true,
-      reply: '可用模型：gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2',
+      reply:
+        '当前模型：gpt-5.4-mini\n可用模型：gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2',
     });
   });
 
   test('surfaces dynamically discovered codex models in bare /model replies', async () => {
     getAvailableRuntimeModelPresetsMock.mockImplementation(
-      (agentType: 'claude' | 'codex') =>
-        agentType === 'codex'
-          ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.3-codex-spark']
-          : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'],
+      (
+        agentType: 'claude' | 'codex',
+        options?: { currentModel?: string | null },
+      ) => {
+        const presets =
+          agentType === 'codex'
+            ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.3-codex-spark']
+            : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
+        const currentModel = options?.currentModel?.trim();
+        return currentModel &&
+          !presets.some(
+            (value) => value.toLowerCase() === currentModel.toLowerCase(),
+          )
+          ? [currentModel, ...presets]
+          : presets;
+      },
     );
 
     const { deps } = createDeps({
@@ -269,7 +348,8 @@ describe('runtime command handler', () => {
 
     expect(result).toEqual({
       handled: true,
-      reply: '可用模型：gpt-5.4, gpt-5.5, gpt-5.3-codex-spark',
+      reply:
+        '当前模型：gpt-5.4-mini\n可用模型：gpt-5.4-mini, gpt-5.4, gpt-5.5, gpt-5.3-codex-spark',
     });
   });
 
@@ -327,10 +407,22 @@ describe('runtime command handler', () => {
 
   test('accepts dynamically discovered codex models when applying a selection', async () => {
     getAvailableRuntimeModelPresetsMock.mockImplementation(
-      (agentType: 'claude' | 'codex') =>
-        agentType === 'codex'
-          ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.3-codex-spark']
-          : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'],
+      (
+        agentType: 'claude' | 'codex',
+        options?: { currentModel?: string | null },
+      ) => {
+        const presets =
+          agentType === 'codex'
+            ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.3-codex-spark']
+            : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
+        const currentModel = options?.currentModel?.trim();
+        return currentModel &&
+          !presets.some(
+            (value) => value.toLowerCase() === currentModel.toLowerCase(),
+          )
+          ? [currentModel, ...presets]
+          : presets;
+      },
     );
 
     const { deps, groups } = createDeps({

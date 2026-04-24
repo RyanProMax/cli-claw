@@ -16,12 +16,14 @@ import {
 import { useFileStore } from '../../stores/files';
 import { useChatStore } from '../../stores/chat';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
+import { api } from '../../api/client';
 import { toast } from 'sonner';
 import {
   detectRuntimePickerCommand,
   getRuntimePickerOptions,
   type RuntimePickerCommand,
 } from '../../lib/runtimeCommandPicker';
+import type { RuntimePresetOption } from '../../lib/runtimeCommandRegistry';
 
 interface PendingFile {
   /** Display name: relative path for folder uploads, file name otherwise */
@@ -59,6 +61,8 @@ export function MessageInput({
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [runtimeModelOptions, setRuntimeModelOptions] = useState<RuntimePresetOption[] | null>(null);
+  const [runtimeModelCurrent, setRuntimeModelCurrent] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -77,15 +81,54 @@ export function MessageInput({
     ? detectRuntimePickerCommand(content)
     : null;
   const pickerOptions = pickerCommand
-    ? getRuntimePickerOptions({ command: pickerCommand, agentType })
+    ? getRuntimePickerOptions({
+        command: pickerCommand,
+        agentType,
+        modelOptions:
+          pickerCommand === 'model'
+            ? (runtimeModelOptions ?? undefined)
+            : undefined,
+      })
     : [];
   const currentRuntimeValue =
     pickerCommand === 'model'
-      ? (group?.model ?? null)
+      ? (runtimeModelCurrent ?? group?.model ?? null)
       : (group?.reasoning_effort ?? null);
 
   // iOS keyboard adaptation
   useKeyboardHeight();
+
+  useEffect(() => {
+    if (pickerCommand !== 'model' || !groupJid) {
+      setRuntimeModelOptions(null);
+      setRuntimeModelCurrent(null);
+      return;
+    }
+
+    let cancelled = false;
+    setRuntimeModelOptions(null);
+    setRuntimeModelCurrent(null);
+
+    api
+      .get<{
+        current_model: string | null;
+        options: RuntimePresetOption[];
+      }>(`/api/groups/${encodeURIComponent(groupJid)}/runtime-model-options`)
+      .then((data) => {
+        if (cancelled) return;
+        setRuntimeModelOptions(data.options);
+        setRuntimeModelCurrent(data.current_model);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRuntimeModelOptions(null);
+        setRuntimeModelCurrent(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pickerCommand, groupJid]);
 
   // Restore draft when groupJid changes (including initial mount)
   useEffect(() => {

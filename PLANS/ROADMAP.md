@@ -103,12 +103,14 @@
 
 ### RM-2026-04-24-08 Codex Model Picker Real CLI Discovery
 
-- Status: `in_progress`
+- Status: `verified`
 - Source: 2026-04-24 user request (`/model` 未显示 GPT-5.5)
 - Summary: `/model` 需要尽量对齐当前 Codex CLI 的真实模型列表，而不是仅依赖本地 cache/preset 回退
 - Evidence:
   - `src/runtime-model-options.ts` 当前优先读取 `~/.codex/models_cache.json`，缓存缺失时回退 preset
   - real-world report: `/model` missing GPT-5.5
   - 2026-04-24 Feishu recovery runner inherited `~/.codex/config.toml` `model = "gpt-5.5"` while `~/.codex/models_cache.json` no longer listed it, causing `codex-acp` to fail with `The model gpt-5.5 does not exist or you do not have access to it`
+  - 2026-04-24 live catalog fix: backend `/model` now queries `codex debug models` before cache/preset fallback, and picker options include the current effective Codex model when it differs from the live catalog
+  - safe restart `restart-2026-04-24T14-01-56-608Z-14ce081a`
 - Next action:
   - 评估是否在 workspace 未显式配置模型时校验 inherited Codex model 是否仍在可用列表内；若不可用，提示/降级到安全默认模型，并补契约测试

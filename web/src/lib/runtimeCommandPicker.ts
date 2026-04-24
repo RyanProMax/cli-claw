@@ -24,9 +24,10 @@ export function detectRuntimePickerCommand(
 export function getRuntimePickerOptions(options: {
   command: RuntimePickerCommand;
   agentType: RuntimeAgentType;
+  modelOptions?: RuntimePresetOption[];
 }): RuntimePresetOption[] {
   if (options.command === 'model') {
-    return getModelPresetOptions(options.agentType);
+    return options.modelOptions ?? getModelPresetOptions(options.agentType);
   }
   if (!supportsReasoningEffort(options.agentType)) {
     return [];

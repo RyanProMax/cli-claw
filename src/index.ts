@@ -1490,6 +1490,7 @@ async function handleCommand(
             cmd === 'model'
               ? getAvailableRuntimeModelOptions(
                   target.effectiveRuntimeIdentity.agentType,
+                  { currentModel: target.effectiveRuntimeIdentity.model },
                 )
               : undefined,
         }),

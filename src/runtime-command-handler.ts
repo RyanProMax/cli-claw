@@ -7,6 +7,7 @@ import {
   type RuntimeCommandEntrypoint,
 } from './runtime-command-registry.js';
 import {
+  getAvailableRuntimeModelCatalog,
   getAvailableRuntimeModelPresets,
   normalizeAvailableRuntimeModelPreset,
 } from './runtime-model-options.js';
@@ -255,10 +256,18 @@ async function handleModelCommand(
   rawPreset: string,
 ): Promise<string> {
   const agentType = normalizeAgentType(target.effectiveGroup.agentType);
-  const preset = normalizeAvailableRuntimeModelPreset(agentType, rawPreset);
+  const modelOptions = {
+    currentModel: target.effectiveRuntimeIdentity.model,
+  };
+  const preset = normalizeAvailableRuntimeModelPreset(
+    agentType,
+    rawPreset,
+    modelOptions,
+  );
   if (!preset) {
     return `不支持的 ${agentType} 模型。可用值：${getAvailableRuntimeModelPresets(
       agentType,
+      modelOptions,
     ).join(', ')}`;
   }
 
@@ -345,9 +354,15 @@ export async function executeRuntimeWorkspaceCommand(options: {
           reply: '请直接输入 /model 打开模型选择器',
         };
       }
+      const modelCatalog = getAvailableRuntimeModelCatalog(agentType, {
+        currentModel: target.effectiveRuntimeIdentity.model,
+      });
       return {
         handled: true,
-        reply: `可用模型：${getAvailableRuntimeModelPresets(agentType).join(', ')}`,
+        reply: [
+          `当前模型：${target.effectiveRuntimeIdentity.model}`,
+          `可用模型：${modelCatalog.options.map((option) => option.value).join(', ')}`,
+        ].join('\n'),
       };
     case 'effort':
       if (!supportsReasoningEffort(agentType)) {
