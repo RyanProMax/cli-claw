@@ -16,6 +16,7 @@ async function loadGroupQueueModule() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.resetModules();
   for (const dir of tempHomes.splice(0)) {
@@ -144,6 +145,59 @@ describe('GroupQueue shared-runner IPC recovery', () => {
       ),
     ).toBe('no_active');
     expect(fs.existsSync(inputDir)).toBe(false);
+
+    releaseFirstRun();
+  });
+
+  test('treats IPC-injected sibling chat work as stuck pending work when the active runner goes idle', async () => {
+    const { GroupQueue } = await loadGroupQueueModule();
+    const queue = new GroupQueue();
+    const fakeProcess = { pid: 34567, killed: false } as any;
+    const calls: string[] = [];
+
+    queue.setHostModeChecker(() => true);
+    queue.setSerializationKeyResolver((groupJid: string) =>
+      groupJid === 'web:main' || groupJid === 'feishu:chat-1'
+        ? 'main'
+        : groupJid,
+    );
+
+    let releaseFirstRun!: () => void;
+    const firstRunDone = new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    });
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      calls.push(groupJid);
+      queue.registerProcess(groupJid, fakeProcess, null, 'main');
+      await firstRunDone;
+      return true;
+    });
+
+    queue.enqueueMessageCheck('web:main');
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['web:main']);
+    });
+
+    expect(
+      queue.sendMessage(
+        'feishu:chat-1',
+        'follow-up from feishu',
+        undefined,
+        undefined,
+        {
+          timestamp: '2026-04-24T07:49:24.564Z',
+          id: 'msg-feishu-stuck',
+        },
+      ),
+    ).toBe('sent');
+    queue.markIpcInjectedMessage('feishu:chat-1');
+
+    expect(queue.getStuckPendingGroups(0)).toEqual([
+      expect.objectContaining({
+        jid: 'web:main',
+      }),
+    ]);
 
     releaseFirstRun();
   });

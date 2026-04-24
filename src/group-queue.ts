@@ -342,7 +342,11 @@ export class GroupQueue {
     for (const [jid, state] of this.groups.entries()) {
       if (!state.active) continue;
       if (state.activeRunnerIsTask) continue;
-      if (!state.pendingMessages) continue;
+      const hasPendingWork =
+        state.pendingMessages ||
+        state.hasIpcInjectedMessages ||
+        state.ipcInjectedMessageJids.size > 0;
+      if (!hasPendingWork) continue;
       if (state.agentId !== null) continue;
       if (state.restarting) continue;
       const lastActivityAt = state.lastActivityAt ?? 0;
