@@ -162,6 +162,8 @@ Current milestone:
 
 Current status:
 - Done. Workspace autopilot now runs as low-priority background work instead of injecting ordinary chat messages, and real user/IM messages take priority.
+- Commit `8c44e81 Make workspace autopilot low priority background work` landed the focused fix.
+- Post-restart monitoring observed task run log `143` at `2026-04-24T14:45:21.375Z` entering background execution with no new `messages` rows after restart `2026-04-24T14:41:20.738Z`; the old `[WORKSPACE_AUTOPILOT]` rows all predate the restart.
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -182,4 +184,4 @@ Suspected cause:
 - The scheduler treats workspace autopilot as a group-context scheduled task implemented by ordinary message injection rather than as a low-priority background run with preflight gates.
 
 Next step:
-- Commit the focused fix, then monitor the next scheduled autopilot tick in real usage.
+- No immediate implementation remains. Continue passive observation only if real user/IM traffic reports another autopilot prompt leak or no-op quota drain.

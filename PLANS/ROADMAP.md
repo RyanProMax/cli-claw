@@ -117,7 +117,7 @@
 
 ### RM-2026-04-24-09 Workspace Autopilot Background Contract
 
-- Status: `monitoring`
+- Status: `verified`
 - Source: 2026-04-24 user request
 - Summary: 主动模式不能每 5 分钟把固定 prompt 当普通消息塞进主对话；应改为低优先级后台 run，真实用户/飞书消息优先，no-op 不污染对话历史
 - Evidence:
@@ -127,5 +127,6 @@
   - tests: `tests/group-queue.test.ts`, `tests/task-scheduler-host-cwd.test.ts`, `tests/workspace-autopilot.test.ts`
   - validation: `npm test -- --run tests/workspace-autopilot.test.ts tests/group-queue.test.ts tests/task-scheduler-host-cwd.test.ts`, `npm run typecheck`, `git diff --check`, `./scripts/review.sh`
   - safe restart `restart-2026-04-24T14-41-19-260Z-c027f9a3`
+  - post-restart monitoring: task run log `143` started at `2026-04-24T14:45:21.375Z`; `messages` had no rows after backend restart `2026-04-24T14:41:20.738Z`, and all persisted `[WORKSPACE_AUTOPILOT]` prompt rows predated the restart
 - Next action:
-  - 观察下一轮真实 autopilot tick：应不再出现 `[WORKSPACE_AUTOPILOT]` 普通消息堆积；若 no-op 仍高频消耗 Codex，再加连续 no-op 指数退避
+  - 无；若后续真实使用仍出现 no-op 高频消耗 Codex，再加连续 no-op 指数退避
