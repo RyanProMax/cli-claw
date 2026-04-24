@@ -27,6 +27,52 @@ afterEach(() => {
 });
 
 describe('restart recovery cursor handling', () => {
+  test('creates a late-bound streaming session once the IM channel becomes available', async () => {
+    const { ensureLateBoundStreamingSession } = await loadIndexModule();
+    const createdSession = { id: 'stream-1' };
+    const isChannelAvailable = vi.fn((jid: string) => jid === 'feishu:chat-1');
+    const createSession = vi.fn((jid: string) =>
+      jid === 'feishu:chat-1' ? createdSession : undefined,
+    );
+    const registerSession = vi.fn();
+
+    const next = ensureLateBoundStreamingSession(undefined, {
+      createJid: 'feishu:chat-1',
+      registerJid: 'feishu:chat-1',
+      isChannelAvailable,
+      createSession,
+      registerSession,
+    });
+
+    expect(next).toBe(createdSession);
+    expect(isChannelAvailable).toHaveBeenCalledWith('feishu:chat-1');
+    expect(createSession).toHaveBeenCalledWith('feishu:chat-1');
+    expect(registerSession).toHaveBeenCalledWith(
+      'feishu:chat-1',
+      createdSession,
+    );
+  });
+
+  test('keeps the streaming session empty until the IM channel is available', async () => {
+    const { ensureLateBoundStreamingSession } = await loadIndexModule();
+    const isChannelAvailable = vi.fn(() => false);
+    const createSession = vi.fn();
+    const registerSession = vi.fn();
+
+    const next = ensureLateBoundStreamingSession(undefined, {
+      createJid: 'feishu:chat-1',
+      registerJid: 'feishu:chat-1',
+      isChannelAvailable,
+      createSession,
+      registerSession,
+    });
+
+    expect(next).toBeUndefined();
+    expect(isChannelAvailable).toHaveBeenCalledWith('feishu:chat-1');
+    expect(createSession).not.toHaveBeenCalled();
+    expect(registerSession).not.toHaveBeenCalled();
+  });
+
   test('normalizes main-conversation shutdown keys onto sibling web chats', async () => {
     const { buildStreamingShutdownKey } = await loadIndexModule();
 

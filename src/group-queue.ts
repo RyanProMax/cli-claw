@@ -235,6 +235,12 @@ export class GroupQueue {
     return false;
   }
 
+  private shouldDeferWebWaitingCandidate(groupJid: string): boolean {
+    return (
+      getChannelType(groupJid) === null && this.hasWaitingImSibling(groupJid)
+    );
+  }
+
   /**
    * Web/workspace-originated work must not hijack an active sibling IM runner.
    * Otherwise a queued `web:main` task can clear the IM reply route, turning a
@@ -1302,8 +1308,12 @@ export class GroupQueue {
     // runTask/runForGroup increment counters synchronously, so capacity checks
     // stay accurate even though the async work is not awaited.
     const candidates = [...this.waitingGroups];
+    const orderedCandidates = [
+      ...candidates.filter((jid) => !this.shouldDeferWebWaitingCandidate(jid)),
+      ...candidates.filter((jid) => this.shouldDeferWebWaitingCandidate(jid)),
+    ];
 
-    for (const jid of candidates) {
+    for (const jid of orderedCandidates) {
       const activeRunner = this.findActiveRunnerFor(jid);
       if (activeRunner && activeRunner !== jid) continue;
       if (!this.hasCapacityFor(jid)) continue;

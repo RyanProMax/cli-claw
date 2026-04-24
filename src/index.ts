@@ -538,6 +538,35 @@ export function buildStreamingRecoveryEntries(
     }));
 }
 
+export function ensureLateBoundStreamingSession<T>(
+  currentSession: T | undefined,
+  options: {
+    createJid: string | null | undefined;
+    registerJid: string;
+    isChannelAvailable: (jid: string) => boolean;
+    createSession: (jid: string) => T | undefined;
+    registerSession: (jid: string, session: T) => void;
+  },
+): T | undefined {
+  if (currentSession) return currentSession;
+  const {
+    createJid,
+    registerJid,
+    isChannelAvailable,
+    createSession,
+    registerSession,
+  } = options;
+  if (!createJid || !isChannelAvailable(createJid)) {
+    return undefined;
+  }
+  const nextSession = createSession(createJid);
+  if (!nextSession) {
+    return undefined;
+  }
+  registerSession(registerJid, nextSession);
+  return nextSession;
+}
+
 function normalizeStreamingTurnState(
   streamingKey: string,
   value: unknown,
@@ -3162,6 +3191,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     registerStreamingSession(streamingSessionJid, streamingSession);
     logger.debug({ chatJid }, 'Streaming card session created for Feishu');
   }
+  const ensureStreamingSessionAvailable = () => {
+    streamingSession = ensureLateBoundStreamingSession(streamingSession, {
+      createJid: streamingSessionJid,
+      registerJid: streamingSessionJid,
+      isChannelAvailable: (jid) => imManager.isChannelAvailableForJid(jid),
+      createSession: (jid) =>
+        imManager.createStreamingSession(jid, makeOnCardCreated(jid)),
+      registerSession: registerStreamingSession,
+    });
+    return streamingSession;
+  };
 
   // ── Dynamic reply route updater ──
   // Allows IPC-injected messages (from web.ts / IM polling) to update the
@@ -3200,15 +3240,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         unregisterStreamingSession(streamingSessionJid);
       }
       streamingSessionJid = newStreamingJid;
-      streamingSession = imManager.createStreamingSession(
-        streamingSessionJid,
-        makeOnCardCreated(streamingSessionJid),
-      );
+      streamingSession = undefined;
       streamingPresentationText = createEmptyStreamPresentationTextState();
       streamingAccumulatedThinking = '';
-      if (streamingSession) {
-        registerStreamingSession(streamingSessionJid, streamingSession);
-      }
+      ensureStreamingSessionAvailable();
     }
   });
 
@@ -3324,16 +3359,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   streamingSession.dispose();
                 }
                 unregisterStreamingSession(streamingSessionJid);
-                streamingSession = imManager.createStreamingSession(
-                  streamingSessionJid,
-                  makeOnCardCreated(streamingSessionJid),
-                );
-                if (streamingSession) {
-                  registerStreamingSession(
-                    streamingSessionJid,
-                    streamingSession,
-                  );
-                }
+                streamingSession = undefined;
+                ensureStreamingSessionAvailable();
               }
             }
             activeStreamingEventTurnId = turnBoundary.nextState.turnId;
@@ -3377,21 +3404,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               // spamming the IM channel. The first substantive reply already
               // delivered the main content; follow-up results are DB-only.
               streamInterrupted = false;
-              streamingSession = imManager.createStreamingSession(
-                streamingSessionJid,
-                makeOnCardCreated(streamingSessionJid),
-              );
-              if (streamingSession) {
-                registerStreamingSession(streamingSessionJid, streamingSession);
+              streamingSession = undefined;
+              if (ensureStreamingSessionAvailable()) {
                 logger.debug(
                   { chatJid },
                   'Rebuilt streaming card for IPC-injected query',
                 );
               }
             }
-            if (streamingSession) {
+            const activeStreamingSession = ensureStreamingSessionAvailable();
+            if (activeStreamingSession) {
               feedStreamEventToCard(
-                streamingSession,
+                activeStreamingSession,
                 streamEvent,
                 streamingPresentationText,
               );
@@ -3421,13 +3445,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   streamingPresentationText.commentaryText,
                 );
                 try {
-                  if (streamingSession?.isActive()) {
+                  const activeStreamingSession =
+                    ensureStreamingSessionAvailable();
+                  if (activeStreamingSession?.isActive()) {
                     await patchStreamingSessionFooterUsage(
-                      streamingSession,
+                      activeStreamingSession,
                       activeRuntimeIdentity,
                       provisionalUsage,
                     ).catch(() => {});
-                    await streamingSession.abort('已中断').catch(() => {});
+                    await activeStreamingSession
+                      .abort('已中断')
+                      .catch(() => {});
                   }
                   lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
                     sendToIM: false,
@@ -3739,18 +3767,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               // If a streaming card is active, finalize it with the complete text.
               // The card replaces the normal IM sendMessage for the Feishu channel.
               let streamingCardHandledIM = false;
-              if (streamingSession?.isActive()) {
+              const activeStreamingSession = ensureStreamingSessionAvailable();
+              if (activeStreamingSession?.isActive()) {
                 try {
-                  streamingSession.setRuntimeIdentity(activeRuntimeIdentity);
+                  activeStreamingSession.setRuntimeIdentity(
+                    activeRuntimeIdentity,
+                  );
                   await patchStreamingSessionFooterUsage(
-                    streamingSession,
+                    activeStreamingSession,
                     activeRuntimeIdentity,
                     buildProvisionalTokenUsage(agentRunStartedAt),
                   ).catch(() => {});
                   if (result.finalizationReason === 'error') {
-                    await streamingSession.fail(visibleText);
+                    await activeStreamingSession.fail(visibleText);
                   } else {
-                    await streamingSession.complete(visibleText);
+                    await activeStreamingSession.complete(visibleText);
                   }
                   streamingCardHandledIM = true;
                   // Streaming card replaced the normal sendMessage path,
@@ -3766,7 +3797,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                     'Streaming card complete failed, falling back to static message',
                   );
                   // Abort the card so it doesn't stay stuck in "streaming" state
-                  await streamingSession
+                  await activeStreamingSession
                     .abort('回复已通过消息发送')
                     .catch(() => {});
                   // Fall through to normal sendMessage
@@ -3785,15 +3816,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 streamingPresentationText =
                   createEmptyStreamPresentationTextState();
                 streamingAccumulatedThinking = '';
-                streamingSession = imManager.createStreamingSession(
-                  streamingSessionJid,
-                  makeOnCardCreated(streamingSessionJid),
-                );
-                if (streamingSession) {
-                  registerStreamingSession(
-                    streamingSessionJid,
-                    streamingSession,
-                  );
+                streamingSession = undefined;
+                if (ensureStreamingSessionAvailable()) {
                   logger.debug(
                     { chatJid, sourceKind: result.sourceKind },
                     'Rebuilt streaming card after partial output',
@@ -3913,21 +3937,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     const wasInterrupted = streamInterrupted && !sentReply;
 
     // ── Streaming card cleanup ──
-    if (streamingSession) {
-      if (streamingSession.isActive()) {
+    const activeStreamingSession = streamingSession;
+    if (activeStreamingSession) {
+      if (activeStreamingSession.isActive()) {
         if (hadError || !output || output.status === 'error') {
-          await streamingSession.abort('处理出错').catch(() => {});
+          await activeStreamingSession.abort('处理出错').catch(() => {});
         } else if (wasInterrupted) {
           const provisionalUsage =
             buildProvisionalTokenUsage(agentRunStartedAt);
           await patchStreamingSessionFooterUsage(
-            streamingSession,
+            activeStreamingSession,
             activeRuntimeIdentity,
             provisionalUsage,
           ).catch(() => {});
-          await streamingSession.abort('已中断').catch(() => {});
+          await activeStreamingSession.abort('已中断').catch(() => {});
         } else {
-          const activeStreamingSession = streamingSession;
           const provisionalUsage =
             buildProvisionalTokenUsage(agentRunStartedAt);
           await patchStreamingSessionFooterUsage(
@@ -6381,6 +6405,25 @@ async function processAgentConversation(
       'Streaming card session created for conversation agent',
     );
   }
+  const ensureAgentStreamingSessionAvailable = () => {
+    if (!streamingSessionJid) {
+      return undefined;
+    }
+    agentStreamingSession = ensureLateBoundStreamingSession(
+      agentStreamingSession,
+      {
+        createJid: replySourceImJid,
+        registerJid: streamingSessionJid,
+        isChannelAvailable: (jid) => imManager.isChannelAvailableForJid(jid),
+        createSession: (jid) =>
+          imManager.createStreamingSession(jid, (messageId) =>
+            registerMessageIdMapping(messageId, streamingSessionJid),
+          ),
+        registerSession: registerStreamingSession,
+      },
+    );
+    return agentStreamingSession;
+  };
 
   // Track idle timer
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -6472,17 +6515,8 @@ async function processAgentConversation(
             }
             unregisterStreamingSession(streamingSessionJid);
           }
-          agentStreamingSession = replySourceImJid
-            ? imManager.createStreamingSession(replySourceImJid, (messageId) =>
-                registerMessageIdMapping(messageId, streamingSessionJid),
-              )
-            : undefined;
-          if (agentStreamingSession) {
-            registerStreamingSession(
-              streamingSessionJid,
-              agentStreamingSession,
-            );
-          }
+          agentStreamingSession = undefined;
+          ensureAgentStreamingSessionAvailable();
         }
       }
       agentStreamingEventTurnId = turnBoundary.nextState.turnId;
@@ -6511,9 +6545,11 @@ async function processAgentConversation(
       }
 
       // ── Feed stream events into Feishu streaming card ──
-      if (agentStreamingSession) {
+      const activeAgentStreamingSession =
+        ensureAgentStreamingSessionAvailable();
+      if (activeAgentStreamingSession) {
         feedStreamEventToCard(
-          agentStreamingSession,
+          activeAgentStreamingSession,
           streamEvent,
           agentStreamingPresentationText,
         );
@@ -6539,13 +6575,15 @@ async function processAgentConversation(
             virtualChatJid,
           );
           try {
-            if (agentStreamingSession?.isActive()) {
+            const activeAgentStreamingSession =
+              ensureAgentStreamingSessionAvailable();
+            if (activeAgentStreamingSession?.isActive()) {
               await patchStreamingSessionFooterUsage(
-                agentStreamingSession,
+                activeAgentStreamingSession,
                 currentAgentRuntimeIdentity,
                 provisionalUsage,
               ).catch(() => {});
-              await agentStreamingSession.abort('已中断').catch(() => {});
+              await activeAgentStreamingSession.abort('已中断').catch(() => {});
             }
             const msgId = crypto.randomUUID();
             const timestamp = new Date().toISOString();
@@ -6739,20 +6777,22 @@ async function processAgentConversation(
 
         // ── Complete Feishu streaming card or fall back to static message ──
         let streamingCardHandledIM = false;
-        if (agentStreamingSession?.isActive()) {
+        const activeAgentStreamingSession =
+          ensureAgentStreamingSessionAvailable();
+        if (activeAgentStreamingSession?.isActive()) {
           try {
-            agentStreamingSession.setRuntimeIdentity(
+            activeAgentStreamingSession.setRuntimeIdentity(
               currentAgentRuntimeIdentity,
             );
             await patchStreamingSessionFooterUsage(
-              agentStreamingSession,
+              activeAgentStreamingSession,
               currentAgentRuntimeIdentity,
               buildProvisionalTokenUsage(agentConversationStartedAt),
             ).catch(() => {});
             if (output.finalizationReason === 'error') {
-              await agentStreamingSession.fail(visibleText);
+              await activeAgentStreamingSession.fail(visibleText);
             } else {
-              await agentStreamingSession.complete(visibleText);
+              await activeAgentStreamingSession.complete(visibleText);
             }
             streamingCardHandledIM = true;
           } catch (err) {
@@ -6760,7 +6800,7 @@ async function processAgentConversation(
               { err, chatJid, agentId },
               'Agent streaming card complete failed, falling back to static message',
             );
-            await agentStreamingSession
+            await activeAgentStreamingSession
               .abort('回复已通过消息发送')
               .catch(() => {});
           }
@@ -6780,16 +6820,8 @@ async function processAgentConversation(
           agentStreamingThinking = '';
           agentStreamingEventTurnId = undefined;
           unregisterStreamingSession(streamingSessionJid);
-          agentStreamingSession = imManager.createStreamingSession(
-            replySourceImJid!,
-            (messageId) =>
-              registerMessageIdMapping(messageId, streamingSessionJid!),
-          );
-          if (agentStreamingSession) {
-            registerStreamingSession(
-              streamingSessionJid,
-              agentStreamingSession,
-            );
+          agentStreamingSession = undefined;
+          if (ensureAgentStreamingSessionAvailable()) {
             logger.debug(
               { chatJid, agentId, sourceKind: output.sourceKind },
               'Rebuilt streaming card after partial output',
@@ -7031,33 +7063,35 @@ async function processAgentConversation(
     const wasInterrupted = agentStreamInterrupted && !isCurrentTurnCommitted();
 
     // ── Streaming card cleanup ──
-    if (agentStreamingSession) {
-      if (agentStreamingSession.isActive()) {
+    const activeAgentStreamingSession = agentStreamingSession;
+    if (activeAgentStreamingSession) {
+      if (activeAgentStreamingSession.isActive()) {
         if (hadError) {
-          await agentStreamingSession.abort('处理出错').catch(() => {});
+          await activeAgentStreamingSession.abort('处理出错').catch(() => {});
         } else if (wasInterrupted) {
           const provisionalUsage = buildProvisionalTokenUsage(
             agentConversationStartedAt,
           );
           await patchStreamingSessionFooterUsage(
-            agentStreamingSession,
+            activeAgentStreamingSession,
             currentAgentRuntimeIdentity,
             provisionalUsage,
           ).catch(() => {});
-          await agentStreamingSession.abort('已中断').catch(() => {});
+          await activeAgentStreamingSession.abort('已中断').catch(() => {});
         } else {
-          const activeStreamingSession = agentStreamingSession;
           const provisionalUsage = buildProvisionalTokenUsage(
             agentConversationStartedAt,
           );
           await patchStreamingSessionFooterUsage(
-            activeStreamingSession,
+            activeAgentStreamingSession,
             currentAgentRuntimeIdentity,
             provisionalUsage,
           ).catch(() => {});
-          await activeStreamingSession.completeWithCurrentText().catch(() => {
-            activeStreamingSession.dispose();
-          });
+          await activeAgentStreamingSession
+            .completeWithCurrentText()
+            .catch(() => {
+              activeAgentStreamingSession.dispose();
+            });
         }
       }
       if (streamingSessionJid) {

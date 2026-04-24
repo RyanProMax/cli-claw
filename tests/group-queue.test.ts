@@ -25,6 +25,57 @@ afterEach(() => {
 });
 
 describe('GroupQueue shared-runner IPC recovery', () => {
+  test('prefers a waiting IM sibling over web work when drainWaiting releases a slot', async () => {
+    const { GroupQueue } = await loadGroupQueueModule();
+    const { saveSystemSettings } = await import('../src/runtime-config.js');
+    saveSystemSettings({ maxConcurrentHostProcesses: 1 });
+
+    const queue = new GroupQueue();
+    const calls: string[] = [];
+    const fakeProcess = { pid: 11223, killed: false } as any;
+
+    queue.setHostModeChecker(() => true);
+    queue.setSerializationKeyResolver((groupJid: string) =>
+      groupJid === 'web:main' || groupJid === 'feishu:chat-1'
+        ? 'main'
+        : groupJid,
+    );
+
+    let releaseBusyRun!: () => void;
+    const busyRunDone = new Promise<void>((resolve) => {
+      releaseBusyRun = resolve;
+    });
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      calls.push(groupJid);
+      queue.registerProcess(
+        groupJid,
+        fakeProcess,
+        null,
+        groupJid === 'other:busy' ? 'other' : 'main',
+      );
+      if (groupJid === 'other:busy') {
+        await busyRunDone;
+      }
+      return true;
+    });
+
+    queue.enqueueMessageCheck('other:busy');
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['other:busy']);
+    });
+
+    queue.enqueueMessageCheck('web:main');
+    queue.enqueueMessageCheck('feishu:chat-1');
+
+    releaseBusyRun();
+
+    await vi.waitFor(() => {
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+    });
+    expect(calls[1]).toBe('feishu:chat-1');
+  });
+
   test('re-enqueues the originating sibling chat when unconsumed IPC survives runner exit', async () => {
     const { GroupQueue, DATA_DIR } = await loadGroupQueueModule();
     const queue = new GroupQueue();
