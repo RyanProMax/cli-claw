@@ -1966,6 +1966,7 @@ export class StreamingCardController {
     this.settleAuxiliaryState({
       dropThinkingText: finalState === 'aborted',
       dropCommentaryText: finalState === 'completed',
+      dropToolCalls: finalState === 'completed',
     });
     this.accumulatedText = finalText;
     this.state = finalState;
@@ -2292,7 +2293,11 @@ export class StreamingCardController {
   }
 
   private settleAuxiliaryState(
-    options: { dropThinkingText?: boolean; dropCommentaryText?: boolean } = {},
+    options: {
+      dropThinkingText?: boolean;
+      dropCommentaryText?: boolean;
+      dropToolCalls?: boolean;
+    } = {},
   ): void {
     this.thinking = false;
     if (options.dropThinkingText) {
@@ -2303,6 +2308,10 @@ export class StreamingCardController {
     }
     this.systemStatus = null;
     this.activeHook = null;
+    if (options.dropToolCalls) {
+      this.toolCalls.clear();
+      return;
+    }
     for (const toolCall of this.toolCalls.values()) {
       if (toolCall.status === 'running') {
         toolCall.status = 'complete';

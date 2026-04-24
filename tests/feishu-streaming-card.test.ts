@@ -921,4 +921,36 @@ describe('StreamingCardController footer caching', () => {
 
     controller.dispose();
   });
+
+  test('drops internal tool-step panels when completing with current text', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.appendCommentary('先收集上下文');
+    controller.startTool('tool-1', 'exec_command');
+    controller.updateToolSummary('tool-1', 'git status --short');
+    controller.append('已处理');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await (controller as any).completeWithCurrentText();
+
+    await vi.waitFor(() => {
+      expect(updatedCards.length).toBeGreaterThan(0);
+    });
+
+    const finalCardJson = JSON.stringify(updatedCards.at(-1) ?? createdCards.at(-1));
+    expect(finalCardJson).toContain('已处理');
+    expect(finalCardJson).not.toContain('steps');
+    expect(finalCardJson).not.toContain('git status --short');
+    expect(finalCardJson).not.toContain('exec_command');
+
+    controller.dispose();
+  });
 });

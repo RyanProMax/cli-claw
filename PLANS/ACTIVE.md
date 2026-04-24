@@ -1,41 +1,36 @@
-# Roadmap And Message Policy Follow-up
+# Feishu Outbound Message Contract
 
 ## Goal
 
-- Introduce `PLANS/ROADMAP.md` as the long-term iteration tracker while keeping `PLANS/ACTIVE.md` as the current-round execution plan.
-- Verify whether quota-pause, footer remaining thresholds, and task-message progress suffix behavior already match the requested contract.
-- Record unfinished long-term messaging gaps into `PLANS/ROADMAP.md`.
+- Reproduce why Feishu can surface internal `commentary` / tool-step content as a user-visible reply.
+- Add focused regression coverage for the user-visible message contract before changing production behavior.
 
 ## Done when
 
-- `PLANS/ROADMAP.md` exists with clear long-term tracking structure.
-- Repo entry docs explain the split between `ROADMAP.md` and `ACTIVE.md`.
-- Items `4/5/7` are verified with fresh evidence.
-- Any still-open long-term messaging gaps are captured in `PLANS/ROADMAP.md`.
+- We can point to the exact outbound path that lets internal execution content reach Feishu.
+- A failing test captures the current bad behavior.
+- The next round can implement the smallest safe fix inside a clearly bounded scope.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Verify the current implementation status of items `4/5/7` and define the minimal `ROADMAP.md` structure.
+- Reproduce the leak and capture it with the smallest failing test.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `.gitignore`
-- `AGENTS.md`
-- `docs/ENGINEERING.md`
-- `docs/CONTEXT.md`
-- `docs/MODULE.md`
-- `src/runtime-usage.ts`
-- `src/active-plan-progress.ts`
-- `tests/workspace-autopilot.test.ts`
-- `tests/assistant-meta-footer.test.ts`
-- `tests/active-plan-progress.test.ts`
+- `src/index.ts`
+- `src/feishu.ts`
+- `src/feishu-streaming-card.ts`
+- `src/reply-visibility.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/restart-recovery.test.ts`
 
 Validation:
-- `npm test -- tests/workspace-autopilot.test.ts tests/assistant-meta-footer.test.ts tests/active-plan-progress.test.ts`
+- `npm test -- tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts tests/restart-recovery.test.ts`
 - `git diff --check`
 
 Status:
@@ -48,45 +43,49 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- The user’s Feishu-message complaint indicates a broader reliability gap than the already-fixed terminal-state bug; long-term items should be tracked separately in `ROADMAP.md`.
-- Fresh verification passed:
-  - `npm test -- tests/workspace-autopilot.test.ts tests/assistant-meta-footer.test.ts tests/active-plan-progress.test.ts`
+- The previous terminal-state fix intentionally preserves existing card content; the remaining question is whether that preserved content should ever include internal execution panels for Feishu end users.
+- Root cause confirmed: success cleanup paths call `completeWithCurrentText()`, which previously dropped commentary but preserved tool-step panels, so a completed Feishu card could still expose internal steps when there was no replacement final reply.
+- Fresh evidence:
+  - `npm test -- tests/feishu-streaming-card.test.ts`
+  - `npm test -- tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts tests/restart-recovery.test.ts`
   - `git diff --check`
 
 ### Milestone 2
 
 Objective:
-- Finalize docs/roadmap updates, run review, and commit the round.
+- Implement the minimal contract fix, validate it, and update the roadmap status.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `AGENTS.md`
-- `docs/ENGINEERING.md`
-- `docs/CONTEXT.md`
-- `docs/MODULE.md`
+- `src/index.ts`
+- `src/feishu.ts`
+- `src/feishu-streaming-card.ts`
+- `src/reply-visibility.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/restart-recovery.test.ts`
 
 Validation:
-- `npm test -- tests/workspace-autopilot.test.ts tests/assistant-meta-footer.test.ts tests/active-plan-progress.test.ts`
+- `npm test -- tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts tests/restart-recovery.test.ts`
+- `npm run typecheck`
 - `./scripts/review.sh`
 - `git diff --check`
+- `cli-claw restart`
+- `curl -sS http://127.0.0.1:3000/api/health`
 
 Status:
-- done
+- pending
 
 Validation status:
-- passed
+- not_run
 
 Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Keep the new roadmap file lightweight and decision-oriented; it should track long-term follow-up, not replace milestone execution details in `ACTIVE.md`.
-- `PLANS/ROADMAP.md` had to be unignored in `.gitignore` so the long-term tracker can actually be versioned.
-- Fresh validation/review evidence:
-  - `npm test -- tests/workspace-autopilot.test.ts tests/assistant-meta-footer.test.ts tests/active-plan-progress.test.ts`
-  - `./scripts/review.sh`
-  - `git diff --check`
+- Keep the fix narrow: block internal-only content from becoming the final Feishu-visible reply without regressing legitimate task progress or terminal-state freezing.
+- Narrow fix applied: completed cards now clear tool-step panels alongside commentary, while aborted/error flows keep their existing behavior.
 
 ## Working Rules
 
@@ -99,25 +98,22 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- none
+- Milestone 2
 
 Current status:
-- completed
+- in_progress
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `.gitignore`
-- `AGENTS.md`
-- `docs/ENGINEERING.md`
-- `docs/CONTEXT.md`
-- `docs/MODULE.md`
+- `src/feishu-streaming-card.ts`
+- `tests/feishu-streaming-card.test.ts`
 
 Last failure summary:
 - none
 
 Suspected cause:
-- Feishu message issues have been caught too late because the repo currently has point tests for individual behaviors, but not enough end-to-end channel-contract coverage for what is actually allowed to reach users.
+- Feishu currently mixes two concerns: live progress visualization and final user-visible reply delivery. A success cleanup/fallback path was freezing progress-only tool panels into the completed user-visible card.
 
 Next step:
-- Commit the roadmap/doc split. Future message-reliability gaps should be opened from `PLANS/ROADMAP.md` into new `PLANS/ACTIVE.md` rounds.
+- Commit the fix, apply it through the safe restart path, and verify health.
