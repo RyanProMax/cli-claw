@@ -66,6 +66,8 @@ export interface DingTalkConnectConfig {
 
 export interface ConnectFeishuOptions {
   ignoreMessagesBefore?: number;
+  startupBackfillChatIds?: string[];
+  startupBackfillIgnoreMessagesBefore?: number;
   onCommand?: (chatJid: string, command: string) => Promise<string | null>;
   resolveManagedCommandText?: (chatJid: string, text: string) => string | null;
   resolveGroupFolder?: (chatJid: string) => string | undefined;
@@ -358,6 +360,9 @@ class IMConnectionManager {
       },
       onNewChat,
       ignoreMessagesBefore: options?.ignoreMessagesBefore,
+      startupBackfillChatIds: options?.startupBackfillChatIds,
+      startupBackfillIgnoreMessagesBefore:
+        options?.startupBackfillIgnoreMessagesBefore,
       onCommand: options?.onCommand,
       resolveManagedCommandText: options?.resolveManagedCommandText,
       resolveGroupFolder: options?.resolveGroupFolder,

@@ -50,6 +50,10 @@ export interface ConnectOptions {
   onNewChat?: (chatJid: string, chatName: string) => void;
   /** 热重连时设置：丢弃 create_time 早于此时间戳（epoch ms）的消息，避免处理渠道关闭期间的堆积消息 */
   ignoreMessagesBefore?: number;
+  /** 初始启动时用于 backfill 的已知 chat_id 列表 */
+  startupBackfillChatIds?: string[];
+  /** 初始启动 backfill 的时间下界，可早于当前 live WS 的 ignoreMessagesBefore */
+  startupBackfillIgnoreMessagesBefore?: number;
   /** 斜杠指令回调（如 /clear），返回回复文本或 null */
   onCommand?: (chatJid: string, command: string) => Promise<string | null>;
   /** 显式运维短语改写成受管命令（如“重启服务” -> self-restart） */
@@ -835,6 +839,7 @@ export function createFeishuConnection(
     const {
       onNewChat,
       ignoreMessagesBefore,
+      startupBackfillIgnoreMessagesBefore,
       onCommand,
       resolveManagedCommandText,
       resolveGroupFolder,
@@ -865,16 +870,21 @@ export function createFeishuConnection(
       'Feishu message received',
     );
 
+    const effectiveIgnoreMessagesBefore =
+      source === 'backfill'
+        ? (startupBackfillIgnoreMessagesBefore ?? ignoreMessagesBefore)
+        : ignoreMessagesBefore;
+
     if (
-      ignoreMessagesBefore &&
+      effectiveIgnoreMessagesBefore &&
       createTimeMs > 0 &&
-      createTimeMs < ignoreMessagesBefore
+      createTimeMs < effectiveIgnoreMessagesBefore
     ) {
       logger.info(
         {
           messageId,
           createTime: createTimeMs,
-          threshold: ignoreMessagesBefore,
+          threshold: effectiveIgnoreMessagesBefore,
         },
         'Skipping stale Feishu message from before reconnection',
       );
@@ -1578,6 +1588,14 @@ export function createFeishuConnection(
         return false;
       }
       connectOptions = opts;
+      const startupBackfillChatIds = Array.isArray(opts.startupBackfillChatIds)
+        ? opts.startupBackfillChatIds
+            .map((chatId) => chatId.trim())
+            .filter(Boolean)
+        : [];
+      for (const chatId of startupBackfillChatIds) {
+        knownChatIds.add(chatId);
+      }
       disconnectedChecks = 0;
       disconnectedSince = null;
       reconnectRequestedAt = Date.now();
@@ -1780,6 +1798,9 @@ export function createFeishuConnection(
         disconnectedSince = null;
         startHealthMonitor();
         onReady();
+        if (startupBackfillChatIds.length > 0) {
+          await runBackfill('startup');
+        }
         return true;
       } catch (err) {
         logger.error(

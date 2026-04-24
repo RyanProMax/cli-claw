@@ -93,8 +93,11 @@
   - `tests/restart-recovery.test.ts`
   - `npm test -- tests/group-queue.test.ts tests/restart-recovery.test.ts`
   - `npm run typecheck`
+  - `src/feishu.ts`
+  - `tests/feishu-connection.test.ts`
+  - startup connect now backfills known Feishu chats once after WS readiness
 - Next action:
-  - 通过安全重启路径应用并继续观察真实 IM 流量；若仍有“重启后不回 IM”，下一步优先排查 WeChat/Feishu 通道自身回执能力而不是 cursor 恢复
+  - 通过安全重启路径应用并继续观察真实 IM 流量；若仍有“重启后第一条 Feishu 消息不回”，下一步优先排查其他 IM 通道是否也缺少 startup-window backfill
 
 ### RM-2026-04-24-08 Codex Model Picker Real CLI Discovery
 

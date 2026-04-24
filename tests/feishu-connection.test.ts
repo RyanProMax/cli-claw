@@ -18,6 +18,7 @@ const hoisted = vi.hoisted(() => {
     replySpy: vi.fn().mockResolvedValue({}),
     createSpy: vi.fn().mockResolvedValue({}),
     messageGetSpy: vi.fn(),
+    messageListSpy: vi.fn().mockResolvedValue({ data: { items: [] } }),
     reactionCreateSpy: vi
       .fn()
       .mockResolvedValue({ data: { reaction_id: 'r1' } }),
@@ -48,6 +49,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
         message: {
           create: hoisted.createSpy,
           get: hoisted.messageGetSpy,
+          list: hoisted.messageListSpy,
         },
         chat: {
           get: vi.fn(),
@@ -145,6 +147,9 @@ vi.mock('../src/feishu-markdown-style.js', () => ({
 }));
 
 import { createFeishuConnection } from '../src/feishu.ts';
+import { storeMessageDirect } from '../src/db.js';
+import { notifyNewImMessage } from '../src/message-notifier.js';
+import { broadcastNewMessage } from '../src/web.js';
 
 const PREBUILT_CARD_WRAPPER = JSON.stringify({
   type: 'interactive',
@@ -170,6 +175,8 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.replySpy.mockClear();
     hoisted.createSpy.mockClear();
     hoisted.messageGetSpy.mockReset();
+    hoisted.messageListSpy.mockReset();
+    hoisted.messageListSpy.mockResolvedValue({ data: { items: [] } });
     hoisted.reactionCreateSpy.mockClear();
     hoisted.reactionDeleteSpy.mockClear();
     hoisted.resolveJidByMessageIdSpy.mockReset();
@@ -181,6 +188,9 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.wsCloseSpy.mockClear();
     hoisted.onReadySpy.mockClear();
     hoisted.resolveImSlashCommandReplySpy.mockClear();
+    vi.mocked(storeMessageDirect).mockClear();
+    vi.mocked(notifyNewImMessage).mockClear();
+    vi.mocked(broadcastNewMessage).mockClear();
     Object.keys(hoisted.handlers).forEach(
       (key) => delete hoisted.handlers[key],
     );
@@ -401,6 +411,119 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       'feishu:oc_same_chat',
       '新的回复已开始',
     );
+  });
+
+  test('backfills startup-window messages for known chats on initial connect', async () => {
+    const startupThreshold = Date.now() - 5_000;
+    const liveIgnoreThreshold = startupThreshold + 2_000;
+    hoisted.messageListSpy.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            message_id: 'msg-startup-backfill',
+            create_time: String(startupThreshold + 1_000),
+            msg_type: 'text',
+            body: {
+              content: JSON.stringify({ text: 'restart window message' }),
+            },
+            chat_type: 'p2p',
+            sender: {
+              sender_id: {
+                open_id: 'user-open-id',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      ignoreMessagesBefore: liveIgnoreThreshold,
+      startupBackfillIgnoreMessagesBefore: startupThreshold,
+      startupBackfillChatIds: ['startup-chat'] as any,
+    } as any);
+
+    expect(hoisted.messageListSpy).toHaveBeenCalledWith({
+      params: expect.objectContaining({
+        container_id: 'startup-chat',
+      }),
+    });
+    expect(storeMessageDirect).toHaveBeenCalledWith(
+      'msg-startup-backfill',
+      'feishu:startup-chat',
+      'user-open-id',
+      'user-open-id',
+      'restart window message',
+      expect.any(String),
+      false,
+      { attachments: undefined, sourceJid: 'feishu:startup-chat' },
+    );
+    expect(notifyNewImMessage).toHaveBeenCalled();
+  });
+
+  test('dedupes startup backfill against a message already delivered by live ws during connect', async () => {
+    const startupThreshold = Date.now() - 5_000;
+    const sharedMessage = {
+      chat_id: 'startup-chat',
+      message_id: 'msg-overlap',
+      create_time: String(startupThreshold + 1_000),
+      message_type: 'text',
+      content: JSON.stringify({ text: 'overlap message' }),
+      chat_type: 'p2p',
+    };
+    hoisted.wsStartSpy.mockImplementationOnce(async () => {
+      await hoisted.handlers['im.message.receive_v1']?.({
+        message: sharedMessage,
+        sender: {
+          sender_id: {
+            open_id: 'user-open-id',
+          },
+        },
+      });
+    });
+    hoisted.messageListSpy.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            message_id: 'msg-overlap',
+            create_time: sharedMessage.create_time,
+            msg_type: 'text',
+            body: {
+              content: sharedMessage.content,
+            },
+            chat_type: 'p2p',
+            sender: {
+              sender_id: {
+                open_id: 'user-open-id',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      ignoreMessagesBefore: startupThreshold,
+      startupBackfillChatIds: ['startup-chat'] as any,
+    } as any);
+
+    expect(hoisted.messageListSpy).toHaveBeenCalledTimes(1);
+    expect(storeMessageDirect).toHaveBeenCalledTimes(1);
+    expect(notifyNewImMessage).toHaveBeenCalledTimes(1);
+    expect(broadcastNewMessage).toHaveBeenCalledTimes(1);
+    expect(hoisted.reactionCreateSpy).toHaveBeenCalledTimes(1);
   });
 
   test('clears every pending ack reaction when multiple requests arrive before reply delivery', async () => {

@@ -8145,6 +8145,7 @@ async function connectUserIMChannels(
   wechatConfig?: WeChatConnectConfig | null,
   dingtalkConfig?: DingTalkConnectConfig | null,
   ignoreMessagesBefore?: number,
+  startupBackfillIgnoreMessagesBefore?: number,
 ): Promise<{
   feishu: boolean;
   telegram: boolean;
@@ -8166,6 +8167,10 @@ async function connectUserIMChannels(
   let qq = false;
   let wechat = false;
   let dingtalk = false;
+  const startupBackfillChatIds = getGroupsByOwner(userId)
+    .map((group) => group.jid)
+    .filter((jid) => jid.startsWith('feishu:'))
+    .map((jid) => extractChatId(jid));
 
   if (
     feishuConfig &&
@@ -8189,6 +8194,8 @@ async function connectUserIMChannels(
         shouldProcessGroupMessage,
         onCardInterrupt: handleCardInterrupt,
         onCardRuntimeUpdate: handleCardRuntimeUpdate,
+        startupBackfillChatIds,
+        startupBackfillIgnoreMessagesBefore,
       },
     );
   }
@@ -8288,6 +8295,7 @@ export async function startCliClaw(
     startupLaunchSpec?: StartupLaunchSpec;
   } = {},
 ): Promise<void> {
+  const startupBackfillIgnoreMessagesBefore = Date.now();
   startupLaunchSpec =
     options.startupLaunchSpec || inferStartupLaunchSpecFromProcess();
   const launchdServiceName = resolveLaunchdServiceNameFromEnv();
@@ -9249,6 +9257,7 @@ export async function startCliClaw(
         effectiveWeChat,
         effectiveDingTalk,
         Date.now(),
+        startupBackfillIgnoreMessagesBefore,
       );
       if (result.feishu) anyFeishuConnected = true;
       logger.info(

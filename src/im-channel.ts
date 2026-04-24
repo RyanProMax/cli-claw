@@ -52,6 +52,8 @@ export interface IMChannelConnectOpts {
   onNewChat: (chatJid: string, chatName: string) => void;
   onMessage?: (chatJid: string, text: string, senderName: string) => void;
   ignoreMessagesBefore?: number;
+  startupBackfillChatIds?: string[];
+  startupBackfillIgnoreMessagesBefore?: number;
   isChatAuthorized?: (jid: string) => boolean;
   onPairAttempt?: (
     jid: string,
@@ -197,6 +199,9 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         onReady: opts.onReady,
         onNewChat: opts.onNewChat,
         ignoreMessagesBefore: opts.ignoreMessagesBefore,
+        startupBackfillChatIds: opts.startupBackfillChatIds,
+        startupBackfillIgnoreMessagesBefore:
+          opts.startupBackfillIgnoreMessagesBefore,
         onCommand: opts.onCommand,
         resolveManagedCommandText: opts.resolveManagedCommandText,
         resolveGroupFolder: opts.resolveGroupFolder,

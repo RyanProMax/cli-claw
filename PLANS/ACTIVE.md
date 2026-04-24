@@ -1,14 +1,14 @@
-# Feishu Streaming Placeholder Cleanup
+# Feishu Startup Reply Recovery
 
 ## Goal
 
-- Reproduce and fix the current Feishu generating-state regression where the card body shows a literal `...` above the existing `⏳ 生成中...` status note.
-- Keep the generating state minimal: when no answer text exists yet, only the status note should remain visible.
+- Reproduce and fix the restart-window regression where the first Feishu message sent shortly after service startup is not replied to.
+- Ensure startup behaves like reconnect recovery for known Feishu chats: messages created while the service is restarting must still be ingested once the Feishu connection is ready.
 
 ## Done when
 
-- We have a focused failing test that proves the generating-state card body no longer renders a standalone `...` placeholder.
-- The minimal renderer fix removes the duplicate ellipsis without regressing the existing `⏳ 生成中...` status note or interrupt row placement.
+- We have a focused failing test that proves initial Feishu connect performs a startup backfill for known chats instead of only relying on live WebSocket delivery.
+- The smallest production fix recovers restart-window Feishu messages without duplicating already-delivered live messages.
 - Validation and review pass for the scoped change.
 
 ## Milestones
@@ -16,15 +16,18 @@
 ### Milestone 1
 
 Objective:
-- Capture the duplicate-ellipsis regression in Feishu streaming-card tests and implement the smallest fix in the initial-card renderer.
+- Capture the missing startup-backfill behavior in tests and implement the minimal Feishu startup recovery path.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/feishu-streaming-card.ts`
-- `tests/feishu-streaming-card.test.ts`
+- `src/index.ts`
+- `src/im-manager.ts`
+- `src/im-channel.ts`
+- `src/feishu.ts`
+- `tests/feishu-connection.test.ts`
 
 Validation:
-- `npm test -- --run tests/feishu-streaming-card.test.ts`
+- `npm test -- --run tests/feishu-connection.test.ts`
 - `npm run typecheck`
 - `./scripts/review.sh`
 - `git diff --check`
@@ -40,19 +43,24 @@ Review status:
 
 Risks / Notes / Handoff:
 - Evidence gathered on 2026-04-24:
-  - user-visible symptom in Feishu: generating state renders both `...` and `⏳ 生成中...`; desired output keeps only the latter
-  - current initial-card path uses `const initialText = this.accumulatedText || (this.thinking ? '' : '...')` in `src/feishu-streaming-card.ts`
-  - current active initial render path goes through `createInitialCard()` into `MultiCardManager` / legacy fallback; the dormant `StreamingModeBackend` helper is not currently instantiated
+  - user reports that after every restart, the first Feishu message does not receive a reply
+  - startup path in `src/index.ts` connects user IM channels with `ignoreMessagesBefore: Date.now()`
+  - `src/feishu.ts` only runs `runBackfill()` on reconnect / recovered WebSocket paths, not on initial connect
+  - initial connect currently returns after `wsClient.start()` and `onReady()` with no startup replay path
+- Fix implemented:
+  - startup now passes each user's known `feishu:` chat IDs into the Feishu connection bootstrap path
+  - initial Feishu connect runs the existing backfill flow once after WS startup for those known chats
+  - live WS and startup backfill now use separate ignore thresholds, so restart-window messages sent before channel readiness are recoverable without reopening older pre-start backlog
 - Validation evidence:
-  - `npm test -- --run tests/feishu-streaming-card.test.ts`
+  - `npm test -- --run tests/feishu-connection.test.ts`
   - `npm run typecheck`
   - `./scripts/review.sh`
   - `git diff --check`
 - Review result:
-  - passed local semantic review after inspecting the scoped diff; no blocker found beyond the intended streaming placeholder removal
+  - passed local semantic review; scope stayed inside the milestone and the existing message-id dedupe still prevents startup backfill from duplicating live WS delivery
 - Out of scope for this milestone:
-  - Codex `/model` discovery alignment remains tracked separately in `PLANS/ROADMAP.md` item `RM-2026-04-24-08`
-  - safe-restart reply recovery has recent passing restart artifacts and is not being changed unless fresh failing evidence appears
+  - broader IM channel startup semantics for Telegram / QQ / WeChat / DingTalk unless the investigation proves the same root cause and the plan is updated first
+  - `/model` discovery alignment and the existing Feishu card-layout roadmap items
 
 ## Working Rules
 
@@ -72,17 +80,22 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/feishu-streaming-card.ts`
-- `tests/feishu-streaming-card.test.ts`
+- `src/feishu.ts`
+- `src/im-channel.ts`
+- `src/im-manager.ts`
+- `src/index.ts`
+- `tests/feishu-connection.test.ts`
 
 Last failure summary:
-- initial red test proved the generating-state card body still rendered a bare `...` markdown block alongside the `⏳ 生成中...` status line
+- initial red tests proved two gaps:
+  - startup connect never called Feishu message-list backfill for known chats
+  - startup backfill incorrectly reused the later live-WS ignore threshold, so messages sent earlier in the restart window were still filtered out
 
 Suspected cause:
 - fixed:
-  - streaming-state schema2 card bodies now allow an empty main-content area instead of forcing a `'...'` fallback
-  - `createInitialCard()` no longer pre-seeds empty bodies with `'...'`
-  - the empty-content helper now honors an explicit empty-string fallback instead of coercing it back to `'...'`
+  - initial Feishu startup now seeds known chats and runs one startup backfill pass after WS readiness
+  - startup recovery reuses the existing deduped `handleIncomingMessage(..., 'backfill')` path instead of inventing a second ingest flow
+  - startup backfill now uses a startup-time lower bound instead of the later connection-time live-WS lower bound
 
 Next step:
-- commit the scoped fix and apply it through the safe restart path so the next Feishu streaming turn renders only `⏳ 生成中...` during generation
+- commit the scoped fix and apply it through the safe restart path so the next restart-window Feishu message is recoverable
