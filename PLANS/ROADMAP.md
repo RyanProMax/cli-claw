@@ -90,7 +90,7 @@
   - `npm test -- tests/group-queue.test.ts tests/restart-recovery.test.ts`
   - `npm run typecheck`
 - Next action:
-  - 通过安全重启路径应用并继续观察真实 IM 流量
+  - 通过安全重启路径应用并继续观察真实 IM 流量；若仍有“重启后不回 IM”，下一步优先排查 WeChat/Feishu 通道自身回执能力而不是 cursor 恢复
 
 ### RM-2026-04-24-08 Codex Model Picker Real CLI Discovery
 

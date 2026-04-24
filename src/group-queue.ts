@@ -5,6 +5,7 @@ import path from 'path';
 import { DATA_DIR } from './config.js';
 import { killProcessTree } from './container-runner.js';
 import { getTaskById } from './db.js';
+import { getChannelType } from './im-channel.js';
 import { getSystemSettings } from './runtime-config.js';
 import { logger } from './logger.js';
 import type { MessageCursor } from './types.js';
@@ -215,6 +216,22 @@ export class GroupQueue {
   }
 
   /**
+   * Web/workspace-originated work must not hijack an active sibling IM runner.
+   * Otherwise a queued `web:main` task can clear the IM reply route, turning a
+   * real IM recovery turn into a DB-only reply with no visible follow-up.
+   */
+  private shouldDeferWebWorkBehindImRunner(
+    groupJid: string,
+    activeRunnerJid: string | null,
+  ): boolean {
+    if (!activeRunnerJid || activeRunnerJid === groupJid) return false;
+    return (
+      getChannelType(groupJid) === null &&
+      getChannelType(activeRunnerJid) !== null
+    );
+  }
+
+  /**
    * Write a single _drain sentinel to the actual active main-agent runner that
    * owns this serialization key. This must target the runner state rather than
    * the caller's group state because sibling JIDs can share one process.
@@ -346,12 +363,19 @@ export class GroupQueue {
     if (state.active || (activeRunner && activeRunner !== groupJid)) {
       state.pendingMessages = true;
       this.waitingGroups.add(groupJid);
-      // Write _drain to the actual active runner so sibling JIDs sharing one
-      // folder also unblock immediately instead of waiting for idle timeout.
-      this.requestDrainForActiveRunner(
-        groupJid,
-        'Drain sentinel written during enqueueMessageCheck to unblock pending messages',
-      );
+      if (!this.shouldDeferWebWorkBehindImRunner(groupJid, activeRunner)) {
+        // Write _drain to the actual active runner so sibling JIDs sharing one
+        // folder also unblock immediately instead of waiting for idle timeout.
+        this.requestDrainForActiveRunner(
+          groupJid,
+          'Drain sentinel written during enqueueMessageCheck to unblock pending messages',
+        );
+      } else {
+        logger.debug(
+          { groupJid, activeRunner },
+          'Queued web-originated work behind active IM runner without drain',
+        );
+      }
       logger.debug(
         { groupJid, activeRunner: activeRunner || groupJid },
         'Group runner active, message queued',
@@ -483,8 +507,16 @@ export class GroupQueue {
     onInjected?: () => void,
     cursor?: MessageCursor,
   ): SendMessageResult {
+    const activeRunner = this.findActiveRunnerFor(groupJid);
     const state = this.resolveActiveState(groupJid);
     if (!state) return 'no_active';
+    if (this.shouldDeferWebWorkBehindImRunner(groupJid, activeRunner)) {
+      logger.debug(
+        { groupJid, activeRunner },
+        'Deferring web-originated IPC behind active IM runner',
+      );
+      return 'no_active';
+    }
 
     // If the active runner is a scheduled task (not a user-message handler),
     // do NOT pipe user messages into it.  The task container has no knowledge
