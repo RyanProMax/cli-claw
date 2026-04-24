@@ -133,3 +133,18 @@
   - post-restart monitoring: task run log `143` started at `2026-04-24T14:45:21.375Z`; `messages` had no rows after backend restart `2026-04-24T14:41:20.738Z`, and all persisted `[WORKSPACE_AUTOPILOT]` prompt rows predated the restart
 - Next action:
   - 无；若后续真实使用仍出现 no-op 高频消耗 Codex，再加连续 no-op 指数退避
+
+### RM-2026-04-24-10 Restart First-Turn Context Leakage
+
+- Status: `monitoring`
+- Source: 2026-04-24 user request
+- Summary: 服务重启后首次问答不应因内部历史 prompt / 命令镜像被误判为待恢复输入而自动注入最近历史上下文
+- Evidence:
+  - `recoverPendingMessages()` currently recovers on any `getMessagesSince()` row after `lastCommittedCursor`
+  - `getMessagesSince()` returns user-side rows but does not expose/filter `source_kind`, so `scheduled_task_prompt` / `user_command` rows can trigger recovery
+  - implemented: startup recovery now filters through `isRecoverableRestartPendingMessage()` and ignores `scheduled_task_prompt`, `user_command`, assistant, and system rows
+  - tests: `tests/restart-recovery.test.ts`
+  - validation: `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, `./scripts/review.sh`
+  - safe restart `restart-2026-04-24T15-45-15-537Z-7d38d20e`
+- Next action:
+  - 继续观察真实重启后的首轮飞书/Web 问答；若仍带入历史，再检查 runtime session 复用与 `/clear` 边界，而不是 startup recovery predicate

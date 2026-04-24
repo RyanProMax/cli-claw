@@ -1322,6 +1322,26 @@ export function resolveMessageProcessingCursor(
   return lastAgentTimestampMap[chatJid] || EMPTY_CURSOR;
 }
 
+const NON_RECOVERABLE_RESTART_SOURCE_KINDS: ReadonlySet<MessageSourceKind> =
+  new Set(['scheduled_task_prompt', 'user_command']);
+
+export function isRecoverableRestartPendingMessage(
+  message: Pick<NewMessage, 'sender' | 'source_kind'> & {
+    is_from_me?: boolean | number | null;
+  },
+): boolean {
+  if (message.is_from_me === true || message.is_from_me === 1) return false;
+  if (
+    message.sender === 'cli-claw-agent' ||
+    message.sender === '__system__' ||
+    message.sender === 'system'
+  ) {
+    return false;
+  }
+  const sourceKind = message.source_kind ?? null;
+  return !(sourceKind && NON_RECOVERABLE_RESTART_SOURCE_KINDS.has(sourceKind));
+}
+
 function sendSystemMessage(jid: string, type: string, detail: string): void {
   const msgId = crypto.randomUUID();
   const timestamp = new Date().toISOString();
@@ -7629,7 +7649,10 @@ function recoverPendingMessages(): void {
     if (!sinceCursor) continue;
 
     const pending = getMessagesSince(chatJid, sinceCursor);
-    if (pending.length > 0) {
+    const recoverablePending = pending.filter(
+      isRecoverableRestartPendingMessage,
+    );
+    if (recoverablePending.length > 0) {
       // Clear stale session to avoid "session ghost" — the agent will start
       // a fresh conversation and process the pending messages cleanly.
       if (sessions[group.folder]) {
@@ -7642,7 +7665,11 @@ function recoverPendingMessages(): void {
       }
 
       logger.info(
-        { group: group.name, pendingCount: pending.length },
+        {
+          group: group.name,
+          pendingCount: recoverablePending.length,
+          ignoredPendingCount: pending.length - recoverablePending.length,
+        },
         'Recovery: found unprocessed messages',
       );
       recoveryGroups.add(chatJid);

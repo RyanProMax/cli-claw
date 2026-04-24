@@ -135,7 +135,7 @@ function stmts() {
          )`,
       ),
       getMessagesSince: db.prepare(
-        `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, attachments
+        `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, attachments, source_kind
          FROM messages
          WHERE chat_jid = ? AND (timestamp > ? OR (timestamp = ? AND id > ?)) AND is_from_me = 0
          ORDER BY timestamp ASC, id ASC`,

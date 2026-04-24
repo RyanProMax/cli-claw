@@ -251,6 +251,58 @@ describe('restart recovery cursor handling', () => {
     });
   });
 
+  test('treats normal user and IM rows as restart-recoverable pending work', async () => {
+    const { isRecoverableRestartPendingMessage } = await loadIndexModule();
+
+    expect(
+      isRecoverableRestartPendingMessage({
+        sender: 'user-1',
+        source_kind: null,
+      }),
+    ).toBe(true);
+    expect(
+      isRecoverableRestartPendingMessage({
+        sender: 'ou_feishu_user',
+        source_kind: 'legacy',
+      }),
+    ).toBe(true);
+  });
+
+  test('ignores internal prompt and command mirror rows during restart recovery', async () => {
+    const { isRecoverableRestartPendingMessage } = await loadIndexModule();
+
+    expect(
+      isRecoverableRestartPendingMessage({
+        sender: 'autopilot',
+        source_kind: 'scheduled_task_prompt',
+      }),
+    ).toBe(false);
+    expect(
+      isRecoverableRestartPendingMessage({
+        sender: 'admin',
+        source_kind: 'user_command',
+      }),
+    ).toBe(false);
+  });
+
+  test('ignores assistant and system rows during restart recovery', async () => {
+    const { isRecoverableRestartPendingMessage } = await loadIndexModule();
+
+    expect(
+      isRecoverableRestartPendingMessage({
+        sender: 'cli-claw-agent',
+        source_kind: 'interrupt_partial',
+        is_from_me: true,
+      }),
+    ).toBe(false);
+    expect(
+      isRecoverableRestartPendingMessage({
+        sender: '__system__',
+        source_kind: null,
+      }),
+    ).toBe(false);
+  });
+
   test('builds a placeholder interrupted reply when a turn was active but produced no text', async () => {
     const { buildInterruptedReply } = await loadIndexModule();
 
