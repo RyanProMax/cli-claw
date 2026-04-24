@@ -76,3 +76,29 @@
   - user feedback on verbose / process-heavy replies
 - Next action:
   - 把最小必要回复规则固化到对外消息契约与测试
+
+### RM-2026-04-24-07 Safe Restart Reply Recovery
+
+- Status: `verified`
+- Source: 2026-04-24 user request
+- Summary: 共享 runner 异常退出或安全重启后，IM 消息不能只留下 interrupted partial，必须从真实来源 chat 继续补发后续回复
+- Evidence:
+  - `src/group-queue.ts`
+  - `src/index.ts`
+  - `tests/group-queue.test.ts`
+  - `tests/restart-recovery.test.ts`
+  - `npm test -- tests/group-queue.test.ts tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+- Next action:
+  - 通过安全重启路径应用并继续观察真实 IM 流量
+
+### RM-2026-04-24-08 Codex Model Picker Real CLI Discovery
+
+- Status: `proposed`
+- Source: 2026-04-24 user request (`/model` 未显示 GPT-5.5)
+- Summary: `/model` 需要尽量对齐当前 Codex CLI 的真实模型列表，而不是仅依赖本地 cache/preset 回退
+- Evidence:
+  - `src/runtime-model-options.ts` 当前优先读取 `~/.codex/models_cache.json`，缓存缺失时回退 preset
+  - real-world report: `/model` missing GPT-5.5
+- Next action:
+  - 评估是否改为读取 CLI 实时列表或增强 cache 刷新策略，并补契约测试

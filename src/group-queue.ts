@@ -47,6 +47,9 @@ interface GroupState {
    *  re-read those messages.  The close handler uses this flag to force pendingMessages
    *  so drainGroup triggers a fresh run. */
   hasIpcInjectedMessages: boolean;
+  /** Source chat JIDs whose messages were IPC-injected into this active runner.
+   *  Shared runners must requeue the originating chat, not just the owner JID. */
+  ipcInjectedMessageJids: Set<string>;
 }
 
 type ActiveGroupState = GroupState & { groupFolder: string };
@@ -97,6 +100,7 @@ export class GroupQueue {
         restarting: false,
         drainSentinelWritten: false,
         hasIpcInjectedMessages: false,
+        ipcInjectedMessageJids: new Set<string>(),
       };
       this.groups.set(groupJid, state);
     }
@@ -286,6 +290,25 @@ export class GroupQueue {
     const state = this.resolveActiveState(groupJid);
     if (!state?.active) return;
     state.hasIpcInjectedMessages = true;
+    state.ipcInjectedMessageJids.add(groupJid);
+  }
+
+  private requeueIpcInjectedSources(
+    groupJid: string,
+    state: GroupState,
+    reason: string,
+    level: 'debug' | 'warn' = 'warn',
+  ): void {
+    const sourceJids =
+      state.ipcInjectedMessageJids.size > 0
+        ? [...state.ipcInjectedMessageJids]
+        : [groupJid];
+    for (const sourceJid of sourceJids) {
+      const sourceState = this.getGroup(sourceJid);
+      sourceState.pendingMessages = true;
+      this.waitingGroups.add(sourceJid);
+    }
+    logger[level]({ groupJid, sourceJids }, reason);
   }
 
   markRunnerQueryIdle(groupJid: string): void {
@@ -582,11 +605,21 @@ export class GroupQueue {
         );
         this.onUnconsumedAgentIpcFn(groupJid, state.agentId);
       } else if (!state.taskRunId) {
-        state.pendingMessages = true;
-        logger.warn(
-          { groupJid },
-          `Unconsumed IPC messages found after ${context}, marking pending`,
-        );
+        if (!state.hasIpcInjectedMessages) {
+          this.requeueIpcInjectedSources(
+            groupJid,
+            state,
+            `Unconsumed IPC messages found after ${context}, re-enqueuing source chats`,
+          );
+        } else {
+          logger.warn(
+            {
+              groupJid,
+              sourceJids: [...state.ipcInjectedMessageJids],
+            },
+            `Unconsumed IPC messages found after ${context}, preserving injected source chats`,
+          );
+        }
       }
     } catch (err) {
       logger.warn({ groupJid, err }, 'Failed to check remaining IPC messages');
@@ -958,21 +991,22 @@ export class GroupQueue {
         }
         this.recoverUnconsumedIpc(groupJid, state, 'agent exit');
       }
-      // If messages were IPC-injected during this run, always mark pending
-      // so drainGroup triggers a fresh processGroupMessages.  If the agent
-      // already replied to them, processGroupMessages will find 0 new messages
-      // (cursor was committed) and return immediately — harmless.  If the
-      // agent crashed, this ensures the messages are re-read from DB.
+      // If messages were IPC-injected during this run, always requeue the
+      // originating chat JIDs for a safety re-check. Shared runners can accept
+      // IPC from sibling IM chats, so restarting only the owner JID would miss
+      // those messages after lastAgentTimestamp already advanced.
       if (state.hasIpcInjectedMessages) {
-        state.pendingMessages = true;
-        logger.debug(
-          { groupJid },
-          'IPC-injected messages detected, marking pending for safety re-check',
+        this.requeueIpcInjectedSources(
+          groupJid,
+          state,
+          'IPC-injected messages detected, re-enqueuing source chats for safety re-check',
+          'debug',
         );
       }
       state.active = false;
       state.drainSentinelWritten = false;
       state.hasIpcInjectedMessages = false;
+      state.ipcInjectedMessageJids.clear();
       state.lastActivityAt = null;
       state.queryInFlight = false;
       state.process = null;

@@ -1,15 +1,15 @@
-# Feishu Outbound Message Contract
+# Safe Restart Reply Recovery
 
 ## Goal
 
-- Reproduce why Feishu can surface internal `commentary` / tool-step content as a user-visible reply.
-- Add focused regression coverage for the user-visible message contract before changing production behavior.
+- Reproduce why a safe restart or runner handoff can leave IM users with only an interrupted partial and no follow-up reply.
+- Add focused regression coverage for the shared-runner recovery path before changing production behavior.
 
 ## Done when
 
-- We can point to the exact outbound path that lets internal execution content reach Feishu.
+- We can point to the exact recovery path that loses IM continuity after safe restart / shared-runner exit.
 - A failing test captures the current bad behavior.
-- The next round can implement the smallest safe fix inside a clearly bounded scope.
+- The fix restores IM reply continuity without widening scope beyond queue / restart recovery.
 
 ## Milestones
 
@@ -53,39 +53,48 @@ Risks / Notes / Handoff:
 ### Milestone 2
 
 Objective:
-- Implement the minimal contract fix, validate it, and update the roadmap status.
+- Implement the minimal recovery fix for IM reply continuity after shared-runner exit / safe restart, validate it, and update the roadmap status.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `src/group-queue.ts`
 - `src/index.ts`
-- `src/feishu.ts`
-- `src/feishu-streaming-card.ts`
-- `src/reply-visibility.ts`
-- `tests/feishu-streaming-card.test.ts`
-- `tests/reply-visibility.test.ts`
 - `tests/restart-recovery.test.ts`
+- `tests/group-queue.test.ts`
 
 Validation:
-- `npm test -- tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts tests/restart-recovery.test.ts`
+- `npm test -- tests/group-queue.test.ts tests/restart-recovery.test.ts`
 - `npm run typecheck`
 - `./scripts/review.sh`
 - `git diff --check`
-- `cli-claw restart`
-- `curl -sS http://127.0.0.1:3000/api/health`
 
 Status:
-- pending
+- done
 
 Validation status:
-- not_run
+- passed
 
 Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Keep the fix narrow: block internal-only content from becoming the final Feishu-visible reply without regressing legitimate task progress or terminal-state freezing.
-- Narrow fix applied: completed cards now clear tool-step panels alongside commentary, while aborted/error flows keep their existing behavior.
+- Keep the fix narrow: preserve existing shared-runner serialization while ensuring unconsumed IPC recovery re-enqueues the originating IM chat, not just the owner runner JID.
+- Root cause confirmed on 2026-04-24: a Feishu IM message can be IPC-injected into the active `web:main` runner, advance `lastAgentTimestamp` for the Feishu chat, then get stranded when the shared runner exits before consuming the IPC file. `recoverUnconsumedIpc()` currently marks only the active runner JID (`web:main`) as pending, so the restart/rerun processes the wrong chat and the IM message never gets its follow-up reply.
+- Restart-specific follow-up root cause confirmed on 2026-04-24: startup recovery uses `lastCommittedCursor` to detect the pending Feishu turn, but `processGroupMessages()` still reads from `lastAgentTimestamp`, so the recovered run can no-op even after `recoverPendingMessages()` correctly flags the chat for retry.
+- Fresh evidence:
+  - `~/.cli-claw/ops/launchd/cli-claw.stdout.log` at `2026-04-24T06:44:55Z` shows the Feishu message stored, but the first drain/requeue was triggered later by `autopilot:workspace:main`, not by the IM message itself.
+  - `router_state.last_agent_timestamp` already advanced Feishu to `2026-04-24T06:44:55.553Z`, while `last_committed_cursor` for the same chat was still `2026-04-24T05:37:35.279Z`, proving the IM message was accepted for IPC but never committed.
+- Validation evidence:
+  - `npm test -- tests/group-queue.test.ts tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+  - `./scripts/review.sh`
+  - `git diff --check`
+- Implementation result:
+  - Shared-runner exit now tracks the actual IPC source JIDs and re-enqueues those chats for safety re-check instead of blindly requeueing `web:main`.
+  - Startup recovery now replays from `last_committed_cursor` when a chat is flagged for recovery, so a restart can actually pick up the stranded IM turn.
+- Residual note:
+  - `src/feishu-streaming-card.ts` and `tests/feishu-streaming-card.test.ts` remain dirty from the separate outbound-contract roadmap item and must stay out of this milestone's commit.
 
 ## Working Rules
 
@@ -101,19 +110,20 @@ Current milestone:
 - Milestone 2
 
 Current status:
-- in_progress
+- validation/review passed
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `src/feishu-streaming-card.ts`
-- `tests/feishu-streaming-card.test.ts`
+- `src/group-queue.ts`
+- `src/index.ts`
+- `tests/group-queue.test.ts`
+- `tests/restart-recovery.test.ts`
 
 Last failure summary:
-- none
+- none after the final validation round
 
 Suspected cause:
-- Feishu currently mixes two concerns: live progress visualization and final user-visible reply delivery. A success cleanup/fallback path was freezing progress-only tool panels into the completed user-visible card.
+- fixed: recovery now preserves the originating IPC source JIDs and startup replay now reads from `lastCommittedCursor` for recovery chats.
 
 Next step:
-- Commit the fix, apply it through the safe restart path, and verify health.
+- Commit the scoped recovery fix and apply it through the safe restart path, then monitor real IM traffic for regressions.

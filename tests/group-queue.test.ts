@@ -1,0 +1,94 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+const tempHomes: string[] = [];
+
+async function loadGroupQueueModule() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-group-queue-'));
+  tempHomes.push(home);
+  vi.stubEnv('HOME', home);
+  const mod = await import('../src/group-queue.ts');
+  const { DATA_DIR } = await import('../src/config.js');
+  return { ...mod, DATA_DIR };
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.resetModules();
+  for (const dir of tempHomes.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+describe('GroupQueue shared-runner IPC recovery', () => {
+  test('re-enqueues the originating sibling chat when unconsumed IPC survives runner exit', async () => {
+    const { GroupQueue, DATA_DIR } = await loadGroupQueueModule();
+    const queue = new GroupQueue();
+    const calls: string[] = [];
+    const fakeProcess = { pid: 12345, killed: false } as any;
+    const inputDir = path.join(DATA_DIR, 'ipc', 'main', 'input');
+
+    queue.setHostModeChecker(() => true);
+    queue.setSerializationKeyResolver((groupJid: string) =>
+      groupJid === 'web:main' || groupJid === 'feishu:chat-1'
+        ? 'main'
+        : groupJid,
+    );
+
+    let releaseFirstRun!: () => void;
+    const firstRunDone = new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    });
+    let runCount = 0;
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      calls.push(groupJid);
+      queue.registerProcess(groupJid, fakeProcess, null, 'main');
+      runCount += 1;
+      if (runCount === 1) {
+        await firstRunDone;
+      } else {
+        for (const name of fs.readdirSync(inputDir)) {
+          if (name.endsWith('.json')) {
+            fs.unlinkSync(path.join(inputDir, name));
+          }
+        }
+      }
+      return true;
+    });
+
+    queue.enqueueMessageCheck('web:main');
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['web:main']);
+    });
+
+    expect(
+      queue.sendMessage(
+        'feishu:chat-1',
+        'follow-up from feishu',
+        undefined,
+        undefined,
+        {
+          timestamp: '2026-04-24T06:44:55.553Z',
+          id: 'msg-feishu-1',
+        },
+      ),
+    ).toBe('sent');
+    queue.markIpcInjectedMessage('feishu:chat-1');
+
+    expect(fs.readdirSync(inputDir).some((name) => name.endsWith('.json'))).toBe(
+      true,
+    );
+
+    releaseFirstRun();
+
+    await vi.waitFor(() => {
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(calls.slice(0, 2)).toEqual(['web:main', 'feishu:chat-1']);
+  });
+});

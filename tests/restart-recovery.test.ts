@@ -179,6 +179,32 @@ describe('restart recovery cursor handling', () => {
     expect(next).toBe(committed);
   });
 
+  test('uses the committed cursor when replaying a recovered chat after restart', async () => {
+    const { resolveMessageProcessingCursor } = await loadIndexModule();
+
+    expect(
+      resolveMessageProcessingCursor(
+        'feishu:chat-1',
+        {
+          'feishu:chat-1': {
+            timestamp: '2026-04-24T06:44:55.553Z',
+            id: 'msg-latest-seen',
+          },
+        },
+        {
+          'feishu:chat-1': {
+            timestamp: '2026-04-24T05:37:35.279Z',
+            id: 'msg-last-committed',
+          },
+        },
+        true,
+      ),
+    ).toEqual({
+      timestamp: '2026-04-24T05:37:35.279Z',
+      id: 'msg-last-committed',
+    });
+  });
+
   test('builds a placeholder interrupted reply when a turn was active but produced no text', async () => {
     const { buildInterruptedReply } = await loadIndexModule();
 

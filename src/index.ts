@@ -1238,6 +1238,19 @@ export function normalizeCursor(value: unknown): MessageCursor {
   return { ...EMPTY_CURSOR };
 }
 
+export function resolveMessageProcessingCursor(
+  chatJid: string,
+  lastAgentTimestampMap: Record<string, MessageCursor>,
+  lastCommittedCursorMap: Record<string, MessageCursor>,
+  isRecovery: boolean,
+): MessageCursor {
+  if (isRecovery) {
+    const committed = lastCommittedCursorMap[chatJid];
+    if (committed) return committed;
+  }
+  return lastAgentTimestampMap[chatJid] || EMPTY_CURSOR;
+}
+
 function sendSystemMessage(jid: string, type: string, detail: string): void {
   const msgId = crypto.randomUUID();
   const timestamp = new Date().toISOString();
@@ -2984,11 +2997,24 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let effectiveGroup = resolved.effectiveGroup;
   let isHome = resolved.isHome;
 
-  // Get all messages since last agent interaction
-  const sinceCursor = lastAgentTimestamp[chatJid] || EMPTY_CURSOR;
+  const isRecovery = recoveryGroups.has(chatJid);
+
+  // Recovery replays from the last committed cursor rather than the last
+  // accepted IPC cursor, so restart can recover messages injected into a
+  // shared runner that died before consuming them.
+  const sinceCursor = resolveMessageProcessingCursor(
+    chatJid,
+    lastAgentTimestamp,
+    lastCommittedCursor,
+    isRecovery,
+  );
   const missedMessages = getMessagesSince(chatJid, sinceCursor);
 
-  if (missedMessages.length === 0) return true;
+  if (missedMessages.length === 0) {
+    if (isRecovery) recoveryGroups.delete(chatJid);
+    return true;
+  }
+  if (isRecovery) recoveryGroups.delete(chatJid);
   const messagesForAgent = selectRecentTurnMessages(missedMessages);
 
   // Admin home is shared as web:main, so select runtime owner from the latest
@@ -3041,7 +3067,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // Recovery mode: session was cleared to prevent session ghost, so inject
   // recent conversation history to give the fresh session context.
-  const isRecovery = recoveryGroups.delete(chatJid);
   if (isRecovery) {
     const RECOVERY_HISTORY_LIMIT = 20;
     const recentHistory = getMessagesPage(
