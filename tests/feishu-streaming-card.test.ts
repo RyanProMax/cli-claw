@@ -896,4 +896,29 @@ describe('StreamingCardController footer caching', () => {
 
     controller.dispose();
   });
+
+  test('completes with the current accumulated text when no replacement final text exists', async () => {
+    const onTerminal = vi.fn();
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+      onTerminal,
+    } as any);
+
+    const patchCard = vi.fn(async () => {});
+    (controller as any).state = 'streaming';
+    (controller as any).backendMode = 'legacy';
+    (controller as any).messageId = 'msg-1';
+    (controller as any).accumulatedText = 'partial answer';
+    (controller as any).patchCard = patchCard;
+
+    await (controller as any).completeWithCurrentText();
+
+    expect((controller as any).state).toBe('completed');
+    expect((controller as any).accumulatedText).toBe('partial answer');
+    expect(patchCard).toHaveBeenCalledWith('completed');
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+
+    controller.dispose();
+  });
 });

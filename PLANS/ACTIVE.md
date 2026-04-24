@@ -1,32 +1,32 @@
-# Feishu Agent Streaming Cleanup Parity
+# Feishu Streaming Card Terminal-State Completion
 
 ## Goal
 
-- Fix Feishu cleanup gaps that still exist on conversation-agent streaming paths.
-- Old agent-scoped streaming cards must leave `Working on it` when a new message arrives in the same chat.
-- Request-message `OnIt` reactions must clear when a streaming card reaches terminal state, even when the reply is handled by the Feishu streaming card instead of normal `sendMessage()`.
+- Fix the remaining Feishu streaming-card gap where a task can finish but the card stays in `Working on it`.
+- Ensure normal task completion without a final visible reply still freezes the existing card into a terminal state.
+- Apply the fix through the safe `cli-claw restart` path after validation and review pass.
 
 ## Done when
 
-- A new inbound Feishu message aborts both the main-session streaming card and any agent-scoped streaming cards for the same IM chat.
-- Feishu streaming cards clear pending ack reactions on terminal transitions without relying on the caller to remember an extra cleanup step.
-- Focused regression tests cover both behaviors and pass.
+- Feishu streaming cards no longer remain in streaming state when the task finishes successfully but emits no final visible text.
+- Both main-session and conversation-agent cleanup paths convert active cards to a terminal completed state instead of silently disposing them.
+- Focused regression tests cover the terminal-state fallback behavior and pass.
+- The updated backend is applied through the repo-approved safe restart path.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Reproduce the remaining agent-path cleanup gaps with failing tests before changing production code.
+- Reproduce the terminal-state gap with failing focused tests before changing production code.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `tests/feishu-connection.test.ts`
+- `src/feishu-streaming-card.ts`
 - `tests/feishu-streaming-card.test.ts`
 
 Validation:
 - `npm test -- tests/feishu-streaming-card.test.ts`
-- `npm test -- tests/feishu-connection.test.ts`
 - `git diff --check`
 
 Status:
@@ -39,32 +39,29 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Root cause hypothesis 1: Feishu receive path only aborts the exact `chatJid` session, but conversation-agent cards are registered under scoped keys like `${chatJid}#agent:${agentId}`.
-- Root cause hypothesis 2: ack reaction cleanup depends on the caller invoking `clearAckReaction()`, so conversation-agent streaming completion can miss cleanup entirely.
-- Reproduced via focused red tests:
-  - `tests/feishu-connection.test.ts` shows inbound Feishu messages never trigger scoped-session cleanup for the same base chat.
-  - `tests/feishu-streaming-card.test.ts` shows the controller never fires a terminal cleanup hook on `complete()`.
+- Root-cause hypothesis: task completion currently relies on the presence of a final visible reply to call `complete()/fail()`. When the task ends without visible final text, the `finally` cleanup path falls back to `dispose()`, which stops timers but does not patch the card to a terminal state.
+- Keep the first reproduction focused on controller/session finalization behavior. Only widen scope to `src/index.ts` after the failing test proves the gap.
 
 ### Milestone 2
 
 Objective:
-- Implement the agent-path cleanup fix and verify the repaired state transitions.
+- Implement the terminal-state fallback fix, validate it, review it, and apply it through safe restart.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `src/feishu-streaming-card.ts`
 - `src/feishu.ts`
-- `src/im-channel.ts`
-- `tests/feishu-connection.test.ts`
+- `src/index.ts`
 - `tests/feishu-streaming-card.test.ts`
 
 Validation:
 - `npm test -- tests/feishu-streaming-card.test.ts`
-- `npm test -- tests/feishu-connection.test.ts`
+- `npm run typecheck`
+- `./scripts/review.sh`
 - `git diff --check`
 
 Status:
-- done
+- in_progress
 
 Validation status:
 - passed
@@ -73,8 +70,8 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Keep the fix local to Feishu streaming session lifecycle unless tests show an index-level caller contract is still required.
-- Implemented locally in Feishu streaming/session adapters; no index-level caller changes were needed.
+- Prefer freezing the card’s existing accumulated content into a completed terminal card rather than synthesizing a new visible reply string in `index.ts`.
+- Safe restart happens only after validation and review both pass.
 
 ## Working Rules
 
@@ -87,29 +84,27 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- None
+- Milestone 2
 
 Current status:
-- completed and applied
+- validated, awaiting apply
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `src/feishu-streaming-card.ts`
 - `src/feishu.ts`
-- `src/im-channel.ts`
-- `tests/feishu-connection.test.ts`
+- `src/index.ts`
 - `tests/feishu-streaming-card.test.ts`
 
 Last failure summary:
-- Resolved. Focused validation now passes:
-  - `npm test -- tests/feishu-connection.test.ts`
+- Reproduced and fixed. Fresh validation passed:
   - `npm test -- tests/feishu-streaming-card.test.ts`
+  - `npm run typecheck`
   - `git diff --check`
-  - `./scripts/review.sh` + semantic review checklist in `RUNBOOKS/Review.md`
-- Landed on `main` as commit `77c737c` (`Fix Feishu agent streaming cleanup`).
+  - `./scripts/review.sh`
 
 Suspected cause:
-- Confirmed: agent-scoped Feishu streaming sessions were keyed differently from the base chat JID, and terminal ack cleanup was not owned by the streaming controller itself.
+- Confirmed: active Feishu streaming cards were finalized only when a final visible reply existed. Success cleanup paths without visible final text fell through to `dispose()` in `finally`, leaving the card visually stuck in streaming state.
 
 Next step:
-- None. The current backend state shows PID `59465` started at `2026-04-24T04:46:54Z`, which is after commit `77c737c`, so the running service already includes this fix.
+- Commit the fix, then apply it through `cli-claw restart` so the running backend picks up the new terminal-state cleanup behavior.

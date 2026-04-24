@@ -3886,7 +3886,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           ).catch(() => {});
           await streamingSession.abort('已中断').catch(() => {});
         } else {
-          streamingSession.dispose();
+          const activeStreamingSession = streamingSession;
+          const provisionalUsage =
+            buildProvisionalTokenUsage(agentRunStartedAt);
+          await patchStreamingSessionFooterUsage(
+            activeStreamingSession,
+            activeRuntimeIdentity,
+            provisionalUsage,
+          ).catch(() => {});
+          await activeStreamingSession.completeWithCurrentText().catch(() => {
+            activeStreamingSession.dispose();
+          });
         }
       }
       unregisterStreamingSession(streamingSessionJid);
@@ -6995,7 +7005,18 @@ async function processAgentConversation(
           ).catch(() => {});
           await agentStreamingSession.abort('已中断').catch(() => {});
         } else {
-          agentStreamingSession.dispose();
+          const activeStreamingSession = agentStreamingSession;
+          const provisionalUsage = buildProvisionalTokenUsage(
+            agentConversationStartedAt,
+          );
+          await patchStreamingSessionFooterUsage(
+            activeStreamingSession,
+            currentAgentRuntimeIdentity,
+            provisionalUsage,
+          ).catch(() => {});
+          await activeStreamingSession.completeWithCurrentText().catch(() => {
+            activeStreamingSession.dispose();
+          });
         }
       }
       if (streamingSessionJid) {

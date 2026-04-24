@@ -1940,6 +1940,15 @@ export class StreamingCardController {
   }
 
   /**
+   * Complete the streaming card using the current accumulated body text.
+   * Used by cleanup paths where the task finished successfully but there is
+   * no new visible final reply to replace the streamed content.
+   */
+  async completeWithCurrentText(): Promise<void> {
+    await this.finalize(this.accumulatedText, 'completed');
+  }
+
+  /**
    * Finalize the streaming card in an error / aborted state while preserving
    * the final text as the visible body content.
    */

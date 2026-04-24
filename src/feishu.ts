@@ -21,6 +21,7 @@ import { resolveImSlashCommandReply } from './im-slash-command.js';
 import {
   abortStreamingSessionsForChatJid,
   buildStaticReplyCard,
+  getStreamingSession,
   registerMessageIdMapping,
   resolveJidByMessageId,
 } from './feishu-streaming-card.js';
