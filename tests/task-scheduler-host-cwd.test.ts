@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const { runScriptMock, runHostAgentMock } = vi.hoisted(() => ({
   runScriptMock: vi.fn(),
@@ -32,6 +32,7 @@ vi.mock('../src/db.js', () => ({
   getTaskById: vi.fn(),
   getUserById: vi.fn(),
   getUserHomeGroup: vi.fn(),
+  getMessagesPage: vi.fn(() => []),
   logTaskRun: vi.fn(),
   logTaskRunStart: vi.fn(() => 'run-log-1'),
   setRegisteredGroup: vi.fn(),
@@ -45,7 +46,11 @@ vi.mock('../src/daily-summary.js', () => ({
   runDailySummaryIfNeeded: vi.fn(),
 }));
 
-import { runScriptTask, runTask } from '../src/task-scheduler.js';
+import {
+  runScriptTask,
+  runTask,
+  runWorkspaceAutopilotTask,
+} from '../src/task-scheduler.js';
 import type { RegisteredGroup, ScheduledTask } from '../src/types.js';
 
 const sourceGroup: RegisteredGroup = {
@@ -77,8 +82,15 @@ function buildTask(overrides: Partial<ScheduledTask>): ScheduledTask {
 }
 
 describe('task scheduler host cwd forwarding', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   test('passes the source host cwd to script tasks', async () => {
-    const task = buildTask({ execution_type: 'script', script_command: 'echo done' });
+    const task = buildTask({
+      execution_type: 'script',
+      script_command: 'echo done',
+    });
     const groups = {
       'web:source': sourceGroup,
     } as Record<string, RegisteredGroup>;
@@ -150,6 +162,98 @@ describe('task scheduler host cwd forwarding', () => {
       expect.objectContaining({
         executionCwd: '/srv/source',
       }),
+    );
+  });
+
+  test('runs workspace autopilot without storing its prompt as a user message', async () => {
+    const task = buildTask({
+      id: 'autopilot:workspace:main',
+      context_mode: 'group',
+      schedule_type: 'interval',
+      schedule_value: '300000',
+      next_run: '2026-04-05T10:00:00.000Z',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+    const storePromptMessage = vi.fn();
+    const sendMessage = vi.fn();
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+      },
+      onProcess: vi.fn(),
+      sendMessage,
+      storePromptMessage,
+      assistantName: 'cli-claw',
+    };
+
+    vi.mocked((await import('../src/db.js')).getTaskById).mockReturnValue(task);
+    runHostAgentMock.mockResolvedValue({
+      status: 'success',
+      result: '当前没有值得执行的下一步，等待用户输入。',
+    });
+
+    await runWorkspaceAutopilotTask(task, deps as never, 'web:source', {
+      manualRun: true,
+    });
+
+    expect(storePromptMessage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(runHostAgentMock).toHaveBeenCalledOnce();
+    expect(runHostAgentMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        isScheduledTask: false,
+      }),
+    );
+  });
+
+  test('publishes substantive workspace autopilot results as scheduled task messages', async () => {
+    const task = buildTask({
+      id: 'autopilot:workspace:main',
+      context_mode: 'group',
+      schedule_type: 'interval',
+      schedule_value: '300000',
+      next_run: '2026-04-05T10:00:00.000Z',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+    const sendMessage = vi.fn();
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+      },
+      onProcess: vi.fn(),
+      sendMessage,
+      storePromptMessage: vi.fn(),
+      assistantName: 'cli-claw',
+    };
+
+    vi.mocked((await import('../src/db.js')).getTaskById).mockReturnValue(task);
+    runHostAgentMock.mockResolvedValue({
+      status: 'success',
+      result: '已完成主动检查：发现并修复了一个验证脚本入口问题。',
+    });
+
+    await runWorkspaceAutopilotTask(task, deps as never, 'web:source', {
+      manualRun: true,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'web:source',
+      '已完成主动检查：发现并修复了一个验证脚本入口问题。',
+      { source: 'scheduled_task' },
     );
   });
 });

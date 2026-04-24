@@ -26,6 +26,12 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 7. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 8. 任务调度、技能安装、记忆读写和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
 
+## 主动模式
+
+- 工作区主动模式由 `src/workspace-autopilot.ts` 管理任务 ID、prompt 与 quota pause/resume 状态，由 `src/task-scheduler.ts` 在到期时创建后台 run。
+- 主动模式不把 prompt 写入主聊天消息表；后台 run 会读取最近工作区上下文构造隐藏 prompt，只有产生实质进展、风险或阻塞时才通过 scheduled-task 消息发出摘要。
+- `src/group-queue.ts` 把主动模式作为 low-priority background task 处理：真实用户/IM 消息优先；若后台 run 正在执行时收到用户消息，队列会请求后台 run 收尾并排队处理真实消息。
+
 ## 边界
 
 - `package root`、`launch cwd`、`~/.cli-claw` 数据目录是三条不同边界：前者负责资源定位，中者负责 host 默认执行目录，后者负责平台持久化。

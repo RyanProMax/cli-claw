@@ -15,15 +15,28 @@ interface QueuedTask {
   id: string;
   groupJid: string;
   fn: () => Promise<void>;
+  priority: number;
+  onSkip?: () => void;
 }
 
 const MAX_RETRIES = 5;
 const BASE_RETRY_MS = 5000;
+const DEFAULT_TASK_PRIORITY = 5;
+const BACKGROUND_TASK_PRIORITY = 9;
+
+export type QueueTaskPriority = number | 'background';
+
+export interface EnqueueTaskOptions {
+  priority?: QueueTaskPriority;
+  onSkip?: () => void;
+}
 
 interface GroupState {
   active: boolean;
   /** True when the active runner is executing a scheduled task (not user messages). */
   activeRunnerIsTask: boolean;
+  /** Priority of the active task runner, if any. */
+  activeTaskPriority: number | null;
   /** Last time this runner produced any observable output. */
   lastActivityAt: number | null;
   /** True while the runner is inside an active query turn. */
@@ -89,6 +102,7 @@ export class GroupQueue {
       state = {
         active: false,
         activeRunnerIsTask: false,
+        activeTaskPriority: null,
         lastActivityAt: null,
         queryInFlight: false,
         pendingMessages: false,
@@ -287,6 +301,85 @@ export class GroupQueue {
     );
   }
 
+  hasPendingImSibling(groupJid: string): boolean {
+    return (
+      this.hasWaitingImSibling(groupJid) ||
+      this.findPendingImSibling(groupJid) !== null
+    );
+  }
+
+  hasActiveOrPendingWork(groupJid: string): boolean {
+    const key = this.getSerializationKey(groupJid);
+    for (const [jid, state] of this.groups.entries()) {
+      if (this.getSerializationKey(jid) !== key) continue;
+      if (state.active) return true;
+      if (state.pendingMessages) return true;
+      if (state.pendingTasks.length > 0) return true;
+      if (this.waitingGroups.has(jid)) return true;
+    }
+    return false;
+  }
+
+  private normalizeTaskPriority(priority?: QueueTaskPriority): number {
+    if (priority === 'background') return BACKGROUND_TASK_PRIORITY;
+    if (typeof priority === 'number' && Number.isFinite(priority)) {
+      return priority;
+    }
+    return DEFAULT_TASK_PRIORITY;
+  }
+
+  private isBackgroundTask(task: Pick<QueuedTask, 'priority'>): boolean {
+    return task.priority >= BACKGROUND_TASK_PRIORITY;
+  }
+
+  private isActiveBackgroundTask(state: GroupState): boolean {
+    return (
+      state.activeRunnerIsTask &&
+      (state.activeTaskPriority ?? DEFAULT_TASK_PRIORITY) >=
+        BACKGROUND_TASK_PRIORITY
+    );
+  }
+
+  private requestCloseForActiveBackgroundRunner(
+    groupJid: string,
+    reason: string,
+  ): boolean {
+    const state = this.resolveActiveState(groupJid);
+    if (!state?.active || !this.isActiveBackgroundTask(state)) return false;
+    this.closeStdin(groupJid);
+    logger.info({ groupJid }, reason);
+    return true;
+  }
+
+  private takeNextPendingTask(
+    state: GroupState,
+    options: { includeBackground: boolean },
+  ): QueuedTask | null {
+    for (let i = 0; i < state.pendingTasks.length; i++) {
+      const task = state.pendingTasks[i]!;
+      if (!options.includeBackground && this.isBackgroundTask(task)) continue;
+
+      state.pendingTasks.splice(i, 1);
+      let dbTask: ReturnType<typeof getTaskById> | undefined;
+      try {
+        dbTask = getTaskById(task.id);
+      } catch {
+        dbTask = undefined;
+      }
+      if (dbTask && dbTask.status !== 'active') {
+        logger.info(
+          { groupJid: task.groupJid, taskId: task.id },
+          'Skipping cancelled/deleted task during drain',
+        );
+        task.onSkip?.();
+        i -= 1;
+        continue;
+      }
+      return task;
+    }
+    return null;
+  }
+
   /**
    * Web/workspace-originated work must not hijack an active sibling IM runner.
    * Otherwise a queued `web:main` task can clear the IM reply route, turning a
@@ -449,6 +542,13 @@ export class GroupQueue {
       state.pendingMessages = true;
       this.waitingGroups.add(groupJid);
       if (
+        this.requestCloseForActiveBackgroundRunner(
+          groupJid,
+          'Closing active background task for pending user messages',
+        )
+      ) {
+        // The pending message will run when the background task exits.
+      } else if (
         !this.shouldDeferWebWorkBehindImRunner(
           groupJid,
           activeRunner,
@@ -501,10 +601,16 @@ export class GroupQueue {
     this.runForGroup(groupJid, 'messages');
   }
 
-  enqueueTask(groupJid: string, taskId: string, fn: () => Promise<void>): void {
+  enqueueTask(
+    groupJid: string,
+    taskId: string,
+    fn: () => Promise<void>,
+    options: EnqueueTaskOptions = {},
+  ): void {
     if (this.shuttingDown) return;
 
     const state = this.getGroup(groupJid);
+    const priority = this.normalizeTaskPriority(options.priority);
 
     // Prevent double-queuing of the same task
     if (state.pendingTasks.some((t) => t.id === taskId)) {
@@ -514,23 +620,56 @@ export class GroupQueue {
 
     const activeRunner = this.findActiveRunnerFor(groupJid);
     if (state.active || (activeRunner && activeRunner !== groupJid)) {
-      state.pendingTasks.push({ id: taskId, groupJid, fn });
+      state.pendingTasks.push({
+        id: taskId,
+        groupJid,
+        fn,
+        priority,
+        onSkip: options.onSkip,
+      });
       this.waitingGroups.add(groupJid);
       logger.debug(
-        { groupJid, taskId, activeRunner: activeRunner || groupJid },
+        { groupJid, taskId, activeRunner: activeRunner || groupJid, priority },
         'Group runner active, task queued',
+      );
+      return;
+    }
+
+    if (
+      priority >= BACKGROUND_TASK_PRIORITY &&
+      (state.pendingMessages || this.hasPendingImSibling(groupJid))
+    ) {
+      state.pendingTasks.push({
+        id: taskId,
+        groupJid,
+        fn,
+        priority,
+        onSkip: options.onSkip,
+      });
+      this.waitingGroups.add(groupJid);
+      this.drainWaiting();
+      logger.debug(
+        { groupJid, taskId, priority },
+        'Background task queued behind pending messages',
       );
       return;
     }
 
     if (!this.hasCapacityFor(groupJid)) {
       const isHost = this.isHostMode(groupJid);
-      state.pendingTasks.push({ id: taskId, groupJid, fn });
+      state.pendingTasks.push({
+        id: taskId,
+        groupJid,
+        fn,
+        priority,
+        onSkip: options.onSkip,
+      });
       this.waitingGroups.add(groupJid);
       logger.debug(
         {
           groupJid,
           taskId,
+          priority,
           activeContainerCount: this.activeContainerCount,
           activeHostProcessCount: this.activeHostProcessCount,
           mode: isHost ? 'host' : 'container',
@@ -542,7 +681,13 @@ export class GroupQueue {
 
     // Run immediately
     this.waitingGroups.delete(groupJid);
-    this.runTask(groupJid, { id: taskId, groupJid, fn });
+    this.runTask(groupJid, {
+      id: taskId,
+      groupJid,
+      fn,
+      priority,
+      onSkip: options.onSkip,
+    });
   }
 
   registerProcess(
@@ -636,6 +781,10 @@ export class GroupQueue {
     // messages — blocking them causes a deadlock where the agent waits for
     // IPC input that never arrives.
     if (state.activeRunnerIsTask && !groupJid.includes('#agent:')) {
+      this.requestCloseForActiveBackgroundRunner(
+        groupJid,
+        'Closing active background task for IPC user message',
+      );
       logger.debug(
         { groupJid },
         'Active runner is a scheduled task; deferring user message until task completes',
@@ -1072,6 +1221,7 @@ export class GroupQueue {
     const isHostMode = this.isHostMode(groupJid);
     state.active = true;
     state.activeRunnerIsTask = false;
+    state.activeTaskPriority = null;
     state.lastActivityAt = Date.now();
     state.queryInFlight = true;
     state.pendingMessages = false;
@@ -1142,6 +1292,7 @@ export class GroupQueue {
       }
       state.active = false;
       state.drainSentinelWritten = false;
+      state.activeTaskPriority = null;
       state.hasIpcInjectedMessages = false;
       state.ipcInjectedMessageJids.clear();
       state.lastActivityAt = null;
@@ -1181,6 +1332,7 @@ export class GroupQueue {
     const isHostMode = this.isHostMode(groupJid);
     state.active = true;
     state.activeRunnerIsTask = true;
+    state.activeTaskPriority = task.priority;
     state.lastActivityAt = Date.now();
     state.queryInFlight = false;
     this.waitingGroups.delete(groupJid);
@@ -1227,6 +1379,7 @@ export class GroupQueue {
       }
       state.active = false;
       state.activeRunnerIsTask = false;
+      state.activeTaskPriority = null;
       state.drainSentinelWritten = false;
       state.lastActivityAt = null;
       state.queryInFlight = false;
@@ -1337,22 +1490,13 @@ export class GroupQueue {
       return;
     }
 
-    // Tasks first (they won't be re-discovered from SQLite like messages)
-    while (state.pendingTasks.length > 0) {
-      const task = state.pendingTasks.shift()!;
-      // Check if scheduled task is still active before occupying a slot.
-      // Only skip tasks that exist in the DB and are no longer active.
-      // Dynamic tasks (agent conversations, etc.) don't have DB entries
-      // and must always be allowed to run.
-      const dbTask = getTaskById(task.id);
-      if (dbTask && dbTask.status !== 'active') {
-        logger.info(
-          { groupJid, taskId: task.id },
-          'Skipping cancelled/deleted task during drain',
-        );
-        continue;
-      }
-      this.runTask(groupJid, task);
+    // Foreground tasks first (they won't be re-discovered from SQLite like
+    // messages), then pending messages, then low-priority background work.
+    const foregroundTask = this.takeNextPendingTask(state, {
+      includeBackground: false,
+    });
+    if (foregroundTask) {
+      this.runTask(groupJid, foregroundTask);
       return;
     }
 
@@ -1362,6 +1506,14 @@ export class GroupQueue {
     // timer later starts another, causing duplicate processing of the same messages.
     if (state.pendingMessages && !state.retryTimer) {
       this.runForGroup(groupJid, 'drain');
+      return;
+    }
+
+    const backgroundTask = this.takeNextPendingTask(state, {
+      includeBackground: true,
+    });
+    if (backgroundTask) {
+      this.runTask(groupJid, backgroundTask);
       return;
     }
 
@@ -1397,34 +1549,21 @@ export class GroupQueue {
       this.waitingGroups.delete(jid);
       const state = this.getGroup(jid);
 
-      // Prioritize tasks over messages
-      if (state.pendingTasks.length > 0) {
-        // Skip cancelled/deleted scheduled tasks (but allow dynamic tasks
-        // like agent conversations that have no DB entry).
-        let validTask: QueuedTask | undefined;
-        while (state.pendingTasks.length > 0) {
-          const candidate = state.pendingTasks.shift()!;
-          const dbTask = getTaskById(candidate.id);
-          if (dbTask && dbTask.status !== 'active') {
-            logger.info(
-              { groupJid: jid, taskId: candidate.id },
-              'Skipping cancelled/deleted task during drainWaiting',
-            );
-            continue;
-          }
-          validTask = candidate;
-          break;
-        }
-        if (validTask) {
-          this.runTask(jid, validTask);
-        } else if (state.pendingMessages && !state.retryTimer) {
-          // All tasks were stale, fall through to messages
-          // (skip if retry timer is pending to avoid duplicate processing)
-          this.runForGroup(jid, 'drain');
-        }
+      const foregroundTask = this.takeNextPendingTask(state, {
+        includeBackground: false,
+      });
+      if (foregroundTask) {
+        this.runTask(jid, foregroundTask);
       } else if (state.pendingMessages && !state.retryTimer) {
         // Skip if retry timer is pending to avoid duplicate processing
         this.runForGroup(jid, 'drain');
+      } else {
+        const backgroundTask = this.takeNextPendingTask(state, {
+          includeBackground: true,
+        });
+        if (backgroundTask) {
+          this.runTask(jid, backgroundTask);
+        }
       }
       // If neither pending, skip this group
     }

@@ -1,33 +1,34 @@
-# Codex Model Picker Live Catalog
+# Workspace Autopilot Low-Priority Background Runs
 
 ## Goal
 
-- Make `/model` for Codex reflect the actual local Codex CLI catalog instead of relying on stale `~/.codex/models_cache.json` or only built-in presets.
-- Keep `/model`, Feishu picker cards, Web picker data, validation, and `/status` aligned with the current effective runtime model.
-- Preserve safe fallback behavior when the CLI is missing, logged out, slow, or returns malformed JSON.
+- Stop workspace autopilot from repeatedly injecting `[WORKSPACE_AUTOPILOT]` as normal user-visible chat history.
+- Make autopilot low priority, deduplicated, and aware of real user / IM work before it consumes Codex.
+- Preserve existing `/autopilot on|off|status` behavior and quota pause semantics.
 
 ## Done when
 
-- The model source order is explicit and tested: live `codex debug models` first, local cache second, built-in presets last.
-- Codex model selection accepts models discovered from the live CLI catalog.
-- `/model` replies and picker choices include the current effective model context when needed.
-- Docs, validation, review, commit, and safe restart are complete.
+- Scheduler does not write autopilot prompts into `messages` as ordinary user messages.
+- Autopilot skips or defers when the workspace has active/pending real work, especially Feishu/IM messages.
+- User/IM messages are prioritized ahead of autopilot in `GroupQueue`.
+- Tests cover no message pollution, queue priority, and IM/user preemption boundaries.
+- Docs, validation, review, safe restart, and commit are complete.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Confirm the existing `/model` data sources and the Codex CLI command that exposes the real model catalog.
+- Lock the implementation contract for autopilot scheduling, queue priority, and visibility.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- read-only inspection of `src/runtime-model-options.ts`, `src/runtime-command-handler.ts`, `src/index.ts`, `src/feishu-streaming-card.ts`, `src/routes/groups.ts`, `src/codex-config.ts`, related tests, and local Codex CLI help/catalog output
+- `PLANS/ROADMAP.md`
+- read-only inspection of `src/workspace-autopilot.ts`, `src/task-scheduler.ts`, `src/group-queue.ts`, `src/index.ts`, `src/web.ts`, related tests, and docs.
 
 Validation:
-- Identify whether current behavior is hardcoded, cache-backed, or live CLI-backed.
-- Identify the concrete live CLI command and fallback behavior.
-- Name the files and tests required for the implementation.
+- Identify exact code paths to change.
+- Define the minimal test set for the behavior contract.
 
 Status:
 - done
@@ -39,31 +40,44 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Current evidence:
-  - `src/runtime-model-options.ts` reads `~/.codex/models_cache.json` and falls back to shared built-in presets.
-  - `codex debug models` exists in local Codex CLI `0.124.0` and renders the raw model catalog as JSON; `--bundled` skips refresh.
-  - Local `~/.codex/config.toml` currently sets `model = "gpt-5.5"`, while the cache seen during inspection came from an older CLI client version.
-  - Current local live CLI catalog returned `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, and `gpt-5.2`; the implementation must follow this real catalog and separately surface the effective current model when it differs.
+- Current issue: `runGroupModeTask()` stores autopilot prompt as a user message in `web:main` every 5 minutes, then enqueues normal message processing.
+- Code paths:
+  - `src/workspace-autopilot.ts` owns task ID, prompt, quota state.
+  - `src/task-scheduler.ts` currently handles all group-context tasks by `storePromptMessage()` + `enqueueMessageCheck()`.
+  - `src/group-queue.ts` currently prioritizes pending tasks over pending messages during drain.
+  - `src/index.ts` wires `storePromptMessage` and queue callbacks.
+- Target contract:
+  - autopilot is a background task, not a normal user message;
+  - autopilot is skipped when active/pending user or IM work exists;
+  - queued user/IM messages outrank queued autopilot work;
+  - no-op/skip should update task run logs without user-visible output.
+- Minimal test set:
+  - task scheduler autopilot run does not call `storePromptMessage`;
+  - no-op autopilot result is not sent to user;
+  - substantive autopilot result is sent as a scheduled-task message;
+  - background queued task drains after pending messages.
 
 ### Milestone 2
 
 Objective:
-- Implement live catalog discovery and wire current effective model context into `/model` responses and picker cards.
+- Implement low-priority background autopilot execution and queue priority behavior.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `src/runtime-model-options.ts`
-- `src/runtime-command-handler.ts`
+- `src/workspace-autopilot.ts`
+- `src/task-scheduler.ts`
+- `src/group-queue.ts`
 - `src/index.ts`
-- `src/routes/groups.ts`
-- `src/feishu-streaming-card.ts` only if picker rendering needs a small compatibility fix
-- directly related tests
+- `src/web.ts` only if required to mark user/IM priority boundaries
 - `docs/COMMAND.md`
-- `docs/RUNTIME.md`
+- `docs/ARCHITECTURE.md`
+- `docs/MODULE.md`
+- directly related tests
 
 Validation:
-- Focused runtime model/command/picker tests.
+- `npm test -- --run tests/workspace-autopilot.test.ts tests/group-queue.test.ts tests/task-scheduler-host-cwd.test.ts`
+- Add/adjust focused tests that fail on the old behavior.
 - `npm run typecheck`
 - `git diff --check`
 - `./scripts/review.sh`
@@ -78,39 +92,41 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Do not make `/model` block for a long time if Codex CLI is unavailable or slow; live discovery needs a short timeout and silent fallback.
-- Avoid treating a stale configured model as available unless it is already the current effective model shown by Cli Claw.
-- Fix implemented:
-  - Codex model discovery now tries live `codex debug models` first with a bounded timeout and larger stdout buffer, then falls back to `~/.codex/models_cache.json`, then built-in preset.
-  - `/model` text replies include the current effective model and available option values.
-  - Feishu picker cards and Web `/model` picker fetch backend model options with current-model context.
-  - Claude model options remain preset-only.
+- Avoid broad queue rewrites. Use the smallest priority extension needed for autopilot.
+- Preserve existing task and agent conversation behavior.
+- Implemented:
+  - `GroupQueue.enqueueTask()` accepts `priority: 'background'`.
+  - Pending messages drain before background tasks.
+  - User messages close active background tasks via `_close`, but ordinary scheduled tasks keep existing behavior.
+  - Workspace autopilot runs through `runWorkspaceAutopilotTask()` without calling `storePromptMessage()`.
+  - Autopilot prompt uses recent workspace context as hidden prompt input; no-op results are logged but not sent.
+  - Scheduler skips due autopilot ticks when pending IM sibling or active/pending workspace work exists.
 - Validation evidence:
-  - `npm test -- --run tests/runtime-model-options.test.ts tests/runtime-command-handler.test.ts tests/groups-route.test.ts tests/feishu-streaming-card.test.ts`
+  - `npm test -- --run tests/workspace-autopilot.test.ts tests/group-queue.test.ts tests/task-scheduler-host-cwd.test.ts`
   - `npm run typecheck`
-  - `npm --prefix web run build`
   - `git diff --check`
   - `./scripts/review.sh`
-  - live local check: `getAvailableRuntimeModelCatalog('codex', { currentModel: 'gpt-5.5' })` returned source `codex-cli` and values beginning with `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2`.
 - Review result:
-  - passed local semantic review against `RUNBOOKS/Review.md`; tightened the current-model backfill to Codex only so Claude stays preset-only.
-  - follow-up semantic review found a PATCH edge case where switching from Claude to Codex could incorrectly pass the old Claude current model as the Codex current-model allowance; fixed by only carrying current-model context when the effective agent type already matches the target agent type.
-  - follow-up validation passed with the new agent-switching regression test included.
+  - passed semantic review against `RUNBOOKS/Review.md`; no blocking scope, priority, or ordinary task regression found.
 
 ### Milestone 3
 
 Objective:
-- Apply the fix to the running service and confirm `/model` now follows live CLI/current model behavior.
+- Update docs, apply the fix to the running service, and record final handoff.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
+- `docs/ARCHITECTURE.md`
+- `docs/MODULE.md` only if module ownership wording needs adjustment
 - safe restart via `bun src/cli.ts restart`
-- read-only post-restart logs/status checks
+- read-only post-restart status/log checks
 
 Validation:
-- Safe restart passes.
-- Post-restart `/model` data source can be verified without disrupting active user work.
-- Any unverified live picker UI state is called out explicitly.
+- Docs reflect the new autopilot contract.
+- Safe restart passes and IM channels reconnect.
+- Unverified live behavior is called out explicitly.
 
 Status:
 - done
@@ -122,12 +138,14 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- If an active runner is processing user work, do not send extra live IM probes unless the queue is idle.
-- Pre-restart `active_streaming_turns` was `{}`.
-- Safe restart `restart-2026-04-24T14-01-56-608Z-14ce081a` passed.
-- Post-restart backend PID is `83028`; Feishu WebSocket and IM channel reconnected.
-- Post-restart `active_streaming_turns` remained `{}`.
-- No extra live Feishu/Web `/model` message was sent; backend helper verification covered the live catalog source without disturbing user channels.
+- If route/runtime code changes after restart, rerun safe restart before final handoff.
+- Docs updated:
+  - `docs/COMMAND.md`
+  - `docs/ARCHITECTURE.md`
+  - `docs/MODULE.md`
+- Safe restart `restart-2026-04-24T14-41-19-260Z-c027f9a3` passed.
+- Post-restart backend PID is `92746`; `/api/health` is healthy and `active_streaming_turns` is `{}`.
+- Feishu and WeChat channels reconnected after restart. Feishu startup backfill logged one existing 400 response but completed and connected.
 
 ## Working Rules
 
@@ -143,28 +161,25 @@ Current milestone:
 - Milestone 3
 
 Current status:
-- Done. `/model` and picker options now use live Codex CLI discovery first, cache second, presets last, while surfacing the current effective Codex model when it differs from the catalog.
+- Done. Workspace autopilot now runs as low-priority background work instead of injecting ordinary chat messages, and real user/IM messages take priority.
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `docs/ARCHITECTURE.md`
 - `docs/COMMAND.md`
-- `docs/RUNTIME.md`
-- `src/index.ts`
-- `src/routes/groups.ts`
-- `src/runtime-command-handler.ts`
-- `src/runtime-model-options.ts`
-- `tests/groups-route.test.ts`
-- `tests/runtime-command-handler.test.ts`
-- `tests/runtime-model-options.test.ts`
-- `web/src/components/chat/MessageInput.tsx`
-- `web/src/lib/runtimeCommandPicker.ts`
+- `docs/MODULE.md`
+- `src/group-queue.ts`
+- `src/task-scheduler.ts`
+- `src/workspace-autopilot.ts`
+- `tests/group-queue.test.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
 
 Last failure summary:
-- None after second validation. Focused tests, typecheck, Web build, diff hygiene, review script, and semantic review passed.
+- None after validation. Focused tests, typecheck, diff hygiene, review script, and semantic review passed.
 
 Suspected cause:
-- Confirmed root cause: backend options were cache/preset-backed instead of live CLI-backed, and the Web picker used shared static presets. The local effective Codex model was `gpt-5.5`, while the live local Codex catalog currently did not list it.
+- The scheduler treats workspace autopilot as a group-context scheduled task implemented by ordinary message injection rather than as a low-priority background run with preflight gates.
 
 Next step:
-- Monitor whether inherited unavailable Codex models should be auto-warned or safely downgraded in a separate iteration.
+- Commit the focused fix, then monitor the next scheduled autopilot tick in real usage.

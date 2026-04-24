@@ -76,6 +76,131 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     expect(calls[1]).toBe('feishu:chat-1');
   });
 
+  test('drains pending messages before low-priority background tasks', async () => {
+    const { GroupQueue } = await loadGroupQueueModule();
+    const { saveSystemSettings } = await import('../src/runtime-config.js');
+    saveSystemSettings({ maxConcurrentHostProcesses: 1 });
+
+    const queue = new GroupQueue();
+    const calls: string[] = [];
+    const fakeProcess = { pid: 11224, killed: false } as any;
+
+    queue.setHostModeChecker(() => true);
+    queue.setSerializationKeyResolver((groupJid: string) =>
+      groupJid === 'web:main' ? 'main' : groupJid,
+    );
+
+    let releaseBusyRun!: () => void;
+    const busyRunDone = new Promise<void>((resolve) => {
+      releaseBusyRun = resolve;
+    });
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      calls.push(`messages:${groupJid}`);
+      queue.registerProcess(
+        groupJid,
+        fakeProcess,
+        null,
+        groupJid === 'other:busy' ? 'other' : 'main',
+      );
+      if (groupJid === 'other:busy') {
+        await busyRunDone;
+      }
+      return true;
+    });
+
+    queue.enqueueMessageCheck('other:busy');
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['messages:other:busy']);
+    });
+
+    queue.enqueueTask(
+      'web:main',
+      'autopilot:workspace:main',
+      async () => {
+        calls.push('task:autopilot');
+      },
+      { priority: 'background' },
+    );
+    queue.enqueueMessageCheck('web:main');
+
+    releaseBusyRun();
+
+    await vi.waitFor(() => {
+      expect(calls).toEqual([
+        'messages:other:busy',
+        'messages:web:main',
+        'task:autopilot',
+      ]);
+    });
+  });
+
+  test('closes an active background task when a user message arrives', async () => {
+    const { GroupQueue, DATA_DIR } = await loadGroupQueueModule();
+    const queue = new GroupQueue();
+    const calls: string[] = [];
+    const fakeProcess = { pid: 11225, killed: false } as any;
+    const taskId = 'autopilot:workspace:main';
+    const closePath = path.join(
+      DATA_DIR,
+      'ipc',
+      'main',
+      'tasks-run',
+      taskId,
+      'input',
+      '_close',
+    );
+
+    queue.setHostModeChecker(() => true);
+    queue.setSerializationKeyResolver((groupJid: string) =>
+      groupJid === 'web:main' ? 'main' : groupJid,
+    );
+
+    let releaseBackgroundRun!: () => void;
+    const backgroundRunDone = new Promise<void>((resolve) => {
+      releaseBackgroundRun = resolve;
+    });
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      calls.push(`messages:${groupJid}`);
+      return true;
+    });
+
+    queue.enqueueTask(
+      'web:main',
+      taskId,
+      async () => {
+        calls.push('task:autopilot');
+        queue.registerProcess(
+          'web:main',
+          fakeProcess,
+          null,
+          'main',
+          'autopilot-runner',
+          undefined,
+          taskId,
+        );
+        await backgroundRunDone;
+      },
+      { priority: 'background' },
+    );
+
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['task:autopilot']);
+    });
+
+    queue.enqueueMessageCheck('web:main');
+
+    await vi.waitFor(() => {
+      expect(fs.existsSync(closePath)).toBe(true);
+    });
+
+    releaseBackgroundRun();
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['task:autopilot', 'messages:web:main']);
+    });
+  });
+
   test('defers recurring web work behind a DB-pending IM sibling when waiting state was lost', async () => {
     const { GroupQueue } = await loadGroupQueueModule();
     const { saveSystemSettings } = await import('../src/runtime-config.js');

@@ -7,6 +7,15 @@ import type { RuntimeIdentity, ScheduledTask } from './types.js';
 
 export const WORKSPACE_AUTOPILOT_INTERVAL_MS = 5 * 60 * 1000;
 const WORKSPACE_AUTOPILOT_TASK_PREFIX = 'autopilot:workspace:';
+const AUTOPILOT_NOOP_PATTERNS = [
+  /等待用户/,
+  /等待新的/i,
+  /没有值得执行/,
+  /没有可安全推进/,
+  /no actionable/i,
+  /waiting for (the )?user/i,
+  /nothing (to do|actionable)/i,
+];
 
 export type WorkspaceAutopilotState = 'disabled' | 'active' | 'paused_quota';
 
@@ -45,6 +54,14 @@ export function buildWorkspaceAutopilotPrompt(workspaceName: string): string {
     '不要发散到新的目标，不要重复已经完成的工作。',
     '如果当前没有值得执行的下一步，请保持回复极短并说明当前在等待用户或外部条件。',
   ].join('\n');
+}
+
+export function shouldPublishWorkspaceAutopilotResult(
+  result: string | null | undefined,
+): boolean {
+  const text = result?.trim();
+  if (!text) return false;
+  return !AUTOPILOT_NOOP_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 export function getWorkspaceAutopilotTask(

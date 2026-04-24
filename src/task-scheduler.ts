@@ -28,6 +28,7 @@ import {
   cleanupStaleRunningLogs,
   deleteGroupData,
   ensureChatExists,
+  getMessagesPage,
   getDueTasks,
   getTaskById,
   getUserById,
@@ -58,6 +59,7 @@ import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 import {
   isWorkspaceAutopilotTask,
   reconcileWorkspaceAutopilotQuota,
+  shouldPublishWorkspaceAutopilotResult,
 } from './workspace-autopilot.js';
 
 /**
@@ -280,6 +282,11 @@ export interface RunTaskOptions {
   manualRun?: boolean;
 }
 
+interface RunWorkspaceAutopilotOptions {
+  manualRun?: boolean;
+  alreadyTracked?: boolean;
+}
+
 const runningTaskIds = new Set<string>();
 
 export function getRunningTaskIds(): string[] {
@@ -305,6 +312,67 @@ function computeNextRun(task: ScheduledTask): string | null {
   }
   // 'once' tasks have no next run
   return null;
+}
+
+function truncateAutopilotContextText(text: string): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized.length > 500
+    ? `${normalized.slice(0, 500)}...`
+    : normalized;
+}
+
+function buildWorkspaceAutopilotBackgroundPrompt(
+  task: ScheduledTask,
+  targetGroupJid: string,
+): string {
+  const recentMessages = getMessagesPage(targetGroupJid, undefined, 20)
+    .reverse()
+    .filter((message) => message.source_kind !== 'scheduled_task_prompt')
+    .map((message) => {
+      const sender = message.is_from_me ? 'assistant' : message.sender_name;
+      return `- ${message.timestamp} ${sender}: ${truncateAutopilotContextText(
+        message.content,
+      )}`;
+    });
+
+  return [
+    task.prompt,
+    '',
+    '[WORKSPACE_CONTEXT]',
+    recentMessages.length > 0
+      ? recentMessages.join('\n')
+      : '当前没有可用的最近对话记录；如果无法确定下一步，请保持 no-op。',
+  ].join('\n');
+}
+
+function getWorkspaceAutopilotSkipReason(
+  deps: SchedulerDependencies,
+  targetGroupJid: string,
+): string | null {
+  if (deps.queue.hasPendingImSibling(targetGroupJid)) {
+    return 'skipped: pending IM message';
+  }
+  if (deps.queue.hasActiveOrPendingWork(targetGroupJid)) {
+    return 'skipped: workspace busy';
+  }
+  return null;
+}
+
+function skipWorkspaceAutopilotRun(
+  task: ScheduledTask,
+  reason: string,
+  manualRun: boolean,
+): void {
+  logTaskRun({
+    task_id: task.id,
+    run_at: new Date().toISOString(),
+    duration_ms: 0,
+    status: 'success',
+    result: reason,
+    error: null,
+  });
+  const nextRun = manualRun ? task.next_run : computeNextRun(task);
+  updateTaskAfterRun(task.id, nextRun, reason);
 }
 
 /**
@@ -852,6 +920,182 @@ async function runGroupModeTask(
   updateTaskAfterRun(task.id, nextRun, resultSummary);
 }
 
+export async function runWorkspaceAutopilotTask(
+  staleTask: ScheduledTask,
+  deps: SchedulerDependencies,
+  targetGroupJid: string,
+  options: RunWorkspaceAutopilotOptions = {},
+): Promise<void> {
+  if (
+    !options.manualRun &&
+    !isTaskStillActive(staleTask.id, 'autopilot task')
+  ) {
+    runningTaskIds.delete(staleTask.id);
+    return;
+  }
+
+  const task = getTaskById(staleTask.id) ?? staleTask;
+  if (!isWorkspaceAutopilotTask(task)) {
+    runningTaskIds.delete(staleTask.id);
+    return;
+  }
+
+  if (!options.alreadyTracked) {
+    runningTaskIds.add(task.id);
+  }
+  const startTime = Date.now();
+  const runLogId = logTaskRunStart(task.id);
+
+  const groups = deps.registeredGroups();
+  const sourceGroup =
+    resolveTaskSourceGroup(task, groups) ?? groups[targetGroupJid];
+  if (!sourceGroup) {
+    updateTaskRunLog(runLogId, {
+      duration_ms: Date.now() - startTime,
+      status: 'error',
+      result: null,
+      error: `Target group not registered: ${targetGroupJid}`,
+    });
+    runningTaskIds.delete(task.id);
+    return;
+  }
+
+  const homeSibling = findHomeSiblingGroup(sourceGroup, groups);
+  const effectiveGroup = homeSibling
+    ? buildEffectiveGroupFromHomeSibling(sourceGroup, homeSibling)
+    : sourceGroup;
+  const executionMode = resolveTaskExecutionMode(task, deps);
+  const runAgent = executionMode === 'host' ? runHostAgent : runContainerAgent;
+  const sourceWorkspaceCwd = resolveEffectiveHostWorkspaceCwd(
+    sourceGroup,
+    homeSibling,
+  );
+  const ownerHomeFolder = effectiveGroup.created_by
+    ? getUserHomeGroup(effectiveGroup.created_by)?.folder ||
+      effectiveGroup.folder
+    : effectiveGroup.folder;
+  const runtimeIdentity = resolveTaskEffectiveRuntimeIdentity(task, deps);
+
+  writeTasksSnapshot(
+    effectiveGroup.folder,
+    !!effectiveGroup.is_home && effectiveGroup.folder === 'main',
+    getAllTasks().map((t) => ({
+      id: t.id,
+      groupFolder: t.group_folder,
+      prompt: t.prompt,
+      schedule_type: t.schedule_type,
+      schedule_value: t.schedule_value,
+      status: t.status,
+      next_run: t.next_run,
+    })),
+  );
+
+  let result: string | null = null;
+  let error: string | null = null;
+
+  try {
+    const output = await runAgent(
+      effectiveGroup,
+      {
+        prompt: buildWorkspaceAutopilotBackgroundPrompt(task, targetGroupJid),
+        sessionId: undefined,
+        groupFolder: effectiveGroup.folder,
+        chatJid: targetGroupJid,
+        agentType: effectiveGroup.agentType || 'claude',
+        model: runtimeIdentity?.model ?? null,
+        reasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
+        isMain: !!effectiveGroup.is_home && effectiveGroup.folder === 'main',
+        isHome: !!effectiveGroup.is_home,
+        isAdminHome:
+          !!effectiveGroup.is_home && effectiveGroup.folder === 'main',
+        isScheduledTask: false,
+        taskRunId: task.id,
+      },
+      (proc, identifier) =>
+        deps.onProcess(
+          targetGroupJid,
+          proc,
+          executionMode === 'container' ? identifier : null,
+          effectiveGroup.folder,
+          identifier,
+          task.id,
+        ),
+      async (streamedOutput: ContainerOutput) => {
+        if (streamedOutput.result) {
+          result = streamedOutput.result;
+        }
+        if (streamedOutput.status === 'error') {
+          error = streamedOutput.error || 'Unknown error';
+        }
+      },
+      ownerHomeFolder,
+      sourceWorkspaceCwd ? { executionCwd: sourceWorkspaceCwd } : undefined,
+    );
+
+    if (output.status === 'error') {
+      error = output.error || 'Unknown error';
+    }
+    if (output.result) {
+      result = output.result;
+    }
+
+    if (!error && shouldPublishWorkspaceAutopilotResult(result)) {
+      await deps.sendMessage(targetGroupJid, result!.trim(), {
+        source: 'scheduled_task',
+      });
+    }
+  } catch (err) {
+    error = serializeErrorForOutput(err);
+    logger.error({ taskId: task.id, error }, 'Workspace autopilot failed');
+  } finally {
+    const durationMs = Date.now() - startTime;
+    updateTaskRunLog(runLogId, {
+      duration_ms: durationMs,
+      status: error ? 'error' : 'success',
+      result: result
+        ? result.slice(0, 200)
+        : error
+          ? null
+          : 'No visible update',
+      error,
+    });
+    const nextRun = options.manualRun ? task.next_run : computeNextRun(task);
+    updateTaskAfterRun(
+      task.id,
+      nextRun,
+      error
+        ? `Error: ${error}`
+        : result
+          ? result.slice(0, 200)
+          : 'No visible update',
+    );
+    runningTaskIds.delete(task.id);
+    deps.queue.closeStdin(targetGroupJid);
+  }
+}
+
+function enqueueWorkspaceAutopilotTask(
+  task: ScheduledTask,
+  deps: SchedulerDependencies,
+  targetGroupJid: string,
+  manualRun = false,
+): void {
+  runningTaskIds.add(task.id);
+  deps.queue.enqueueTask(
+    targetGroupJid,
+    task.id,
+    () =>
+      runWorkspaceAutopilotTask(task, deps, targetGroupJid, {
+        manualRun,
+        alreadyTracked: true,
+      }),
+    {
+      priority: 'background',
+      onSkip: () => runningTaskIds.delete(task.id),
+    },
+  );
+}
+
 let schedulerRunning = false;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 let lastCleanupTime = 0;
@@ -1004,6 +1248,24 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
               'Unhandled error in runScriptTask',
             );
           });
+        } else if (isWorkspaceAutopilotTask(currentTask)) {
+          const skipReason = getWorkspaceAutopilotSkipReason(
+            deps,
+            targetGroupJid,
+          );
+          if (skipReason) {
+            logger.info(
+              {
+                taskId: currentTask.id,
+                targetGroupJid,
+                reason: skipReason,
+              },
+              'Workspace autopilot skipped before enqueue',
+            );
+            skipWorkspaceAutopilotRun(currentTask, skipReason, false);
+            continue;
+          }
+          enqueueWorkspaceAutopilotTask(currentTask, deps, targetGroupJid);
         } else if (currentTask.context_mode === 'group') {
           // Group mode: inject prompt into source workspace as a regular message
           runGroupModeTask(currentTask, deps, targetGroupJid).catch((err) => {
@@ -1062,6 +1324,8 @@ export function triggerTaskNow(
     runScriptTask(task, deps, targetGroupJid, true).catch((err) =>
       logger.error({ taskId, err }, 'Manual script task failed'),
     );
+  } else if (isWorkspaceAutopilotTask(task)) {
+    enqueueWorkspaceAutopilotTask(task, deps, targetGroupJid, true);
   } else if (task.context_mode === 'group') {
     runGroupModeTask(task, deps, targetGroupJid, true).catch((err) =>
       logger.error({ taskId, err }, 'Manual group-mode task failed'),
