@@ -698,7 +698,7 @@ describe('StreamingCardController footer caching', () => {
     expect(select.initial_option).toBeUndefined();
   });
 
-  test('initial streaming card includes a plain streaming note in the v1 card body', async () => {
+  test('initial streaming card keeps only the streaming status note when no answer text exists yet', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
@@ -726,6 +726,11 @@ describe('StreamingCardController footer caching', () => {
       content: '⏳ 生成中...',
       text_size: 'notation',
     });
+    expect(
+      elements.some(
+        (el: any) => el?.tag === 'markdown' && el?.content?.trim() === '...',
+      ),
+    ).toBe(false);
 
     controller.dispose();
   });

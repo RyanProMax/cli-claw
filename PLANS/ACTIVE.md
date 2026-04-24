@@ -1,17 +1,14 @@
-# Feishu Streaming Card Contract
+# Feishu Streaming Placeholder Cleanup
 
 ## Goal
 
-- Reproduce and fix the current Feishu card hierarchy regressions:
-  - streaming phase: visible content is incorrectly piling into commentary
-  - terminal phase: commentary is lost and dumped into main body
-  - terminal phase: body occasionally becomes empty while only commentary remains
-- Re-establish a stable card contract so streaming and terminal renderers preserve the same answer/commentary separation.
+- Reproduce and fix the current Feishu generating-state regression where the card body shows a literal `...` above the existing `⏳ 生成中...` status note.
+- Keep the generating state minimal: when no answer text exists yet, only the status note should remain visible.
 
 ## Done when
 
-- We have focused failing tests for the three user-visible regressions.
-- The minimal fix restores correct answer/commentary layering in both streaming and completed states.
+- We have a focused failing test that proves the generating-state card body no longer renders a standalone `...` placeholder.
+- The minimal renderer fix removes the duplicate ellipsis without regressing the existing `⏳ 生成中...` status note or interrupt row placement.
 - Validation and review pass for the scoped change.
 
 ## Milestones
@@ -19,21 +16,15 @@
 ### Milestone 1
 
 Objective:
-- Capture the three Feishu card regressions with failing tests, implement the smallest renderer fix, and verify it.
+- Capture the duplicate-ellipsis regression in Feishu streaming-card tests and implement the smallest fix in the initial-card renderer.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
 - `src/feishu-streaming-card.ts`
-- `src/index.ts`
 - `tests/feishu-streaming-card.test.ts`
-- `shared/stream-presentation.ts`
-- `shared/dist/stream-presentation.js`
-- `tests/chat-streaming-store.test.ts`
-- `tests/stream-presentation.test.ts`
 
 Validation:
-- `npm test -- tests/feishu-streaming-card.test.ts`
+- `npm test -- --run tests/feishu-streaming-card.test.ts`
 - `npm run typecheck`
 - `./scripts/review.sh`
 - `git diff --check`
@@ -48,21 +39,20 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- User-reported symptoms on 2026-04-24:
-  - 流式输出期间，所有内容都会被堆到 commentary
-  - 卡片终态丢失 commentary，所有内容都被堆到正文
-  - 卡片终态偶现正文为空，只有 commentary 的情况
-- Root cause escaped the renderer boundary during investigation:
-  - terminal-state commentary loss is in `src/feishu-streaming-card.ts`
-  - streaming-phase body/commentary inversion is rooted in `shared/stream-presentation.ts`, which currently routes all Codex `text_delta` into `commentaryText`
-- Scope is widened only to the shared presentation classifier plus the smallest affected tests.
+- Evidence gathered on 2026-04-24:
+  - user-visible symptom in Feishu: generating state renders both `...` and `⏳ 生成中...`; desired output keeps only the latter
+  - current initial-card path uses `const initialText = this.accumulatedText || (this.thinking ? '' : '...')` in `src/feishu-streaming-card.ts`
+  - current active initial render path goes through `createInitialCard()` into `MultiCardManager` / legacy fallback; the dormant `StreamingModeBackend` helper is not currently instantiated
 - Validation evidence:
-  - `npm test -- --run tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/chat-streaming-store.test.ts`
+  - `npm test -- --run tests/feishu-streaming-card.test.ts`
   - `npm run typecheck`
   - `./scripts/review.sh`
   - `git diff --check`
 - Review result:
-  - passed local semantic review after inspecting the scoped diff; no remaining blocker found in the updated Codex stream segmentation or Feishu terminal-card contract
+  - passed local semantic review after inspecting the scoped diff; no blocker found beyond the intended streaming placeholder removal
+- Out of scope for this milestone:
+  - Codex `/model` discovery alignment remains tracked separately in `PLANS/ROADMAP.md` item `RM-2026-04-24-08`
+  - safe-restart reply recovery has recent passing restart artifacts and is not being changed unless fresh failing evidence appears
 
 ## Working Rules
 
@@ -82,21 +72,17 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `shared/stream-presentation.ts`
 - `src/feishu-streaming-card.ts`
-- `src/index.ts`
-- `tests/chat-streaming-store.test.ts`
 - `tests/feishu-streaming-card.test.ts`
-- `tests/stream-presentation.test.ts`
 
 Last failure summary:
-- none after validation and review
+- initial red test proved the generating-state card body still rendered a bare `...` markdown block alongside the `⏳ 生成中...` status line
 
 Suspected cause:
 - fixed:
-  - Codex stream presentation now keeps the latest assistant message in `answerText` and moves older messages into `commentaryText`
-  - Feishu `feedStreamEventToCard()` now syncs both Codex answer/commentary slots during `text_delta`
-  - completed Feishu cards no longer drop commentary panels while still clearing tool-step internals
+  - streaming-state schema2 card bodies now allow an empty main-content area instead of forcing a `'...'` fallback
+  - `createInitialCard()` no longer pre-seeds empty bodies with `'...'`
+  - the empty-content helper now honors an explicit empty-string fallback instead of coercing it back to `'...'`
 
 Next step:
-- Commit the scoped contract fix, apply it through the safe restart path, and watch the next real Feishu Codex turn for regression signals.
+- commit the scoped fix and apply it through the safe restart path so the next Feishu streaming turn renders only `⏳ 生成中...` during generation

@@ -320,7 +320,7 @@ function buildCardContent(
   const title = overrideTitle || resolveCardTitle(extractedTitle, segments);
   const elements: Array<Record<string, unknown>> = [];
   const formatMarkdown = options.formatMarkdown || ((value: string) => value);
-  const emptyContentFallback = options.emptyContentFallback || '...';
+  const emptyContentFallback = options.emptyContentFallback ?? '...';
 
   const markdownSegments: CardBodySegment[] =
     segments.length > 0
@@ -357,11 +357,14 @@ function buildCardContent(
   }
 
   if (elements.length === 0) {
-    elements.push({
-      tag: 'markdown',
-      content: formatMarkdown(text.trim() || emptyContentFallback),
-      text_size: 'normal_text',
-    });
+    const fallbackContent = formatMarkdown(text.trim() || emptyContentFallback);
+    if (fallbackContent) {
+      elements.push({
+        tag: 'markdown',
+        content: fallbackContent,
+        text_size: 'normal_text',
+      });
+    }
   }
 
   return { title, contentElements: elements };
@@ -797,7 +800,12 @@ function buildSchema2Card(
     splitCodeBlockSafe,
     overrideTitle,
     {
-      emptyContentFallback: state === 'completed' ? '*已完成*' : undefined,
+      emptyContentFallback:
+        state === 'completed'
+          ? '*已完成*'
+          : state === 'streaming'
+            ? ''
+            : undefined,
       formatMarkdown:
         state === 'streaming'
           ? undefined
@@ -2126,7 +2134,7 @@ export class StreamingCardController {
   // ─── Internal Methods ──────────────────────────────────
 
   private async createInitialCard(): Promise<void> {
-    const initialText = this.accumulatedText || (this.thinking ? '' : '...');
+    const initialText = this.accumulatedText;
     // Prefer full-card updates so the Feishu card structure matches runclaw's
     // collapsible thinking/tool panels during streaming.
     try {
