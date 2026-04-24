@@ -175,4 +175,4 @@ Suspected cause:
 - The repo still had one stale assertion path that was never updated when footer rendering switched to the shared base runtime footer.
 
 Next step:
-- Commit the Milestone 3 diff; if this change should take effect in the running Cli Claw service immediately, apply it through the safe restart path.
+- None. The Milestone 3 diff was committed as `da4552f` (`Align autopilot quota thresholds and add plan progress footers`), and the current backend was already restarted from this repo afterward.
