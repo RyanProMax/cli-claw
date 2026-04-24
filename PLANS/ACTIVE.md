@@ -81,7 +81,7 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- Done. The known gpt-5.5 metadata diagnostic is filtered before Codex streaming and final accumulation.
+- Done and committed. The known gpt-5.5 metadata diagnostic is filtered before Codex streaming and final accumulation.
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -97,4 +97,4 @@ Suspected cause:
 - Codex/ACP emits runtime diagnostics as assistant chunks; cli-claw does not filter this known diagnostic before streaming and final accumulation.
 
 Next step:
-- Commit the focused Codex diagnostic filtering fix.
+- Monitor the next real `gpt-5.5` Codex reply. If the diagnostic still appears in user-visible text, inspect whether ACP is emitting a variant string not covered by the sanitizer.
