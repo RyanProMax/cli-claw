@@ -24,6 +24,7 @@ const hoisted = vi.hoisted(() => {
     reactionDeleteSpy: vi.fn().mockResolvedValue({}),
     resolveJidByMessageIdSpy: vi.fn(),
     registerMessageIdMappingSpy: vi.fn(),
+    getStreamingSessionSpy: vi.fn(() => null),
     wsStartSpy: vi.fn().mockResolvedValue(undefined),
     wsCloseSpy: vi.fn().mockResolvedValue(undefined),
     onReadySpy: vi.fn(),
@@ -35,6 +36,10 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
   class MockClient {
     request = hoisted.requestSpy;
     im = {
+      messageReaction: {
+        create: hoisted.reactionCreateSpy,
+        delete: hoisted.reactionDeleteSpy,
+      },
       message: {
         reply: hoisted.replySpy,
       },
@@ -130,7 +135,7 @@ vi.mock('../src/feishu-streaming-card.js', () => ({
   })),
   resolveJidByMessageId: hoisted.resolveJidByMessageIdSpy,
   registerMessageIdMapping: hoisted.registerMessageIdMappingSpy,
-  getStreamingSession: vi.fn(() => null),
+  getStreamingSession: hoisted.getStreamingSessionSpy,
 }));
 
 vi.mock('../src/feishu-markdown-style.js', () => ({
@@ -167,6 +172,8 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.reactionDeleteSpy.mockClear();
     hoisted.resolveJidByMessageIdSpy.mockReset();
     hoisted.registerMessageIdMappingSpy.mockClear();
+    hoisted.getStreamingSessionSpy.mockReset();
+    hoisted.getStreamingSessionSpy.mockReturnValue(null);
     hoisted.wsStartSpy.mockClear();
     hoisted.wsCloseSpy.mockClear();
     hoisted.onReadySpy.mockClear();
@@ -359,6 +366,100 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       'msg-runtime-picker',
       'feishu:oc_runtime_picker_chat',
     );
+  });
+
+  test('aborts an active streaming session when a new message is accepted in the same chat', async () => {
+    const abortSpy = vi.fn().mockResolvedValue(undefined);
+    hoisted.getStreamingSessionSpy.mockReturnValue({
+      isActive: () => true,
+      abort: abortSpy,
+    });
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_same_chat',
+        message_id: 'msg-next',
+        create_time: Date.now().toString(),
+        message_type: 'text',
+        content: JSON.stringify({ text: '继续看这个问题' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    expect(hoisted.getStreamingSessionSpy).toHaveBeenCalledWith(
+      'feishu:oc_same_chat',
+    );
+    expect(abortSpy).toHaveBeenCalledWith('新的回复已开始');
+  });
+
+  test('clears every pending ack reaction when multiple requests arrive before reply delivery', async () => {
+    hoisted.reactionCreateSpy
+      .mockResolvedValueOnce({ data: { reaction_id: 'ack-1' } })
+      .mockResolvedValueOnce({ data: { reaction_id: 'ack-2' } });
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_ack_chat',
+        message_id: 'msg-1',
+        create_time: Date.now().toString(),
+        message_type: 'text',
+        content: JSON.stringify({ text: '第一条请求' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_ack_chat',
+        message_id: 'msg-2',
+        create_time: (Date.now() + 1).toString(),
+        message_type: 'text',
+        content: JSON.stringify({ text: '第二条请求' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    await connection.sendMessage('oc_ack_chat', '最终回复');
+
+    expect(hoisted.reactionDeleteSpy).toHaveBeenCalledWith({
+      path: { message_id: 'msg-1', reaction_id: 'ack-1' },
+    });
+    expect(hoisted.reactionDeleteSpy).toHaveBeenCalledWith({
+      path: { message_id: 'msg-2', reaction_id: 'ack-2' },
+    });
   });
 
   test('forwards runtime picker card actions when Feishu returns select_static option as a string', async () => {

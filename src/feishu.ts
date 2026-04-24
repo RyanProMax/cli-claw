@@ -494,8 +494,8 @@ export function createFeishuConnection(
   const msgCache = new Map<string, number>();
   const senderNameCache = new Map<string, string>();
   const lastMessageIdByChat = new Map<string, string>();
-  const ackReactionByChat = new Map<string, string>();
-  const typingReactionByChat = new Map<string, string>();
+  const ackReactionByChat = new Map<string, Map<string, string>>();
+  const typingReactionByChat = new Map<string, Map<string, string>>();
   const knownChatIds = new Set<string>();
   const chatTypeById = new Map<string, string>(); // chatId → 'group' | 'p2p'
   const lastCreateTimeByChat = new Map<string, number>();
@@ -524,6 +524,57 @@ export function createFeishuConnection(
     if (createTimeMs > prev) {
       lastCreateTimeByChat.set(chatId, createTimeMs);
     }
+  }
+
+  function rememberReaction(
+    reactionStore: Map<string, Map<string, string>>,
+    chatId: string,
+    messageId: string,
+    reactionId: string,
+  ): void {
+    let reactions = reactionStore.get(chatId);
+    if (!reactions) {
+      reactions = new Map<string, string>();
+      reactionStore.set(chatId, reactions);
+    }
+    reactions.set(messageId, reactionId);
+  }
+
+  async function clearReactionsForChat(
+    reactionStore: Map<string, Map<string, string>>,
+    chatId: string,
+  ): Promise<void> {
+    const reactions = reactionStore.get(chatId);
+    if (!reactions || reactions.size === 0) return;
+    reactionStore.delete(chatId);
+    await Promise.allSettled(
+      Array.from(reactions.entries()).map(([messageId, reactionId]) =>
+        removeReaction(messageId, reactionId),
+      ),
+    );
+  }
+
+  function clearReactionsForChatSync(
+    reactionStore: Map<string, Map<string, string>>,
+    chatId: string,
+  ): void {
+    const reactions = reactionStore.get(chatId);
+    if (!reactions || reactions.size === 0) return;
+    reactionStore.delete(chatId);
+    for (const [messageId, reactionId] of reactions.entries()) {
+      removeReaction(messageId, reactionId).catch(() => {});
+    }
+  }
+
+  function abortSupersededStreamingSession(chatJid: string): void {
+    const session = getStreamingSession(chatJid);
+    if (!session?.isActive()) return;
+    session.abort('新的回复已开始').catch((err) => {
+      logger.debug(
+        { err, chatJid },
+        'Failed to abort superseded Feishu streaming session',
+      );
+    });
   }
 
   /**
@@ -990,6 +1041,7 @@ export function createFeishuConnection(
         'Feishu slash command detected',
       );
       try {
+        abortSupersededStreamingSession(chatJid);
         const reply = await resolveImSlashCommandReply(
           chatJid,
           cmdBody,
@@ -1046,6 +1098,7 @@ export function createFeishuConnection(
         'Feishu managed command detected',
       );
       try {
+        abortSupersededStreamingSession(chatJid);
         const reply = await onCommand(chatJid, managedCommandText);
         if (reply) {
           await sendTextToChat(chatId, reply);
@@ -1082,12 +1135,19 @@ export function createFeishuConnection(
       }
     }
 
+    abortSupersededStreamingSession(chatJid);
+
     // ── Ack Reaction：确认已收到消息（在 mention 过滤之后，避免对未处理的消息加表情） ──
     if (source === 'ws') {
       addReaction(messageId, 'OnIt')
         .then((reactionId) => {
           if (reactionId) {
-            ackReactionByChat.set(chatId, `${messageId}:${reactionId}`);
+            rememberReaction(
+              ackReactionByChat,
+              chatId,
+              messageId,
+              reactionId,
+            );
           }
         })
         .catch(() => {});
@@ -1781,14 +1841,8 @@ export function createFeishuConnection(
         return;
       }
 
-      const clearAckReaction = () => {
-        const ackStored = ackReactionByChat.get(chatId);
-        if (ackStored) {
-          const [ackMsgId, ackReactionId] = ackStored.split(':');
-          removeReaction(ackMsgId, ackReactionId).catch(() => {});
-          ackReactionByChat.delete(chatId);
-        }
-      };
+      const clearAckReaction = () =>
+        clearReactionsForChatSync(ackReactionByChat, chatId);
 
       try {
         // Detect pre-built Feishu interactive card JSON — send directly without wrapping
@@ -2055,27 +2109,25 @@ export function createFeishuConnection(
       if (!lastMsgId) return;
 
       if (isTyping) {
+        const existingTyping = typingReactionByChat.get(chatId);
+        if (existingTyping?.has(lastMsgId)) return;
+        await clearReactionsForChat(typingReactionByChat, chatId);
         const reactionId = await addReaction(lastMsgId, 'OnIt');
         if (reactionId) {
-          typingReactionByChat.set(chatId, `${lastMsgId}:${reactionId}`);
+          rememberReaction(
+            typingReactionByChat,
+            chatId,
+            lastMsgId,
+            reactionId,
+          );
         }
       } else {
-        const stored = typingReactionByChat.get(chatId);
-        if (stored) {
-          const [msgId, reactionId] = stored.split(':');
-          await removeReaction(msgId, reactionId);
-          typingReactionByChat.delete(chatId);
-        }
+        await clearReactionsForChat(typingReactionByChat, chatId);
       }
     },
 
     clearAckReaction(chatId: string): void {
-      const ackStored = ackReactionByChat.get(chatId);
-      if (ackStored) {
-        const [ackMsgId, ackReactionId] = ackStored.split(':');
-        removeReaction(ackMsgId, ackReactionId).catch(() => {});
-        ackReactionByChat.delete(chatId);
-      }
+      clearReactionsForChatSync(ackReactionByChat, chatId);
     },
 
     isConnected(): boolean {
