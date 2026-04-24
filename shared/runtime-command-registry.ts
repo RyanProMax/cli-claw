@@ -145,6 +145,13 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
+    name: 'autopilot',
+    usage: '/autopilot on|off|status',
+    description: '控制当前工作区主动模式',
+    availableEntrypoints: ['im'],
+    availabilityByRuntime: 'all',
+  },
+  {
     name: 'sw',
     aliases: ['spawn'],
     usage: '/sw <任务描述>',

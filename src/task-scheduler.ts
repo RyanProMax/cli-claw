@@ -11,7 +11,10 @@ import {
   TIMEZONE,
 } from './config.js';
 import { DailySummaryDeps, runDailySummaryIfNeeded } from './daily-summary.js';
-import { getSystemSettings } from './runtime-config.js';
+import {
+  getClaudeProviderConfig,
+  getSystemSettings,
+} from './runtime-config.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -43,10 +46,19 @@ import { logger } from './logger.js';
 import { resolveTaskOwner } from './task-utils.js';
 import { removeFlowArtifacts } from './file-manager.js';
 import { hasScriptCapacity, runScript } from './script-runner.js';
+import { getCodexRuntimeFallback } from './codex-config.js';
+import {
+  buildEffectiveGroupFromHomeSibling,
+  resolveEffectiveRuntimeIdentity,
+} from './group-runtime.js';
 import type { StreamEvent } from './stream-event.types.js';
 import { ExecutionMode, RegisteredGroup, ScheduledTask } from './types.js';
 import { checkBillingAccessFresh, isBillingEnabled } from './billing.js';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
+import {
+  isWorkspaceAutopilotTask,
+  reconcileWorkspaceAutopilotQuota,
+} from './workspace-autopilot.js';
 
 /**
  * Resolve the actual group JID to send a task to.
@@ -93,6 +105,35 @@ function findHomeSiblingGroup(
   return Object.values(groups).find(
     (candidate) => candidate.folder === group.folder && candidate.is_home,
   );
+}
+
+function resolveTaskEffectiveRuntimeIdentity(
+  task: ScheduledTask,
+  deps: SchedulerDependencies,
+): ReturnType<typeof resolveEffectiveRuntimeIdentity> | null {
+  const groups = deps.registeredGroups();
+  const sourceGroup = resolveTaskSourceGroup(task, groups);
+  if (!sourceGroup) return null;
+  const homeSibling = findHomeSiblingGroup(sourceGroup, groups);
+  const effectiveGroup = homeSibling
+    ? buildEffectiveGroupFromHomeSibling(sourceGroup, homeSibling)
+    : sourceGroup;
+  const codexRuntimeFallback = getCodexRuntimeFallback();
+
+  return resolveEffectiveRuntimeIdentity(effectiveGroup, {
+    claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+    codexCliModel: codexRuntimeFallback.model,
+    codexCliReasoningEffort: codexRuntimeFallback.reasoningEffort,
+  });
+}
+
+async function reconcileAutopilotTaskQuotaIfNeeded(
+  task: ScheduledTask,
+  deps: SchedulerDependencies,
+): Promise<'unchanged' | 'paused' | 'resumed'> {
+  if (!isWorkspaceAutopilotTask(task)) return 'unchanged';
+  const runtimeIdentity = resolveTaskEffectiveRuntimeIdentity(task, deps);
+  return reconcileWorkspaceAutopilotQuota(task, runtimeIdentity);
 }
 
 function resolveTaskExecutionMode(
@@ -893,6 +934,22 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         }
       }
 
+      for (const task of getAllTasks()) {
+        if (!isWorkspaceAutopilotTask(task) || task.status !== 'paused') {
+          continue;
+        }
+        const quotaResult = await reconcileAutopilotTaskQuotaIfNeeded(
+          task,
+          deps,
+        );
+        if (quotaResult === 'resumed') {
+          logger.info(
+            { taskId: task.id, groupFolder: task.group_folder },
+            'Workspace autopilot resumed after quota recovery',
+          );
+        }
+      }
+
       const dueTasks = getDueTasks();
       if (dueTasks.length > 0) {
         logger.info({ count: dueTasks.length }, 'Found due tasks');
@@ -906,6 +963,18 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         }
 
         if (runningTaskIds.has(currentTask.id)) {
+          continue;
+        }
+
+        const quotaResult = await reconcileAutopilotTaskQuotaIfNeeded(
+          currentTask,
+          deps,
+        );
+        if (quotaResult === 'paused') {
+          logger.info(
+            { taskId: currentTask.id, groupFolder: currentTask.group_folder },
+            'Workspace autopilot paused because 5h remaining quota dropped below threshold',
+          );
           continue;
         }
 

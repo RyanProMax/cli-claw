@@ -24,9 +24,11 @@
 │   ├── self-restart-watchdog.ts    # 独立 watchdog CLI 入口
 │   ├── runtime-identity.ts         # 实际运行时 agent / model / effort 元数据
 │   ├── file-manager.ts             # 文件读写边界、系统路径保护、路径安全
-│   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区上下文解析
+│   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区上下文解析与 autopilot quota pause/resume
 │   ├── project-memory.ts           # 项目内部记忆文件名与路径 helper
 │   ├── skill-command-dispatch.ts   # skill command 声明发现、冲突检查与 executor 执行
+│   ├── runtime-usage.ts            # 按 runtime 读取当前 usage snapshot，并派生 footer / autopilot quota 规则
+│   ├── workspace-autopilot.ts      # 工作区主动模式任务 ID、状态、prompt 与 quota-aware enable/pause/resume
 │   ├── im-manager.ts               # per-user IM 连接池
 │   ├── feishu.ts                   # 飞书接入与消息适配
 │   ├── telegram.ts                 # Telegram 接入与消息适配
@@ -36,7 +38,7 @@
 │   ├── im-slash-command.ts         # IM slash command 解析；支持直接回复或改写为普通消息
 │   ├── message-attachments.ts      # 图片 / 文件附件规范化
 │   ├── agent-output-parser.ts      # runner 输出解析与结果收尾
-│   ├── assistant-meta-footer.ts    # 响应时长 / 模型 / cost 等 footer 聚合
+│   ├── assistant-meta-footer.ts    # 响应基础 footer 与 remaining usage 条件追加
 │   └── routes/
 │       ├── auth.ts                 # 登录、注册、会话、用户资料
 │       ├── groups.ts               # 工作区 CRUD、消息、运行时设置、共享成员
@@ -102,7 +104,7 @@
 ├── shared/
 │   ├── stream-event.ts             # 前后端与 runner 共用的 StreamEvent 定义
 │   ├── stream-presentation.ts      # 多端共享的流式展示语义；把 answer / commentary 文本槽与 messageUuid 续写规则集中到一处
-│   └── assistant-meta-footer.ts    # 多端共享 footer 格式化
+│   └── assistant-meta-footer.ts    # 多端共享 footer 格式化与 remaining usage 规则
 ├── PLANS/
 │   └── _TEMPLATE.md                # 复杂任务计划模板；本地执行时复制为 ACTIVE.md
 ├── RUNBOOKS/

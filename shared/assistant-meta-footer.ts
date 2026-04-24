@@ -20,6 +20,8 @@ export interface AssistantFooterTokenUsage {
   durationMs?: number | null;
   numTurns?: number | null;
   modelUsage?: Record<string, AssistantFooterModelUsage> | null;
+  primaryRemainingPct?: number | null;
+  secondaryRemainingPct?: number | null;
 }
 
 export interface AssistantMetaFooterInput {
@@ -67,29 +69,28 @@ export function parseAssistantTokenUsage(
   return tokenUsage;
 }
 
-function getTotalTokens(usage: AssistantFooterTokenUsage | null): number | null {
-  if (!usage) return null;
+function shouldShowRemainingUsage(
+  usage: AssistantFooterTokenUsage | null,
+): boolean {
+  const primaryRemainingPct = normalizeNumber(usage?.primaryRemainingPct);
+  return primaryRemainingPct !== null && primaryRemainingPct < 30;
+}
 
-  const rootInput = normalizeNumber(usage.inputTokens);
-  const rootOutput = normalizeNumber(usage.outputTokens);
-  if (rootInput !== null || rootOutput !== null) {
-    return Math.max(0, (rootInput || 0) + (rootOutput || 0));
+function appendRemainingUsageParts(
+  parts: string[],
+  usage: AssistantFooterTokenUsage | null,
+): void {
+  if (!shouldShowRemainingUsage(usage)) return;
+
+  const primaryRemainingPct = normalizeNumber(usage?.primaryRemainingPct);
+  if (primaryRemainingPct !== null) {
+    parts.push(`${Math.round(primaryRemainingPct)}%(5h)`);
   }
 
-  if (!usage.modelUsage || typeof usage.modelUsage !== 'object') return null;
-
-  let total = 0;
-  let sawAny = false;
-  for (const modelUsage of Object.values(usage.modelUsage)) {
-    const input = normalizeNumber(modelUsage?.inputTokens);
-    const output = normalizeNumber(modelUsage?.outputTokens);
-    if (input !== null || output !== null) {
-      total += (input || 0) + (output || 0);
-      sawAny = true;
-    }
+  const secondaryRemainingPct = normalizeNumber(usage?.secondaryRemainingPct);
+  if (secondaryRemainingPct !== null) {
+    parts.push(`${Math.round(secondaryRemainingPct)}%(week)`);
   }
-
-  return sawAny ? total : null;
 }
 
 export function getAssistantMetaFooterParts(
@@ -104,6 +105,11 @@ export function getAssistantMetaFooterParts(
     parts.push(`${(durationMs / 1000).toFixed(1)}s`);
   }
 
+  const agentType = formatAgentTypeLabel(runtimeIdentity?.agentType);
+  if (agentType) {
+    parts.push(agentType);
+  }
+
   const model = normalizeText(runtimeIdentity?.model);
   if (model) {
     parts.push(model);
@@ -114,15 +120,7 @@ export function getAssistantMetaFooterParts(
     parts.push(reasoningEffort);
   }
 
-  const totalTokens = getTotalTokens(tokenUsage);
-  if (totalTokens !== null && totalTokens > 0) {
-    parts.push(`${formatCompactNumber(totalTokens)} tokens`);
-  }
-
-  const costUSD = normalizeNumber(tokenUsage?.costUSD);
-  if (costUSD !== null && costUSD > 0) {
-    parts.push(`$${costUSD.toFixed(4)}`);
-  }
+  appendRemainingUsageParts(parts, tokenUsage);
 
   return parts;
 }
@@ -153,6 +151,8 @@ export function getAssistantCardFooterParts(
   if (reasoningEffort) {
     parts.push(reasoningEffort);
   }
+
+  appendRemainingUsageParts(parts, tokenUsage);
 
   return parts;
 }

@@ -114,6 +114,7 @@ import {
   StreamingCardController,
 } from './feishu-streaming-card.js';
 import { resolveVisibleReplyText } from './reply-visibility.js';
+import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
 import {
   buildProvisionalTokenUsage,
   normalizeStreamingStatusText,
@@ -137,6 +138,12 @@ import {
   resolveRuntimeWorkspaceTarget,
   type ResolvedRuntimeWorkspaceTarget,
 } from './runtime-command-handler.js';
+import { attachRuntimeUsageFooterMeta } from './runtime-usage.js';
+import {
+  disableWorkspaceAutopilot,
+  ensureWorkspaceAutopilotEnabled,
+  getWorkspaceAutopilotState,
+} from './workspace-autopilot.js';
 import {
   discoverSkillCommands,
   executeDiscoveredSkillCommandResult,
@@ -1448,6 +1455,8 @@ async function handleCommand(
       return handleNewCommand(chatJid, rawArgs);
     case 'require_mention':
       return handleRequireMentionCommand(chatJid, rawArgs);
+    case 'autopilot':
+      return handleAutopilotCommand(chatJid, rawArgs);
     case 'sw':
     case 'spawn':
       return handleSpawnCommand(chatJid, rawArgs, chatJid);
@@ -1827,6 +1836,7 @@ function handleStatusCommand(chatJid: string): string {
       ? getCodexUsageSnapshot()
       : null;
   const runtimeIdentity = runtimeTarget?.effectiveRuntimeIdentity ?? null;
+  const autopilotState = getWorkspaceAutopilotState(location.folder);
   logger.info(
     {
       chatJid,
@@ -1866,7 +1876,65 @@ function handleStatusCommand(chatJid: string): string {
     },
   );
 
-  return systemStatus;
+  const autopilotText =
+    autopilotState.state === 'active'
+      ? '已开启'
+      : autopilotState.state === 'paused_quota'
+        ? '已因额度不足暂停'
+        : '未开启';
+
+  return `${systemStatus}\n🤖 主动模式: ${autopilotText}`;
+}
+
+async function handleAutopilotCommand(
+  chatJid: string,
+  rawArgs: string,
+): Promise<string> {
+  const target = resolveRuntimeWorkspaceTarget(chatJid, {
+    getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
+    getSiblingJids: getJidsByFolder,
+    getAgent,
+  });
+  if (!target) return '未找到当前工作区';
+
+  const action = rawArgs.trim().toLowerCase() || 'status';
+  if (!['on', 'off', 'status'].includes(action)) {
+    return '用法：/autopilot on|off|status';
+  }
+
+  if (action === 'off') {
+    disableWorkspaceAutopilot(target.workspaceGroup.folder);
+    return '已关闭当前工作区主动模式';
+  }
+
+  if (action === 'on') {
+    const status = await ensureWorkspaceAutopilotEnabled({
+      workspaceJid: target.workspaceJid,
+      workspaceName: target.workspaceGroup.name,
+      groupFolder: target.workspaceGroup.folder,
+      createdBy:
+        target.workspaceGroup.created_by ??
+        target.runtimeOwnerGroup.created_by ??
+        target.sourceGroup.created_by ??
+        null,
+      executionMode: target.workspaceGroup.executionMode ?? null,
+      runtimeIdentity: target.effectiveRuntimeIdentity,
+    });
+
+    if (status.state === 'paused_quota') {
+      return '已开启当前工作区主动模式，但当前 5h 剩余低于 20%，已自动暂停';
+    }
+    return '已开启当前工作区主动模式';
+  }
+
+  const status = getWorkspaceAutopilotState(target.workspaceGroup.folder);
+  if (status.state === 'active') {
+    return '当前工作区主动模式：已开启';
+  }
+  if (status.state === 'paused_quota') {
+    return '当前工作区主动模式：已因额度不足暂停';
+  }
+  return '当前工作区主动模式：未开启';
 }
 
 function isSelfIterationAdmin(chatJid: string): boolean {
@@ -3311,15 +3379,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 );
                 try {
                   if (streamingSession?.isActive()) {
-                    await streamingSession
-                      .patchUsageNote({
-                        inputTokens: 0,
-                        outputTokens: 0,
-                        costUSD: 0,
-                        durationMs: provisionalUsage.durationMs ?? 0,
-                        numTurns: 1,
-                      })
-                      .catch(() => {});
+                    await patchStreamingSessionFooterUsage(
+                      streamingSession,
+                      activeRuntimeIdentity,
+                      provisionalUsage,
+                    ).catch(() => {});
                     await streamingSession.abort('已中断').catch(() => {});
                   }
                   lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
@@ -3631,6 +3695,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               if (streamingSession?.isActive()) {
                 try {
                   streamingSession.setRuntimeIdentity(activeRuntimeIdentity);
+                  await patchStreamingSessionFooterUsage(
+                    streamingSession,
+                    activeRuntimeIdentity,
+                    buildProvisionalTokenUsage(agentRunStartedAt),
+                  ).catch(() => {});
                   if (result.finalizationReason === 'error') {
                     await streamingSession.fail(visibleText);
                   } else {
@@ -3804,15 +3873,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         } else if (wasInterrupted) {
           const provisionalUsage =
             buildProvisionalTokenUsage(agentRunStartedAt);
-          await streamingSession
-            .patchUsageNote({
-              inputTokens: 0,
-              outputTokens: 0,
-              costUSD: 0,
-              durationMs: provisionalUsage.durationMs ?? 0,
-              numTurns: 1,
-            })
-            .catch(() => {});
+          await patchStreamingSessionFooterUsage(
+            streamingSession,
+            activeRuntimeIdentity,
+            provisionalUsage,
+          ).catch(() => {});
           await streamingSession.abort('已中断').catch(() => {});
         } else {
           streamingSession.dispose();
@@ -4422,18 +4487,14 @@ async function sendMessage(
 ): Promise<string | undefined> {
   const isIMChannel = getChannelType(jid) !== null;
   const sendToIM = options.sendToIM ?? isIMChannel;
+  const messageMeta = await enrichOutboundMessageMeta(options.messageMeta);
   try {
     if (sendToIM && isIMChannel) {
       try {
         const localImagePaths =
           options.localImagePaths ??
           extractLocalImImagePaths(text, resolveEffectiveFolder(jid));
-        await imManager.sendMessage(
-          jid,
-          text,
-          localImagePaths,
-          options.messageMeta,
-        );
+        await imManager.sendMessage(jid, text, localImagePaths, messageMeta);
       } catch (err) {
         logger.error({ jid, err }, 'Failed to send message to IM channel');
       }
@@ -4443,7 +4504,7 @@ async function sendMessage(
     const msgId = crypto.randomUUID();
     const timestamp = new Date().toISOString();
     const serializedTokenUsage = serializeAssistantTokenUsage(
-      options.messageMeta?.tokenUsage,
+      messageMeta?.tokenUsage,
     );
     ensureChatExists(jid);
     const persistedMsgId = storeMessageDirect(
@@ -4456,7 +4517,7 @@ async function sendMessage(
       true,
       {
         tokenUsage: serializedTokenUsage,
-        meta: options.messageMeta,
+        meta: messageMeta,
       },
     );
 
@@ -4470,12 +4531,12 @@ async function sendMessage(
         content: text,
         timestamp,
         is_from_me: true,
-        turn_id: options.messageMeta?.turnId ?? null,
-        session_id: options.messageMeta?.sessionId ?? null,
-        sdk_message_uuid: options.messageMeta?.sdkMessageUuid ?? null,
-        source_kind: options.messageMeta?.sourceKind ?? null,
-        finalization_reason: options.messageMeta?.finalizationReason ?? null,
-        runtime_identity: options.messageMeta?.runtimeIdentity ?? null,
+        turn_id: messageMeta?.turnId ?? null,
+        session_id: messageMeta?.sessionId ?? null,
+        sdk_message_uuid: messageMeta?.sdkMessageUuid ?? null,
+        source_kind: messageMeta?.sourceKind ?? null,
+        finalization_reason: messageMeta?.finalizationReason ?? null,
+        runtime_identity: messageMeta?.runtimeIdentity ?? null,
         token_usage: serializedTokenUsage,
       },
       undefined,
@@ -4494,6 +4555,52 @@ async function sendMessage(
     logger.error({ jid, err }, 'Failed to send message');
     return undefined;
   }
+}
+
+async function enrichOutboundMessageMeta(
+  messageMeta?: OutboundMessageMeta,
+): Promise<OutboundMessageMeta | undefined> {
+  if (!messageMeta) return messageMeta;
+  const tokenUsage = await attachRuntimeUsageFooterMeta(
+    messageMeta.runtimeIdentity ?? null,
+    messageMeta.tokenUsage,
+  );
+  if (tokenUsage === null && messageMeta.tokenUsage == null) {
+    return messageMeta;
+  }
+  return {
+    ...messageMeta,
+    tokenUsage,
+  };
+}
+
+async function enrichTokenUsageWithCurrentRuntimeRemaining(
+  runtimeIdentity: OutboundMessageMeta['runtimeIdentity'],
+  tokenUsage?: AssistantFooterTokenUsage | string | null,
+): Promise<AssistantFooterTokenUsage | null> {
+  return attachRuntimeUsageFooterMeta(runtimeIdentity ?? null, tokenUsage);
+}
+
+async function patchStreamingSessionFooterUsage(
+  session: StreamingCardController | undefined,
+  runtimeIdentity: OutboundMessageMeta['runtimeIdentity'],
+  tokenUsage?: AssistantFooterTokenUsage | string | null,
+): Promise<void> {
+  if (!session) return;
+  const enrichedUsage = await enrichTokenUsageWithCurrentRuntimeRemaining(
+    runtimeIdentity,
+    tokenUsage,
+  );
+  if (!enrichedUsage) return;
+  await session.patchUsageNote({
+    inputTokens: enrichedUsage.inputTokens ?? 0,
+    outputTokens: enrichedUsage.outputTokens ?? 0,
+    costUSD: enrichedUsage.costUSD ?? 0,
+    durationMs: enrichedUsage.durationMs ?? 0,
+    numTurns: enrichedUsage.numTurns ?? 1,
+    primaryRemainingPct: enrichedUsage.primaryRemainingPct ?? undefined,
+    secondaryRemainingPct: enrichedUsage.secondaryRemainingPct ?? undefined,
+  });
 }
 
 export function buildInterruptedReply(
@@ -6343,21 +6450,21 @@ async function processAgentConversation(
           );
           try {
             if (agentStreamingSession?.isActive()) {
-              await agentStreamingSession
-                .patchUsageNote({
-                  inputTokens: 0,
-                  outputTokens: 0,
-                  costUSD: 0,
-                  durationMs: provisionalUsage.durationMs ?? 0,
-                  numTurns: 1,
-                })
-                .catch(() => {});
+              await patchStreamingSessionFooterUsage(
+                agentStreamingSession,
+                currentAgentRuntimeIdentity,
+                provisionalUsage,
+              ).catch(() => {});
               await agentStreamingSession.abort('已中断').catch(() => {});
             }
             const msgId = crypto.randomUUID();
             const timestamp = new Date().toISOString();
-            const serializedTokenUsage =
-              serializeAssistantTokenUsage(provisionalUsage);
+            const serializedTokenUsage = serializeAssistantTokenUsage(
+              await enrichTokenUsageWithCurrentRuntimeRemaining(
+                currentAgentRuntimeIdentity,
+                provisionalUsage,
+              ),
+            );
             ensureChatExists(virtualChatJid);
             const persistedMsgId = storeMessageDirect(
               msgId,
@@ -6543,6 +6650,11 @@ async function processAgentConversation(
             agentStreamingSession.setRuntimeIdentity(
               currentAgentRuntimeIdentity,
             );
+            await patchStreamingSessionFooterUsage(
+              agentStreamingSession,
+              currentAgentRuntimeIdentity,
+              buildProvisionalTokenUsage(agentConversationStartedAt),
+            ).catch(() => {});
             if (output.finalizationReason === 'error') {
               await agentStreamingSession.fail(visibleText);
             } else {
@@ -6833,15 +6945,11 @@ async function processAgentConversation(
           const provisionalUsage = buildProvisionalTokenUsage(
             agentConversationStartedAt,
           );
-          await agentStreamingSession
-            .patchUsageNote({
-              inputTokens: 0,
-              outputTokens: 0,
-              costUSD: 0,
-              durationMs: provisionalUsage.durationMs ?? 0,
-              numTurns: 1,
-            })
-            .catch(() => {});
+          await patchStreamingSessionFooterUsage(
+            agentStreamingSession,
+            currentAgentRuntimeIdentity,
+            provisionalUsage,
+          ).catch(() => {});
           await agentStreamingSession.abort('已中断').catch(() => {});
         } else {
           agentStreamingSession.dispose();
@@ -6865,8 +6973,12 @@ async function processAgentConversation(
       try {
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
-        const serializedTokenUsage =
-          serializeAssistantTokenUsage(provisionalUsage);
+        const serializedTokenUsage = serializeAssistantTokenUsage(
+          await enrichTokenUsageWithCurrentRuntimeRemaining(
+            currentAgentRuntimeIdentity,
+            provisionalUsage,
+          ),
+        );
         ensureChatExists(virtualChatJid);
         const persistedMsgId = storeMessageDirect(
           msgId,
@@ -6934,8 +7046,12 @@ async function processAgentConversation(
         );
         const msgId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
-        const serializedTokenUsage =
-          serializeAssistantTokenUsage(provisionalUsage);
+        const serializedTokenUsage = serializeAssistantTokenUsage(
+          await enrichTokenUsageWithCurrentRuntimeRemaining(
+            currentAgentRuntimeIdentity,
+            provisionalUsage,
+          ),
+        );
         ensureChatExists(virtualChatJid);
         const persistedMsgId = storeMessageDirect(
           msgId,

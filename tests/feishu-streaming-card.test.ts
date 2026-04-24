@@ -94,6 +94,38 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('shows remaining quota in card footer only when current remaining is below 30%', async () => {
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+    });
+
+    controller.setRuntimeIdentity({
+      agentType: 'codex',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    });
+
+    (controller as any).state = 'completed';
+
+    await controller.patchUsageNote({
+      inputTokens: 0,
+      outputTokens: 0,
+      costUSD: 0,
+      durationMs: 5_200,
+      numTurns: 1,
+      primaryRemainingPct: 28,
+      secondaryRemainingPct: 72,
+    } as any);
+
+    expect((controller as any).getFooterNote()).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh | 28%(5h) | 72%(week)',
+    );
+
+    controller.dispose();
+  });
+
   test('finalizes visible runtime errors in aborted state with the final text', async () => {
     const controller = new StreamingCardController({
       client: {} as any,

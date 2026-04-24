@@ -44,6 +44,7 @@ describe('runtime command registry', () => {
     expect(help).toContain('/bind <workspace>');
     expect(help).toContain('/where');
     expect(help).toContain('/model');
+    expect(help).toContain('/autopilot on|off|status');
     expect(help).not.toContain('/effort <low|medium|high|xhigh>');
   });
 
@@ -92,6 +93,11 @@ describe('runtime command registry', () => {
       name: 'self-restart',
       argsText: '',
       args: [],
+    });
+    expect(parseRuntimeCommand('/autopilot on')).toMatchObject({
+      name: 'autopilot',
+      argsText: 'on',
+      args: ['on'],
     });
   });
 

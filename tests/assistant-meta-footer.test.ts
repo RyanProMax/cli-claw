@@ -7,7 +7,7 @@ import { formatAssistantCardFooter as formatWebAssistantCardFooter } from '../we
 import { formatAssistantMetaFooter as formatWebAssistantMetaFooter } from '../web/src/lib/assistantMetaFooter.ts';
 
 describe('assistant meta footer', () => {
-  test('formats duration, model, reasoning effort, tokens, and cost in fixed order', () => {
+  test('formats base footer with duration, agent type, model, and reasoning effort', () => {
     const runtimeIdentity = {
       agentType: 'codex' as const,
       model: 'GPT-5.4',
@@ -23,10 +23,10 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | GPT-5.4 | xhigh | 12.3K tokens | $0.0421');
+    ).toBe('5.2s | Codex | GPT-5.4 | xhigh');
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | GPT-5.4 | xhigh | 12.3K tokens | $0.0421');
+    ).toBe('5.2s | Codex | GPT-5.4 | xhigh');
   });
 
   test('skips reasoning effort when it is not applicable for the runtime', () => {
@@ -44,10 +44,10 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('2.0s | claude-opus-4.1 | 2.5K tokens | $0.0100');
+    ).toBe('2.0s | Claude | claude-opus-4.1');
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('2.0s | claude-opus-4.1 | 2.5K tokens | $0.0100');
+    ).toBe('2.0s | Claude | claude-opus-4.1');
   });
 
   test('hides reasoning effort when support is unknown and effort is missing', () => {
@@ -64,10 +64,31 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('4.5s | GPT-5.4 | 1.2K tokens');
+    ).toBe('4.5s | Codex | GPT-5.4');
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('4.5s | GPT-5.4 | 1.2K tokens');
+    ).toBe('4.5s | Codex | GPT-5.4');
+  });
+
+  test('appends remaining usage only when the current primary window is below 30%', () => {
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    };
+    const tokenUsage = {
+      durationMs: 5_200,
+      primaryRemainingPct: 28,
+      secondaryRemainingPct: 72,
+    };
+
+    expect(
+      formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 28%(5h) | 72%(week)');
+    expect(
+      formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 28%(5h) | 72%(week)');
   });
 
   test('formats compact card footer with duration, agent type, model, and effort only', () => {
@@ -110,7 +131,7 @@ describe('assistant meta footer', () => {
         runtimeIdentity,
         tokenUsage,
       }),
-    ).toBe('Hello from assistant\n\n4.5s | GPT-5.4 | xhigh | 1.2K tokens');
+    ).toBe('Hello from assistant\n\n4.5s | Codex | GPT-5.4 | xhigh');
   });
 
   test('keeps original text when no footer parts are available', () => {
