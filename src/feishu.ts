@@ -943,7 +943,6 @@ export function createFeishuConnection(
       logger.debug({ messageId }, 'Duplicate message, skipping');
       return;
     }
-    markSeen(messageId);
     logger.info(
       { messageId, messageType, chatId, source },
       'Feishu message received',
@@ -969,6 +968,8 @@ export function createFeishuConnection(
       );
       return;
     }
+
+    markSeen(messageId);
 
     const extracted = extractMessageContent(messageType, rawContent);
     let text = extracted.text;

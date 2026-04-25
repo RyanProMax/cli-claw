@@ -489,6 +489,75 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(notifyNewImMessage).toHaveBeenCalled();
   });
 
+  test('does not let a stale live ws message suppress startup backfill', async () => {
+    const startupThreshold = Date.now() - 5_000;
+    const liveIgnoreThreshold = startupThreshold + 2_000;
+    const sharedMessage = {
+      chat_id: 'startup-chat',
+      message_id: 'msg-stale-overlap',
+      create_time: String(startupThreshold + 1_000),
+      message_type: 'text',
+      content: JSON.stringify({ text: 'restart window message' }),
+      chat_type: 'p2p',
+    };
+    hoisted.wsStartSpy.mockImplementationOnce(async () => {
+      await hoisted.handlers['im.message.receive_v1']?.({
+        message: sharedMessage,
+        sender: {
+          sender_id: {
+            open_id: 'user-open-id',
+          },
+        },
+      });
+    });
+    hoisted.messageListSpy.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            message_id: 'msg-stale-overlap',
+            create_time: sharedMessage.create_time,
+            msg_type: 'text',
+            body: {
+              content: sharedMessage.content,
+            },
+            chat_type: 'p2p',
+            sender: {
+              sender_id: {
+                open_id: 'user-open-id',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      ignoreMessagesBefore: liveIgnoreThreshold,
+      startupBackfillIgnoreMessagesBefore: startupThreshold,
+      startupBackfillChatIds: ['startup-chat'] as any,
+    } as any);
+
+    expect(hoisted.messageListSpy).toHaveBeenCalledTimes(1);
+    expect(storeMessageDirect).toHaveBeenCalledTimes(1);
+    expect(storeMessageDirect).toHaveBeenCalledWith(
+      'msg-stale-overlap',
+      'feishu:startup-chat',
+      'user-open-id',
+      'user-open-id',
+      'restart window message',
+      expect.any(String),
+      false,
+      { attachments: undefined, sourceJid: 'feishu:startup-chat' },
+    );
+    expect(notifyNewImMessage).toHaveBeenCalledTimes(1);
+  });
+
   test('retires unavailable startup backfill chats and continues with other chats', async () => {
     const startupThreshold = Date.now() - 5_000;
     const onBotRemovedFromGroup = vi.fn();

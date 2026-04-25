@@ -19,25 +19,27 @@
 
 ### P0 RM-2026-04-25-01 Feishu Message Reliability Control Plane
 
-- Status: `proposed`
+- Status: `in_progress`
 - Source: 2026-04-25 user request item `1`; subagent Feishu reliability analysis; local launchd/backend logs
 - Summary: 飞书消息必须有一条可观测、可重试、可恢复的端到端生命周期，覆盖 receive/backfill/slash/queue/runner/streaming card/static send/delivery/cursor commit，解决“自启动后经常不回消息”。
 - Evidence:
   - User-reported recurring symptom: autostart/restart 后飞书消息不回。
-  - `src/feishu.ts` currently calls `markSeen(messageId)` before stale `ignoreMessagesBefore` filtering; stale WS delivery can poison startup backfill dedupe.
+  - Before 2026-04-25 milestone 1, `src/feishu.ts` called `markSeen(messageId)` before stale `ignoreMessagesBefore` filtering; stale WS delivery could poison startup backfill dedupe.
   - `src/index.ts` routed IM fallback path still uses fire-and-forget `sendImWithFailTracking()` for some web-routed Feishu replies; outbound failure can happen after DB/web already treat the turn as processed.
   - `src/group-queue.ts` retry exhaustion currently logs “Max retries exceeded” and waits for a later trigger; pending work has no durable dead-letter/visible operator state.
   - `src/index.ts` calls startup recovery before all IM channels finish connecting; early direct Feishu delivery depends on incidental queue retry timing.
   - `connectUserChannels()` builds Feishu startup backfill from `getGroupsByOwner(userId)`, so ownerless/stale-owner/transferred Feishu rows may be omitted until a live event arrives.
   - Local DB/log evidence on 2026-04-24/25 shows Feishu user messages followed by `interrupt_partial`, context-window errors, host timeouts, or no immediately visible Feishu answer.
+- Progress:
+  - 2026-04-25 milestone 1: added a regression test for stale live WS delivery overlapping startup backfill, and moved Feishu inbound dedupe marking until after stale-window filtering. Validation passed with `npm test -- --run tests/feishu-connection.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Iteration plan:
   - Add message lifecycle instrumentation keyed by inbound message id and chat jid: `received`, `stored`, `queued`, `runner_started`, `stream_started`, `finalized`, `im_delivered`, `cursor_committed`, `dead_lettered`.
-  - Add failing tests for stale WS dedupe vs startup backfill, routed IM send failure preventing cursor commit, max retry dead-letter persistence, startup recovery waiting for IM readiness, and backfill ownership coverage.
+  - Add failing tests for routed IM send failure preventing cursor commit, max retry dead-letter persistence, startup recovery waiting for IM readiness, and backfill ownership coverage.
   - Make cursor commit depend on durable user-visible delivery for direct/routed IM replies; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
   - Gate startup recovery/backfill drain on channel readiness, or queue pending outbound until Feishu is connected.
   - Add a compact `/status` or `/self-status` section for recent Feishu lifecycle failures.
 - Next action:
-  - Start with tests in `tests/feishu-connection.test.ts`, `tests/group-queue.test.ts`, `tests/restart-recovery.test.ts`, and `tests/im-channel.test.ts`, then implement the smallest reliability fixes behind the lifecycle contract.
+  - Continue with tests in `tests/group-queue.test.ts`, `tests/restart-recovery.test.ts`, and `tests/im-channel.test.ts`, then implement the smallest reliability fixes behind the lifecycle contract.
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 

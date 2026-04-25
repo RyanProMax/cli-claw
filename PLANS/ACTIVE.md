@@ -1,29 +1,33 @@
-# Cli Claw UX And Architecture Roadmap Review
+# Feishu Message Reliability Control Plane
 
 ## Goal
 
-- Use read-only subagents and local code inspection to identify high-priority Cli Claw usage pain points, especially Feishu-first interaction problems, startup ambiguity, stream presentation, verbosity, and context leakage.
-- Update `PLANS/ROADMAP.md` with a prioritized iteration plan while preserving existing unfinished roadmap items.
+- Start implementing P0 `RM-2026-04-25-01` one small reliability fix at a time.
+- Prevent stale live Feishu WS messages from poisoning startup backfill dedupe, so restart-window messages can still be recovered and queued.
 
 ## Done when
 
-- Relevant architecture, runtime, memory, command, and IM/message flow code paths have been inspected.
-- Subagent findings have been synthesized into concrete roadmap items with priorities, status, evidence, and next actions.
-- Existing unfinished roadmap items remain represented in `PLANS/ROADMAP.md`.
-- Documentation-only validation and review gate have passed.
+- A regression test proves a stale live WS delivery before `ignoreMessagesBefore` does not suppress the same message when it is later recovered by startup backfill.
+- `src/feishu.ts` only records inbound Feishu messages in the dedupe cache after the message passes the stale-window filter.
+- `PLANS/ROADMAP.md` records the milestone progress.
+- Validation and review gate pass.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Analyze current Cli Claw pain points and update the roadmap with a prioritized refactor/iteration plan.
+- Fix stale WS dedupe poisoning startup backfill.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `src/feishu.ts`
+- `tests/feishu-connection.test.ts`
 
 Validation:
+- `npm test -- --run tests/feishu-connection.test.ts`
+- `npm run typecheck`
 - `git diff --check`
 - `./scripts/review.sh`
 - Manual review against `RUNBOOKS/Review.md`
@@ -38,21 +42,19 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- User explicitly requested subagents for broad analysis.
-- This milestone is planning/documentation only; do not implement runtime fixes here.
-- Preserve current unfinished roadmap items, especially monitoring/proposed entries, and reorder by priority.
-- Read-only subagents completed startup/launch, presentation/reply-policy, and Feishu reliability reports; context/session subagent was stopped after timeout and local inspection filled that gap.
-- Local evidence checked: current backend launch state, LaunchAgent plist, recent Feishu messages, recent autopilot task run logs, restart recovery/session code, Feishu slash/mention handling, stream presentation, Codex ACP loop.
-- `PLANS/ROADMAP.md` now contains P0/P1/P2 roadmap items and preserves existing monitoring/unfinished items under `Existing Follow-Ups Preserved`.
+- This milestone intentionally handles only the first RM-2026-04-25-01 reliability defect; queue dead-letter, delivery/cursor commit, readiness gating, and observability stay in the roadmap.
+- TDD red observed before the fix: `npm test -- --run tests/feishu-connection.test.ts` failed because `storeMessageDirect` was called 0 times for the stale-WS/backfill overlap case.
+- Fix applied: `markSeen(messageId)` now runs only after the stale-window filter passes.
 - Validation passed:
+  - `npm test -- --run tests/feishu-connection.test.ts`
+  - `npm run typecheck`
   - `git diff --check`
   - `./scripts/review.sh`
-  - Incomplete-marker scan returned no matches before this validation note was written.
 - Review gate passed against `RUNBOOKS/Review.md`:
-  - Scope limited to `PLANS/ACTIVE.md` and `PLANS/ROADMAP.md`.
-  - Objective satisfied: roadmap now prioritizes the Feishu reliability, launch contract, presentation, context, autopilot, slash/binding, runtime, and observability work.
-  - Existing unfinished monitoring/follow-up items are preserved and linked to the new prioritized items.
-  - No runtime code changed, so no service restart is needed.
+  - Scope stayed within the allowed files.
+  - Existing live-WS/backfill dedupe behavior remains covered by the adjacent overlap test.
+  - No unrelated refactor or launch contract change was included.
+- Runtime code changes affect the running Cli Claw service; after commit, use the documented safe restart path.
 
 ## Working Rules
 
@@ -73,12 +75,14 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `src/feishu.ts`
+- `tests/feishu-connection.test.ts`
 
 Last failure summary:
-- none
+- Expected TDD red: stale live WS delivery marked the message id as seen before stale filtering, so startup backfill skipped the recoverable message.
 
 Suspected cause:
-- none
+- `src/feishu.ts` recorded message ids in the dedupe cache before applying `ignoreMessagesBefore`.
 
 Next step:
-- Begin the next implementation round from P0 RM-2026-04-25-01 or P0 RM-2026-04-25-02.
+- Continue RM-2026-04-25-01 with the next reliability slice: delivery/cursor commit coupling, queue dead-letter visibility, readiness gating, or backfill ownership coverage.
