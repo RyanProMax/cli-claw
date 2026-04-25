@@ -106,6 +106,7 @@
   - startup connect now backfills known Feishu chats once after WS readiness
   - 2026-04-24 afternoon RCA: `web:main` autopilot relaunched before a Feishu source whose `last_agent_timestamp` had advanced but `last_committed_cursor` had not; added DB-pending IM sibling priority before web/autopilot work
   - 2026-04-25 monitoring follow-up: startup backfill now treats Feishu `230002 Bot/User can NOT be out of the chat` as a stale chat signal, removes it from the active backfill set, and retires the registered IM source row while preserving message history
+  - commit `ff4b073 Clean up stale Feishu backfill chats`; safe restart `restart-2026-04-25T05-46-40-632Z-f0516103`
 - Next action:
   - 继续观察真实 IM 流量；若仍有“飞书消息不回”，下一步优先区分 queue/cursor starvation 与 Feishu outbound delivery failure
 

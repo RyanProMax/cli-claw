@@ -54,6 +54,8 @@ Risks / Notes / Handoff:
   - `git diff --check`
   - `./scripts/review.sh`
 - Review gate passed against `RUNBOOKS/Review.md`; no docs update required because no public command/runtime contract changed.
+- Commit shipped as `ff4b073 Clean up stale Feishu backfill chats`.
+- Safe restart applied through `restart-2026-04-25T05-46-40-632Z-f0516103` with status `passed`; `http://127.0.0.1:3000/api/health` returned healthy.
 
 ## Working Rules
 
@@ -73,9 +75,10 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
 - `src/feishu.ts`
 - `src/index.ts`
 - `tests/feishu-connection.test.ts`
 
 Next step:
-- Commit the fix, then apply it through the safe restart path and confirm health.
+- None for implementation; continue monitoring real IM traffic under `RM-2026-04-24-07`.
