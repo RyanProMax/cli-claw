@@ -29,6 +29,7 @@ vi.mock('../src/db.js', () => ({
   ensureChatExists: vi.fn(),
   getAllTasks: vi.fn(() => []),
   getDueTasks: vi.fn(() => []),
+  getTaskRunLogs: vi.fn(() => []),
   getTaskById: vi.fn(),
   getUserById: vi.fn(),
   getUserHomeGroup: vi.fn(),
@@ -255,5 +256,132 @@ describe('task scheduler host cwd forwarding', () => {
       '已完成主动检查：发现并修复了一个验证脚本入口问题。',
       { source: 'scheduled_task' },
     );
+  });
+
+  test('backs off workspace autopilot after consecutive failed runs', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-05T10:30:00.000Z'));
+
+    const task = buildTask({
+      id: 'autopilot:workspace:main',
+      context_mode: 'group',
+      schedule_type: 'interval',
+      schedule_value: '300000',
+      next_run: '2026-04-05T10:00:00.000Z',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+      },
+      onProcess: vi.fn(),
+      sendMessage: vi.fn(),
+      storePromptMessage: vi.fn(),
+      assistantName: 'cli-claw',
+    };
+
+    const db = await import('../src/db.js');
+    vi.mocked(db.getTaskById).mockReturnValue(task);
+    vi.mocked(db.getTaskRunLogs).mockReturnValue([
+      {
+        task_id: task.id,
+        run_at: '2026-04-05T10:00:00.000Z',
+        duration_ms: 1800000,
+        status: 'error',
+        result: null,
+        error: 'Host Agent timed out after 1800000ms',
+      },
+      {
+        task_id: task.id,
+        run_at: '2026-04-05T09:30:00.000Z',
+        duration_ms: 0,
+        status: 'error',
+        result: null,
+        error: 'Process crashed before completion',
+      },
+    ]);
+    runHostAgentMock.mockResolvedValue({
+      status: 'error',
+      result: null,
+      error: 'Host Agent timed out after 1800000ms',
+    });
+
+    try {
+      await runWorkspaceAutopilotTask(task, deps as never, 'web:source');
+
+      expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
+        task.id,
+        '2026-04-05T10:50:00.000Z',
+        'Error: Host Agent timed out after 1800000ms',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('uses the normal interval after a successful workspace autopilot run', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-05T10:30:00.000Z'));
+
+    const task = buildTask({
+      id: 'autopilot:workspace:main',
+      context_mode: 'group',
+      schedule_type: 'interval',
+      schedule_value: '300000',
+      next_run: '2026-04-05T10:00:00.000Z',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+      },
+      onProcess: vi.fn(),
+      sendMessage: vi.fn(),
+      storePromptMessage: vi.fn(),
+      assistantName: 'cli-claw',
+    };
+
+    const db = await import('../src/db.js');
+    vi.mocked(db.getTaskById).mockReturnValue(task);
+    vi.mocked(db.getTaskRunLogs).mockReturnValue([
+      {
+        task_id: task.id,
+        run_at: '2026-04-05T10:00:00.000Z',
+        duration_ms: 1800000,
+        status: 'error',
+        result: null,
+        error: 'Host Agent timed out after 1800000ms',
+      },
+    ]);
+    runHostAgentMock.mockResolvedValue({
+      status: 'success',
+      result: '当前没有值得执行的下一步，等待用户输入。',
+    });
+
+    try {
+      await runWorkspaceAutopilotTask(task, deps as never, 'web:source');
+
+      expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
+        task.id,
+        '2026-04-05T10:30:00.000Z',
+        '当前没有值得执行的下一步，等待用户输入。',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -138,8 +138,9 @@
   - validation: `npm test -- --run tests/workspace-autopilot.test.ts tests/group-queue.test.ts tests/task-scheduler-host-cwd.test.ts`, `npm run typecheck`, `git diff --check`, `./scripts/review.sh`
   - safe restart `restart-2026-04-24T14-41-19-260Z-c027f9a3`
   - post-restart monitoring: task run log `143` started at `2026-04-24T14:45:21.375Z`; `messages` had no rows after backend restart `2026-04-24T14:41:20.738Z`, and all persisted `[WORKSPACE_AUTOPILOT]` prompt rows predated the restart
+  - 2026-04-25 follow-up evidence: recent task runs repeatedly ended with `Host Agent timed out after 1800000ms` / `Process crashed before completion`; added consecutive-error exponential backoff capped at 6h while successful runs keep the normal interval
 - Next action:
-  - 无；若后续真实使用仍出现 no-op 高频消耗 Codex，再加连续 no-op 指数退避
+  - 继续观察真实 autopilot task run logs；若成功 no-op 仍长时间占用 Codex，再收窄提示词或 session 隔离策略
 
 ### RM-2026-04-24-10 Restart First-Turn Context Leakage
 

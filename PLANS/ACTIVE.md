@@ -1,16 +1,15 @@
-# Feishu Stale Chat Backfill Cleanup
+# Workspace Autopilot Backoff
 
 ## Goal
 
-- Stop startup/reconnect Feishu backfill from repeatedly retrying chats where the bot/user is no longer in the chat.
-- Treat Feishu `230002 Bot/User can NOT be out of the chat` as a stale chat signal, not a generic delivery/backfill failure.
-- Keep the change narrowly scoped to stale Feishu chat cleanup, concise logging, and regression coverage.
+- Stop workspace autopilot from repeatedly consuming long Codex runs when recent autopilot turns are timing out or crashing.
+- Keep normal autopilot behavior unchanged after successful/no-op runs.
+- Add focused regression coverage for timeout/error backoff scheduling.
 
 ## Done when
 
-- Feishu backfill classifies chat-unavailable errors and removes that chat from the active backfill set.
-- The IM registered group for a removed/disbanded/unavailable chat is retired so future startups do not keep backfilling it.
-- Backfill still continues for other known chats.
+- Consecutive failed autopilot runs schedule the next run with an exponential backoff instead of the fixed 5-minute interval.
+- A successful autopilot run resets the failure streak back to the normal interval.
 - Related tests, typecheck, diff hygiene, and review pass.
 
 ## Milestones
@@ -18,17 +17,16 @@
 ### Milestone 1
 
 Objective:
-- Add targeted Feishu stale-chat handling for backfill and persistently retire unreachable IM chat source rows.
+- Add failure-aware workspace autopilot backoff and regression tests.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/feishu.ts`
-- `src/index.ts`
-- `tests/feishu-connection.test.ts`
-- `PLANS/ROADMAP.md` only if a cross-round monitoring note changes
+- `PLANS/ROADMAP.md`
+- `src/task-scheduler.ts`
+- `tests/workspace-autopilot.test.ts` or adjacent scheduler tests
 
 Validation:
-- `npm test -- --run tests/feishu-connection.test.ts`
+- `npm test -- --run tests/workspace-autopilot.test.ts tests/group-queue.test.ts tests/task-scheduler-host-cwd.test.ts`
 - `npm run typecheck`
 - `git diff --check`
 - `./scripts/review.sh`
@@ -43,19 +41,18 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Trigger observed in live launchd log after safe restart: Feishu message list returns `code: 230002`, `msg: "Bot/User can NOT be out of the chat."` for stale chat `oc_d80e19baf0a9be91ef37a5c3cbe5101a`.
-- The stale chat is currently retried on every startup backfill because startup candidates come from owned registered Feishu groups.
-- The fix should preserve message/chat history; retiring the source should remove only the registered IM source row and routing/failure counters.
-- Implemented targeted Feishu stale-chat classification for backfill errors and active backfill-set cleanup.
-- Bot-removed/disbanded/unavailable IM source rows are now deleted from `registered_groups` while preserving message/chat history.
+- Live evidence from `~/.cli-claw/db/messages.db`: recent `autopilot:workspace:main` runs repeatedly ended with `Host Agent timed out after 1800000ms` or `Process crashed before completion`.
+- Current task remains active; this milestone changes future scheduling behavior only and should not kill running agents directly.
+- Keep scope limited to backoff; do not redesign autopilot prompting or session behavior in this milestone.
+- Implemented consecutive-error exponential backoff for workspace autopilot interval tasks, capped at 6h.
+- Successful/no-op runs continue using the normal interval and therefore reset the failure streak.
 - Validation passed:
-  - `npm test -- --run tests/feishu-connection.test.ts`
+  - `npm test -- --run tests/workspace-autopilot.test.ts tests/group-queue.test.ts tests/task-scheduler-host-cwd.test.ts`
   - `npm run typecheck`
   - `git diff --check`
   - `./scripts/review.sh`
-- Review gate passed against `RUNBOOKS/Review.md`; no docs update required because no public command/runtime contract changed.
-- Commit shipped as `ff4b073 Clean up stale Feishu backfill chats`.
-- Safe restart applied through `restart-2026-04-25T05-46-40-632Z-f0516103` with status `passed`; `http://127.0.0.1:3000/api/health` returned healthy.
+  - `npm run build`
+- Review gate passed against `RUNBOOKS/Review.md`; no public command/runtime contract docs needed.
 
 ## Working Rules
 
@@ -76,9 +73,8 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `src/feishu.ts`
-- `src/index.ts`
-- `tests/feishu-connection.test.ts`
+- `src/task-scheduler.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
 
 Next step:
-- None for implementation; continue monitoring real IM traffic under `RM-2026-04-24-07`.
+- Commit and apply through the safe restart path; then continue monitoring autopilot task run logs.

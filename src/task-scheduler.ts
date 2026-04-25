@@ -29,6 +29,7 @@ import {
   deleteGroupData,
   ensureChatExists,
   getMessagesPage,
+  getTaskRunLogs,
   getDueTasks,
   getTaskById,
   getUserById,
@@ -288,6 +289,7 @@ interface RunWorkspaceAutopilotOptions {
 }
 
 const runningTaskIds = new Set<string>();
+const WORKSPACE_AUTOPILOT_MAX_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
@@ -312,6 +314,28 @@ function computeNextRun(task: ScheduledTask): string | null {
   }
   // 'once' tasks have no next run
   return null;
+}
+
+function computeWorkspaceAutopilotErrorNextRun(
+  task: ScheduledTask,
+): string | null {
+  if (task.schedule_type !== 'interval') return computeNextRun(task);
+  const baseMs = Number(task.schedule_value);
+  if (!Number.isFinite(baseMs) || baseMs <= 0) return null;
+
+  const recentRuns = getTaskRunLogs(task.id, 10);
+  const previousFailures = recentRuns.findIndex(
+    (log) => log.status !== 'error',
+  );
+  const consecutivePreviousFailures =
+    previousFailures === -1 ? recentRuns.length : previousFailures;
+  const failureStreak = consecutivePreviousFailures + 1;
+  const multiplier = 2 ** Math.min(failureStreak - 1, 10);
+  const delayMs = Math.min(
+    baseMs * multiplier,
+    WORKSPACE_AUTOPILOT_MAX_BACKOFF_MS,
+  );
+  return new Date(Date.now() + delayMs).toISOString();
 }
 
 function truncateAutopilotContextText(text: string): string {
@@ -1059,7 +1083,11 @@ export async function runWorkspaceAutopilotTask(
           : 'No visible update',
       error,
     });
-    const nextRun = options.manualRun ? task.next_run : computeNextRun(task);
+    const nextRun = options.manualRun
+      ? task.next_run
+      : error
+        ? computeWorkspaceAutopilotErrorNextRun(task)
+        : computeNextRun(task);
     updateTaskAfterRun(
       task.id,
       nextRun,
