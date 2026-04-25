@@ -77,13 +77,17 @@
 
 ### RM-2026-04-24-06 Minimal Necessary Reply Policy
 
-- Status: `proposed`
+- Status: `verified`
 - Source: 2026-04-24 user item `6`
 - Summary: 回复默认遵循“最小必要原则”，只输出影响决策的关键信息，不外泄过程性执行细节
 - Evidence:
   - user feedback on verbose / process-heavy replies
+  - `container/agent-runner/src/reply-policy.ts`
+  - `container/agent-runner/src/index.ts`
+  - `tests/minimal-reply-policy.test.ts`
+  - validation: `npm test -- --run tests/minimal-reply-policy.test.ts`, `npm run typecheck`, `npm --prefix container/agent-runner run build:runner`, `git diff --check`, `./scripts/review.sh`
 - Next action:
-  - 把最小必要回复规则固化到对外消息契约与测试
+  - 无；继续观察真实回复是否仍有过程性噪声，若出现再按具体入口补更窄的过滤或提示词约束
 
 ### RM-2026-04-24-07 Safe Restart Reply Recovery
 

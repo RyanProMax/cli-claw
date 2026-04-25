@@ -63,6 +63,7 @@ import {
   buildCodexAcpLaunchArgs,
   stripCodexRuntimeDiagnosticPrefix,
 } from './codex-session-runtime.js';
+import { buildMinimalNecessaryReplyGuidelines } from './reply-policy.js';
 
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
 const WORKSPACE_GROUP =
@@ -2169,6 +2170,9 @@ async function runQuery(
     '- 如果用户的消息很简短（如打招呼），简洁回应即可，不要用工具列表填充回复。',
   ].join('\n');
 
+  const minimalNecessaryReplyGuidelines =
+    buildMinimalNecessaryReplyGuidelines();
+
   // Conversation agents (sub-conversations with agentId) get special behavioral guidelines
   // to prevent excessive send_message usage and duplicate responses.
   const conversationAgentGuidelines = containerInput.agentId
@@ -2198,6 +2202,7 @@ async function runQuery(
 
     // L2: Behavior — 核心行为约束（始终注入所有容器）
     `<behavior>\n${interactionGuidelines}\n</behavior>`,
+    `<reply-policy>\n${minimalNecessaryReplyGuidelines}\n</reply-policy>`,
     `<security>\n${SECURITY_RULES}\n</security>`,
 
     // L3: Context — 记忆系统与工作背景

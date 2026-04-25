@@ -1,41 +1,38 @@
-# Agent Definition Directory Migration
+# Minimal Necessary Reply Policy
 
 ## Goal
 
-- Move tracked agent role cards from `.codex/agents/` to `.agents/`.
-- Use `.agents` as the unified location for agent definitions instead of Codex- or Claude-specific directories.
-- Update docs and the Agent Definitions API to point at the unified layout.
+- Make user-visible replies default to the minimal necessary information: decision-relevant results, concrete blockers, verification state, and next actions only.
+- Keep process-heavy commentary, tool narration, and internal execution details out of final outbound message bodies unless the user explicitly asks for them.
 
 ## Done when
 
-- Repo role cards live under `.agents/*.md`.
-- Active docs and runbooks no longer point to `.codex/agents/*.md`.
-- Agent definition management stores user-global definitions under `~/.agents/agents`, with a compatibility path for old `~/.claude/agents` files.
-- Validation and review pass.
+- The outbound reply contract has an explicit minimal-necessary policy in the implementation boundary that shapes agent-visible instructions.
+- Direct tests cover the policy text so regressions are caught.
+- Validation and review pass, and RM-2026-04-24-06 is updated with evidence.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Migrate repo role cards and user-global agent definition ownership to `.agents`.
+- Solidify the minimal-necessary reply policy in the outbound reply contract and add focused tests for it.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `.gitignore`
-- `AGENTS.md`
-- `RUNBOOKS/Implement.md`
-- `docs/MEMORY.md`
-- `docs/MODULE.md`
-- `docs/RUNTIME.md`
-- `.agents/*.md`
-- remove `.codex/agents/*.md`
-- `src/routes/agent-definitions.ts`
-- directly related tests if needed
+- `PLANS/ROADMAP.md`
+- `container/agent-runner/prompts/**`
+- `container/agent-runner/src/**`
+- `container/agent-runner/tests/**`
+- `src/**`
+- `shared/**`
+- `tests/**`
+- directly related owner docs if the changed contract needs documentation
 
 Validation:
-- `rg -n "\\.codex/agents|~/.claude/agents" AGENTS.md RUNBOOKS docs src web tests`
+- `npm test -- --run <directly-related-tests>`
 - `npm run typecheck`
+- `npm --prefix container/agent-runner run build:runner`
 - `git diff --check`
 - `./scripts/review.sh`
 
@@ -49,21 +46,21 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Keep the migration scoped to agent definitions. Skills remain under the existing skills paths.
-- Preserve a compatibility read/migrate path for existing `~/.claude/agents` files.
+- Keep this scoped to default reply policy. Do not change Feishu card rendering, queueing, or restart behavior unless a direct test shows the policy cannot be enforced without it.
+- The policy should not prevent detailed answers when the user explicitly asks for detail, commands, logs, code explanation, or review findings.
 - Implemented:
-  - Moved tracked role cards from `.codex/agents/*.md` to `.agents/*.md`.
-  - Updated execution docs and runbooks to reference `.agents/*.md`.
-  - Updated the Agent Definitions API to use `~/.agents/agents`, copying legacy `~/.claude/agents/*.md` files on access when the new file is missing.
-  - Adjusted `.gitignore` so root `.agents/*.md` role cards are tracked while other `.agents` runtime content remains ignored.
+  - Added `container/agent-runner/src/reply-policy.ts` as the tested minimal-necessary reply policy contract.
+  - Injected the policy into the agent-runner system prompt as `<reply-policy>`.
+  - Added `tests/minimal-reply-policy.test.ts` for default rule, include/exclude, and explicit-detail exceptions.
 - Validation evidence:
-  - `rg -n "\\.codex/agents|~/.claude/agents" AGENTS.md RUNBOOKS docs src web tests` produced no matches.
+  - `npm test -- --run tests/minimal-reply-policy.test.ts`
   - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build:runner`
   - `git diff --check`
-  - `git diff --cached --check`
+  - `./node_modules/.bin/prettier --check container/agent-runner/src/reply-policy.ts tests/minimal-reply-policy.test.ts`
   - `./scripts/review.sh`
 - Review result:
-  - passed semantic review against `RUNBOOKS/Review.md`; scope stayed limited to agent definition directory ownership.
+  - passed semantic review against `RUNBOOKS/Review.md`; scope stayed limited to reply-policy prompt contract and focused tests.
 
 ## Working Rules
 
@@ -79,25 +76,17 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- Done. Tracked role cards and user-global Agent definition management now use the unified `.agents` layout.
+- done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `.gitignore`
-- `.agents/implementer.md`
-- `.agents/reader.md`
-- `.agents/reviewer.md`
-- `.agents/tester.md`
-- removed `.codex/agents/*.md`
-- `AGENTS.md`
-- `RUNBOOKS/Implement.md`
-- `docs/MEMORY.md`
-- `docs/MODULE.md`
-- `docs/RUNTIME.md`
-- `src/routes/agent-definitions.ts`
+- `PLANS/ROADMAP.md`
+- `container/agent-runner/src/index.ts`
+- `container/agent-runner/src/reply-policy.ts`
+- `tests/minimal-reply-policy.test.ts`
 
 Last failure summary:
-- None.
+- Initial extra Prettier check flagged `tests/minimal-reply-policy.test.ts`; fixed with Prettier and reran the direct test plus full milestone validation.
 
 Next step:
-- Commit the migration.
+- Commit the minimal necessary reply policy contract, then apply it with a safe service restart.
