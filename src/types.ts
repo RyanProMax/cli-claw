@@ -93,6 +93,46 @@ export interface NewMessage {
   finalization_reason?: MessageFinalizationReason | null;
 }
 
+export type ImMessageLifecycleStage =
+  | 'received'
+  | 'skipped'
+  | 'stored'
+  | 'notified'
+  | 'queued'
+  | 'runner_started'
+  | 'stream_started'
+  | 'finalized'
+  | 'im_delivered'
+  | 'cursor_committed'
+  | 'dead_lettered';
+
+export type ImMessageLifecycleStatus = 'ok' | 'skipped' | 'error';
+
+export interface ImMessageLifecycleEvent {
+  id: number;
+  provider: string;
+  chat_jid: string;
+  source_jid: string | null;
+  message_id: string;
+  stage: ImMessageLifecycleStage;
+  status: ImMessageLifecycleStatus;
+  reason: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface RecordImMessageLifecycleEventInput {
+  provider: string;
+  chatJid: string;
+  sourceJid?: string | null;
+  messageId: string;
+  stage: ImMessageLifecycleStage;
+  status?: ImMessageLifecycleStatus;
+  reason?: string | null;
+  details?: Record<string, unknown> | null;
+  createdAt?: string;
+}
+
 export type MessageSourceKind =
   | 'sdk_final'
   | 'sdk_send_message'

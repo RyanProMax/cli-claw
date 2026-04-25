@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   formatConversationStatus,
+  formatImLifecycleStatus,
   formatSelfCheckResult,
   formatSelfRestartAccepted,
   formatSelfRestartSuccess,
@@ -215,6 +216,45 @@ describe('formatSystemStatus', () => {
         '📍 cwd: /Users/ryan/projects/cli-claw',
       ].join('\n'),
     );
+  });
+});
+
+describe('formatImLifecycleStatus', () => {
+  test('renders compact recent Feishu lifecycle evidence', () => {
+    expect(
+      formatImLifecycleStatus([
+        {
+          id: 3,
+          provider: 'feishu',
+          chat_jid: 'feishu:chat-1',
+          source_jid: 'feishu:chat-1',
+          message_id: 'om_recent_message_003',
+          stage: 'notified',
+          status: 'ok',
+          reason: null,
+          details: null,
+          created_at: '2026-04-25T12:20:03.000Z',
+        },
+        {
+          id: 2,
+          provider: 'feishu',
+          chat_jid: 'feishu:chat-1',
+          source_jid: 'feishu:chat-1',
+          message_id: 'om_recent_message_002',
+          stage: 'skipped',
+          status: 'skipped',
+          reason: 'stale_before_reconnection',
+          details: null,
+          created_at: '2026-04-25T12:20:02.000Z',
+        },
+      ]),
+    ).toBe(
+      '🧭 飞书链路: ...message_003 notified · ...message_002 skipped(stale_before_reconnection)',
+    );
+  });
+
+  test('keeps empty lifecycle status short', () => {
+    expect(formatImLifecycleStatus([])).toBe('🧭 飞书链路: 最近无记录');
   });
 });
 

@@ -56,6 +56,7 @@ import {
   getJidsByFolder,
   getLastGroupSync,
   getRegisteredGroup,
+  getRecentImMessageLifecycleEvents,
   getUserById,
   getMessagesSince,
   getNewMessages,
@@ -124,6 +125,7 @@ import {
 } from './streaming-runtime-meta.js';
 import {
   formatContextMessages,
+  formatImLifecycleStatus,
   formatSelfCheckResult,
   formatSelfRestartAccepted,
   formatSelfRestartSuccess,
@@ -2020,8 +2022,17 @@ function handleStatusCommand(chatJid: string): string {
       : autopilotState.state === 'paused_quota'
         ? '已因额度不足暂停'
         : '未开启';
+  const lifecycleStatus = chatJid.startsWith('feishu:')
+    ? `\n${formatImLifecycleStatus(
+        getRecentImMessageLifecycleEvents({
+          provider: 'feishu',
+          chatJid,
+          limit: 3,
+        }),
+      )}`
+    : '';
 
-  return `${systemStatus}\n🤖 主动模式: ${autopilotText}`;
+  return `${systemStatus}\n🤖 主动模式: ${autopilotText}${lifecycleStatus}`;
 }
 
 async function handleAutopilotCommand(

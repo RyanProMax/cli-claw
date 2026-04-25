@@ -9,6 +9,8 @@
 
 - A regression test proves a stale live WS delivery before `ignoreMessagesBefore` does not suppress the same message when it is later recovered by startup backfill.
 - `src/feishu.ts` only records inbound Feishu messages in the dedupe cache after the message passes the stale-window filter.
+- Feishu inbound messages write durable lifecycle events that can be queried by chat/message id.
+- `/status` formatting has a compact section for recent Feishu lifecycle evidence.
 - `PLANS/ROADMAP.md` records the milestone progress.
 - Validation and review gate pass.
 
@@ -56,6 +58,61 @@ Risks / Notes / Handoff:
   - No unrelated refactor or launch contract change was included.
 - Runtime code changes affect the running Cli Claw service; after commit, use the documented safe restart path.
 
+### Milestone 2
+
+Objective:
+- Add a durable Feishu inbound lifecycle ledger and compact status formatting so real-world "no reply" cases have evidence beyond mock tests.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/types.ts`
+- `src/db.ts`
+- `src/feishu.ts`
+- `src/im-command-utils.ts`
+- `src/index.ts`
+- `tests/im-message-lifecycle.test.ts`
+- `tests/feishu-connection.test.ts`
+- `tests/im-command-utils.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-message-lifecycle.test.ts`
+- `npm test -- --run tests/feishu-connection.test.ts`
+- `npm test -- --run tests/im-command-utils.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- This is observability-first: it should not change queue, runner, delivery, or cursor semantics yet.
+- TDD red observed before the DB API existed: `npm test -- --run tests/im-message-lifecycle.test.ts` failed with `recordImMessageLifecycleEvent is not a function`.
+- TDD red observed before Feishu instrumentation existed: `npm test -- --run tests/feishu-connection.test.ts` failed because no lifecycle events were recorded.
+- TDD red observed before status formatting existed: `npm test -- --run tests/im-command-utils.test.ts` failed because `formatImLifecycleStatus` was not exported.
+- Implemented durable `im_message_lifecycle_events` rows and query helpers keyed by provider/chat/message id.
+- Feishu accepted inbound messages now record `received -> stored -> notified`; duplicate, stale, empty, and mention-gated messages record `skipped` with a reason.
+- `/status` on Feishu appends one compact lifecycle line with at most three recent events.
+- Validation passed:
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm test -- --run tests/feishu-connection.test.ts`
+  - `npm test -- --run tests/im-command-utils.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - Lifecycle write failures are isolated and do not block Feishu message handling.
+  - No queue, runner, delivery, or cursor semantics changed in this milestone.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -67,7 +124,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 1
+- Milestone 2
 
 Current status:
 - done
@@ -75,14 +132,23 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `src/types.ts`
+- `src/db.ts`
 - `src/feishu.ts`
+- `src/im-command-utils.ts`
+- `src/index.ts`
+- `tests/im-message-lifecycle.test.ts`
 - `tests/feishu-connection.test.ts`
+- `tests/im-command-utils.test.ts`
 
 Last failure summary:
-- Expected TDD red: stale live WS delivery marked the message id as seen before stale filtering, so startup backfill skipped the recoverable message.
+- Expected TDD reds:
+  - Missing lifecycle DB API.
+  - Missing Feishu lifecycle instrumentation.
+  - Missing compact lifecycle status formatter.
 
 Suspected cause:
-- `src/feishu.ts` recorded message ids in the dedupe cache before applying `ignoreMessagesBefore`.
+- The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 with the next reliability slice: delivery/cursor commit coupling, queue dead-letter visibility, readiness gating, or backfill ownership coverage.
+- Continue RM-2026-04-25-01 by wiring later lifecycle stages: queued, runner_started, finalized, im_delivered, cursor_committed, and dead_lettered.

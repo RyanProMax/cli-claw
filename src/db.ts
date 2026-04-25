@@ -27,6 +27,7 @@ import {
   DailyUsage,
   ExecutionMode,
   GroupMember,
+  ImMessageLifecycleEvent,
   InviteCode,
   InviteCodeWithCreator,
   MessageFinalizationReason,
@@ -51,6 +52,7 @@ import {
   UserSessionWithUser,
   Permission,
   PermissionTemplateKey,
+  RecordImMessageLifecycleEventInput,
 } from './types.js';
 import { getDefaultPermissions, normalizePermissions } from './permissions.js';
 import {
@@ -194,6 +196,19 @@ interface DbMessageRow {
   finalization_reason?: MessageFinalizationReason | null;
 }
 
+interface DbImMessageLifecycleEventRow {
+  id: number;
+  provider: string;
+  chat_jid: string;
+  source_jid: string | null;
+  message_id: string;
+  stage: ImMessageLifecycleEvent['stage'];
+  status: ImMessageLifecycleEvent['status'];
+  reason: string | null;
+  details: string | null;
+  created_at: string;
+}
+
 function mapDbMessageRow(
   row: DbMessageRow,
 ): NewMessage & { is_from_me: boolean } {
@@ -201,6 +216,29 @@ function mapDbMessageRow(
     ...row,
     runtime_identity: parseRuntimeIdentity(row.runtime_identity),
     is_from_me: row.is_from_me === 1,
+  };
+}
+
+function parseLifecycleDetails(
+  value: string | null,
+): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function mapImMessageLifecycleEventRow(
+  row: DbImMessageLifecycleEventRow,
+): ImMessageLifecycleEvent {
+  return {
+    ...row,
+    details: parseLifecycleDetails(row.details),
   };
 }
 
@@ -292,6 +330,25 @@ export function initDatabase(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
     CREATE INDEX IF NOT EXISTS idx_messages_jid_ts ON messages(chat_jid, timestamp);
+
+    CREATE TABLE IF NOT EXISTS im_message_lifecycle_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      chat_jid TEXT NOT NULL,
+      source_jid TEXT,
+      message_id TEXT NOT NULL,
+      stage TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ok',
+      reason TEXT,
+      details TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_im_lifecycle_message
+      ON im_message_lifecycle_events(provider, chat_jid, message_id, id);
+    CREATE INDEX IF NOT EXISTS idx_im_lifecycle_source
+      ON im_message_lifecycle_events(provider, source_jid, message_id, id);
+    CREATE INDEX IF NOT EXISTS idx_im_lifecycle_created
+      ON im_message_lifecycle_events(provider, created_at, id);
 
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
@@ -1865,6 +1922,83 @@ export function getMessagesSince(
     ...row,
     runtime_identity: parseRuntimeIdentity(row.runtime_identity),
   }));
+}
+
+export function recordImMessageLifecycleEvent(
+  input: RecordImMessageLifecycleEventInput,
+): number {
+  const createdAt = input.createdAt ?? new Date().toISOString();
+  const result = db
+    .prepare(
+      `INSERT INTO im_message_lifecycle_events (
+        provider, chat_jid, source_jid, message_id, stage, status, reason, details, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.provider,
+      input.chatJid,
+      input.sourceJid ?? null,
+      input.messageId,
+      input.stage,
+      input.status ?? 'ok',
+      input.reason ?? null,
+      input.details ? JSON.stringify(input.details) : null,
+      createdAt,
+    );
+  return Number(result.lastInsertRowid);
+}
+
+export function getImMessageLifecycleEvents(filter: {
+  provider: string;
+  chatJid: string;
+  messageId: string;
+  limit?: number;
+}): ImMessageLifecycleEvent[] {
+  const limit = Math.max(1, Math.min(filter.limit ?? 50, 200));
+  const rows = db
+    .prepare(
+      `SELECT *
+       FROM im_message_lifecycle_events
+       WHERE provider = ?
+         AND message_id = ?
+         AND (chat_jid = ? OR source_jid = ?)
+       ORDER BY id ASC
+       LIMIT ?`,
+    )
+    .all(
+      filter.provider,
+      filter.messageId,
+      filter.chatJid,
+      filter.chatJid,
+      limit,
+    ) as DbImMessageLifecycleEventRow[];
+  return rows.map(mapImMessageLifecycleEventRow);
+}
+
+export function getRecentImMessageLifecycleEvents(filter: {
+  provider: string;
+  chatJid?: string;
+  limit?: number;
+}): ImMessageLifecycleEvent[] {
+  const limit = Math.max(1, Math.min(filter.limit ?? 20, 200));
+  const params: unknown[] = [filter.provider];
+  let chatWhere = '';
+  if (filter.chatJid) {
+    chatWhere = 'AND (chat_jid = ? OR source_jid = ?)';
+    params.push(filter.chatJid, filter.chatJid);
+  }
+  params.push(limit);
+  const rows = db
+    .prepare(
+      `SELECT *
+       FROM im_message_lifecycle_events
+       WHERE provider = ?
+       ${chatWhere}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+    )
+    .all(...params) as DbImMessageLifecycleEventRow[];
+  return rows.map(mapImMessageLifecycleEventRow);
 }
 
 export function createTask(

@@ -3,6 +3,7 @@ import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import * as lark from '@larksuiteoapi/node-sdk';
 import {
+  recordImMessageLifecycleEvent,
   setLastGroupSync,
   storeChatMetadata,
   storeMessageDirect,
@@ -30,6 +31,11 @@ import {
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
 } from './runtime-command-registry.js';
+
+type FeishuLifecycleEventInput = Omit<
+  Parameters<typeof recordImMessageLifecycleEvent>[0],
+  'provider'
+>;
 
 // ─── FeishuConnection Interface ────────────────────────────────
 
@@ -911,6 +917,22 @@ export function createFeishuConnection(
     }
   }
 
+  function recordLifecycleEvent(input: FeishuLifecycleEventInput): void {
+    try {
+      recordImMessageLifecycleEvent({ provider: 'feishu', ...input });
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          chatJid: input.chatJid,
+          messageId: input.messageId,
+          stage: input.stage,
+        },
+        'Failed to record Feishu message lifecycle event',
+      );
+    }
+  }
+
   async function handleIncomingMessage(
     payload: IncomingMessagePayload,
     source: 'ws' | 'backfill',
@@ -938,8 +960,32 @@ export function createFeishuConnection(
       senderName,
     } = payload;
     if (!chatId || !messageId) return;
+    const chatJid = `feishu:${chatId}`;
+
+    recordLifecycleEvent({
+      chatJid,
+      sourceJid: chatJid,
+      messageId,
+      stage: 'received',
+      status: 'ok',
+      details: {
+        source,
+        messageType,
+        chatType,
+        createTimeMs,
+      },
+    });
 
     if (isDuplicate(messageId)) {
+      recordLifecycleEvent({
+        chatJid,
+        sourceJid: chatJid,
+        messageId,
+        stage: 'skipped',
+        status: 'skipped',
+        reason: 'duplicate',
+        details: { source },
+      });
       logger.debug({ messageId }, 'Duplicate message, skipping');
       return;
     }
@@ -966,6 +1012,19 @@ export function createFeishuConnection(
         },
         'Skipping stale Feishu message from before reconnection',
       );
+      recordLifecycleEvent({
+        chatJid,
+        sourceJid: chatJid,
+        messageId,
+        stage: 'skipped',
+        status: 'skipped',
+        reason: 'stale_before_reconnection',
+        details: {
+          source,
+          createTimeMs,
+          threshold: effectiveIgnoreMessagesBefore,
+        },
+      });
       return;
     }
 
@@ -978,6 +1037,15 @@ export function createFeishuConnection(
         { messageId, messageType },
         'No text or image content, skipping',
       );
+      recordLifecycleEvent({
+        chatJid,
+        sourceJid: chatJid,
+        messageId,
+        stage: 'skipped',
+        status: 'skipped',
+        reason: 'empty_content',
+        details: { source, messageType },
+      });
       return;
     }
 
@@ -989,7 +1057,6 @@ export function createFeishuConnection(
       }
     }
 
-    const chatJid = `feishu:${chatId}`;
     const resolvedSenderName = senderName || getSenderName(senderOpenId);
     const resolvedChatName = chatType === 'p2p' ? '飞书私聊' : '飞书群聊';
 
@@ -1215,6 +1282,15 @@ export function createFeishuConnection(
           { chatJid, messageId },
           'Dropped group message: mention required but bot not mentioned',
         );
+        recordLifecycleEvent({
+          chatJid,
+          sourceJid: chatJid,
+          messageId,
+          stage: 'skipped',
+          status: 'skipped',
+          reason: 'mention_required',
+          details: { source, chatType },
+        });
         return;
       }
     }
@@ -1249,6 +1325,19 @@ export function createFeishuConnection(
       false,
       { attachments: attachmentsJson, sourceJid: chatJid },
     );
+    recordLifecycleEvent({
+      chatJid: targetJid,
+      sourceJid: chatJid,
+      messageId,
+      stage: 'stored',
+      status: 'ok',
+      details: {
+        source,
+        targetJid,
+        targetAgentId: targetAgentId ?? null,
+        hasAttachments: !!attachmentsJson,
+      },
+    });
     broadcastNewMessage(
       targetJid,
       {
@@ -1264,6 +1353,18 @@ export function createFeishuConnection(
       targetAgentId ?? undefined,
     );
     notifyNewImMessage();
+    recordLifecycleEvent({
+      chatJid: targetJid,
+      sourceJid: chatJid,
+      messageId,
+      stage: 'notified',
+      status: 'ok',
+      details: {
+        source,
+        targetJid,
+        targetAgentId: targetAgentId ?? null,
+      },
+    });
 
     if (agentRouting && agentRouting.agentId) {
       onAgentMessage?.(chatJid, agentRouting.agentId);

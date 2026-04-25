@@ -32,8 +32,9 @@
   - Local DB/log evidence on 2026-04-24/25 shows Feishu user messages followed by `interrupt_partial`, context-window errors, host timeouts, or no immediately visible Feishu answer.
 - Progress:
   - 2026-04-25 milestone 1: added a regression test for stale live WS delivery overlapping startup backfill, and moved Feishu inbound dedupe marking until after stale-window filtering. Validation passed with `npm test -- --run tests/feishu-connection.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-25 milestone 2: added durable `im_message_lifecycle_events`, Feishu inbound lifecycle events for `received`, `stored`, `notified`, and skipped reasons, plus a compact Feishu `/status` lifecycle line. Validation passed with lifecycle, Feishu connection, IM command formatter tests, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Iteration plan:
-  - Add message lifecycle instrumentation keyed by inbound message id and chat jid: `received`, `stored`, `queued`, `runner_started`, `stream_started`, `finalized`, `im_delivered`, `cursor_committed`, `dead_lettered`.
+  - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to later stages: `queued`, `runner_started`, `stream_started`, `finalized`, `im_delivered`, `cursor_committed`, `dead_lettered`.
   - Add failing tests for routed IM send failure preventing cursor commit, max retry dead-letter persistence, startup recovery waiting for IM readiness, and backfill ownership coverage.
   - Make cursor commit depend on durable user-visible delivery for direct/routed IM replies; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
   - Gate startup recovery/backfill drain on channel readiness, or queue pending outbound until Feishu is connected.

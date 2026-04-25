@@ -3,6 +3,8 @@
  * Extracted from index.ts to enable unit testing without DB/state dependencies.
  */
 
+import type { ImMessageLifecycleEvent } from './types.js';
+
 // ─── Types ──────────────────────────────────────────────────────
 
 export interface AgentInfo {
@@ -267,6 +269,24 @@ export function formatSystemStatus(
   ];
 
   return lines.join('\n');
+}
+
+function compactLifecycleMessageId(messageId: string): string {
+  return messageId.length > 11 ? `...${messageId.slice(-11)}` : messageId;
+}
+
+export function formatImLifecycleStatus(
+  events: readonly ImMessageLifecycleEvent[],
+): string {
+  if (events.length === 0) return '🧭 飞书链路: 最近无记录';
+  const summary = events
+    .slice(0, 3)
+    .map((event) => {
+      const reason = event.reason ? `(${event.reason})` : '';
+      return `${compactLifecycleMessageId(event.message_id)} ${event.stage}${reason}`;
+    })
+    .join(' · ');
+  return `🧭 飞书链路: ${summary}`;
 }
 
 // ─── Conversation Status Formatting ────────────────────────────

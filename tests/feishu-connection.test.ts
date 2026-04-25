@@ -103,6 +103,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
 });
 
 vi.mock('../src/db.js', () => ({
+  recordImMessageLifecycleEvent: vi.fn(),
   setLastGroupSync: vi.fn(),
   storeChatMetadata: vi.fn(),
   storeMessageDirect: vi.fn(),
@@ -147,7 +148,10 @@ vi.mock('../src/feishu-markdown-style.js', () => ({
 }));
 
 import { createFeishuConnection } from '../src/feishu.ts';
-import { storeMessageDirect } from '../src/db.js';
+import {
+  recordImMessageLifecycleEvent,
+  storeMessageDirect,
+} from '../src/db.js';
 import { notifyNewImMessage } from '../src/message-notifier.js';
 import { broadcastNewMessage } from '../src/web.js';
 
@@ -189,6 +193,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.wsCloseSpy.mockClear();
     hoisted.onReadySpy.mockClear();
     hoisted.resolveImSlashCommandReplySpy.mockClear();
+    vi.mocked(recordImMessageLifecycleEvent).mockClear();
     vi.mocked(storeMessageDirect).mockClear();
     vi.mocked(notifyNewImMessage).mockClear();
     vi.mocked(broadcastNewMessage).mockClear();
@@ -432,6 +437,77 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(hoisted.abortStreamingSessionsForChatJidSpy).toHaveBeenCalledWith(
       'feishu:oc_same_chat',
       '新的回复已开始',
+    );
+  });
+
+  test('records lifecycle events for accepted inbound Feishu messages', async () => {
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_lifecycle',
+        message_id: 'msg-lifecycle',
+        create_time: Date.now().toString(),
+        message_type: 'text',
+        content: JSON.stringify({ text: 'ping lifecycle' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    expect(
+      vi
+        .mocked(recordImMessageLifecycleEvent)
+        .mock.calls.map(([event]) => event.stage),
+    ).toEqual(['received', 'stored', 'notified']);
+    expect(recordImMessageLifecycleEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'feishu',
+        chatJid: 'feishu:oc_lifecycle',
+        sourceJid: 'feishu:oc_lifecycle',
+        messageId: 'msg-lifecycle',
+        stage: 'received',
+        status: 'ok',
+        details: expect.objectContaining({
+          source: 'ws',
+          messageType: 'text',
+          chatType: 'p2p',
+        }),
+      }),
+    );
+    expect(recordImMessageLifecycleEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'feishu',
+        chatJid: 'feishu:oc_lifecycle',
+        sourceJid: 'feishu:oc_lifecycle',
+        messageId: 'msg-lifecycle',
+        stage: 'stored',
+        status: 'ok',
+        details: expect.objectContaining({
+          targetJid: 'feishu:oc_lifecycle',
+        }),
+      }),
+    );
+    expect(recordImMessageLifecycleEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'feishu',
+        chatJid: 'feishu:oc_lifecycle',
+        sourceJid: 'feishu:oc_lifecycle',
+        messageId: 'msg-lifecycle',
+        stage: 'notified',
+        status: 'ok',
+      }),
     );
   });
 
