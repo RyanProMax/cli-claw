@@ -118,6 +118,7 @@ import {
 import { resolveVisibleReplyParts } from './reply-visibility.js';
 import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
 import { appendActivePlanProgressFromFile } from './active-plan-progress.js';
+import { recordLifecycleForMessages } from './im-message-lifecycle.js';
 import {
   buildProvisionalTokenUsage,
   normalizeStreamingStatusText,
@@ -6564,9 +6565,18 @@ async function processAgentConversation(
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
   };
+  let cursorLifecycleRecorded = false;
   const activeStreamingTurnKey = buildStreamingTurnStateKey(chatJid, agentId);
   const streamingSnapshotKey = resolveStreamingSnapshotKey(chatJid, agentId);
   const commitCursor = (): void => {
+    if (!cursorLifecycleRecorded) {
+      recordLifecycleForMessages({
+        messages: missedMessages,
+        stage: 'cursor_committed',
+        details: { agentId, cursor: activeTurnCursor },
+      });
+      cursorLifecycleRecorded = true;
+    }
     advanceCursors(virtualChatJid, activeTurnCursor);
     if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
@@ -6872,6 +6882,16 @@ async function processAgentConversation(
             },
           },
         );
+        recordLifecycleForMessages({
+          messages: missedMessages,
+          stage: 'finalized',
+          details: {
+            agentId,
+            replyMessageId: persistedMsgId,
+            sourceKind: output.sourceKind || 'sdk_final',
+            finalizationReason: output.finalizationReason || 'completed',
+          },
+        });
         broadcastNewMessage(
           virtualChatJid,
           {
@@ -6922,6 +6942,11 @@ async function processAgentConversation(
               await activeAgentStreamingSession.complete(visibleText);
             }
             streamingCardHandledIM = true;
+            recordLifecycleForMessages({
+              messages: missedMessages,
+              stage: 'im_delivered',
+              details: { agentId, delivery: 'streaming_card' },
+            });
           } catch (err) {
             logger.warn(
               { err, chatJid, agentId },
@@ -6964,6 +6989,13 @@ async function processAgentConversation(
             visibleText,
             localImagePaths,
           );
+          recordLifecycleForMessages({
+            messages: missedMessages,
+            stage: 'im_delivered',
+            status: imSent ? 'ok' : 'error',
+            reason: imSent ? null : 'send_failed_after_retries',
+            details: { agentId, delivery: 'static_message' },
+          });
           if (imSent) {
             logger.info(
               {
@@ -7065,6 +7097,11 @@ async function processAgentConversation(
 
     const onProcessCb = (proc: ChildProcess, identifier: string) => {
       const containerName = executionMode === 'container' ? identifier : null;
+      recordLifecycleForMessages({
+        messages: missedMessages,
+        stage: 'runner_started',
+        details: { agentId, identifier, executionMode },
+      });
       queue.registerProcess(
         virtualJid,
         proc,
@@ -7395,6 +7432,13 @@ async function processAgentConversation(
             partialReply,
             localImagePaths,
           );
+          recordLifecycleForMessages({
+            messages: missedMessages,
+            stage: 'im_delivered',
+            status: imSent ? 'ok' : 'error',
+            reason: imSent ? null : 'send_failed_after_retries',
+            details: { agentId, delivery: 'interrupt_partial' },
+          });
           logger.info({ replySourceImJid, imSent }, 'agent IM reply sent');
         } else {
           logger.warn(
@@ -7615,6 +7659,11 @@ async function startMessageLoop(): Promise<void> {
             },
           );
           if (sendResult === 'sent') {
+            recordLifecycleForMessages({
+              messages: messagesToSend,
+              stage: 'queued',
+              details: { route: 'ipc_injected', targetJid: chatJid },
+            });
             logger.debug(
               {
                 chatJid,
@@ -7633,6 +7682,11 @@ async function startMessageLoop(): Promise<void> {
           } else {
             // no_active — enqueue for a new one
             queue.enqueueMessageCheck(chatJid);
+            recordLifecycleForMessages({
+              messages: messagesToSend,
+              stage: 'queued',
+              details: { route: 'message_loop', targetJid: chatJid },
+            });
           }
         }
       }

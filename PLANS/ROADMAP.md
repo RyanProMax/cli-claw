@@ -33,6 +33,7 @@
 - Progress:
   - 2026-04-25 milestone 1: added a regression test for stale live WS delivery overlapping startup backfill, and moved Feishu inbound dedupe marking until after stale-window filtering. Validation passed with `npm test -- --run tests/feishu-connection.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-25 milestone 2: added durable `im_message_lifecycle_events`, Feishu inbound lifecycle events for `received`, `stored`, `notified`, and skipped reasons, plus a compact Feishu `/status` lifecycle line. Validation passed with lifecycle, Feishu connection, IM command formatter tests, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-25 milestone 3: added post-store Feishu lifecycle instrumentation for routed messages: `queued`, `runner_started`, `finalized`, `im_delivered`, and `cursor_committed`. Validation passed with `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Iteration plan:
   - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to later stages: `queued`, `runner_started`, `stream_started`, `finalized`, `im_delivered`, `cursor_committed`, `dead_lettered`.
   - Add failing tests for routed IM send failure preventing cursor commit, max retry dead-letter persistence, startup recovery waiting for IM readiness, and backfill ownership coverage.
@@ -40,7 +41,7 @@
   - Gate startup recovery/backfill drain on channel readiness, or queue pending outbound until Feishu is connected.
   - Add a compact `/status` or `/self-status` section for recent Feishu lifecycle failures.
 - Next action:
-  - Continue with tests in `tests/group-queue.test.ts`, `tests/restart-recovery.test.ts`, and `tests/im-channel.test.ts`, then implement the smallest reliability fixes behind the lifecycle contract.
+  - Continue with the next smallest reliability fix behind the lifecycle contract: delivery/cursor semantics, max-retry dead-letter persistence, startup recovery readiness, or Feishu backfill ownership coverage.
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 

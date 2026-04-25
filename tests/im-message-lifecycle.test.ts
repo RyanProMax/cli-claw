@@ -92,4 +92,57 @@ describe('IM message lifecycle ledger', () => {
 
     db.closeDatabase();
   });
+
+  test('records post-store lifecycle stages for Feishu-origin routed messages', async () => {
+    const db = await loadDbModule();
+    const { recordLifecycleForMessages } = await import(
+      '../src/im-message-lifecycle.ts'
+    );
+
+    const recorded = recordLifecycleForMessages({
+      messages: [
+        {
+          id: 'msg-feishu-origin',
+          chat_jid: 'web:main',
+          source_jid: 'feishu:chat-1',
+          sender: 'user',
+          sender_name: 'User',
+          content: 'hello from feishu',
+          timestamp: '2026-04-25T00:00:00.000Z',
+        },
+        {
+          id: 'msg-web-origin',
+          chat_jid: 'web:main',
+          source_jid: 'web:main',
+          sender: 'user',
+          sender_name: 'User',
+          content: 'hello from web',
+          timestamp: '2026-04-25T00:00:01.000Z',
+        },
+      ],
+      stage: 'queued',
+      details: { route: 'message_loop' },
+    });
+
+    expect(recorded).toBe(1);
+
+    const events = db.getImMessageLifecycleEvents({
+      provider: 'feishu',
+      chatJid: 'feishu:chat-1',
+      messageId: 'msg-feishu-origin',
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      provider: 'feishu',
+      chat_jid: 'web:main',
+      source_jid: 'feishu:chat-1',
+      message_id: 'msg-feishu-origin',
+      stage: 'queued',
+      status: 'ok',
+      details: { route: 'message_loop' },
+    });
+
+    db.closeDatabase();
+  });
 });

@@ -113,6 +113,51 @@ Risks / Notes / Handoff:
   - Lifecycle write failures are isolated and do not block Feishu message handling.
   - No queue, runner, delivery, or cursor semantics changed in this milestone.
 
+### Milestone 3
+
+Objective:
+- Wire post-store lifecycle events for Feishu-origin messages when they are queued or injected into an agent, delivered back to IM, and committed by cursor.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `src/im-message-lifecycle.ts`
+- `tests/im-message-lifecycle.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-message-lifecycle.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone observability-only: do not change queue, runner, retry, delivery, or cursor semantics.
+- Added `recordLifecycleForMessages()` so Feishu-origin routed messages can safely emit later lifecycle evidence while web-origin messages are ignored.
+- Main message loop now records `queued` when Feishu-origin messages are IPC-injected into an active runner or queued for a fresh run.
+- Conversation agent runs now record `runner_started`, `finalized`, `im_delivered`, and one `cursor_committed` event for Feishu-origin pending messages.
+- Deferred `stream_started` and `dead_lettered` because they require broader streaming/queue contracts.
+- TDD red observed before the helper existed: `npm test -- --run tests/im-message-lifecycle.test.ts` failed with missing `src/im-message-lifecycle.ts`.
+- Validation passed:
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change is observability-only and does not alter queue, retry, delivery, or cursor semantics.
+  - Lifecycle write failures remain isolated from message handling.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -124,7 +169,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 2
+- Milestone 3
 
 Current status:
 - done
@@ -137,6 +182,7 @@ Changed files:
 - `src/feishu.ts`
 - `src/im-command-utils.ts`
 - `src/index.ts`
+- `src/im-message-lifecycle.ts`
 - `tests/im-message-lifecycle.test.ts`
 - `tests/feishu-connection.test.ts`
 - `tests/im-command-utils.test.ts`
@@ -146,9 +192,10 @@ Last failure summary:
   - Missing lifecycle DB API.
   - Missing Feishu lifecycle instrumentation.
   - Missing compact lifecycle status formatter.
+  - Missing post-store lifecycle helper for Feishu-origin routed messages.
 
 Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 by wiring later lifecycle stages: queued, runner_started, finalized, im_delivered, cursor_committed, and dead_lettered.
+- Continue RM-2026-04-25-01 with the next reliability fix: delivery/cursor semantics, queue dead-letter persistence, startup recovery readiness, or backfill ownership coverage.
