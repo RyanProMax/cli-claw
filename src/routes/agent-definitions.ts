@@ -31,45 +31,6 @@ function getAgentsDir(): string {
   return path.join(os.homedir(), '.agents', 'agents');
 }
 
-function getLegacyAgentsDir(): string {
-  return path.join(os.homedir(), '.claude', 'agents');
-}
-
-function migrateLegacyAgents(): void {
-  const legacyDir = getLegacyAgentsDir();
-  if (!fs.existsSync(legacyDir)) return;
-
-  const agentsDir = getAgentsDir();
-  fs.mkdirSync(agentsDir, { recursive: true });
-
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(legacyDir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
-    const source = path.join(legacyDir, entry.name);
-    const target = path.join(agentsDir, entry.name);
-    if (fs.existsSync(target)) continue;
-
-    try {
-      fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
-    } catch (err) {
-      logger.warn(
-        {
-          source,
-          target,
-          error: err instanceof Error ? err.message : String(err),
-        },
-        'Failed to migrate legacy agent definition',
-      );
-    }
-  }
-}
-
 function validateAgentId(id: string): boolean {
   return /^[\w\-]+$/.test(id);
 }
@@ -157,8 +118,24 @@ function parseFrontmatter(content: string): Record<string, string | string[]> {
   return result;
 }
 
+function buildAgentDefinition(
+  id: string,
+  filePath: string,
+  content: string,
+): AgentDefinition {
+  const frontmatter = parseFrontmatter(content);
+  const stats = fs.statSync(filePath);
+
+  return {
+    id,
+    name: (frontmatter.name as string) || id,
+    description: (frontmatter.description as string) || '',
+    tools: extractTools(frontmatter),
+    updatedAt: stats.mtime.toISOString(),
+  };
+}
+
 function discoverAgents(): AgentDefinition[] {
-  migrateLegacyAgents();
   const agentsDir = getAgentsDir();
   if (!fs.existsSync(agentsDir)) return [];
 
@@ -172,17 +149,8 @@ function discoverAgents(): AgentDefinition[] {
       const filePath = path.join(agentsDir, entry.name);
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
-        const frontmatter = parseFrontmatter(content);
-        const stats = fs.statSync(filePath);
         const id = entry.name.replace(/\.md$/, '');
-
-        agents.push({
-          id,
-          name: (frontmatter.name as string) || id,
-          description: (frontmatter.description as string) || '',
-          tools: extractTools(frontmatter),
-          updatedAt: stats.mtime.toISOString(),
-        });
+        agents.push(buildAgentDefinition(id, filePath, content));
       } catch (err) {
         logger.warn(
           { filePath, error: err instanceof Error ? err.message : String(err) },
@@ -200,21 +168,13 @@ function discoverAgents(): AgentDefinition[] {
 function getAgentDetail(id: string): AgentDefinitionDetail | null {
   if (!validateAgentId(id)) return null;
 
-  migrateLegacyAgents();
   const filePath = path.join(getAgentsDir(), `${id}.md`);
   if (!fs.existsSync(filePath)) return null;
 
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    const frontmatter = parseFrontmatter(content);
-    const stats = fs.statSync(filePath);
-
     return {
-      id,
-      name: (frontmatter.name as string) || id,
-      description: (frontmatter.description as string) || '',
-      tools: extractTools(frontmatter),
-      updatedAt: stats.mtime.toISOString(),
+      ...buildAgentDefinition(id, filePath, content),
       content,
     };
   } catch {

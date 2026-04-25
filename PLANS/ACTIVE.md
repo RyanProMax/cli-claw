@@ -1,40 +1,34 @@
-# Minimal Necessary Reply Policy
+# Agent Definition Cleanup
 
 ## Goal
 
-- Make user-visible replies default to the minimal necessary information: decision-relevant results, concrete blockers, verification state, and next actions only.
-- Keep process-heavy commentary, tool narration, and internal execution details out of final outbound message bodies unless the user explicitly asks for them.
+- Remove the runtime compatibility migration from legacy agent definition paths.
+- Keep user agent definitions owned by `~/.agents/agents/*.md` only.
+- Simplify duplicated metadata assembly in the agent definition route.
 
 ## Done when
 
-- The outbound reply contract has an explicit minimal-necessary policy in the implementation boundary that shapes agent-visible instructions.
-- Direct tests cover the policy text so regressions are caught.
-- Validation and review pass, and RM-2026-04-24-06 is updated with evidence.
+- Legacy agent-definition migration code is gone.
+- A repository scan shows no remaining `.codex/agents` or `~/.claude/agents` compatibility references.
+- Validation and review pass.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Solidify the minimal-necessary reply policy in the outbound reply contract and add focused tests for it.
+- One-time local migration check, remove legacy agent-directory compatibility code, and simplify the touched route.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `container/agent-runner/prompts/**`
-- `container/agent-runner/src/**`
-- `container/agent-runner/tests/**`
-- `src/**`
-- `shared/**`
-- `tests/**`
-- directly related owner docs if the changed contract needs documentation
+- `src/routes/agent-definitions.ts`
 
 Validation:
-- `npm test -- --run <directly-related-tests>`
 - `npm run typecheck`
-- `npm --prefix container/agent-runner run build:runner`
+- `npm run build:backend`
 - `git diff --check`
 - `./scripts/review.sh`
+- `rg -n "\\.codex/agents|~/.claude/agents|getLegacyAgentsDir|migrateLegacyAgents|legacy.*agent definition|agent definition.*legacy" AGENTS.md RUNBOOKS docs src web tests .gitignore container`
 
 Status:
 - done
@@ -46,21 +40,10 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Keep this scoped to default reply policy. Do not change Feishu card rendering, queueing, or restart behavior unless a direct test shows the policy cannot be enforced without it.
-- The policy should not prevent detailed answers when the user explicitly asks for detail, commands, logs, code explanation, or review findings.
-- Implemented:
-  - Added `container/agent-runner/src/reply-policy.ts` as the tested minimal-necessary reply policy contract.
-  - Injected the policy into the agent-runner system prompt as `<reply-policy>`.
-  - Added `tests/minimal-reply-policy.test.ts` for default rule, include/exclude, and explicit-detail exceptions.
-- Validation evidence:
-  - `npm test -- --run tests/minimal-reply-policy.test.ts`
-  - `npm run typecheck`
-  - `npm --prefix container/agent-runner run build:runner`
-  - `git diff --check`
-  - `./node_modules/.bin/prettier --check container/agent-runner/src/reply-policy.ts tests/minimal-reply-policy.test.ts`
-  - `./scripts/review.sh`
-- Review result:
-  - passed semantic review against `RUNBOOKS/Review.md`; scope stayed limited to reply-policy prompt contract and focused tests.
+- One-time local migration check found no `~/.claude/agents` directory, created/verified `~/.agents/agents`, and copied zero files.
+- Removed `getLegacyAgentsDir()` and `migrateLegacyAgents()`; `discoverAgents()` and `getAgentDetail()` now read only `~/.agents/agents`.
+- Consolidated agent metadata assembly into `buildAgentDefinition()`.
+- Broader `legacy/fallback/compat` scan still finds unrelated database migrations, external runtime fallbacks, IM old-data routing, and UI fallback text. Those are not the agent-definition directory compatibility path and were left untouched.
 
 ## Working Rules
 
@@ -80,13 +63,7 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `container/agent-runner/src/index.ts`
-- `container/agent-runner/src/reply-policy.ts`
-- `tests/minimal-reply-policy.test.ts`
-
-Last failure summary:
-- Initial extra Prettier check flagged `tests/minimal-reply-policy.test.ts`; fixed with Prettier and reran the direct test plus full milestone validation.
+- `src/routes/agent-definitions.ts`
 
 Next step:
-- Commit the minimal necessary reply policy contract, then apply it with a safe service restart.
+- Commit the cleanup and apply it with a safe service restart.
