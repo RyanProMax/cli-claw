@@ -489,6 +489,75 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(notifyNewImMessage).toHaveBeenCalled();
   });
 
+  test('retires unavailable startup backfill chats and continues with other chats', async () => {
+    const startupThreshold = Date.now() - 5_000;
+    const onBotRemovedFromGroup = vi.fn();
+    hoisted.messageListSpy
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            code: 230002,
+            msg: 'Bot/User can NOT be out of the chat.',
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              message_id: 'msg-active-backfill',
+              create_time: String(startupThreshold + 1_000),
+              msg_type: 'text',
+              body: {
+                content: JSON.stringify({ text: 'active chat message' }),
+              },
+              chat_type: 'p2p',
+              sender: {
+                sender_id: {
+                  open_id: 'user-open-id',
+                },
+              },
+            },
+          ],
+        },
+      });
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      startupBackfillIgnoreMessagesBefore: startupThreshold,
+      startupBackfillChatIds: ['stale-chat', 'active-chat'] as any,
+      onBotRemovedFromGroup,
+    } as any);
+
+    expect(onBotRemovedFromGroup).toHaveBeenCalledWith('feishu:stale-chat');
+    expect(hoisted.messageListSpy).toHaveBeenNthCalledWith(1, {
+      params: expect.objectContaining({
+        container_id: 'stale-chat',
+      }),
+    });
+    expect(hoisted.messageListSpy).toHaveBeenNthCalledWith(2, {
+      params: expect.objectContaining({
+        container_id: 'active-chat',
+      }),
+    });
+    expect(storeMessageDirect).toHaveBeenCalledWith(
+      'msg-active-backfill',
+      'feishu:active-chat',
+      'user-open-id',
+      'user-open-id',
+      'active chat message',
+      expect.any(String),
+      false,
+      { attachments: undefined, sourceJid: 'feishu:active-chat' },
+    );
+    expect(notifyNewImMessage).toHaveBeenCalledTimes(1);
+  });
+
   test('dedupes startup backfill against a message already delivered by live ws during connect', async () => {
     const startupThreshold = Date.now() - 5_000;
     const sharedMessage = {

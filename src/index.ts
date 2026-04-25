@@ -62,6 +62,7 @@ import {
   getRouterState,
   getRouterStateByPrefix,
   deleteRouterState,
+  deleteRegisteredGroup,
   getTaskById,
   getUserHomeGroup,
   initDatabase,
@@ -7976,14 +7977,30 @@ function buildOnNewChat(
 
 /**
  * Build the onBotRemovedFromGroup callback.
- * When bot is removed from a Feishu group or the group is disbanded,
- * clear any IM binding (agent or main conversation).
+ * When bot is removed from an IM group or the group is disbanded,
+ * retire that IM source row while preserving workspace folders and history.
  */
 function buildOnBotRemovedFromGroup(): (chatJid: string) => void {
   return (chatJid: string) => {
-    unbindImGroup(
-      chatJid,
-      'Auto-unbound IM group: bot removed or group disbanded',
+    if (!getChannelType(chatJid)) return;
+    const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
+    if (!group) return;
+
+    const hadBinding = Boolean(group.target_agent_id || group.target_main_jid);
+    if (hadBinding) {
+      unbindImGroup(
+        chatJid,
+        'Auto-unbound IM group: bot removed or group disbanded',
+      );
+    }
+
+    deleteRegisteredGroup(chatJid);
+    delete registeredGroups[chatJid];
+    imSendFailCounts.delete(chatJid);
+    imHealthCheckFailCounts.delete(chatJid);
+    logger.info(
+      { chatJid, folder: group.folder, hadBinding },
+      'Retired unavailable IM group source',
     );
   };
 }

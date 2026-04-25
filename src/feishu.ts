@@ -482,6 +482,55 @@ function buildInteractiveCard(text: string): object {
   return buildStaticReplyCard(text);
 }
 
+function readNestedValue(source: unknown, path: string[]): unknown {
+  let current = source as Record<string, unknown> | null | undefined;
+  for (const key of path) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = current[key] as Record<string, unknown> | null | undefined;
+  }
+  return current;
+}
+
+function getFeishuErrorCode(err: unknown): number | null {
+  const candidates = [
+    readNestedValue(err, ['response', 'data', 'code']),
+    readNestedValue(err, ['data', 'code']),
+    readNestedValue(err, ['code']),
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number') return candidate;
+    if (typeof candidate === 'string') {
+      const parsed = Number(candidate);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function getFeishuErrorMessage(err: unknown): string | null {
+  const candidates = [
+    readNestedValue(err, ['response', 'data', 'msg']),
+    readNestedValue(err, ['data', 'msg']),
+    readNestedValue(err, ['response', 'data', 'message']),
+    readNestedValue(err, ['data', 'message']),
+    readNestedValue(err, ['message']),
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+function isFeishuChatUnavailableError(err: unknown): boolean {
+  if (getFeishuErrorCode(err) === 230002) return true;
+  const message = getFeishuErrorMessage(err);
+  return message
+    ? /bot\/user can not be out of the chat/i.test(message)
+    : false;
+}
+
 // ─── Factory Function ──────────────────────────────────────────
 
 /**
@@ -528,6 +577,36 @@ export function createFeishuConnection(
     const prev = lastCreateTimeByChat.get(chatId) || 0;
     if (createTimeMs > prev) {
       lastCreateTimeByChat.set(chatId, createTimeMs);
+    }
+  }
+
+  function retireUnavailableChatFromBackfill(
+    chatId: string,
+    err: unknown,
+  ): void {
+    const chatJid = `feishu:${chatId}`;
+    knownChatIds.delete(chatId);
+    chatTypeById.delete(chatId);
+    lastCreateTimeByChat.delete(chatId);
+    lastMessageIdByChat.delete(chatId);
+    ackReactionByChat.delete(chatId);
+    typingReactionByChat.delete(chatId);
+    logger.warn(
+      {
+        chatId,
+        chatJid,
+        errorCode: getFeishuErrorCode(err),
+        message: getFeishuErrorMessage(err),
+      },
+      'Feishu chat unavailable during backfill; removed from active backfill set',
+    );
+    try {
+      connectOptions?.onBotRemovedFromGroup?.(chatJid);
+    } catch (callbackErr) {
+      logger.warn(
+        { chatJid, err: callbackErr },
+        'Feishu unavailable-chat cleanup callback failed',
+      );
     }
   }
 
@@ -1320,6 +1399,10 @@ export function createFeishuConnection(
         try {
           await backfillChatMessages(chatId, sinceMs);
         } catch (err) {
+          if (isFeishuChatUnavailableError(err)) {
+            retireUnavailableChatFromBackfill(chatId, err);
+            continue;
+          }
           logger.warn({ err, chatId, reason }, 'Feishu chat backfill failed');
         }
       }
