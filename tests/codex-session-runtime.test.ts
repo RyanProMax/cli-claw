@@ -4,6 +4,8 @@ import {
   appendCodexTurnChunk,
   buildCodexAcpConfigOverrides,
   buildCodexAcpLaunchArgs,
+  formatCodexRuntimeError,
+  isCodexContextWindowError,
   stripCodexRuntimeDiagnosticPrefix,
 } from '../container/agent-runner/src/codex-session-runtime.ts';
 
@@ -110,5 +112,46 @@ describe('codex ACP runtime overrides', () => {
       text: '我看一下当前状态。',
       lastMessageUuid: 'msg-1',
     });
+  });
+
+  test('formats Codex context-window JSON-RPC errors into a clear recovery hint', () => {
+    const error = JSON.stringify(
+      {
+        message: 'Internal error',
+        code: -32603,
+        data: {
+          message:
+            "Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.",
+          codex_error_info: 'context_window_exceeded',
+        },
+      },
+      null,
+      2,
+    );
+
+    expect(isCodexContextWindowError(error)).toBe(true);
+    const formatted = formatCodexRuntimeError(error, { isCodexRuntime: true });
+    expect(formatted).toBe(
+      'Codex 上下文窗口已满，当前会话历史太长，无法继续。请发送 /clear 清除当前会话上下文后重试，或在新会话里重新描述需求。',
+    );
+    expect(formatted).not.toContain('Internal error');
+    expect(formatted).not.toContain('context_window_exceeded');
+  });
+
+  test('keeps Codex auth and quota errors user-facing after formatting', () => {
+    expect(
+      formatCodexRuntimeError(
+        'codex error: auth_required, please login before continuing',
+      ),
+    ).toBe('Codex CLI 未登录。请先在服务器上执行：codex login');
+
+    expect(
+      formatCodexRuntimeError(`
+        visit https://chatgpt.com/codex/settings/usage to purchase more credits
+        or try again at 1:41 AM. Some(UsageLimitExceeded)
+      `),
+    ).toBe(
+      'Codex CLI 用量已用尽。请前往 https://chatgpt.com/codex/settings/usage 购买额度，或在 1:41 AM 后重试。',
+    );
   });
 });

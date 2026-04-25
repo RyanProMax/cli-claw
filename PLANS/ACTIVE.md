@@ -1,34 +1,37 @@
-# Agent Definition Cleanup
+# Codex Context Window Overflow Handling
 
 ## Goal
 
-- Remove the runtime compatibility migration from legacy agent definition paths.
-- Keep user agent definitions owned by `~/.agents/agents/*.md` only.
-- Simplify duplicated metadata assembly in the agent definition route.
+- Fix the user-visible `context_window_exceeded` / `Codex ran out of room in the model's context window` failure.
+- Return a useful recoverable message instead of a raw internal JSON error.
+- Keep the change narrowly scoped to Codex runtime error handling and regression coverage.
 
 ## Done when
 
-- Legacy agent-definition migration code is gone.
-- A repository scan shows no remaining `.codex/agents` or `~/.claude/agents` compatibility references.
-- Validation and review pass.
+- Codex context-window exhaustion is classified and surfaced as an actionable user-facing failure.
+- Raw `Internal error` JSON payloads for this case no longer leak as the assistant reply.
+- Related tests, typecheck, runner build, diff hygiene, and review pass.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- One-time local migration check, remove legacy agent-directory compatibility code, and simplify the touched route.
+- Locate the Codex ACP error path for `context_window_exceeded`, add targeted normalization / guidance, and cover it with tests.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/routes/agent-definitions.ts`
+- `container/agent-runner/src/**`
+- `tests/**`
+- `shared/**` only if the existing error contract requires a shared helper
+- `docs/RUNTIME.md` only if the runtime contract changes
 
 Validation:
+- `npm test -- --run tests/codex-session-runtime.test.ts`
 - `npm run typecheck`
-- `npm run build:backend`
+- `npm --prefix container/agent-runner run build:runner`
 - `git diff --check`
 - `./scripts/review.sh`
-- `rg -n "\\.codex/agents|~/.claude/agents|getLegacyAgentsDir|migrateLegacyAgents|legacy.*agent definition|agent definition.*legacy" AGENTS.md RUNBOOKS docs src web tests .gitignore container`
 
 Status:
 - done
@@ -40,12 +43,19 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- One-time local migration check found no `~/.claude/agents` directory, created/verified `~/.agents/agents`, and copied zero files.
-- Removed `getLegacyAgentsDir()` and `migrateLegacyAgents()`; `discoverAgents()` and `getAgentDetail()` now read only `~/.agents/agents`.
-- Consolidated agent metadata assembly into `buildAgentDefinition()`.
-- Broader `legacy/fallback/compat` scan still finds unrelated database migrations, external runtime fallbacks, IM old-data routing, and UI fallback text. Those are not the agent-definition directory compatibility path and were left untouched.
-- Committed as `0880310 Simplify agent definition lookup`.
-- Safe restart passed via `restart-2026-04-25T02-47-27-411Z-76b8ea34`; current backend health check returned healthy after restart.
+- Initial symptom: `{"message":"Internal error","code":-32603,"data":{"message":"Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.","codex_error_info":"context_window_exceeded"}}`.
+- Added Codex context-window detection for `context_window_exceeded`, "ran out of room in the model's context window", and "Start a new thread or clear earlier history".
+- Codex runtime errors now format this case as an actionable `/clear` / new-session hint instead of leaking the raw JSON-RPC `Internal error` payload.
+- Kept existing Codex auth and quota messages covered after moving the formatter into `codex-session-runtime.ts`.
+- Validation passed:
+  - `npm test -- --run tests/codex-session-runtime.test.ts`
+  - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build:runner`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`; no docs update required because the public runtime contract did not change.
+- Committed as the current task commit and applied through safe restart intent `restart-2026-04-25T04-26-03-941Z-08c9dc90`.
+- Post-restart health check returned `{"status":"healthy","checks":{"database":true,"queue":true}}` on port `3000`.
 
 ## Working Rules
 
@@ -65,7 +75,9 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/routes/agent-definitions.ts`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `container/agent-runner/src/index.ts`
+- `tests/codex-session-runtime.test.ts`
 
 Next step:
-- None; cleanup is committed, applied, and healthy.
+- None; fix is committed, applied, and healthy.

@@ -61,6 +61,7 @@ import { readCodexCliConfig } from './codex-config.js';
 import {
   appendCodexTurnChunk,
   buildCodexAcpLaunchArgs,
+  formatCodexRuntimeError,
   stripCodexRuntimeDiagnosticPrefix,
 } from './codex-session-runtime.js';
 import { buildMinimalNecessaryReplyGuidelines } from './reply-policy.js';
@@ -647,6 +648,9 @@ function isContextOverflowError(msg: string): boolean {
     /context.*too large/i,
     /exceeds.*token limit/i,
     /context window.*exceeded/i,
+    /context_window_exceeded/i,
+    /ran out of room in (?:the )?model'?s context window/i,
+    /start a new thread or clear earlier history/i,
   ];
   return patterns.some((pattern) => pattern.test(msg));
 }
@@ -2719,46 +2723,13 @@ function forceExitWithSafetyNet(code: number): never {
   process.exit(code);
 }
 
-function formatCodexRuntimeError(errorMessage: string): string {
-  const normalized = errorMessage.replace(/\s+/g, ' ').trim();
-  if (!normalized) return 'Codex CLI 运行失败，请稍后重试。';
-
-  const isCodexRuntime =
-    activeRuntimeIdentity?.agentType === 'codex' ||
-    /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized) ||
-    /UsageLimitExceeded/i.test(normalized) ||
-    /codex/i.test(normalized);
-  if (!isCodexRuntime) return normalized;
-
-  if (
-    /auth_required|login required|please login|not logged in/i.test(normalized)
-  ) {
-    return 'Codex CLI 未登录。请先在服务器上执行：codex login';
-  }
-
-  if (
-    /UsageLimitExceeded/i.test(normalized) ||
-    /purchase more credits/i.test(normalized) ||
-    /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized)
-  ) {
-    const usageUrl =
-      normalized.match(
-        /https:\/\/chatgpt\.com\/codex\/settings\/usage/i,
-      )?.[0] || 'https://chatgpt.com/codex/settings/usage';
-    const retryAt = normalized.match(/try again at ([^.]+)\.?/i)?.[1]?.trim();
-    return retryAt
-      ? `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或在 ${retryAt} 后重试。`
-      : `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或稍后重试。`;
-  }
-
-  return normalized;
-}
-
 function buildVisibleRuntimeErrorOutput(
   errorMessage: string,
   sessionId?: string,
 ): ContainerOutput {
-  const friendlyError = formatCodexRuntimeError(errorMessage);
+  const friendlyError = formatCodexRuntimeError(errorMessage, {
+    isCodexRuntime: activeRuntimeIdentity?.agentType === 'codex',
+  });
   return {
     status: 'error',
     result: friendlyError,

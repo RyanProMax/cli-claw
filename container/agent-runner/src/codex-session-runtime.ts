@@ -8,14 +8,25 @@ export interface CodexTurnAccumulator {
   lastMessageUuid?: string;
 }
 
+export interface CodexRuntimeErrorFormatOptions {
+  isCodexRuntime?: boolean;
+}
+
 const CODEX_RUNTIME_DIAGNOSTIC_PREFIXES = [
   /^Model metadata for (?:`[^`]+`|\S+) not found\. Defaulting to fallback metadata; this can degrade performance and cause issues\.\s*/u,
 ];
+
+const CODEX_CONTEXT_WINDOW_ERROR_MESSAGE =
+  'Codex 上下文窗口已满，当前会话历史太长，无法继续。请发送 /clear 清除当前会话上下文后重试，或在新会话里重新描述需求。';
 
 function normalizeText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function normalizeRuntimeErrorText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function normalizeModelId(value: string | null | undefined): string | null {
@@ -90,6 +101,60 @@ export function stripCodexRuntimeDiagnosticPrefix(text: string): string {
     }
   }
   return next;
+}
+
+export function isCodexContextWindowError(errorMessage: string): boolean {
+  const normalized = normalizeRuntimeErrorText(errorMessage);
+  if (!normalized) return false;
+  return (
+    /context[_ ]window[_ ]exceeded/i.test(normalized) ||
+    /ran out of room in (?:the )?model'?s context window/i.test(normalized) ||
+    /start a new thread or clear earlier history/i.test(normalized) ||
+    /maximum context length/i.test(normalized) ||
+    /prompt is too long/i.test(normalized)
+  );
+}
+
+export function formatCodexRuntimeError(
+  errorMessage: string,
+  options: CodexRuntimeErrorFormatOptions = {},
+): string {
+  const normalized = normalizeRuntimeErrorText(errorMessage);
+  if (!normalized) return 'Codex CLI 运行失败，请稍后重试。';
+
+  const isCodexRuntime =
+    options.isCodexRuntime === true ||
+    /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized) ||
+    /UsageLimitExceeded/i.test(normalized) ||
+    /codex/i.test(normalized);
+  if (!isCodexRuntime) return normalized;
+
+  if (isCodexContextWindowError(normalized)) {
+    return CODEX_CONTEXT_WINDOW_ERROR_MESSAGE;
+  }
+
+  if (
+    /auth_required|login required|please login|not logged in/i.test(normalized)
+  ) {
+    return 'Codex CLI 未登录。请先在服务器上执行：codex login';
+  }
+
+  if (
+    /UsageLimitExceeded/i.test(normalized) ||
+    /purchase more credits/i.test(normalized) ||
+    /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized)
+  ) {
+    const usageUrl =
+      normalized.match(
+        /https:\/\/chatgpt\.com\/codex\/settings\/usage/i,
+      )?.[0] || 'https://chatgpt.com/codex/settings/usage';
+    const retryAt = normalized.match(/try again at ([^.]+)\.?/i)?.[1]?.trim();
+    return retryAt
+      ? `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或在 ${retryAt} 后重试。`
+      : `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或稍后重试。`;
+  }
+
+  return normalized;
 }
 
 export function appendCodexTurnChunk(
