@@ -275,6 +275,67 @@ describe('restart recovery cursor handling', () => {
     ).toBe(true);
   });
 
+  test('blocks conversation-agent cursor commit when static IM delivery fails', async () => {
+    const { shouldCommitAgentConversationCursorAfterImDelivery } =
+      await loadIndexModule();
+
+    expect(
+      shouldCommitAgentConversationCursorAfterImDelivery({
+        replySourceImJid: 'feishu:chat-1',
+        streamingCardHandledIm: false,
+        staticImDeliverySucceeded: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCommitAgentConversationCursorAfterImDelivery({
+        replySourceImJid: 'feishu:chat-1',
+        streamingCardHandledIm: false,
+        staticImDeliverySucceeded: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldCommitAgentConversationCursorAfterImDelivery({
+        replySourceImJid: 'feishu:chat-1',
+        streamingCardHandledIm: true,
+        staticImDeliverySucceeded: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldCommitAgentConversationCursorAfterImDelivery({
+        replySourceImJid: null,
+        streamingCardHandledIm: false,
+        staticImDeliverySucceeded: null,
+      }),
+    ).toBe(true);
+  });
+
+  test('does not save conversation-agent partial text after a final reply already exists', async () => {
+    const { shouldSaveAgentConversationPartialReply } =
+      await loadIndexModule();
+
+    expect(
+      shouldSaveAgentConversationPartialReply({
+        currentTurnCommitted: false,
+        hasFinalReply: true,
+        hasAccumulatedText: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSaveAgentConversationPartialReply({
+        currentTurnCommitted: false,
+        hasFinalReply: false,
+        hasAccumulatedText: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSaveAgentConversationPartialReply({
+        currentTurnCommitted: true,
+        hasFinalReply: false,
+        hasAccumulatedText: true,
+      }),
+    ).toBe(false);
+  });
+
   test('treats normal user and IM rows as restart-recoverable pending work', async () => {
     const { isRecoverableRestartPendingMessage } = await loadIndexModule();
 

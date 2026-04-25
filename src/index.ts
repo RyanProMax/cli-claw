@@ -1339,6 +1339,31 @@ export function shouldCommitCursorAfterRoutedImDelivery({
   return !requiresRoutedImDelivery || routedImDeliverySucceeded === true;
 }
 
+export function shouldCommitAgentConversationCursorAfterImDelivery({
+  replySourceImJid,
+  streamingCardHandledIm,
+  staticImDeliverySucceeded,
+}: {
+  replySourceImJid: string | null;
+  streamingCardHandledIm: boolean;
+  staticImDeliverySucceeded: boolean | null;
+}): boolean {
+  if (!replySourceImJid || streamingCardHandledIm) return true;
+  return staticImDeliverySucceeded === true;
+}
+
+export function shouldSaveAgentConversationPartialReply({
+  currentTurnCommitted,
+  hasFinalReply,
+  hasAccumulatedText,
+}: {
+  currentTurnCommitted: boolean;
+  hasFinalReply: boolean;
+  hasAccumulatedText: boolean;
+}): boolean {
+  return !currentTurnCommitted && !hasFinalReply && hasAccumulatedText;
+}
+
 const NON_RECOVERABLE_RESTART_SOURCE_KINDS: ReadonlySet<MessageSourceKind> =
   new Set(['scheduled_task_prompt', 'user_command']);
 
@@ -6604,9 +6629,25 @@ async function processAgentConversation(
     id: lastProcessed.id,
   };
   let cursorLifecycleRecorded = false;
+  let agentCursorCommitBlockedReason: string | null = null;
   const activeStreamingTurnKey = buildStreamingTurnStateKey(chatJid, agentId);
   const streamingSnapshotKey = resolveStreamingSnapshotKey(chatJid, agentId);
+  const blockAgentCursorCommit = (reason: string): void => {
+    agentCursorCommitBlockedReason ??= reason;
+  };
   const commitCursor = (): void => {
+    if (agentCursorCommitBlockedReason) {
+      logger.warn(
+        {
+          chatJid,
+          agentId,
+          virtualChatJid,
+          reason: agentCursorCommitBlockedReason,
+        },
+        'Skipping conversation agent cursor commit until IM delivery succeeds',
+      );
+      return;
+    }
     if (!cursorLifecycleRecorded) {
       recordLifecycleForMessages({
         messages: missedMessages,
@@ -7056,6 +7097,15 @@ async function processAgentConversation(
               'Agent conversation: IM send failed after all retries, message lost',
             );
           }
+          if (
+            !shouldCommitAgentConversationCursorAfterImDelivery({
+              replySourceImJid,
+              streamingCardHandledIm: streamingCardHandledIM,
+              staticImDeliverySucceeded: imSent,
+            })
+          ) {
+            blockAgentCursorCommit('routed_im_delivery_failed');
+          }
         } else if (!replySourceImJid) {
           logger.debug(
             { chatJid, agentId, sourceKind: output.sourceKind },
@@ -7262,7 +7312,18 @@ async function processAgentConversation(
   } finally {
     if (idleTimer) clearTimeout(idleTimer);
 
-    const wasInterrupted = agentStreamInterrupted && !isCurrentTurnCommitted();
+    const hasAgentFinalReply = !!lastAgentReplyMsgId;
+    const hasAgentAccumulatedText =
+      !!agentStreamingPresentationText.answerText.trim() ||
+      !!agentStreamingPresentationText.commentaryText.trim();
+    const shouldSavePartialReply = (): boolean =>
+      shouldSaveAgentConversationPartialReply({
+        currentTurnCommitted: isCurrentTurnCommitted(),
+        hasFinalReply: hasAgentFinalReply,
+        hasAccumulatedText: hasAgentAccumulatedText,
+      });
+
+    const wasInterrupted = agentStreamInterrupted && shouldSavePartialReply();
 
     // ── Streaming card cleanup ──
     const activeAgentStreamingSession = agentStreamingSession;
@@ -7379,11 +7440,7 @@ async function processAgentConversation(
     }
 
     // ── 兜底：进程异常退出导致累积文本未持久化 ──
-    if (
-      !isCurrentTurnCommitted() &&
-      (agentStreamingPresentationText.answerText.trim() ||
-        agentStreamingPresentationText.commentaryText.trim())
-    ) {
+    if (shouldSavePartialReply()) {
       try {
         const provisionalUsage = buildProvisionalTokenUsage(
           agentConversationStartedAt,
