@@ -251,6 +251,30 @@ describe('restart recovery cursor handling', () => {
     });
   });
 
+  test('blocks cursor commit when required routed IM delivery fails', async () => {
+    const { shouldCommitCursorAfterRoutedImDelivery } =
+      await loadIndexModule();
+
+    expect(
+      shouldCommitCursorAfterRoutedImDelivery({
+        requiresRoutedImDelivery: true,
+        routedImDeliverySucceeded: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCommitCursorAfterRoutedImDelivery({
+        requiresRoutedImDelivery: true,
+        routedImDeliverySucceeded: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldCommitCursorAfterRoutedImDelivery({
+        requiresRoutedImDelivery: false,
+        routedImDeliverySucceeded: null,
+      }),
+    ).toBe(true);
+  });
+
   test('treats normal user and IM rows as restart-recoverable pending work', async () => {
     const { isRecoverableRestartPendingMessage } = await loadIndexModule();
 

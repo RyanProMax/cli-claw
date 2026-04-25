@@ -204,6 +204,49 @@ Risks / Notes / Handoff:
   - The change is observability-only and does not alter queue, retry, delivery, or cursor semantics.
   - The directly related lifecycle test covers Feishu-origin routed work and ignores web-origin work.
 
+### Milestone 5
+
+Objective:
+- Prevent main-session Feishu routed replies from committing the message cursor when the static IM delivery path fails after retries.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to the main-session routed static IM path. Conversation-agent routed delivery, Feishu channel readiness gating, and backfill ownership coverage stay in `PLANS/ROADMAP.md`.
+- TDD red observed before the helper existed: `npm test -- --run tests/restart-recovery.test.ts` failed with `shouldCommitCursorAfterRoutedImDelivery is not a function`.
+- Added a cursor-commit policy helper and wired `processGroupMessages` so main-session routed static IM delivery is awaited, records `im_delivered` lifecycle evidence, and blocks cursor commit when delivery fails after retries.
+- When the cursor gate is blocked, `processGroupMessages` returns `false` from post-run commit points so `GroupQueue` keeps the work retryable instead of treating the turn as successfully drained.
+- Validation passed:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change targets only main-session routed static IM delivery.
+  - The remaining conversation-agent routed delivery, readiness gating, and backfill ownership fixes remain in `PLANS/ROADMAP.md`.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -215,7 +258,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 4
+- Milestone 5
 
 Current status:
 - done
@@ -232,6 +275,7 @@ Changed files:
 - `tests/im-message-lifecycle.test.ts`
 - `tests/feishu-connection.test.ts`
 - `tests/im-command-utils.test.ts`
+- `tests/restart-recovery.test.ts`
 
 Last failure summary:
 - Expected TDD reds:
@@ -240,9 +284,10 @@ Last failure summary:
   - Missing compact lifecycle status formatter.
   - Missing post-store lifecycle helper for Feishu-origin routed messages.
   - Missing dead-letter lifecycle helper for pending Feishu-origin messages.
+  - Missing routed IM cursor commit policy helper.
 
 Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 with the next reliability fix: delivery/cursor semantics, startup recovery readiness, or Feishu backfill ownership coverage.
+- Continue RM-2026-04-25-01 with the next reliability fix: conversation-agent routed delivery cursor semantics, startup recovery readiness, or Feishu backfill ownership coverage.

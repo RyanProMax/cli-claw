@@ -1329,6 +1329,16 @@ export function resolveMessageProcessingCursor(
   return lastAgentTimestampMap[chatJid] || EMPTY_CURSOR;
 }
 
+export function shouldCommitCursorAfterRoutedImDelivery({
+  requiresRoutedImDelivery,
+  routedImDeliverySucceeded,
+}: {
+  requiresRoutedImDelivery: boolean;
+  routedImDeliverySucceeded: boolean | null;
+}): boolean {
+  return !requiresRoutedImDelivery || routedImDeliverySucceeded === true;
+}
+
 const NON_RECOVERABLE_RESTART_SOURCE_KINDS: ReadonlySet<MessageSourceKind> =
   new Set(['scheduled_task_prompt', 'user_command']);
 
@@ -3368,11 +3378,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return runningInChat[0]?.id || null;
   };
 
-  const commitCursor = (): void => {
+  let cursorCommitBlockedReason: string | null = null;
+  const blockCursorCommit = (reason: string): void => {
+    cursorCommitBlockedReason ??= reason;
+  };
+  const commitCursor = (): boolean => {
+    if (cursorCommitBlockedReason) {
+      logger.warn(
+        { chatJid, reason: cursorCommitBlockedReason },
+        'Skipping cursor commit until IM delivery succeeds',
+      );
+      return false;
+    }
     advanceCursors(chatJid, activeTurnCursor);
     if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
     }
+    return true;
   };
 
   if (effectiveGroup.created_by) {
@@ -3982,11 +4004,26 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               // Streaming card already handles IM delivery for the first reply.
               if (replySourceImJid && replySourceImJid !== chatJid) {
                 if (!streamingCardHandledIM && !sentReply) {
-                  sendImWithFailTracking(
+                  const imSent = await sendImWithRetry(
                     replySourceImJid,
                     visibleText,
                     localImagePaths,
                   );
+                  recordLifecycleForMessages({
+                    messages: missedMessages,
+                    stage: 'im_delivered',
+                    status: imSent ? 'ok' : 'error',
+                    reason: imSent ? null : 'send_failed_after_retries',
+                    details: { delivery: 'static_message' },
+                  });
+                  if (
+                    !shouldCommitCursorAfterRoutedImDelivery({
+                      requiresRoutedImDelivery: true,
+                      routedImDeliverySucceeded: imSent,
+                    })
+                  ) {
+                    blockCursorCommit('routed_im_delivery_failed');
+                  }
                 }
               }
 
@@ -4161,8 +4198,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // Otherwise return false to allow retry (H-1 audit fix).
   if (!output) {
     if (sentReply) {
-      commitCursor();
-      return true;
+      return commitCursor();
     }
     return false;
   }
@@ -4197,8 +4233,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
 
     sendSystemMessage(chatJid, 'context_reset', `会话已自动重置：${detail}`);
-    commitCursor();
-    return true;
+    return commitCursor();
   }
 
   // Container closed during query (e.g. home folder drain) without sending a reply:
@@ -4299,8 +4334,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         { group: group.name, error: overflowMsg },
         'Context overflow detected, skipping retry',
       );
-      commitCursor();
-      return true;
+      return commitCursor();
     }
 
     // ── OOM auto-recovery: detect consecutive exit code 137 (OOM) ──
@@ -4357,8 +4391,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           'context_reset',
           '会话文件过大导致内存溢出（OOM），已自动重置会话。之前的对话上下文已清除，请重新描述您的需求。',
         );
-        commitCursor();
-        return true;
+        return commitCursor();
       }
     } else if (consecutiveOomExits[effectiveGroup.folder]) {
       // Non-OOM error: reset the consecutive counter only if it was set
@@ -4381,7 +4414,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   // Final fallback for silent-success paths (no visible reply).
-  commitCursor();
+  if (!commitCursor()) {
+    return false;
+  }
 
   return true;
 }
