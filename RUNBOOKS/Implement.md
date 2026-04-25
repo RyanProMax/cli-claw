@@ -9,7 +9,7 @@ This file defines the default loop for the main Codex agent when executing a com
 - Local active plan: `PLANS/ACTIVE.md`
 - Review gate: `RUNBOOKS/Review.md`
 - Handoff rules: `RUNBOOKS/Handoff.md`
-- Optional role cards: `.codex/agents/*.md`
+- Optional role cards: `.agents/*.md`
 
 ## Execution Loop
 

@@ -50,7 +50,7 @@
 │       ├── workspace-config.ts     # 工作区 .claude/ 配置、技能、MCP 元数据
 │       ├── skills.ts               # 技能浏览、安装、管理
 │       ├── agents.ts               # Agent 定义与管理接口
-│       ├── agent-definitions.ts    # 预定义 Agent 路由
+│       ├── agent-definitions.ts    # 用户级 ~/.agents/agents 定义管理路由
 │       ├── usage.ts                # 用量与计费相关接口
 │       ├── billing.ts              # 账单与套餐接口
 │       ├── browse.ts               # 浏览器 / 网页能力相关接口
@@ -120,12 +120,11 @@
 │   └── release-check.sh            # npm publish 前本地发布检查入口
 ├── ops/
 │   └── install-launch-agent.sh     # 本机 launchd LaunchAgent 安装/状态/卸载入口
-├── .codex/
-│   └── agents/
-│       ├── reader.md               # 只读探索子角色
-│       ├── implementer.md          # 窄写入实施子角色
-│       ├── tester.md               # 验证 / 复现子角色
-│       └── reviewer.md             # 差异审查子角色
+├── .agents/
+│   ├── reader.md                   # 只读探索子角色
+│   ├── implementer.md              # 窄写入实施子角色
+│   ├── tester.md                   # 验证 / 复现子角色
+│   └── reviewer.md                 # 差异审查子角色
 └── docs/
     ├── ARCHITECTURE.md             # 系统分层与核心数据流
     ├── RUNTIME.md                  # Claude / Codex 运行时矩阵与约束

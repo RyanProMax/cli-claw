@@ -46,5 +46,5 @@ Cli Claw 里有三类容易混淆的数据：
 ## 边界
 
 - `.claude/`、`~/.codex/` 下的 settings / skills / config / native sessions 是外部 runtime 状态，不是 Cli Claw 项目长期记忆。
-- `.codex/agents/*.md` 是仓库执行协议角色定义，不是用户或工作区记忆。
+- `.agents/*.md` 是仓库执行协议角色定义，`~/.agents/agents/*.md` 是用户级 Agent 定义；二者都不是用户或工作区记忆。
 - 修改记忆布局、写入触发、查询范围或保留策略时，必须同步更新本文、`AGENTS.md` 和相关 owner 文档。

@@ -27,7 +27,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 
 ## 执行协议文件
 
-- 仓库级执行协议放在 tracked 文件里：`AGENTS.md`、`PLANS/ROADMAP.md`、`PLANS/_TEMPLATE.md`、`RUNBOOKS/*.md`、`.codex/agents/*.md`。
+- 仓库级执行协议放在 tracked 文件里：`AGENTS.md`、`PLANS/ROADMAP.md`、`PLANS/_TEMPLATE.md`、`RUNBOOKS/*.md`、`.agents/*.md`。
 - `PLANS/ROADMAP.md` 负责跨轮次长期跟进；`PLANS/ACTIVE.md` 是当前复杂任务的本地临时计划，不作为长期协议入口。
 - `docs/.local/PLAN.md` 若有人自行创建，只能视为个人草稿。
 
@@ -47,7 +47,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 - 只有在任务可拆成窄职责、低耦合、可并行的子问题时，才允许显式派生 subagents。
 - scope 未锁定、验证标准未写清、或当前主路径立即被阻塞时，不要先派生 subagents。
 - 主 agent 负责汇总、决策、最终改动与 milestone 推进，不把主路径责任外包给 subagent。
-- 角色定义统一看 `.codex/agents/*.md`：
+- 角色定义统一看 `.agents/*.md`：
   - `reader`：只读探索
   - `implementer`：窄写入实施
   - `tester`：复现与验证

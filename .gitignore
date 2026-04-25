@@ -44,7 +44,9 @@ bun.lockb
 .trae/
 .coco/
 .agent/
-.agents/
+.agents/*
+!.agents/
+!.agents/*.md
 skills-lock.json
 --connect
 log/

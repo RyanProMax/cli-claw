@@ -1,17 +1,16 @@
-# Memory Owner Doc Rename
+# Agent Definition Directory Migration
 
 ## Goal
 
-- Rename `docs/CONTEXT.md` to `docs/MEMORY.md`.
-- Keep `MEMORY.md` focused on Cli Claw memory/context retention only.
-- Move or point non-memory facts to their owner docs, especially execution protocol facts to `AGENTS.md`.
-- Update references so `CONTEXT.md` is no longer treated as an owner doc.
+- Move tracked agent role cards from `.codex/agents/` to `.agents/`.
+- Use `.agents` as the unified location for agent definitions instead of Codex- or Claude-specific directories.
+- Update docs and the Agent Definitions API to point at the unified layout.
 
 ## Done when
 
-- `docs/MEMORY.md` explains the current memory mechanism, triggers, storage paths, retention/growth boundaries, and Claude/Codex session differences.
-- Non-memory content formerly in `docs/CONTEXT.md` is removed from the memory doc and represented in the appropriate owner doc.
-- References in `AGENTS.md`, `README.md`, `docs/*.md`, and module index use `docs/MEMORY.md`.
+- Repo role cards live under `.agents/*.md`.
+- Active docs and runbooks no longer point to `.codex/agents/*.md`.
+- Agent definition management stores user-global definitions under `~/.agents/agents`, with a compatibility path for old `~/.claude/agents` files.
 - Validation and review pass.
 
 ## Milestones
@@ -19,21 +18,24 @@
 ### Milestone 1
 
 Objective:
-- Rename and rewrite the memory owner doc, then update owner-doc references and minimal extracted content.
+- Migrate repo role cards and user-global agent definition ownership to `.agents`.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
+- `.gitignore`
 - `AGENTS.md`
-- `README.md`
-- `docs/ARCHITECTURE.md`
-- `docs/ENGINEERING.md`
+- `RUNBOOKS/Implement.md`
 - `docs/MEMORY.md`
 - `docs/MODULE.md`
 - `docs/RUNTIME.md`
-- remove `docs/CONTEXT.md`
+- `.agents/*.md`
+- remove `.codex/agents/*.md`
+- `src/routes/agent-definitions.ts`
+- directly related tests if needed
 
 Validation:
-- `rg -n "CONTEXT\\.md|docs/CONTEXT" AGENTS.md README.md docs`
+- `rg -n "\\.codex/agents|~/.claude/agents" AGENTS.md RUNBOOKS docs src web tests`
+- `npm run typecheck`
 - `git diff --check`
 - `./scripts/review.sh`
 
@@ -47,19 +49,21 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Keep this as a documentation-only change.
-- Do not duplicate the full workspace/session model in `MEMORY.md`; architecture/runtime owner docs should carry those boundaries.
+- Keep the migration scoped to agent definitions. Skills remain under the existing skills paths.
+- Preserve a compatibility read/migrate path for existing `~/.claude/agents` files.
 - Implemented:
-  - Replaced `docs/CONTEXT.md` with focused `docs/MEMORY.md`.
-  - Moved execution protocol ownership into `AGENTS.md`.
-  - Moved workspace/conversation identity and permission boundary notes into `docs/ARCHITECTURE.md`.
-  - Kept host cwd / runtime session / external Claude-Codex state in `docs/RUNTIME.md`.
+  - Moved tracked role cards from `.codex/agents/*.md` to `.agents/*.md`.
+  - Updated execution docs and runbooks to reference `.agents/*.md`.
+  - Updated the Agent Definitions API to use `~/.agents/agents`, copying legacy `~/.claude/agents/*.md` files on access when the new file is missing.
+  - Adjusted `.gitignore` so root `.agents/*.md` role cards are tracked while other `.agents` runtime content remains ignored.
 - Validation evidence:
-  - `rg -n "CONTEXT\\.md|docs/CONTEXT" AGENTS.md README.md docs` produced no matches.
+  - `rg -n "\\.codex/agents|~/.claude/agents" AGENTS.md RUNBOOKS docs src web tests` produced no matches.
+  - `npm run typecheck`
   - `git diff --check`
+  - `git diff --cached --check`
   - `./scripts/review.sh`
 - Review result:
-  - passed semantic review against `RUNBOOKS/Review.md`; change stayed documentation-only and inside the allowed scope.
+  - passed semantic review against `RUNBOOKS/Review.md`; scope stayed limited to agent definition directory ownership.
 
 ## Working Rules
 
@@ -75,21 +79,25 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- Done. `docs/MEMORY.md` is now the memory owner doc and all active owner-doc references point to it.
+- Done. Tracked role cards and user-global Agent definition management now use the unified `.agents` layout.
 
 Changed files:
 - `PLANS/ACTIVE.md`
+- `.gitignore`
+- `.agents/implementer.md`
+- `.agents/reader.md`
+- `.agents/reviewer.md`
+- `.agents/tester.md`
+- removed `.codex/agents/*.md`
 - `AGENTS.md`
-- `README.md`
-- `docs/ARCHITECTURE.md`
-- `docs/ENGINEERING.md`
+- `RUNBOOKS/Implement.md`
 - `docs/MEMORY.md`
 - `docs/MODULE.md`
 - `docs/RUNTIME.md`
-- removed `docs/CONTEXT.md`
+- `src/routes/agent-definitions.ts`
 
 Last failure summary:
 - None.
 
 Next step:
-- Commit the documentation-only change.
+- Commit the migration.

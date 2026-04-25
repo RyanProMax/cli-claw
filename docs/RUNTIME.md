@@ -141,7 +141,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 - `codex login`
   - Codex Runtime 的宿主机登录态
 
-仓库内还可以追踪与 Codex 工作流相关的角色文件，例如 `.codex/agents/*.md`。这些文件属于仓库执行协议，不等同于 `~/.codex/` 下的用户级配置。
+仓库内还可以追踪与 agent 工作流相关的角色文件，例如 `.agents/*.md`。这些文件属于仓库执行协议，不等同于 `~/.codex/` 或 `~/.agents/agents/` 下的用户级配置。
 
 应用包根目录从已安装模块位置解析；launch cwd 只参与 host 工作区默认执行目录的物化，不参与后端 build、web build 或 shared 资源定位。
 
