@@ -398,7 +398,7 @@ Current milestone:
 - Milestone 8
 
 Current status:
-- done
+- done; committed and safely restarted
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -422,9 +422,12 @@ Last failure summary:
   - Missing post-store lifecycle helper for Feishu-origin routed messages.
   - Missing dead-letter lifecycle helper for pending Feishu-origin messages.
   - Missing routed IM cursor commit policy helper.
+  - Missing Feishu startup backfill chat-id selection helper.
 
 Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Commit Milestone 8, then safely restart the running service because `src/index.ts` changed. Continue RM-2026-04-25-01 later with startup readiness or remaining mirror/direct delivery cursor semantics.
+- Milestone 8 is committed as `4ff9f2a Expand Feishu startup backfill coverage`.
+- Safe restart passed via `~/.cli-claw/ops/restarts/restart-2026-04-25T21-01-50-253Z-ca8afe4b.json`; current backend PID `15898` started at `2026-04-25T21:01:55.882Z` and `/api/health` is healthy on port `3000`.
+- Continue RM-2026-04-25-01 later with startup readiness or remaining mirror/direct delivery cursor semantics.
