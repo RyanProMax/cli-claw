@@ -13,6 +13,7 @@
 - Feishu inbound messages write durable lifecycle events that can be queried by chat/message id.
 - `/status` formatting has a compact section for recent Feishu lifecycle evidence.
 - Queue max-retry exhaustion records `dead_lettered` lifecycle events for pending Feishu-origin messages.
+- Startup Feishu backfill includes Feishu chats that share a workspace/folder with the connecting user even when the Feishu row is ownerless or has a stale owner.
 - `PLANS/ROADMAP.md` records the milestone progress.
 - Validation and review gate pass.
 
@@ -338,7 +339,50 @@ Risks / Notes / Handoff:
 - Review gate passed against `RUNBOOKS/Review.md`:
   - Scope stayed within the allowed files.
   - The change targets only interrupted partial delivery/cursor semantics.
-  - Remaining startup readiness, backfill ownership, and mirror/direct file delivery fixes remain in `PLANS/ROADMAP.md`.
+- Remaining startup readiness, backfill ownership, and mirror/direct file delivery fixes remain in `PLANS/ROADMAP.md`.
+
+### Milestone 8
+
+Objective:
+- Include ownerless or stale-owner Feishu registered chats in a user's startup backfill set when they share a workspace/folder with that user's registered groups.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to startup backfill chat-id selection only. Do not change Feishu connection timing, queue retry semantics, or delivery/cursor behavior here.
+- Follow TDD: add the missing selection test first, observe the expected red, then wire `connectUserIMChannels()` to use the same selection contract.
+- TDD red observed before the helper existed: `npm test -- --run tests/restart-recovery.test.ts` failed with `selectFeishuStartupBackfillChatIds is not a function`.
+- Added `selectFeishuStartupBackfillChatIds()` so Feishu startup backfill includes chats in folders owned by the connecting user, including ownerless and stale-owner Feishu rows, while excluding other workspaces.
+- `connectUserIMChannels()` now builds Feishu startup backfill chat ids from all registered groups through that helper instead of only `getGroupsByOwner(userId)`.
+- Validation passed:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change targets only startup Feishu backfill chat-id selection.
+  - Remaining startup readiness and mirror/direct file delivery fixes remain in `PLANS/ROADMAP.md`.
 
 ## Working Rules
 
@@ -351,7 +395,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 7
+- Milestone 8
 
 Current status:
 - done
@@ -383,4 +427,4 @@ Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 with the next smallest reliability fix: startup recovery readiness, Feishu backfill ownership coverage, or remaining mirror/direct delivery cursor semantics.
+- Commit Milestone 8, then safely restart the running service because `src/index.ts` changed. Continue RM-2026-04-25-01 later with startup readiness or remaining mirror/direct delivery cursor semantics.

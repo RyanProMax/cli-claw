@@ -445,6 +445,53 @@ describe('restart recovery cursor handling', () => {
     ).toEqual(['user-1']);
   });
 
+  test('selects Feishu startup backfill chats from the user workspace even when the Feishu row owner is missing or stale', async () => {
+    const { selectFeishuStartupBackfillChatIds } = await loadIndexModule();
+    const groups = {
+      'web:main': {
+        name: 'Main',
+        folder: 'main',
+        added_at: '2026-04-25T00:00:00.000Z',
+        created_by: 'user-1',
+      },
+      'feishu:owned-chat': {
+        name: 'Owned Feishu',
+        folder: 'main',
+        added_at: '2026-04-25T00:00:00.000Z',
+        created_by: 'user-1',
+      },
+      'feishu:ownerless-chat': {
+        name: 'Ownerless Feishu',
+        folder: 'main',
+        added_at: '2026-04-25T00:00:00.000Z',
+      },
+      'feishu:stale-owner-chat': {
+        name: 'Stale Owner Feishu',
+        folder: 'main',
+        added_at: '2026-04-25T00:00:00.000Z',
+        created_by: 'deleted-user',
+      },
+      'feishu:other-workspace-chat': {
+        name: 'Other Feishu',
+        folder: 'other',
+        added_at: '2026-04-25T00:00:00.000Z',
+        created_by: 'deleted-user',
+      },
+      'telegram:main': {
+        name: 'Telegram Main',
+        folder: 'main',
+        added_at: '2026-04-25T00:00:00.000Z',
+        created_by: 'user-1',
+      },
+    };
+
+    expect(selectFeishuStartupBackfillChatIds('user-1', groups)).toEqual([
+      'owned-chat',
+      'ownerless-chat',
+      'stale-owner-chat',
+    ]);
+  });
+
   test('keeps recovery history free of internal control rows', async () => {
     const { isRestartRecoveryHistoryMessage } = await loadIndexModule();
 

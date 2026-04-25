@@ -1049,6 +1049,32 @@ function resolveOwnerHomeFolder(group: RegisteredGroup): string {
   return group.folder;
 }
 
+export function selectFeishuStartupBackfillChatIds(
+  userId: string,
+  groups: Record<string, RegisteredGroup>,
+): string[] {
+  const userFolders = new Set<string>();
+  for (const group of Object.values(groups)) {
+    if (group.created_by === userId) {
+      userFolders.add(group.folder);
+    }
+  }
+
+  const chatIds: string[] = [];
+  const seen = new Set<string>();
+  for (const [jid, group] of Object.entries(groups)) {
+    if (!jid.startsWith('feishu:')) continue;
+    if (group.created_by !== userId && !userFolders.has(group.folder)) {
+      continue;
+    }
+    const chatId = extractChatId(jid);
+    if (seen.has(chatId)) continue;
+    seen.add(chatId);
+    chatIds.push(chatId);
+  }
+  return chatIds;
+}
+
 /**
  * Write usage records from a usage event to the database.
  * Handles both modelUsage (per-model breakdown) and legacy flat format.
@@ -8704,10 +8730,10 @@ async function connectUserIMChannels(
   let qq = false;
   let wechat = false;
   let dingtalk = false;
-  const startupBackfillChatIds = getGroupsByOwner(userId)
-    .map((group) => group.jid)
-    .filter((jid) => jid.startsWith('feishu:'))
-    .map((jid) => extractChatId(jid));
+  const startupBackfillChatIds = selectFeishuStartupBackfillChatIds(
+    userId,
+    getAllRegisteredGroups(),
+  );
 
   if (
     feishuConfig &&
