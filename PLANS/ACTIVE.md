@@ -291,7 +291,54 @@ Risks / Notes / Handoff:
 - Review gate passed against `RUNBOOKS/Review.md`:
   - Scope stayed within the allowed files.
   - The change targets only conversation-agent routed static IM delivery after a final reply.
-  - Remaining startup readiness, backfill ownership, interrupted partial, and other direct/mirror delivery fixes remain in `PLANS/ROADMAP.md`.
+- Remaining startup readiness, backfill ownership, interrupted partial, and other direct/mirror delivery fixes remain in `PLANS/ROADMAP.md`.
+
+### Milestone 7
+
+Objective:
+- Prevent Feishu-origin interrupted partial replies from committing the cursor when no streaming card handled IM delivery and the static IM partial delivery fails after retries.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm test -- --run tests/im-message-lifecycle.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to interrupted partial delivery gating. Startup readiness, backfill ownership coverage, and mirror/direct file delivery remain in `PLANS/ROADMAP.md`.
+- Follow TDD: add the missing cursor-commit policy test first, observe the expected red, then wire the policy into main and conversation-agent interrupted partial paths.
+- TDD red observed before the helper existed: `npm test -- --run tests/restart-recovery.test.ts` failed with `shouldCommitCursorAfterInterruptedPartialDelivery is not a function`.
+- Added `shouldCommitCursorAfterInterruptedPartialDelivery()` and wired interrupted partial handling so Feishu-origin partials only commit the cursor when an IM target is not required, a streaming card actually handled delivery, or static IM partial delivery succeeds.
+- Main-session and conversation-agent interrupted partial paths now record `im_delivered` lifecycle success/failure for static partial delivery and block cursor commit on `send_failed_after_retries`.
+- Conversation-agent partial fallback now avoids duplicating a partial reply in the same cleanup pass after a status-event partial was already saved.
+- First review helper run failed Prettier formatting for `src/index.ts`; formatting was fixed and validation was rerun.
+- Validation passed:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change targets only interrupted partial delivery/cursor semantics.
+  - Remaining startup readiness, backfill ownership, and mirror/direct file delivery fixes remain in `PLANS/ROADMAP.md`.
 
 ## Working Rules
 
@@ -304,7 +351,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 6
+- Milestone 7
 
 Current status:
 - done
@@ -336,4 +383,4 @@ Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 with the next smallest reliability fix: startup recovery readiness, Feishu backfill ownership coverage, or remaining interrupted-partial/direct delivery cursor semantics.
+- Continue RM-2026-04-25-01 with the next smallest reliability fix: startup recovery readiness, Feishu backfill ownership coverage, or remaining mirror/direct delivery cursor semantics.

@@ -1352,6 +1352,19 @@ export function shouldCommitAgentConversationCursorAfterImDelivery({
   return staticImDeliverySucceeded === true;
 }
 
+export function shouldCommitCursorAfterInterruptedPartialDelivery({
+  replyImJid,
+  streamingCardHandledIm,
+  staticImDeliverySucceeded,
+}: {
+  replyImJid: string | null;
+  streamingCardHandledIm: boolean;
+  staticImDeliverySucceeded: boolean | null;
+}): boolean {
+  if (!replyImJid || streamingCardHandledIm) return true;
+  return staticImDeliverySucceeded === true;
+}
+
 export function shouldSaveAgentConversationPartialReply({
   currentTurnCommitted,
   hasFinalReply,
@@ -1362,6 +1375,44 @@ export function shouldSaveAgentConversationPartialReply({
   hasAccumulatedText: boolean;
 }): boolean {
   return !currentTurnCommitted && !hasFinalReply && hasAccumulatedText;
+}
+
+function resolveInterruptedPartialImJid(
+  replyJid: string | null | undefined,
+): string | null {
+  if (!replyJid || getChannelType(replyJid) === null) return null;
+  return replyJid;
+}
+
+async function sendInterruptedPartialToImIfNeeded({
+  replyImJid,
+  streamingCardHandledIm,
+  text,
+  groupFolder,
+  lifecycleMessages,
+  lifecycleDetails,
+}: {
+  replyImJid: string | null;
+  streamingCardHandledIm: boolean;
+  text: string;
+  groupFolder: string;
+  lifecycleMessages: NewMessage[];
+  lifecycleDetails: Record<string, unknown>;
+}): Promise<boolean | null> {
+  if (!replyImJid || streamingCardHandledIm) return null;
+  const localImagePaths = extractLocalImImagePaths(text, groupFolder);
+  const imSent = await sendImWithRetry(replyImJid, text, localImagePaths);
+  recordLifecycleForMessages({
+    messages: lifecycleMessages,
+    stage: 'im_delivered',
+    status: imSent ? 'ok' : 'error',
+    reason: imSent ? null : 'send_failed_after_retries',
+    details: {
+      ...lifecycleDetails,
+      delivery: 'interrupt_partial',
+    },
+  });
+  return imSent;
 }
 
 const NON_RECOVERABLE_RESTART_SOURCE_KINDS: ReadonlySet<MessageSourceKind> =
@@ -3593,6 +3644,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   streamingPresentationText.commentaryText,
                 );
                 try {
+                  let streamingCardHandledIM = false;
                   const activeStreamingSession =
                     ensureStreamingSessionAvailable();
                   if (activeStreamingSession?.isActive()) {
@@ -3605,9 +3657,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                       activeStreamingSession,
                       streamingPresentationText,
                     );
-                    await activeStreamingSession
+                    streamingCardHandledIM = await activeStreamingSession
                       .abort('已中断')
-                      .catch(() => {});
+                      .then(() => true)
+                      .catch(() => false);
                   }
                   lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
                     sendToIM: false,
@@ -3620,6 +3673,27 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                       tokenUsage: provisionalUsage,
                     },
                   });
+                  const replyImJid = resolveInterruptedPartialImJid(
+                    replySourceImJid ?? (directImReply ? null : chatJid),
+                  );
+                  const staticImDeliverySucceeded =
+                    await sendInterruptedPartialToImIfNeeded({
+                      replyImJid,
+                      streamingCardHandledIm: streamingCardHandledIM,
+                      text: interruptedText,
+                      groupFolder: effectiveGroup.folder,
+                      lifecycleMessages: missedMessages,
+                      lifecycleDetails: { deliveryPoint: 'main_status' },
+                    });
+                  if (
+                    !shouldCommitCursorAfterInterruptedPartialDelivery({
+                      replyImJid,
+                      streamingCardHandledIm: streamingCardHandledIM,
+                      staticImDeliverySucceeded,
+                    })
+                  ) {
+                    blockCursorCommit('interrupted_partial_delivery_failed');
+                  }
                   sentReply = true;
                   clearStreamingSnapshot(chatJid);
                   streamingPresentationText =
@@ -4111,6 +4185,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
     // ── Streaming card cleanup ──
     const activeStreamingSession = streamingSession;
+    let streamingCardHandledInterruptedPartial = false;
     if (activeStreamingSession) {
       if (activeStreamingSession.isActive()) {
         syncTerminalPresentationTextToCard(
@@ -4118,7 +4193,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           streamingPresentationText,
         );
         if (hadError || !output || output.status === 'error') {
-          await activeStreamingSession.abort('处理出错').catch(() => {});
+          streamingCardHandledInterruptedPartial = await activeStreamingSession
+            .abort('处理出错')
+            .then(() => true)
+            .catch(() => false);
         } else if (wasInterrupted) {
           const provisionalUsage =
             buildProvisionalTokenUsage(agentRunStartedAt);
@@ -4127,7 +4205,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             activeRuntimeIdentity,
             provisionalUsage,
           ).catch(() => {});
-          await activeStreamingSession.abort('已中断').catch(() => {});
+          streamingCardHandledInterruptedPartial = await activeStreamingSession
+            .abort('已中断')
+            .then(() => true)
+            .catch(() => false);
         } else {
           const provisionalUsage =
             buildProvisionalTokenUsage(agentRunStartedAt);
@@ -4136,9 +4217,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             activeRuntimeIdentity,
             provisionalUsage,
           ).catch(() => {});
-          await activeStreamingSession.completeWithCurrentText().catch(() => {
-            activeStreamingSession.dispose();
-          });
+          streamingCardHandledInterruptedPartial = await activeStreamingSession
+            .completeWithCurrentText()
+            .then(() => true)
+            .catch(() => {
+              activeStreamingSession.dispose();
+              return false;
+            });
         }
       }
       unregisterStreamingSession(streamingSessionJid);
@@ -4161,7 +4246,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         streamingPresentationText.commentaryText,
       );
       try {
-        // sendToIM: false — 飞书卡片已通过 abort() 展示内容，不重复发送
         lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
           sendToIM: false,
           messageMeta: {
@@ -4173,6 +4257,27 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             tokenUsage: provisionalUsage,
           },
         });
+        const replyImJid = resolveInterruptedPartialImJid(
+          replySourceImJid ?? (directImReply ? null : chatJid),
+        );
+        const staticImDeliverySucceeded =
+          await sendInterruptedPartialToImIfNeeded({
+            replyImJid,
+            streamingCardHandledIm: streamingCardHandledInterruptedPartial,
+            text: interruptedText,
+            groupFolder: effectiveGroup.folder,
+            lifecycleMessages: missedMessages,
+            lifecycleDetails: { deliveryPoint: 'main_finally_interrupted' },
+          });
+        if (
+          !shouldCommitCursorAfterInterruptedPartialDelivery({
+            replyImJid,
+            streamingCardHandledIm: streamingCardHandledInterruptedPartial,
+            staticImDeliverySucceeded,
+          })
+        ) {
+          blockCursorCommit('interrupted_partial_delivery_failed');
+        }
         sentReply = true;
         commitCursor();
       } catch (err) {
@@ -4207,6 +4312,27 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             tokenUsage: provisionalUsage,
           },
         });
+        const replyImJid = resolveInterruptedPartialImJid(
+          replySourceImJid ?? (directImReply ? null : chatJid),
+        );
+        const staticImDeliverySucceeded =
+          await sendInterruptedPartialToImIfNeeded({
+            replyImJid,
+            streamingCardHandledIm: streamingCardHandledInterruptedPartial,
+            text: partialReply,
+            groupFolder: effectiveGroup.folder,
+            lifecycleMessages: missedMessages,
+            lifecycleDetails: { deliveryPoint: 'main_finally_error' },
+          });
+        if (
+          !shouldCommitCursorAfterInterruptedPartialDelivery({
+            replyImJid,
+            streamingCardHandledIm: streamingCardHandledInterruptedPartial,
+            staticImDeliverySucceeded,
+          })
+        ) {
+          blockCursorCommit('interrupted_partial_delivery_failed');
+        }
         sentReply = true;
         commitCursor();
       } catch (err) {
@@ -6623,6 +6749,7 @@ async function processAgentConversation(
   let lastError = '';
   let lastAgentReplyMsgId: string | undefined;
   let lastAgentReplyText: string | undefined;
+  let savedAgentPartialReply = false;
   const lastProcessed = missedMessages[missedMessages.length - 1];
   let activeTurnCursor: MessageCursor = {
     timestamp: lastProcessed.timestamp,
@@ -6781,6 +6908,7 @@ async function processAgentConversation(
             virtualChatJid,
           );
           try {
+            let streamingCardHandledIM = false;
             const activeAgentStreamingSession =
               ensureAgentStreamingSessionAvailable();
             if (activeAgentStreamingSession?.isActive()) {
@@ -6793,7 +6921,10 @@ async function processAgentConversation(
                 activeAgentStreamingSession,
                 agentStreamingPresentationText,
               );
-              await activeAgentStreamingSession.abort('已中断').catch(() => {});
+              streamingCardHandledIM = await activeAgentStreamingSession
+                .abort('已中断')
+                .then(() => true)
+                .catch(() => false);
             }
             const msgId = crypto.randomUUID();
             const timestamp = new Date().toISOString();
@@ -6845,6 +6976,29 @@ async function processAgentConversation(
               },
               agentId,
             );
+            const replyImJid = resolveInterruptedPartialImJid(replySourceImJid);
+            const staticImDeliverySucceeded =
+              await sendInterruptedPartialToImIfNeeded({
+                replyImJid,
+                streamingCardHandledIm: streamingCardHandledIM,
+                text: interruptedText,
+                groupFolder: effectiveGroup.folder,
+                lifecycleMessages: missedMessages,
+                lifecycleDetails: {
+                  agentId,
+                  deliveryPoint: 'agent_status',
+                },
+              });
+            if (
+              !shouldCommitCursorAfterInterruptedPartialDelivery({
+                replyImJid,
+                streamingCardHandledIm: streamingCardHandledIM,
+                staticImDeliverySucceeded,
+              })
+            ) {
+              blockAgentCursorCommit('interrupted_partial_delivery_failed');
+            }
+            savedAgentPartialReply = true;
             commitCursor();
             agentStreamingEventTurnId = undefined;
           } catch (err) {
@@ -7317,6 +7471,7 @@ async function processAgentConversation(
       !!agentStreamingPresentationText.answerText.trim() ||
       !!agentStreamingPresentationText.commentaryText.trim();
     const shouldSavePartialReply = (): boolean =>
+      !savedAgentPartialReply &&
       shouldSaveAgentConversationPartialReply({
         currentTurnCommitted: isCurrentTurnCommitted(),
         hasFinalReply: hasAgentFinalReply,
@@ -7327,6 +7482,7 @@ async function processAgentConversation(
 
     // ── Streaming card cleanup ──
     const activeAgentStreamingSession = agentStreamingSession;
+    let agentStreamingCardHandledInterruptedPartial = false;
     if (activeAgentStreamingSession) {
       if (activeAgentStreamingSession.isActive()) {
         syncTerminalPresentationTextToCard(
@@ -7334,7 +7490,11 @@ async function processAgentConversation(
           agentStreamingPresentationText,
         );
         if (hadError) {
-          await activeAgentStreamingSession.abort('处理出错').catch(() => {});
+          agentStreamingCardHandledInterruptedPartial =
+            await activeAgentStreamingSession
+              .abort('处理出错')
+              .then(() => true)
+              .catch(() => false);
         } else if (wasInterrupted) {
           const provisionalUsage = buildProvisionalTokenUsage(
             agentConversationStartedAt,
@@ -7344,7 +7504,11 @@ async function processAgentConversation(
             currentAgentRuntimeIdentity,
             provisionalUsage,
           ).catch(() => {});
-          await activeAgentStreamingSession.abort('已中断').catch(() => {});
+          agentStreamingCardHandledInterruptedPartial =
+            await activeAgentStreamingSession
+              .abort('已中断')
+              .then(() => true)
+              .catch(() => false);
         } else {
           const provisionalUsage = buildProvisionalTokenUsage(
             agentConversationStartedAt,
@@ -7354,11 +7518,14 @@ async function processAgentConversation(
             currentAgentRuntimeIdentity,
             provisionalUsage,
           ).catch(() => {});
-          await activeAgentStreamingSession
-            .completeWithCurrentText()
-            .catch(() => {
-              activeAgentStreamingSession.dispose();
-            });
+          agentStreamingCardHandledInterruptedPartial =
+            await activeAgentStreamingSession
+              .completeWithCurrentText()
+              .then(() => true)
+              .catch(() => {
+                activeAgentStreamingSession.dispose();
+                return false;
+              });
         }
       }
       if (streamingSessionJid) {
@@ -7429,6 +7596,29 @@ async function processAgentConversation(
           },
           agentId,
         );
+        const replyImJid = resolveInterruptedPartialImJid(replySourceImJid);
+        const staticImDeliverySucceeded =
+          await sendInterruptedPartialToImIfNeeded({
+            replyImJid,
+            streamingCardHandledIm: agentStreamingCardHandledInterruptedPartial,
+            text: interruptedText,
+            groupFolder: effectiveGroup.folder,
+            lifecycleMessages: missedMessages,
+            lifecycleDetails: {
+              agentId,
+              deliveryPoint: 'agent_finally_interrupted',
+            },
+          });
+        if (
+          !shouldCommitCursorAfterInterruptedPartialDelivery({
+            replyImJid,
+            streamingCardHandledIm: agentStreamingCardHandledInterruptedPartial,
+            staticImDeliverySucceeded,
+          })
+        ) {
+          blockAgentCursorCommit('interrupted_partial_delivery_failed');
+        }
+        savedAgentPartialReply = true;
         commitCursor();
         agentStreamingEventTurnId = undefined;
       } catch (err) {
@@ -7513,34 +7703,46 @@ async function processAgentConversation(
             agentStreamingPresentationText.commentaryText.length,
           cursorCommitted: isCurrentTurnCommitted(),
         });
-        if (replySourceImJid) {
-          const localImagePaths = extractLocalImImagePaths(
-            partialReply,
-            effectiveGroup.folder,
-          );
+        const replyImJid = resolveInterruptedPartialImJid(replySourceImJid);
+        if (replyImJid) {
           logger.info(
-            { replySourceImJid, textLen: partialReply.length },
+            { replySourceImJid: replyImJid, textLen: partialReply.length },
             'agent partial reply ready',
           );
-          const imSent = await sendImWithRetry(
-            replySourceImJid,
-            partialReply,
-            localImagePaths,
-          );
-          recordLifecycleForMessages({
-            messages: missedMessages,
-            stage: 'im_delivered',
-            status: imSent ? 'ok' : 'error',
-            reason: imSent ? null : 'send_failed_after_retries',
-            details: { agentId, delivery: 'interrupt_partial' },
-          });
-          logger.info({ replySourceImJid, imSent }, 'agent IM reply sent');
         } else {
           logger.warn(
             { chatJid, agentId },
             'Partial reply: no replySourceImJid found, skipping IM send',
           );
         }
+        const staticImDeliverySucceeded =
+          await sendInterruptedPartialToImIfNeeded({
+            replyImJid,
+            streamingCardHandledIm: agentStreamingCardHandledInterruptedPartial,
+            text: partialReply,
+            groupFolder: effectiveGroup.folder,
+            lifecycleMessages: missedMessages,
+            lifecycleDetails: {
+              agentId,
+              deliveryPoint: 'agent_finally_error',
+            },
+          });
+        if (replyImJid) {
+          logger.info(
+            { replySourceImJid: replyImJid, imSent: staticImDeliverySucceeded },
+            'agent IM reply sent',
+          );
+        }
+        if (
+          !shouldCommitCursorAfterInterruptedPartialDelivery({
+            replyImJid,
+            streamingCardHandledIm: agentStreamingCardHandledInterruptedPartial,
+            staticImDeliverySucceeded,
+          })
+        ) {
+          blockAgentCursorCommit('interrupted_partial_delivery_failed');
+        }
+        savedAgentPartialReply = true;
         commitCursor();
         agentStreamingEventTurnId = undefined;
       } catch (err) {

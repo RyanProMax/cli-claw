@@ -252,8 +252,7 @@ describe('restart recovery cursor handling', () => {
   });
 
   test('blocks cursor commit when required routed IM delivery fails', async () => {
-    const { shouldCommitCursorAfterRoutedImDelivery } =
-      await loadIndexModule();
+    const { shouldCommitCursorAfterRoutedImDelivery } = await loadIndexModule();
 
     expect(
       shouldCommitCursorAfterRoutedImDelivery({
@@ -309,9 +308,42 @@ describe('restart recovery cursor handling', () => {
     ).toBe(true);
   });
 
-  test('does not save conversation-agent partial text after a final reply already exists', async () => {
-    const { shouldSaveAgentConversationPartialReply } =
+  test('blocks interrupted partial cursor commit when static IM delivery fails', async () => {
+    const { shouldCommitCursorAfterInterruptedPartialDelivery } =
       await loadIndexModule();
+
+    expect(
+      shouldCommitCursorAfterInterruptedPartialDelivery({
+        replyImJid: 'feishu:chat-1',
+        streamingCardHandledIm: false,
+        staticImDeliverySucceeded: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCommitCursorAfterInterruptedPartialDelivery({
+        replyImJid: 'feishu:chat-1',
+        streamingCardHandledIm: false,
+        staticImDeliverySucceeded: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldCommitCursorAfterInterruptedPartialDelivery({
+        replyImJid: 'feishu:chat-1',
+        streamingCardHandledIm: true,
+        staticImDeliverySucceeded: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldCommitCursorAfterInterruptedPartialDelivery({
+        replyImJid: null,
+        streamingCardHandledIm: false,
+        staticImDeliverySucceeded: null,
+      }),
+    ).toBe(true);
+  });
+
+  test('does not save conversation-agent partial text after a final reply already exists', async () => {
+    const { shouldSaveAgentConversationPartialReply } = await loadIndexModule();
 
     expect(
       shouldSaveAgentConversationPartialReply({
