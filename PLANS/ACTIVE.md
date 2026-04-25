@@ -44,6 +44,8 @@ Risks / Notes / Handoff:
 - Removed `getLegacyAgentsDir()` and `migrateLegacyAgents()`; `discoverAgents()` and `getAgentDetail()` now read only `~/.agents/agents`.
 - Consolidated agent metadata assembly into `buildAgentDefinition()`.
 - Broader `legacy/fallback/compat` scan still finds unrelated database migrations, external runtime fallbacks, IM old-data routing, and UI fallback text. Those are not the agent-definition directory compatibility path and were left untouched.
+- Committed as `0880310 Simplify agent definition lookup`.
+- Safe restart passed via `restart-2026-04-25T02-47-27-411Z-76b8ea34`; current backend health check returned healthy after restart.
 
 ## Working Rules
 
@@ -66,4 +68,4 @@ Changed files:
 - `src/routes/agent-definitions.ts`
 
 Next step:
-- Commit the cleanup and apply it with a safe service restart.
+- None; cleanup is committed, applied, and healthy.
