@@ -118,7 +118,10 @@ import {
 import { resolveVisibleReplyParts } from './reply-visibility.js';
 import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
 import { appendActivePlanProgressFromFile } from './active-plan-progress.js';
-import { recordLifecycleForMessages } from './im-message-lifecycle.js';
+import {
+  recordDeadLetteredLifecycleForPendingMessages,
+  recordLifecycleForMessages,
+} from './im-message-lifecycle.js';
 import {
   buildProvisionalTokenUsage,
   normalizeStreamingStatusText,
@@ -9252,6 +9255,18 @@ export async function startCliClaw(
   queue.setOnMaxRetriesExceeded((groupJid: string) => {
     const group = registeredGroups[groupJid];
     const name = group?.name || groupJid;
+    const deadLetteredCount = recordDeadLetteredLifecycleForPendingMessages({
+      chatJid: groupJid,
+      cursor: lastAgentTimestamp[groupJid] || EMPTY_CURSOR,
+      reason: 'max_retries_exceeded',
+      details: { source: 'group_queue' },
+    });
+    if (deadLetteredCount > 0) {
+      logger.warn(
+        { groupJid, deadLetteredCount },
+        'Recorded dead-lettered lifecycle events after queue max retries',
+      );
+    }
     sendSystemMessage(
       groupJid,
       'agent_max_retries',

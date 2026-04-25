@@ -1,8 +1,9 @@
 import { getChannelFromJid } from './channel-prefixes.js';
-import { recordImMessageLifecycleEvent } from './db.js';
+import { getMessagesSince, recordImMessageLifecycleEvent } from './db.js';
 import type {
   ImMessageLifecycleStage,
   ImMessageLifecycleStatus,
+  MessageCursor,
   NewMessage,
 } from './types.js';
 
@@ -44,4 +45,35 @@ export function recordLifecycleForMessages({
     }
   }
   return recorded;
+}
+
+export interface RecordDeadLetteredLifecycleForPendingMessagesOptions {
+  chatJid: string;
+  cursor: MessageCursor;
+  reason: string;
+  details?: Record<string, unknown> | null;
+  getPendingMessages?: (chatJid: string, cursor: MessageCursor) => NewMessage[];
+}
+
+export function recordDeadLetteredLifecycleForPendingMessages({
+  chatJid,
+  cursor,
+  reason,
+  details = null,
+  getPendingMessages = getMessagesSince,
+}: RecordDeadLetteredLifecycleForPendingMessagesOptions): number {
+  let messages: NewMessage[];
+  try {
+    messages = getPendingMessages(chatJid, cursor);
+  } catch {
+    return 0;
+  }
+
+  return recordLifecycleForMessages({
+    messages,
+    stage: 'dead_lettered',
+    status: 'error',
+    reason,
+    details,
+  });
 }

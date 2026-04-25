@@ -95,9 +95,8 @@ describe('IM message lifecycle ledger', () => {
 
   test('records post-store lifecycle stages for Feishu-origin routed messages', async () => {
     const db = await loadDbModule();
-    const { recordLifecycleForMessages } = await import(
-      '../src/im-message-lifecycle.ts'
-    );
+    const { recordLifecycleForMessages } =
+      await import('../src/im-message-lifecycle.ts');
 
     const recorded = recordLifecycleForMessages({
       messages: [
@@ -141,6 +140,63 @@ describe('IM message lifecycle ledger', () => {
       stage: 'queued',
       status: 'ok',
       details: { route: 'message_loop' },
+    });
+
+    db.closeDatabase();
+  });
+
+  test('records dead-lettered lifecycle events for pending Feishu-origin messages', async () => {
+    const db = await loadDbModule();
+    const { recordDeadLetteredLifecycleForPendingMessages } =
+      await import('../src/im-message-lifecycle.ts');
+
+    db.ensureChatExists('web:main');
+    db.storeMessageDirect(
+      'msg-feishu-dead-letter',
+      'web:main',
+      'user-1',
+      'User',
+      'please handle this from Feishu',
+      '2026-04-25T01:00:00.000Z',
+      false,
+      { sourceJid: 'feishu:chat-1' },
+    );
+    db.storeMessageDirect(
+      'msg-web-not-dead-lettered',
+      'web:main',
+      'user-1',
+      'User',
+      'web-only work should not create Feishu lifecycle rows',
+      '2026-04-25T01:00:01.000Z',
+      false,
+      { sourceJid: 'web:main' },
+    );
+
+    const recorded = recordDeadLetteredLifecycleForPendingMessages({
+      chatJid: 'web:main',
+      cursor: { timestamp: '', id: '' },
+      reason: 'max_retries_exceeded',
+      details: { retryLimit: 5 },
+    });
+
+    expect(recorded).toBe(1);
+
+    const events = db.getImMessageLifecycleEvents({
+      provider: 'feishu',
+      chatJid: 'feishu:chat-1',
+      messageId: 'msg-feishu-dead-letter',
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      provider: 'feishu',
+      chat_jid: 'web:main',
+      source_jid: 'feishu:chat-1',
+      message_id: 'msg-feishu-dead-letter',
+      stage: 'dead_lettered',
+      status: 'error',
+      reason: 'max_retries_exceeded',
+      details: { retryLimit: 5 },
     });
 
     db.closeDatabase();

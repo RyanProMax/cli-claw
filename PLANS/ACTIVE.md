@@ -4,6 +4,7 @@
 
 - Start implementing P0 `RM-2026-04-25-01` one small reliability fix at a time.
 - Prevent stale live Feishu WS messages from poisoning startup backfill dedupe, so restart-window messages can still be recovered and queued.
+- Record durable operator-visible evidence when a Feishu-origin message exhausts queue retries.
 
 ## Done when
 
@@ -11,6 +12,7 @@
 - `src/feishu.ts` only records inbound Feishu messages in the dedupe cache after the message passes the stale-window filter.
 - Feishu inbound messages write durable lifecycle events that can be queried by chat/message id.
 - `/status` formatting has a compact section for recent Feishu lifecycle evidence.
+- Queue max-retry exhaustion records `dead_lettered` lifecycle events for pending Feishu-origin messages.
 - `PLANS/ROADMAP.md` records the milestone progress.
 - Validation and review gate pass.
 
@@ -146,7 +148,7 @@ Risks / Notes / Handoff:
 - Added `recordLifecycleForMessages()` so Feishu-origin routed messages can safely emit later lifecycle evidence while web-origin messages are ignored.
 - Main message loop now records `queued` when Feishu-origin messages are IPC-injected into an active runner or queued for a fresh run.
 - Conversation agent runs now record `runner_started`, `finalized`, `im_delivered`, and one `cursor_committed` event for Feishu-origin pending messages.
-- Deferred `stream_started` and `dead_lettered` because they require broader streaming/queue contracts.
+- Deferred `stream_started`; `dead_lettered` landed separately in Milestone 4.
 - TDD red observed before the helper existed: `npm test -- --run tests/im-message-lifecycle.test.ts` failed with missing `src/im-message-lifecycle.ts`.
 - Validation passed:
   - `npm test -- --run tests/im-message-lifecycle.test.ts`
@@ -157,6 +159,50 @@ Risks / Notes / Handoff:
   - Scope stayed within the allowed files.
   - The change is observability-only and does not alter queue, retry, delivery, or cursor semantics.
   - Lifecycle write failures remain isolated from message handling.
+
+### Milestone 4
+
+Objective:
+- Record durable `dead_lettered` lifecycle evidence for Feishu-origin pending messages when queue max retries are exhausted.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `src/im-message-lifecycle.ts`
+- `tests/im-message-lifecycle.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-message-lifecycle.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone observability-only: do not change retry count, cursor commit, delivery, or queue scheduling semantics.
+- Lifecycle write failures must remain isolated from message handling.
+- TDD red observed after fixing the fixture setup: `npm test -- --run tests/im-message-lifecycle.test.ts` failed with `recordDeadLetteredLifecycleForPendingMessages is not a function`.
+- Added `recordDeadLetteredLifecycleForPendingMessages()` so pending messages after the processing cursor can emit `dead_lettered` lifecycle rows for Feishu-origin work while ignoring web-only rows.
+- Queue max-retry exhaustion now calls the helper and logs the number of recorded dead-letter lifecycle rows before sending the existing system failure message.
+- Validation passed:
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change is observability-only and does not alter queue, retry, delivery, or cursor semantics.
+  - The directly related lifecycle test covers Feishu-origin routed work and ignores web-origin work.
 
 ## Working Rules
 
@@ -169,7 +215,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 3
+- Milestone 4
 
 Current status:
 - done
@@ -193,9 +239,10 @@ Last failure summary:
   - Missing Feishu lifecycle instrumentation.
   - Missing compact lifecycle status formatter.
   - Missing post-store lifecycle helper for Feishu-origin routed messages.
+  - Missing dead-letter lifecycle helper for pending Feishu-origin messages.
 
 Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 with the next reliability fix: delivery/cursor semantics, queue dead-letter persistence, startup recovery readiness, or backfill ownership coverage.
+- Continue RM-2026-04-25-01 with the next reliability fix: delivery/cursor semantics, startup recovery readiness, or Feishu backfill ownership coverage.
