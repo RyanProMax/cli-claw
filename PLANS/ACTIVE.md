@@ -1,35 +1,39 @@
-# Codex GPT-5.5 Metadata Diagnostic Filtering
+# Memory Owner Doc Rename
 
 ## Goal
 
-- Stop Codex runtime diagnostics like `Model metadata for gpt-5.5 not found...` from leaking into user-visible replies.
-- Preserve normal Codex streaming output and final answer accumulation.
+- Rename `docs/CONTEXT.md` to `docs/MEMORY.md`.
+- Keep `MEMORY.md` focused on Cli Claw memory/context retention only.
+- Move or point non-memory facts to their owner docs, especially execution protocol facts to `AGENTS.md`.
+- Update references so `CONTEXT.md` is no longer treated as an owner doc.
 
 ## Done when
 
-- The gpt-5.5 metadata diagnostic is treated as runner/runtime noise, not answer text.
-- Tests cover exact diagnostic-only chunks and diagnostic prefixes before normal answer text.
-- Validation, review, safe restart, roadmap sync, and commit are complete.
+- `docs/MEMORY.md` explains the current memory mechanism, triggers, storage paths, retention/growth boundaries, and Claude/Codex session differences.
+- Non-memory content formerly in `docs/CONTEXT.md` is removed from the memory doc and represented in the appropriate owner doc.
+- References in `AGENTS.md`, `README.md`, `docs/*.md`, and module index use `docs/MEMORY.md`.
+- Validation and review pass.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Add a focused Codex ACP stream sanitizer for model-metadata diagnostics and tests around final accumulation.
+- Rename and rewrite the memory owner doc, then update owner-doc references and minimal extracted content.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `container/agent-runner/src/codex-session-runtime.ts`
-- `container/agent-runner/src/index.ts`
-- `tests/codex-session-runtime.test.ts`
-- directly related tests only if required
+- `AGENTS.md`
+- `README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/ENGINEERING.md`
+- `docs/MEMORY.md`
+- `docs/MODULE.md`
+- `docs/RUNTIME.md`
+- remove `docs/CONTEXT.md`
 
 Validation:
-- `npm test -- --run tests/codex-session-runtime.test.ts`
-- `npm run typecheck`
-- `npm --prefix container/agent-runner run build:runner`
+- `rg -n "CONTEXT\\.md|docs/CONTEXT" AGENTS.md README.md docs`
 - `git diff --check`
 - `./scripts/review.sh`
 
@@ -43,29 +47,19 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Local evidence:
-  - `codex --version` is `codex-cli 0.124.0`.
-  - `codex debug models` currently returns `gpt-5.5` metadata.
-  - `~/.codex/models_cache.json` also contains `gpt-5.5` metadata.
-  - Historical host logs show the diagnostic arriving as a Codex `agent_message_chunk`, then being accumulated into the final `success.result`.
-- Root cause candidate:
-  - The warning is emitted by Codex/ACP as assistant text, not by cli-claw's model picker or footer code.
-  - cli-claw currently trusts every `agent_message_chunk` as answer text.
+- Keep this as a documentation-only change.
+- Do not duplicate the full workspace/session model in `MEMORY.md`; architecture/runtime owner docs should carry those boundaries.
 - Implemented:
-  - `container/agent-runner/src/codex-session-runtime.ts` now strips known Codex runtime diagnostic prefixes from assistant chunks.
-  - `container/agent-runner/src/index.ts` now suppresses fully diagnostic chunks and only streams/accumulates the sanitized visible chunk.
-  - `tests/codex-session-runtime.test.ts` covers diagnostic-only chunks and diagnostic prefixes before normal answer text.
+  - Replaced `docs/CONTEXT.md` with focused `docs/MEMORY.md`.
+  - Moved execution protocol ownership into `AGENTS.md`.
+  - Moved workspace/conversation identity and permission boundary notes into `docs/ARCHITECTURE.md`.
+  - Kept host cwd / runtime session / external Claude-Codex state in `docs/RUNTIME.md`.
 - Validation evidence:
-  - `npm test -- --run tests/codex-session-runtime.test.ts`
-  - `npm run typecheck`
-  - `npm --prefix container/agent-runner run build:runner`
+  - `rg -n "CONTEXT\\.md|docs/CONTEXT" AGENTS.md README.md docs` produced no matches.
   - `git diff --check`
   - `./scripts/review.sh`
 - Review result:
-  - passed semantic review against `RUNBOOKS/Review.md`; scope stayed inside Codex ACP runtime diagnostic filtering.
-- Safe restart:
-  - `restart-2026-04-24T15-58-12-695Z-705a3f74` passed via `node dist/cli.js restart`.
-  - Post-restart backend PID is `7515`; `/api/health` is healthy and `active_streaming_turns` is `{}`.
+  - passed semantic review against `RUNBOOKS/Review.md`; change stayed documentation-only and inside the allowed scope.
 
 ## Working Rules
 
@@ -81,20 +75,21 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- Done and committed. The known gpt-5.5 metadata diagnostic is filtered before Codex streaming and final accumulation.
+- Done. `docs/MEMORY.md` is now the memory owner doc and all active owner-doc references point to it.
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `container/agent-runner/src/codex-session-runtime.ts`
-- `container/agent-runner/src/index.ts`
-- `tests/codex-session-runtime.test.ts`
+- `AGENTS.md`
+- `README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/ENGINEERING.md`
+- `docs/MEMORY.md`
+- `docs/MODULE.md`
+- `docs/RUNTIME.md`
+- removed `docs/CONTEXT.md`
 
 Last failure summary:
-- None after validation. A broad container Prettier check also found unrelated pre-existing formatting issues in other runner files; changed files pass targeted Prettier.
-
-Suspected cause:
-- Codex/ACP emits runtime diagnostics as assistant chunks; cli-claw does not filter this known diagnostic before streaming and final accumulation.
+- None.
 
 Next step:
-- Monitor the next real `gpt-5.5` Codex reply. If the diagnostic still appears in user-visible text, inspect whether ACP is emitting a variant string not covered by the sanitizer.
+- Commit the documentation-only change.

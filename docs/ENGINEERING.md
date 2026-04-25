@@ -20,7 +20,7 @@
 - 手工修改代码或文档时优先用 `apply_patch`；避免用脚本粗暴重写整个文件。
 - 不回滚用户已有改动；遇到冲突先理解再兼容。
 - 禁止使用破坏性 git 命令（如 `reset --hard`、`checkout --`），除非用户明确要求。
-- 运行时、记忆和外部契约的细节分别见 `docs/RUNTIME.md` 与 `docs/CONTEXT.md`。
+- 运行时、记忆和外部契约的细节分别见 `docs/RUNTIME.md` 与 `docs/MEMORY.md`。
 
 ## 文档同步要求
 

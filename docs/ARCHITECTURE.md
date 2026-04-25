@@ -26,6 +26,13 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 7. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 8. 任务调度、技能安装、记忆读写和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
 
+## 工作区与会话身份
+
+- `registered_groups` 是工作区入口注册表；`jid` 是 Web / IM 对外入口，`folder` 是平台存储和默认主会话的目录键。
+- 多个入口可以共享同一个 `folder`。它们是否共享上下文，不看 channel 类型，而看是否最终路由到同一个 conversation identity。
+- Workspace 主对话使用 `(folder, 空 agentId)`；Web 创建的 conversation agent 使用 `(folder, agentId)`，消息落到虚拟 JID `{workspaceJid}#agent:{agentId}`。
+- Runner 只是一次正在执行的底层 CLI 进程或容器，不是长期会话身份。
+
 ## 主动模式
 
 - 工作区主动模式由 `src/workspace-autopilot.ts` 管理任务 ID、prompt 与 quota pause/resume 状态，由 `src/task-scheduler.ts` 在到期时创建后台 run。
@@ -36,6 +43,8 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 
 - `package root`、`launch cwd`、`~/.cli-claw` 数据目录是三条不同边界：前者负责资源定位，中者负责 host 默认执行目录，后者负责平台持久化。
 - 主进程拥有认证、权限、路由、持久化和多用户隔离。
+- 用户隔离优先：非 admin 只能访问自己的工作区、自己的用户级记忆和被授权共享的工作区。
+- `groups/{folder}` 是工作区内容边界；`registered_groups` 是入口边界，多个入口共享同一 `folder` 时不代表多个独立项目。
 - runner 拥有具体 CLI 会话、工具调用和流式事件生产。
-- 工作区、记忆和持久化路径边界见 `docs/CONTEXT.md`。
+- 记忆机制与上下文保留见 `docs/MEMORY.md`。
 - 运行时矩阵、`agentType` / `executionMode` 约束和外部运行时契约见 `docs/RUNTIME.md`。

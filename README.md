@@ -213,7 +213,7 @@ WEB_PORT=8080 cli-claw start
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：系统分层与核心数据流
 - [docs/MODULE.md](docs/MODULE.md)：唯一维护的模块树 / 模块索引
 - [docs/RUNTIME.md](docs/RUNTIME.md)：运行时矩阵与外部运行时契约
-- [docs/CONTEXT.md](docs/CONTEXT.md)：工作区、记忆与持久化边界
+- [docs/MEMORY.md](docs/MEMORY.md)：记忆机制、上下文保留与增长边界
 - [docs/ENGINEERING.md](docs/ENGINEERING.md)：实施、验证、review / commit 规则
 - [docs/COMMAND.md](docs/COMMAND.md)：命令行为与入口差异
 

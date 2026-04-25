@@ -1,6 +1,6 @@
 # RUNTIME
 
-> 本文负责：运行时矩阵、`agentType` / `executionMode` 约束、runtime identity，以及外部运行时契约。工作区与持久化边界见 `docs/CONTEXT.md`。
+> 本文负责：运行时矩阵、`agentType` / `executionMode` 约束、runtime identity、host cwd 和外部运行时契约。工作区 / conversation 身份见 `docs/ARCHITECTURE.md`；记忆机制见 `docs/MEMORY.md`。
 
 ## 概览
 
@@ -83,6 +83,8 @@ host 相关消费者统一使用同一份 effective cwd contract：
 
 这个 contract 会被 host runtime 执行、文件 API、工作区 `.claude/` 配置根目录、脚本任务和 agent 任务共同使用。
 
+`customCwd` 只影响 host 执行和文件访问根目录，不改变工作区 ownership，也不改变数据库、session 或记忆文件在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
+
 ## 运行时身份
 
 每次助手回复都尽量携带一份 `runtime_identity`：
@@ -126,14 +128,16 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 
 ## 外部运行时契约
 
-项目内部长期记忆统一使用 `AGENTS.md`，但外部 CLI runtime 仍保留各自原生约定：
+项目内部长期记忆见 `docs/MEMORY.md`；外部 CLI runtime 仍保留各自原生状态：
 
 - `~/.cli-claw/sessions/{folder}/.claude/`
-  - Claude Runtime 的隔离会话目录
+  - Claude Runtime 的隔离配置 / 会话目录
 - `~/.claude/.credentials.json`
   - Claude Runtime 的本地登录态来源之一
 - `~/.codex/config.toml`
   - Codex Runtime 的模型 / reasoning effort 配置
+- `~/.codex/sessions/**/*.jsonl`
+  - Codex Runtime 的原生 transcript / usage 快照来源
 - `codex login`
   - Codex Runtime 的宿主机登录态
 
@@ -143,6 +147,6 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 
 ## 运行时变更约束
 
-- 新增或修改运行时时，必须同步更新相关 owner 文档，尤其是 `AGENTS.md`、`docs/ARCHITECTURE.md`、`docs/CONTEXT.md`、`docs/MODULE.md` 和本文档。
+- 新增或修改运行时时，必须同步更新相关 owner 文档，尤其是 `AGENTS.md`、`docs/ARCHITECTURE.md`、`docs/MEMORY.md`、`docs/MODULE.md` 和本文档。
 - 不要把项目内部长期记忆文件重新命名回 `CLAUDE.md`；项目内统一记忆入口仍是 `AGENTS.md`。
 - 不要把某个运行时的专属约定误写成系统级通用规则。

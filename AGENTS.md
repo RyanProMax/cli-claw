@@ -1,6 +1,6 @@
 # Cli Claw
 
-> 本文负责：仓库入口、必读顺序、复杂任务执行底线、文档分工入口。模块树只在 `docs/MODULE.md` 维护；架构、运行时、持久化边界、命令说明分别由 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/CONTEXT.md`、`docs/COMMAND.md` 维护。
+> 本文负责：仓库入口、必读顺序、复杂任务执行底线、执行协议入口和文档分工入口。模块树只在 `docs/MODULE.md` 维护；架构、运行时、记忆机制、命令说明分别由 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/MEMORY.md`、`docs/COMMAND.md` 维护。
 
 Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消息接入、权限、调度、存储与 Web API；前端负责 Web / PWA 体验；`container/agent-runner/` 负责实际 Agent 执行、工具调用与流式事件。当前运行时包括 `claude`（Claude Agent SDK + Claude Code CLI）和 `codex`（Codex CLI + `codex-acp`）。
 
@@ -10,7 +10,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 2. 按任务补读 owner 文档：
    - 架构与消息流：`docs/ARCHITECTURE.md`
    - 运行时矩阵与外部运行时契约：`docs/RUNTIME.md`
-   - 工作区 / Memory / 持久化边界：`docs/CONTEXT.md`
+   - 记忆机制与上下文保留：`docs/MEMORY.md`
    - 模块树与目录定位：`docs/MODULE.md`
    - 命令行为与入口差异：`docs/COMMAND.md`
 3. 复杂任务开始前，先查看 `PLANS/ROADMAP.md` 了解长期跟进项，再读取并更新本地 `PLANS/ACTIVE.md`；若 `ACTIVE.md` 不存在，先基于 `PLANS/_TEMPLATE.md` 创建。
@@ -21,9 +21,15 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 - `docs/ARCHITECTURE.md`：系统分层、关键数据流、主进程与 runner 边界。
 - `docs/MODULE.md`：唯一维护的 repo tree / 模块清单。
 - `docs/RUNTIME.md`：`agentType` / `executionMode`、runtime identity、外部运行时契约。
-- `docs/CONTEXT.md`：工作区身份、记忆路径、持久化与权限边界。
+- `docs/MEMORY.md`：记忆层级、触发时机、存储路径、读取方式与增长边界。
 - `docs/ENGINEERING.md`：实施流程、验证、review/commit 规则。
 - `docs/COMMAND.md`：统一命令注册表与入口差异。
+
+## 执行协议文件
+
+- 仓库级执行协议放在 tracked 文件里：`AGENTS.md`、`PLANS/ROADMAP.md`、`PLANS/_TEMPLATE.md`、`RUNBOOKS/*.md`、`.codex/agents/*.md`。
+- `PLANS/ROADMAP.md` 负责跨轮次长期跟进；`PLANS/ACTIVE.md` 是当前复杂任务的本地临时计划，不作为长期协议入口。
+- `docs/.local/PLAN.md` 若有人自行创建，只能视为个人草稿。
 
 ## 复杂任务底线
 
