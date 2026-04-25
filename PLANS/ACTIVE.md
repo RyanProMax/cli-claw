@@ -53,6 +53,8 @@ Risks / Notes / Handoff:
   - `./scripts/review.sh`
   - `npm run build`
 - Review gate passed against `RUNBOOKS/Review.md`; no public command/runtime contract docs needed.
+- Committed as `803fcc3 Back off failing workspace autopilot runs`.
+- Applied through safe restart `restart-2026-04-25T07-03-20-240Z-b02b0c4d` (`passed`); current backend PID `68604` started at `2026-04-25T07:03:26.484Z` and `/api/health` is `healthy`.
 
 ## Working Rules
 
@@ -68,7 +70,7 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- done
+- done; committed and applied
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -77,4 +79,4 @@ Changed files:
 - `tests/task-scheduler-host-cwd.test.ts`
 
 Next step:
-- Commit and apply through the safe restart path; then continue monitoring autopilot task run logs.
+- Continue monitoring autopilot task run logs; no local implementation or restart action remains in this milestone.
