@@ -1,35 +1,32 @@
-# Workspace Autopilot Backoff
+# Cli Claw UX And Architecture Roadmap Review
 
 ## Goal
 
-- Stop workspace autopilot from repeatedly consuming long Codex runs when recent autopilot turns are timing out or crashing.
-- Keep normal autopilot behavior unchanged after successful/no-op runs.
-- Add focused regression coverage for timeout/error backoff scheduling.
+- Use read-only subagents and local code inspection to identify high-priority Cli Claw usage pain points, especially Feishu-first interaction problems, startup ambiguity, stream presentation, verbosity, and context leakage.
+- Update `PLANS/ROADMAP.md` with a prioritized iteration plan while preserving existing unfinished roadmap items.
 
 ## Done when
 
-- Consecutive failed autopilot runs schedule the next run with an exponential backoff instead of the fixed 5-minute interval.
-- A successful autopilot run resets the failure streak back to the normal interval.
-- Related tests, typecheck, diff hygiene, and review pass.
+- Relevant architecture, runtime, memory, command, and IM/message flow code paths have been inspected.
+- Subagent findings have been synthesized into concrete roadmap items with priorities, status, evidence, and next actions.
+- Existing unfinished roadmap items remain represented in `PLANS/ROADMAP.md`.
+- Documentation-only validation and review gate have passed.
 
 ## Milestones
 
 ### Milestone 1
 
 Objective:
-- Add failure-aware workspace autopilot backoff and regression tests.
+- Analyze current Cli Claw pain points and update the roadmap with a prioritized refactor/iteration plan.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `src/task-scheduler.ts`
-- `tests/workspace-autopilot.test.ts` or adjacent scheduler tests
 
 Validation:
-- `npm test -- --run tests/workspace-autopilot.test.ts tests/group-queue.test.ts tests/task-scheduler-host-cwd.test.ts`
-- `npm run typecheck`
 - `git diff --check`
 - `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
 
 Status:
 - done
@@ -41,20 +38,21 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- Live evidence from `~/.cli-claw/db/messages.db`: recent `autopilot:workspace:main` runs repeatedly ended with `Host Agent timed out after 1800000ms` or `Process crashed before completion`.
-- Current task remains active; this milestone changes future scheduling behavior only and should not kill running agents directly.
-- Keep scope limited to backoff; do not redesign autopilot prompting or session behavior in this milestone.
-- Implemented consecutive-error exponential backoff for workspace autopilot interval tasks, capped at 6h.
-- Successful/no-op runs continue using the normal interval and therefore reset the failure streak.
+- User explicitly requested subagents for broad analysis.
+- This milestone is planning/documentation only; do not implement runtime fixes here.
+- Preserve current unfinished roadmap items, especially monitoring/proposed entries, and reorder by priority.
+- Read-only subagents completed startup/launch, presentation/reply-policy, and Feishu reliability reports; context/session subagent was stopped after timeout and local inspection filled that gap.
+- Local evidence checked: current backend launch state, LaunchAgent plist, recent Feishu messages, recent autopilot task run logs, restart recovery/session code, Feishu slash/mention handling, stream presentation, Codex ACP loop.
+- `PLANS/ROADMAP.md` now contains P0/P1/P2 roadmap items and preserves existing monitoring/unfinished items under `Existing Follow-Ups Preserved`.
 - Validation passed:
-  - `npm test -- --run tests/workspace-autopilot.test.ts tests/group-queue.test.ts tests/task-scheduler-host-cwd.test.ts`
-  - `npm run typecheck`
   - `git diff --check`
   - `./scripts/review.sh`
-  - `npm run build`
-- Review gate passed against `RUNBOOKS/Review.md`; no public command/runtime contract docs needed.
-- Committed as `803fcc3 Back off failing workspace autopilot runs`.
-- Applied through safe restart `restart-2026-04-25T07-03-20-240Z-b02b0c4d` (`passed`); current backend PID `68604` started at `2026-04-25T07:03:26.484Z` and `/api/health` is `healthy`.
+  - Incomplete-marker scan returned no matches before this validation note was written.
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope limited to `PLANS/ACTIVE.md` and `PLANS/ROADMAP.md`.
+  - Objective satisfied: roadmap now prioritizes the Feishu reliability, launch contract, presentation, context, autopilot, slash/binding, runtime, and observability work.
+  - Existing unfinished monitoring/follow-up items are preserved and linked to the new prioritized items.
+  - No runtime code changed, so no service restart is needed.
 
 ## Working Rules
 
@@ -70,13 +68,17 @@ Current milestone:
 - Milestone 1
 
 Current status:
-- done; committed and applied
+- done
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `src/task-scheduler.ts`
-- `tests/task-scheduler-host-cwd.test.ts`
+
+Last failure summary:
+- none
+
+Suspected cause:
+- none
 
 Next step:
-- Continue monitoring autopilot task run logs; no local implementation or restart action remains in this milestone.
+- Begin the next implementation round from P0 RM-2026-04-25-01 or P0 RM-2026-04-25-02.
