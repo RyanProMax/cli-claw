@@ -27,6 +27,40 @@ afterEach(() => {
 });
 
 describe('restart recovery cursor handling', () => {
+  test('separates primary runtime session slots for IM sources from the web slot', async () => {
+    const { resolvePrimaryRuntimeSessionSlot, resolvePrimaryRuntimeSessionId } =
+      await loadIndexModule();
+    const sessions = { main: 'web-session-1' };
+    const loadSession = vi.fn((folder: string, slot?: string | null) =>
+      folder === 'main' && slot === 'im:feishu:chat-1'
+        ? 'feishu-session-1'
+        : undefined,
+    );
+
+    expect(resolvePrimaryRuntimeSessionSlot(null)).toBeNull();
+    expect(resolvePrimaryRuntimeSessionSlot('web:main')).toBeNull();
+    expect(resolvePrimaryRuntimeSessionSlot('feishu:chat-1')).toBe(
+      'im:feishu:chat-1',
+    );
+    expect(
+      resolvePrimaryRuntimeSessionId({
+        folder: 'main',
+        sessionSlot: null,
+        sessions,
+        loadSession,
+      }),
+    ).toBe('web-session-1');
+    expect(
+      resolvePrimaryRuntimeSessionId({
+        folder: 'main',
+        sessionSlot: 'im:feishu:chat-1',
+        sessions,
+        loadSession,
+      }),
+    ).toBe('feishu-session-1');
+    expect(loadSession).toHaveBeenCalledWith('main', 'im:feishu:chat-1');
+  });
+
   test('creates a late-bound streaming session once the IM channel becomes available', async () => {
     const { ensureLateBoundStreamingSession } = await loadIndexModule();
     const createdSession = { id: 'stream-1' };

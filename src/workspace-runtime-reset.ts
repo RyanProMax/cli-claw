@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { DATA_DIR } from './config.js';
-import { deleteSession, getJidsByFolder, listAgentsByJid } from './db.js';
+import {
+  deletePrimaryRuntimeSessions,
+  deleteSession,
+  getJidsByFolder,
+  listAgentsByJid,
+} from './db.js';
 import type { RegisteredGroup } from './types.js';
 
 export function clearSessionJsonlFiles(folder: string, agentId?: string): void {
@@ -45,7 +50,7 @@ export async function resetWorkspaceRuntimeState(
   );
 
   clearSessionJsonlFiles(group.folder);
-  deleteSession(group.folder);
+  deletePrimaryRuntimeSessions(group.folder);
   delete deps.getSessions()[group.folder];
 
   for (const agent of agents) {

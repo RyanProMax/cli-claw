@@ -14,12 +14,14 @@ import {
 } from '../src/im-command-utils.js';
 
 const deleteSessionMock = vi.fn();
+const deletePrimaryRuntimeSessionsMock = vi.fn();
 const getJidsByFolderMock = vi.fn();
 const storeMessageDirectMock = vi.fn();
 const ensureChatExistsMock = vi.fn();
 
 vi.mock('../src/db.js', () => ({
   deleteSession: deleteSessionMock,
+  deletePrimaryRuntimeSessions: deletePrimaryRuntimeSessionsMock,
   getJidsByFolder: getJidsByFolderMock,
   storeMessageDirect: storeMessageDirectMock,
   ensureChatExists: ensureChatExistsMock,
@@ -586,6 +588,7 @@ describe('formatSelfRestartSuccess', () => {
 describe('executeSessionReset', () => {
   beforeEach(() => {
     deleteSessionMock.mockReset();
+    deletePrimaryRuntimeSessionsMock.mockReset();
     getJidsByFolderMock.mockReset();
     storeMessageDirectMock.mockReset();
     ensureChatExistsMock.mockReset();
@@ -631,5 +634,38 @@ describe('executeSessionReset', () => {
         chat_jid: 'web:graduation-jid#agent:agent-1234',
       }),
     );
+    expect(deleteSessionMock).toHaveBeenCalledWith(
+      'flow-graduation',
+      'agent-1234',
+    );
+    expect(deletePrimaryRuntimeSessionsMock).not.toHaveBeenCalled();
+  });
+
+  test('resets all primary runtime session slots for a main workspace clear', async () => {
+    const { executeSessionReset } = await import('../src/commands.js');
+    const stopGroup = vi.fn(async () => {});
+    const broadcast = vi.fn();
+    const setLastAgentTimestamp = vi.fn();
+    const sessions = { 'flow-graduation': 'web-session-1' } as Record<
+      string,
+      string
+    >;
+    getJidsByFolderMock.mockReturnValue([
+      'web:graduation-jid',
+      'feishu:chat-1',
+    ]);
+
+    await executeSessionReset('web:graduation-jid', 'flow-graduation', {
+      queue: { stopGroup },
+      sessions,
+      broadcast,
+      setLastAgentTimestamp,
+    });
+
+    expect(deletePrimaryRuntimeSessionsMock).toHaveBeenCalledWith(
+      'flow-graduation',
+    );
+    expect(deleteSessionMock).not.toHaveBeenCalled();
+    expect(sessions).not.toHaveProperty('flow-graduation');
   });
 });

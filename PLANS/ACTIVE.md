@@ -1488,6 +1488,65 @@ Risks / Notes / Handoff:
 - Keep this milestone narrowly scoped to prompt policy injection. Do not change stream parsing, Feishu card rendering, send_message semantics, or final reply classifiers here.
 - The Codex prompt wrapper must not hide or mutate the user message; it should add the policy as surrounding guidance and keep the original prompt text intact.
 
+### Milestone 32
+
+Objective:
+- Fix the recurring first-turn context leakage where a fresh Feishu message can be routed into an active sibling Web runner or silently reuse the Web runtime session for the same workspace folder.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `src/commands.ts`
+- `src/db.ts`
+- `src/group-queue.ts`
+- `src/index.ts`
+- `src/routes/groups.ts`
+- `src/workspace-runtime-reset.ts`
+- `tests/group-queue.test.ts`
+- `tests/im-command-utils.test.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/group-queue.test.ts tests/restart-recovery.test.ts tests/im-command-utils.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/MEMORY.md docs/RUNTIME.md src/commands.ts src/db.ts src/group-queue.ts src/index.ts src/routes/groups.ts src/workspace-runtime-reset.ts tests/group-queue.test.ts tests/im-command-utils.test.ts tests/restart-recovery.test.ts`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - RED confirmed:
+    - `npm test -- --run tests/group-queue.test.ts tests/restart-recovery.test.ts` failed because fresh IM work returned `sent` into an active Web runner and `resolvePrimaryRuntimeSessionSlot` did not exist.
+    - `npm test -- --run tests/im-command-utils.test.ts` failed because main workspace clear did not delete primary runtime session slots.
+    - Follow-up RED in `tests/group-queue.test.ts` failed because Web IPC was still allowed while workspace-bound Feishu work was pending behind the same active Web runner.
+  - GREEN validation passed:
+    - `npm test -- --run tests/group-queue.test.ts tests/restart-recovery.test.ts tests/im-command-utils.test.ts`
+    - `npm run typecheck`
+    - `git diff --check`
+    - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/MEMORY.md docs/RUNTIME.md src/commands.ts src/db.ts src/group-queue.ts src/index.ts src/routes/groups.ts src/workspace-runtime-reset.ts tests/group-queue.test.ts tests/im-command-utils.test.ts tests/restart-recovery.test.ts`
+    - `./scripts/review.sh`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- TDD is required. First prove the current bug with failing tests for IM-to-Web IPC injection and IM runtime session slot isolation, then implement the smallest production change.
+- The old behavior intentionally optimized rapid cross-channel follow-ups by sharing folder runners and sessions. This milestone changes only unsafe cross-channel defaults; true interrupted restart recovery and explicit continuation gates must remain intact.
+- Do not remove restart recovery compact history wholesale. Only prevent ordinary fresh IM turns from inheriting unrelated Web runner/session context.
+- Implemented `GroupQueue.sendMessage(..., sourceJid)` source-aware IPC gating:
+  - fresh IM JIDs are not injected into active Web runners;
+  - workspace-bound IM source messages targeting `web:*` are not injected into active Web runners;
+  - Web IPC is also deferred while queued messages are waiting for the same Web runner to drain.
+- Implemented primary runtime session slots: Web uses the default `(folder, '')` session; IM-origin primary turns use `(folder, im:<sourceJid>)`.
+- Main workspace reset paths now delete all primary slots (`''` and `im:*`) while preserving conversation agent sessions; clear-history still deletes all sessions for the folder.
+- `docs/MEMORY.md` and `docs/RUNTIME.md` document the new source-slot boundary and preserve the distinction between true restart recovery history and ordinary fresh turns.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1499,23 +1558,31 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 31
+- Milestone 32
 
 Current status:
-- done; Codex ACP prompts now receive the shared minimal necessary reply-policy block
+- done; fresh IM turns no longer IPC-inject into active Web runners and no longer reuse the Web primary runtime session
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `container/agent-runner/src/reply-policy.ts`
-- `container/agent-runner/src/index.ts`
-- `tests/minimal-reply-policy.test.ts`
+- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `src/commands.ts`
+- `src/db.ts`
+- `src/group-queue.ts`
+- `src/index.ts`
+- `src/routes/groups.ts`
+- `src/workspace-runtime-reset.ts`
+- `tests/group-queue.test.ts`
+- `tests/im-command-utils.test.ts`
+- `tests/restart-recovery.test.ts`
 
 Last failure summary:
-- RED test confirmed `container/agent-runner/src/index.ts` lacked shared reply-policy block usage for Codex ACP prompt injection; GREEN validation passed after adding the wrapper.
+- Resolved: tests now cover direct Feishu JID, workspace-bound Feishu source on `web:main`, pending workspace-bound Feishu work followed by a Web message, session slot separation, and `/clear` primary slot cleanup.
 
 Suspected cause:
-- Resolved: Claude/system prompt path and Codex ACP prompt path now both use the shared reply-policy block from `container/agent-runner/src/reply-policy.ts`.
+- Resolved: the old design optimized cross-channel continuity by sharing the folder runner/session. The unsafe defaults have been narrowed without deleting true restart recovery behavior.
 
 Next step:
-- Continue remaining `RM-2026-04-25-03` work from `PLANS/ROADMAP.md`: harden process-text/card/send_message presentation boundaries and per-channel concise Feishu reply budgets.
+- Apply the backend change via the safe restart path, then monitor a real Feishu first turn. Remaining RM-2026-04-25-04 follow-ups: restart first-turn, autopilot/no-op history, and Codex context-window auto-reset regression coverage.

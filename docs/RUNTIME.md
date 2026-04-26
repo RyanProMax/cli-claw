@@ -110,19 +110,19 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 
 - 外层 channel 是消息入口，例如飞书或微信。
 - Workspace conversation 是 Cli Claw 的对话身份，由 `folder` 加可选 `agentId` 决定。
-- Runtime session 是 Claude/Codex 自己的会话 ID，持久化在 `sessions` 表，主对话使用 `(folder, 空 agent_id)`，conversation agent 使用 `(folder, agent_id)`。
+- Runtime session 是 Claude/Codex 自己的会话 ID，持久化在 `sessions` 表。主对话 Web 入口使用 `(folder, 空 agent_id)`；IM 来源的主对话 turn 使用 `(folder, im:<sourceJid>)`；conversation agent 使用 `(folder, agent_id)`。
 - Runner 是正在处理消息的底层 CLI 进程或容器，只在执行期间存在，并可能在 idle timeout 后退出。
 
 对应关系：
 
-- 同一个 workspace 主对话通常复用同一个 runtime session；不同 channel 只要绑定到这个主对话，就共享该 session。
+- 同一个 workspace 主对话按来源复用 runtime session：Web 入口共享默认 slot，每个 IM 来源共享自己的 `im:<sourceJid>` slot。IM 新消息默认不继承 Web runtime transcript，也不会因为绑定到同一 workspace 而自动继续 Web 侧旧任务。
 - 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/Codex 对话上下文。
-- Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。
+- Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。新 IM 来源的主对话 work 遇到活跃 Web runner 时会排队等待独立轮次，而不是通过 IPC 写入 Web runner。
 - 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
 
 当前限制：
 
-- `sessions` 表的主键维度是 `(folder, agentId)`，不是 `(folder, agentId, agentType)`。
+- `sessions` 表的主键维度仍是 `(folder, agentId)`，其中 IM 主会话 slot 复用 `agent_id = im:<sourceJid>`；它不是 `(folder, agentId, agentType)`。
 - 切换 `agentType`、`executionMode`、`model` 或 `reasoningEffort` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
 - 因此，主对话从 Codex 切到 Claude 再切回 Codex 时，当前版本不保证恢复切换前的 Codex session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
 

@@ -77,11 +77,11 @@
   - Startup recovery ignores internal prompt/command/assistant/system rows.
   - Interrupted residual context now requires explicit user confirmation before old context can be replayed.
   - `docs/MEMORY.md` documents the current recovery and resume boundaries.
-  - Runtime sessions are still keyed by `(folder, agentId)`, not by runtime slot; this limitation is documented in `docs/RUNTIME.md`.
+  - Milestone 32 separates Web primary runtime sessions from IM-origin primary runtime session slots and blocks unsafe IM-to-Web runner IPC.
+  - Main workspace reset paths delete all primary runtime slots (`''` and `im:*`) while preserving conversation agent sessions.
 - Next action:
   - Split “crash recovery for uncommitted pending work” from ordinary activation after idle/restart; only true crash recovery may inject compact history.
-  - Add regression tests for restart first-turn, `/clear` first-turn, autopilot/no-op history, and Codex context-window auto-reset.
-  - Revisit session-slot design for `(folder, agentId, agentType)` before supporting per-runtime session restoration.
+  - Add remaining regression tests for restart first-turn, autopilot/no-op history, and Codex context-window auto-reset after real traffic confirms the source-slot fix.
 
 ### P1 RM-2026-04-25-05 Workspace Autopilot Resource Governance
 

@@ -2382,6 +2382,12 @@ export function deleteSession(
   ).run(groupFolder, effectiveAgentId);
 }
 
+export function deletePrimaryRuntimeSessions(groupFolder: string): void {
+  db.prepare(
+    "DELETE FROM sessions WHERE group_folder = ? AND (agent_id = '' OR agent_id LIKE 'im:%')",
+  ).run(groupFolder);
+}
+
 export function deleteAllSessionsForFolder(groupFolder: string): void {
   db.prepare('DELETE FROM sessions WHERE group_folder = ?').run(groupFolder);
 }

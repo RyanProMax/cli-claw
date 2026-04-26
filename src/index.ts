@@ -74,6 +74,7 @@ import {
   setRegisteredGroup,
   setRouterState,
   setSession,
+  deletePrimaryRuntimeSessions,
   deleteSession,
   storeMessageDirect,
   updateLatestMessageTokenUsage,
@@ -3413,7 +3414,7 @@ function loadState(): void {
           'Clearing stale session during execution mode migration',
         );
         delete sessions[group.folder];
-        deleteSession(group.folder);
+        deletePrimaryRuntimeSessions(group.folder);
       }
     }
   }
@@ -3615,6 +3616,56 @@ export function collectMessageImages(
   return images;
 }
 
+export function resolvePrimaryRuntimeSessionSlot(
+  replySourceImJid: string | null,
+): string | null {
+  const trimmed = replySourceImJid?.trim();
+  if (!trimmed || getChannelType(trimmed) === null) return null;
+  return `im:${trimmed}`;
+}
+
+export function resolvePrimaryRuntimeSessionId({
+  folder,
+  sessionSlot,
+  sessions: sessionCache,
+  loadSession,
+}: {
+  folder: string;
+  sessionSlot: string | null;
+  sessions: Record<string, string | undefined>;
+  loadSession: (folder: string, agentId?: string | null) => string | undefined;
+}): string | undefined {
+  if (sessionSlot) {
+    return loadSession(folder, sessionSlot);
+  }
+  return sessionCache[folder] || loadSession(folder);
+}
+
+function rememberPrimaryRuntimeSession(
+  folder: string,
+  sessionId: string,
+  sessionSlot: string | null,
+): void {
+  if (sessionSlot) {
+    setSession(folder, sessionId, sessionSlot);
+    return;
+  }
+  sessions[folder] = sessionId;
+  setSession(folder, sessionId);
+}
+
+function clearPrimaryRuntimeSession(
+  folder: string,
+  sessionSlot: string | null,
+): void {
+  if (sessionSlot) {
+    deleteSession(folder, sessionSlot);
+    return;
+  }
+  delete sessions[folder];
+  deleteSession(folder);
+}
+
 /**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
@@ -3764,6 +3815,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // send_message outputs to the correct IM channel.
   activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
   activeImLifecycleMessages.set(effectiveGroup.folder, missedMessages);
+  const runtimeSessionSlot = resolvePrimaryRuntimeSessionSlot(replySourceImJid);
 
   const shared = isGroupShared(group.folder);
   let prompt = formatMessages(messagesForAgent, shared);
@@ -3998,7 +4050,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let output:
     | { status: 'success' | 'error' | 'closed'; error?: string }
     | undefined;
-  let activeSessionId = getSession(effectiveGroup.folder) || undefined;
+  let activeSessionId =
+    resolvePrimaryRuntimeSessionId({
+      folder: effectiveGroup.folder,
+      sessionSlot: runtimeSessionSlot,
+      sessions,
+      loadSession: getSession,
+    }) || undefined;
   let activeRuntimeIdentity: RuntimeIdentity | null =
     resolveEffectiveRuntimeIdentity(effectiveGroup, {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
@@ -4684,6 +4742,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         }
       },
       imagesForAgent,
+      runtimeSessionSlot,
     );
   } finally {
     await setTyping(chatJid, false);
@@ -4889,8 +4948,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
     // 清除当前主会话（保留同 folder 下独立 agent 会话）
     try {
-      deleteSession(group.folder);
-      delete sessions[group.folder];
+      clearPrimaryRuntimeSession(group.folder, runtimeSessionSlot);
     } catch (err) {
       logger.error(
         { folder: group.folder, err },
@@ -5043,7 +5101,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           );
         }
         try {
-          deleteSession(folder);
+          deletePrimaryRuntimeSessions(folder);
           delete sessions[folder];
         } catch (err) {
           logger.error(
@@ -5197,11 +5255,17 @@ async function runAgent(
   messageCursor?: MessageCursor,
   onOutput?: (output: ContainerOutput) => Promise<void>,
   images?: Array<{ data: string; mimeType?: string }>,
+  runtimeSessionSlot: string | null = null,
 ): Promise<{ status: 'success' | 'error' | 'closed'; error?: string }> {
   const isHome = !!group.is_home;
   // For the agent-runner: isMain means this is an admin home container (full privileges)
   const isAdminHome = isHome && group.folder === MAIN_GROUP_FOLDER;
-  const sessionId = sessions[group.folder];
+  const sessionId = resolvePrimaryRuntimeSessionId({
+    folder: group.folder,
+    sessionSlot: runtimeSessionSlot,
+    sessions,
+    loadSession: getSession,
+  });
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -5243,8 +5307,11 @@ async function runAgent(
         // 仅从成功的输出中更新 session ID；
         // error 输出可能携带 stale ID，会覆盖流式传递的有效 session
         if (output.newSessionId && output.status !== 'error') {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
+          rememberPrimaryRuntimeSession(
+            group.folder,
+            output.newSessionId,
+            runtimeSessionSlot,
+          );
         }
         await onOutput(output);
       }
@@ -5271,6 +5338,7 @@ async function runAgent(
         agentType,
         executionMode,
         sessionId: sessionId || null,
+        runtimeSessionSlot,
         isHome,
         isAdminHome,
         ...runtimeBuildLogFields,
@@ -5342,8 +5410,11 @@ async function runAgent(
     // 仅从成功的最终输出中更新 session ID；
     // error 状态的输出可能携带 stale ID，覆盖流式阶段已写入的有效 session
     if (output.newSessionId && output.status !== 'error') {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
+      rememberPrimaryRuntimeSession(
+        group.folder,
+        output.newSessionId,
+        runtimeSessionSlot,
+      );
     }
 
     // Agent was interrupted by _close sentinel (home folder drain).
@@ -8549,6 +8620,7 @@ async function startMessageLoop(): Promise<void> {
               timestamp: messagesToSend[messagesToSend.length - 1]!.timestamp,
               id: messagesToSend[messagesToSend.length - 1]!.id,
             },
+            lastSourceJidForRoute,
           );
           if (sendResult === 'sent') {
             recordLifecycleForMessages({
@@ -8642,14 +8714,12 @@ function recoverPendingMessages(): void {
     if (recoverablePending.length > 0) {
       // Clear stale session to avoid "session ghost" — the agent will start
       // a fresh conversation and process the pending messages cleanly.
-      if (sessions[group.folder]) {
-        logger.info(
-          { group: group.name, folder: group.folder },
-          'Recovery: clearing stale session to prevent session ghost',
-        );
-        delete sessions[group.folder];
-        deleteSession(group.folder);
-      }
+      logger.info(
+        { group: group.name, folder: group.folder },
+        'Recovery: clearing stale primary sessions to prevent session ghost',
+      );
+      delete sessions[group.folder];
+      deletePrimaryRuntimeSessions(group.folder);
 
       logger.info(
         {

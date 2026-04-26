@@ -401,6 +401,22 @@ export class GroupQueue {
   }
 
   /**
+   * IM-originated user work must not be piped into an already-running Web
+   * runner. The Web runner may be processing an unrelated browser/autopilot
+   * turn and would otherwise answer with stale context on the IM card.
+   */
+  private shouldDeferImWorkBehindWebRunner(
+    groupJid: string,
+    activeRunnerJid: string | null,
+    sourceJid?: string | null,
+  ): boolean {
+    const originJid = sourceJid || groupJid;
+    if (getChannelType(originJid) === null) return false;
+    if (!activeRunnerJid) return false;
+    return getChannelType(activeRunnerJid) === null;
+  }
+
+  /**
    * Write a single _drain sentinel to the actual active main-agent runner that
    * owns this serialization key. This must target the runner state rather than
    * the caller's group state because sibling JIDs can share one process.
@@ -749,14 +765,35 @@ export class GroupQueue {
     images?: Array<{ data: string; mimeType?: string }>,
     onInjected?: () => void,
     cursor?: MessageCursor,
+    sourceJid?: string | null,
   ): SendMessageResult {
     const activeRunner = this.findActiveRunnerFor(groupJid);
     const state = this.resolveActiveState(groupJid);
     if (!state) return 'no_active';
-    if (this.findPendingImSibling(groupJid)) {
+    if (
+      getChannelType(groupJid) === null &&
+      (this.findPendingImSibling(groupJid) ||
+        this.hasWaitingImSibling(groupJid))
+    ) {
       logger.debug(
         { groupJid, activeRunner },
         'Deferring web-originated IPC behind uncommitted IM sibling',
+      );
+      return 'no_active';
+    }
+    if (getChannelType(groupJid) === null && state.pendingMessages) {
+      logger.debug(
+        { groupJid, activeRunner },
+        'Deferring web-originated IPC behind already queued messages',
+      );
+      return 'no_active';
+    }
+    if (
+      this.shouldDeferImWorkBehindWebRunner(groupJid, activeRunner, sourceJid)
+    ) {
+      logger.debug(
+        { groupJid, activeRunner, sourceJid },
+        'Deferring IM-originated IPC behind active Web runner',
       );
       return 'no_active';
     }

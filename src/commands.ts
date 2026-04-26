@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import {
+  deletePrimaryRuntimeSessions,
   deleteSession,
   getJidsByFolder,
   storeMessageDirect,
@@ -72,8 +73,10 @@ export async function executeSessionReset(
   clearSessionFiles(folder, agentId);
 
   // 3. Delete session from DB (+ in-memory cache for main session)
-  deleteSession(folder, agentId);
-  if (!agentId) {
+  if (agentId) {
+    deleteSession(folder, agentId);
+  } else {
+    deletePrimaryRuntimeSessions(folder);
     delete deps.sessions[folder];
   }
 

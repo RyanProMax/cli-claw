@@ -60,6 +60,8 @@ import {
   getAllChats,
   getJidsByFolder,
   updateChatName,
+  deleteAllSessionsForFolder,
+  deletePrimaryRuntimeSessions,
   deleteSession,
   deleteChatHistory,
   deleteGroupData,
@@ -1344,8 +1346,10 @@ groupRoutes.post('/:jid/reset-session', authMiddleware, async (c) => {
 
   // 3. Delete session from DB (and in-memory cache for main session).
   try {
-    deleteSession(group.folder, agentId);
-    if (!agentId) {
+    if (agentId) {
+      deleteSession(group.folder, agentId);
+    } else {
+      deletePrimaryRuntimeSessions(group.folder);
       delete deps.getSessions()[group.folder];
     }
   } catch (err) {
@@ -1471,7 +1475,7 @@ groupRoutes.post('/:jid/clear-history', authMiddleware, async (c) => {
 
   // 3. Clear session state and message history for ALL sibling JIDs.
   try {
-    deleteSession(group.folder);
+    deleteAllSessionsForFolder(group.folder);
     delete deps.getSessions()[group.folder];
     for (const siblingJid of siblingJids) {
       deleteChatHistory(siblingJid);
