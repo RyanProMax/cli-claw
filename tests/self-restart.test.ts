@@ -11,6 +11,7 @@ import {
   cleanupOrphanRunnerProcesses,
   hasPendingSelfRestartForChat,
   findPendingSelfRestartNotifications,
+  inspectAndCleanupResidualProcesses,
   markSelfRestartNotificationSent,
   readCurrentBackendRestartState,
   requestSelfRestart,
@@ -589,6 +590,28 @@ describe('self-restart success notifications', () => {
       attemptedRunnerPids: [5327, 5355],
       failedRunnerPids: [],
     });
+  });
+
+  test('inspects and cleans residual runner groups in one pass for startup cleanup', () => {
+    const killProcess = vi.fn();
+
+    const result = inspectAndCleanupResidualProcesses(
+      [
+        ' 53009     1 53009 /Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/index.ts',
+        ' 5355     1  5327 /Users/ryan/.npm/_npx/.../bin/codex-acp -c model="gpt-5.5"',
+        ' 27978    1 27865 /Users/ryan/.npm/_npx/.../bin/codex-acp -c model="gpt-5.5"',
+      ].join('\n'),
+      53009,
+      { killProcess },
+    );
+
+    expect(result.summary.orphanRunnerPids).toEqual([5355, 27978]);
+    expect(result.summary.orphanRunnerGroupIds).toEqual([5327, 27865]);
+    expect(result.cleanupResult.attemptedRunnerGroupIds).toEqual([
+      5327, 27865,
+    ]);
+    expect(killProcess).toHaveBeenNthCalledWith(1, -5327, 'SIGTERM');
+    expect(killProcess).toHaveBeenNthCalledWith(2, -27865, 'SIGTERM');
   });
 
   test('kills only truly orphaned runner processes during residual cleanup', () => {

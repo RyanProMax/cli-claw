@@ -663,11 +663,12 @@ Risks / Notes / Handoff:
 ### Milestone 15
 
 Objective:
-- Fix the 2026-04-26 self-restart incident where Feishu-origin streaming work was persisted only to DB, marked committed, and therefore never retried in Feishu after restart; also make self-restart residual runner cleanup reap orphan runner process groups instead of only individual PIDs.
+- Fix the 2026-04-26 self-restart incident where Feishu-origin streaming work was persisted only to DB, marked committed, and therefore never retried in Feishu after restart; also make self-restart residual runner cleanup reap orphan runner process groups instead of only individual PIDs, and reuse that cleanup during backend startup.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
 - `src/index.ts`
 - `src/self-restart.ts`
 - `tests/restart-recovery.test.ts`
@@ -698,6 +699,7 @@ Risks / Notes / Handoff:
 - TDD red observed before PGID summary/cleanup existed: `npm test -- --run tests/self-restart.test.ts` failed because `orphanRunnerGroupIds` was missing and cleanup called individual orphan PIDs instead of negative PGID.
 - `saveInterruptedStreamingMessages()` now leaves the Feishu committed cursor unchanged when self-restart intentionally suppresses IM delivery of the shutdown partial, so the inbound message remains retryable after restart.
 - Self-restart residual inspection now asks `ps` for `PGID`, summarizes orphan runner process groups, and cleanup sends `SIGTERM` to negative PGIDs before falling back to individual PID cleanup.
+- Backend startup now reuses the same one-pass residual inspection and cleanup helper after self-check mode is excluded, so orphan runner groups left by older restarts can be reaped even before the next `/self-restart` notification path.
 - Validation passed:
   - `npm test -- --run tests/restart-recovery.test.ts`
   - `npm test -- --run tests/self-restart.test.ts`
@@ -728,6 +730,7 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
 - `src/index.ts`
 - `src/self-restart.ts`
 - `tests/restart-recovery.test.ts`
@@ -740,10 +743,12 @@ Last failure summary:
   - `npm run typecheck`
   - `git diff --check`
   - `./scripts/review.sh`
+- Earlier Milestone 15 code was committed as `8cf18c7 Harden self restart recovery` and applied by safe restart `restart-2026-04-26T04-58-57-873Z-0f3fa00a`; current backend PID `53009` started at `2026-04-26T04:59:03.519Z` and `/api/health` returned healthy.
+- Follow-up startup cleanup/doc sync still needs fresh full validation, commit, and safe restart because `src/index.ts` changed after `8cf18c7`.
 
 Suspected cause:
 - Self-restart intentionally suppressed Feishu shutdown partial delivery but still treated the interrupted turn as committed.
 - Self-restart residual cleanup only killed individual orphan runner PIDs, missing orphaned runner process groups and descendants.
 
 Next step:
-- Commit Milestone 15, apply through the documented safe restart path, then record restart evidence.
+- Run full Milestone 15 validation for the startup cleanup follow-up, commit it, apply through the documented safe restart path, then record the new restart evidence.

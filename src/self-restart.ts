@@ -75,6 +75,11 @@ export interface ResidualCleanupResult {
   failedRunnerPids: number[];
 }
 
+export interface ResidualProcessInspection {
+  summary: ResidualProcessSummary;
+  cleanupResult: ResidualCleanupResult;
+}
+
 interface SpawnedProcess extends EventEmitter {
   pid?: number;
   unref?: () => void;
@@ -743,6 +748,20 @@ export function cleanupOrphanRunnerProcesses(
     failedRunnerGroupIds,
     attemptedRunnerPids,
     failedRunnerPids,
+  };
+}
+
+export function inspectAndCleanupResidualProcesses(
+  psOutput: string,
+  currentPid: number,
+  deps: {
+    killProcess?: (pid: number, signal: NodeJS.Signals) => void;
+  } = {},
+): ResidualProcessInspection {
+  const summary = summarizeResidualProcesses(psOutput, currentPid);
+  return {
+    summary,
+    cleanupResult: cleanupOrphanRunnerProcesses(summary, deps),
   };
 }
 

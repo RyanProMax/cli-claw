@@ -263,14 +263,13 @@ import { executeSessionReset } from './commands.js';
 import { getCodexUsageSnapshot } from './usage-command.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
 import {
-  cleanupOrphanRunnerProcesses,
   hasPendingSelfRestartForChat,
   findPendingSelfRestartNotifications,
+  inspectAndCleanupResidualProcesses,
   markSelfRestartNotificationSent,
   readCurrentBackendRestartState,
   requestSelfRestart,
   resolveLaunchdServiceNameFromEnv,
-  summarizeResidualProcesses,
   writeCurrentBackendRestartState,
 } from './self-restart.js';
 import {
@@ -2356,11 +2355,10 @@ async function buildSelfRestartResidualSummary(): Promise<string> {
         timeout: 5000,
       },
     );
-    const summary = summarizeResidualProcesses(
+    const { summary, cleanupResult } = inspectAndCleanupResidualProcesses(
       typeof stdout === 'string' ? stdout : String(stdout),
       process.pid,
     );
-    const cleanupResult = cleanupOrphanRunnerProcesses(summary);
     const parts = [
       `🧹 残留检查: backend ${summary.backendProcessCount} 个（额外 ${summary.extraBackendPids.length}），runner ${summary.runnerProcessCount} 个（孤儿 ${summary.orphanRunnerPids.length}）`,
     ];
@@ -2402,6 +2400,36 @@ async function buildSelfRestartResidualSummary(): Promise<string> {
       'Failed to inspect residual processes after self-restart',
     );
     return '🧹 残留检查: unavailable';
+  }
+}
+
+async function cleanupStartupResidualRunners(): Promise<void> {
+  if (SELF_CHECK_MODE) return;
+  try {
+    const { stdout } = await execFileAsync(
+      'ps',
+      ['-o', 'pid,ppid,pgid,command', '-ax'],
+      {
+        timeout: 5000,
+      },
+    );
+    const { summary, cleanupResult } = inspectAndCleanupResidualProcesses(
+      typeof stdout === 'string' ? stdout : String(stdout),
+      process.pid,
+    );
+    if (
+      summary.orphanRunnerPids.length === 0 &&
+      cleanupResult.attemptedRunnerGroupIds.length === 0 &&
+      cleanupResult.attemptedRunnerPids.length === 0
+    ) {
+      return;
+    }
+    logger.warn(
+      { summary, cleanupResult },
+      'Cleaned startup residual runner processes',
+    );
+  } catch (err) {
+    logger.warn({ err }, 'Failed to clean startup residual runner processes');
   }
 }
 
@@ -9142,6 +9170,8 @@ export async function startCliClaw(
       throw new Error(launchCwdValidation.error);
     }
   }
+
+  await cleanupStartupResidualRunners();
 
   // --- Channel reload helpers (hot-reload on config save) ---
 

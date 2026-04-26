@@ -47,13 +47,15 @@
   - 2026-04-26 milestone 13 applied: commit `46ffe9b Surface Feishu lifecycle issues in status`; safe restart `restart-2026-04-26T04-10-01-740Z-99dba7b7` passed and `/api/health` returned healthy for backend PID `41442`.
   - 2026-04-26 milestone 14: admin `/self-status` now includes a global compact `飞书异常` summary for recent non-ok Feishu lifecycle events, reusing the same issue formatter as `/status`. Validation passed with `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-26 milestone 15: self-restart shutdown partials now keep Feishu committed cursors retryable when IM delivery is intentionally suppressed, and self-restart residual cleanup now summarizes and terminates orphan runner process groups by PGID before falling back to individual PIDs. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm test -- --run tests/self-restart.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-26 milestone 15 applied: commit `8cf18c7 Harden self restart recovery`; safe restart `restart-2026-04-26T04-58-57-873Z-0f3fa00a` passed and `/api/health` returned healthy for backend PID `53009`.
+  - 2026-04-26 milestone 15 follow-up in progress: backend startup now reuses the same PGID-first residual runner cleanup helper so orphan runner groups left by older restarts can be reaped before the next `/self-restart` notification path.
 - Iteration plan:
   - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to any remaining later-stage gaps found during delivery hardening.
   - Add failing tests for any remaining direct file/image delivery semantics not covered by lifecycle evidence.
   - Extend the delivery-gated cursor commit behavior to remaining direct/routed IM delivery paths where an inbound cursor can safely stay retryable; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
   - Continue hardening outbound behavior so pending outbound can survive temporary channel unavailability after the startup connection phase.
 - Next action:
-  - Commit milestone 15, apply through the documented safe restart path, and record restart evidence; then select the next small RM-2026-04-25-01 milestone only if new reliability evidence appears.
+  - Validate, commit, and safely restart the milestone 15 startup-cleanup follow-up; then wait for new reliability evidence before expanding scope.
 
 ### P0 RM-2026-04-26-01 Safe Restart Runner Reaping
 
