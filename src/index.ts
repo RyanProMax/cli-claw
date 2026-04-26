@@ -536,6 +536,27 @@ export function applyActiveStreamingTurnCommittedCursor(
   };
 }
 
+export function applyShutdownInterruptedStreamingCommittedCursor(
+  committedCursors: Record<string, MessageCursor>,
+  recoveryEntry: Pick<
+    PersistedStreamingTurnState,
+    'commitJid' | 'cursor' | 'replyJid'
+  >,
+  options: { imDeliverySuppressed?: boolean } = {},
+): Record<string, MessageCursor> {
+  const replyRouteJid = stripVirtualJidSuffix(recoveryEntry.replyJid);
+  if (
+    options.imDeliverySuppressed === true &&
+    getChannelType(replyRouteJid) !== null
+  ) {
+    return committedCursors;
+  }
+  return applyActiveStreamingTurnCommittedCursor(
+    committedCursors,
+    recoveryEntry,
+  );
+}
+
 export function buildStreamingRecoveryEntries(
   streamingTurns: Readonly<Record<string, PersistedStreamingTurnState>>,
   activeTexts: ReadonlyMap<string, ActiveStreamingTextSnapshot>,
@@ -2330,7 +2351,7 @@ async function buildSelfRestartResidualSummary(): Promise<string> {
   try {
     const { stdout } = await execFileAsync(
       'ps',
-      ['-o', 'pid,ppid,command', '-ax'],
+      ['-o', 'pid,ppid,pgid,command', '-ax'],
       {
         timeout: 5000,
       },
@@ -2348,6 +2369,21 @@ async function buildSelfRestartResidualSummary(): Promise<string> {
     }
     if (summary.orphanRunnerPids.length > 0) {
       parts.push(`孤儿 runner PID: ${summary.orphanRunnerPids.join(', ')}`);
+      if (summary.orphanRunnerGroupIds.length > 0) {
+        parts.push(
+          `孤儿 runner PGID: ${summary.orphanRunnerGroupIds.join(', ')}`,
+        );
+      }
+      if (cleanupResult.attemptedRunnerGroupIds.length > 0) {
+        parts.push(
+          `已尝试清理孤儿 runner PGID: ${cleanupResult.attemptedRunnerGroupIds.join(', ')}`,
+        );
+      }
+      if (cleanupResult.failedRunnerGroupIds.length > 0) {
+        parts.push(
+          `孤儿 runner PGID 清理失败: ${cleanupResult.failedRunnerGroupIds.join(', ')}`,
+        );
+      }
       if (cleanupResult.attemptedRunnerPids.length > 0) {
         parts.push(
           `已尝试清理孤儿 runner PID: ${cleanupResult.attemptedRunnerPids.join(', ')}`,
@@ -5238,9 +5274,10 @@ async function saveInterruptedStreamingMessages(): Promise<void> {
       shutdownSavedJids.add(entry.streamingKey);
       shutdownSavedJids.add(entry.snapshotJid);
       shutdownSavedJids.add(entry.replyJid);
-      const nextCommitted = applyActiveStreamingTurnCommittedCursor(
+      const nextCommitted = applyShutdownInterruptedStreamingCommittedCursor(
         lastCommittedCursor,
         entry,
+        { imDeliverySuppressed: suppressImDuringSelfRestart },
       );
       if (nextCommitted !== lastCommittedCursor) {
         lastCommittedCursor = nextCommitted;

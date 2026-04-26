@@ -519,6 +519,75 @@ describe('self-restart success notifications', () => {
       extraBackendPids: [20001],
       runnerProcessCount: 3,
       orphanRunnerPids: [18718],
+      orphanRunnerGroupIds: [],
+    });
+  });
+
+  test('summarizes orphan runner process groups for detached codex descendants', () => {
+    const summary = summarizeResidualProcesses(
+      [
+        ' 40020     1 40020 /Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/index.ts',
+        ' 43258 40020 43258 node /Users/ryan/projects/cli-claw/container/agent-runner/dist/index.js',
+        ' 43262 43258 43258 node /Users/ryan/.npm/_npx/.../.bin/codex-acp',
+        ' 5327     1  5327 node /Users/ryan/projects/cli-claw/container/agent-runner/dist/index.js',
+        ' 5355     1  5327 node /Users/ryan/.npm/_npx/.../.bin/codex-acp',
+      ].join('\n'),
+      40020,
+    );
+
+    expect(summary.orphanRunnerPids).toEqual([5327, 5355]);
+    expect(summary.orphanRunnerGroupIds).toEqual([5327]);
+  });
+
+  test('terminates orphan runner process groups before individual pid fallback', () => {
+    const killProcess = vi.fn();
+
+    const cleaned = cleanupOrphanRunnerProcesses(
+      {
+        backendProcessCount: 1,
+        extraBackendPids: [],
+        runnerProcessCount: 2,
+        orphanRunnerPids: [5327, 5355],
+        orphanRunnerGroupIds: [5327],
+      },
+      { killProcess },
+    );
+
+    expect(killProcess).toHaveBeenCalledTimes(1);
+    expect(killProcess).toHaveBeenCalledWith(-5327, 'SIGTERM');
+    expect(cleaned.attemptedRunnerGroupIds).toEqual([5327]);
+    expect(cleaned.failedRunnerGroupIds).toEqual([]);
+    expect(cleaned.attemptedRunnerPids).toEqual([]);
+    expect(cleaned.failedRunnerPids).toEqual([]);
+  });
+
+  test('falls back to orphan runner PIDs when process group termination fails', () => {
+    const killProcess = vi.fn((pid: number) => {
+      if (pid < 0) {
+        throw new Error('group unavailable');
+      }
+    });
+
+    const cleaned = cleanupOrphanRunnerProcesses(
+      {
+        backendProcessCount: 1,
+        extraBackendPids: [],
+        runnerProcessCount: 2,
+        orphanRunnerPids: [5327, 5355],
+        orphanRunnerGroupIds: [5327],
+      },
+      { killProcess },
+    );
+
+    expect(killProcess).toHaveBeenCalledTimes(3);
+    expect(killProcess).toHaveBeenNthCalledWith(1, -5327, 'SIGTERM');
+    expect(killProcess).toHaveBeenNthCalledWith(2, 5327, 'SIGTERM');
+    expect(killProcess).toHaveBeenNthCalledWith(3, 5355, 'SIGTERM');
+    expect(cleaned).toEqual({
+      attemptedRunnerGroupIds: [5327],
+      failedRunnerGroupIds: [5327],
+      attemptedRunnerPids: [5327, 5355],
+      failedRunnerPids: [],
     });
   });
 
@@ -531,6 +600,7 @@ describe('self-restart success notifications', () => {
         extraBackendPids: [],
         runnerProcessCount: 3,
         orphanRunnerPids: [18718, 18719],
+        orphanRunnerGroupIds: [],
       },
       { killProcess },
     );
@@ -539,6 +609,8 @@ describe('self-restart success notifications', () => {
     expect(killProcess).toHaveBeenNthCalledWith(1, 18718, 'SIGTERM');
     expect(killProcess).toHaveBeenNthCalledWith(2, 18719, 'SIGTERM');
     expect(cleaned).toEqual({
+      attemptedRunnerGroupIds: [],
+      failedRunnerGroupIds: [],
       attemptedRunnerPids: [18718, 18719],
       failedRunnerPids: [],
     });

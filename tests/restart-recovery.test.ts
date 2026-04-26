@@ -225,6 +225,32 @@ describe('restart recovery cursor handling', () => {
     expect(next).toBe(committed);
   });
 
+  test('keeps Feishu cursor retryable when self-restart suppresses shutdown IM delivery', async () => {
+    const { applyShutdownInterruptedStreamingCommittedCursor } =
+      await loadIndexModule();
+    const committed = {
+      'feishu:chat-1': {
+        timestamp: '2026-04-26T04:35:00.000Z',
+        id: 'msg-before-restart',
+      },
+    };
+
+    const next = applyShutdownInterruptedStreamingCommittedCursor(
+      committed,
+      {
+        commitJid: 'feishu:chat-1',
+        replyJid: 'feishu:chat-1',
+        cursor: {
+          timestamp: '2026-04-26T04:40:04.065Z',
+          id: 'om_x100b51ed3cf378a0b2df988b2f86630',
+        },
+      },
+      { imDeliverySuppressed: true },
+    );
+
+    expect(next).toBe(committed);
+  });
+
   test('uses the committed cursor when replaying a recovered chat after restart', async () => {
     const { resolveMessageProcessingCursor } = await loadIndexModule();
 

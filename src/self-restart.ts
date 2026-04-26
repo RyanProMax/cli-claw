@@ -65,9 +65,12 @@ export interface ResidualProcessSummary {
   extraBackendPids: number[];
   runnerProcessCount: number;
   orphanRunnerPids: number[];
+  orphanRunnerGroupIds: number[];
 }
 
 export interface ResidualCleanupResult {
+  attemptedRunnerGroupIds: number[];
+  failedRunnerGroupIds: number[];
   attemptedRunnerPids: number[];
   failedRunnerPids: number[];
 }
@@ -605,7 +608,7 @@ export function markSelfRestartNotificationSent(
 
 function parsePsLine(
   line: string,
-): { pid: number; ppid: number; command: string } | null {
+): { pid: number; ppid: number; pgid: number | null; command: string } | null {
   const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
   if (!match) return null;
 
@@ -613,10 +616,15 @@ function parsePsLine(
   const ppid = Number(match[2]);
   if (!Number.isInteger(pid) || !Number.isInteger(ppid)) return null;
 
+  const rest = match[3];
+  const pgidMatch = rest.match(/^(\d+)\s+(.+)$/);
+  const pgid = pgidMatch ? Number(pgidMatch[1]) : null;
+
   return {
     pid,
     ppid,
-    command: match[3],
+    pgid: Number.isInteger(pgid) ? pgid : null,
+    command: pgidMatch ? pgidMatch[2] : rest,
   };
 }
 
@@ -647,6 +655,7 @@ export function summarizeResidualProcesses(
       ): entry is {
         pid: number;
         ppid: number;
+        pgid: number | null;
         command: string;
       } => entry !== null,
     );
@@ -668,12 +677,29 @@ export function summarizeResidualProcesses(
     .filter((entry) => entry.ppid === 1 || !byPid.has(entry.ppid))
     .map((entry) => entry.pid)
     .sort((a, b) => a - b);
+  const currentProcessGroupId =
+    entries.find((entry) => entry.pid === currentPid)?.pgid ?? null;
+  const orphanRunnerGroupIds = [
+    ...new Set(
+      runnerEntries
+        .filter((entry) => entry.ppid === 1 || !byPid.has(entry.ppid))
+        .map((entry) => entry.pgid)
+        .filter(
+          (pgid): pgid is number =>
+            typeof pgid === 'number' &&
+            pgid > 1 &&
+            pgid !== currentPid &&
+            pgid !== currentProcessGroupId,
+        ),
+    ),
+  ].sort((a, b) => a - b);
 
   return {
     backendProcessCount: backendEntries.length,
     extraBackendPids,
     runnerProcessCount: runnerEntries.length,
     orphanRunnerPids,
+    orphanRunnerGroupIds,
   };
 }
 
@@ -684,19 +710,37 @@ export function cleanupOrphanRunnerProcesses(
   } = {},
 ): ResidualCleanupResult {
   const killProcess = deps.killProcess ?? process.kill;
+  const attemptedRunnerGroupIds: number[] = [];
+  const failedRunnerGroupIds: number[] = [];
   const attemptedRunnerPids: number[] = [];
   const failedRunnerPids: number[] = [];
 
-  for (const pid of summary.orphanRunnerPids) {
-    attemptedRunnerPids.push(pid);
+  for (const groupId of summary.orphanRunnerGroupIds) {
+    attemptedRunnerGroupIds.push(groupId);
     try {
-      killProcess(pid, 'SIGTERM');
+      killProcess(-groupId, 'SIGTERM');
     } catch {
-      failedRunnerPids.push(pid);
+      failedRunnerGroupIds.push(groupId);
+    }
+  }
+
+  if (
+    summary.orphanRunnerGroupIds.length === 0 ||
+    failedRunnerGroupIds.length > 0
+  ) {
+    for (const pid of summary.orphanRunnerPids) {
+      attemptedRunnerPids.push(pid);
+      try {
+        killProcess(pid, 'SIGTERM');
+      } catch {
+        failedRunnerPids.push(pid);
+      }
     }
   }
 
   return {
+    attemptedRunnerGroupIds,
+    failedRunnerGroupIds,
     attemptedRunnerPids,
     failedRunnerPids,
   };

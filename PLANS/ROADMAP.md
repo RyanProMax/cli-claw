@@ -46,13 +46,32 @@
   - 2026-04-26 milestone 13: Feishu `/status` now shows a separate compact `飞书异常` line for recent non-ok lifecycle events, so delivery failures and skipped processing reasons remain visible even when newer ok events exist. Validation passed with `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-26 milestone 13 applied: commit `46ffe9b Surface Feishu lifecycle issues in status`; safe restart `restart-2026-04-26T04-10-01-740Z-99dba7b7` passed and `/api/health` returned healthy for backend PID `41442`.
   - 2026-04-26 milestone 14: admin `/self-status` now includes a global compact `飞书异常` summary for recent non-ok Feishu lifecycle events, reusing the same issue formatter as `/status`. Validation passed with `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-26 milestone 15: self-restart shutdown partials now keep Feishu committed cursors retryable when IM delivery is intentionally suppressed, and self-restart residual cleanup now summarizes and terminates orphan runner process groups by PGID before falling back to individual PIDs. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm test -- --run tests/self-restart.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Iteration plan:
   - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to any remaining later-stage gaps found during delivery hardening.
   - Add failing tests for any remaining direct file/image delivery semantics not covered by lifecycle evidence.
   - Extend the delivery-gated cursor commit behavior to remaining direct/routed IM delivery paths where an inbound cursor can safely stay retryable; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
   - Continue hardening outbound behavior so pending outbound can survive temporary channel unavailability after the startup connection phase.
 - Next action:
-  - Select and write the next small RM-2026-04-25-01 milestone before coding; remaining work should continue behind the lifecycle/delivery reliability contract.
+  - Commit milestone 15, apply through the documented safe restart path, and record restart evidence; then select the next small RM-2026-04-25-01 milestone only if new reliability evidence appears.
+
+### P0 RM-2026-04-26-01 Safe Restart Runner Reaping
+
+- Status: `verified`
+- Source: 2026-04-26 user report and `/self-restart` residual summary
+- Summary: 安全自重启必须可靠回收旧 agent-runner / codex-acp 进程树，避免每次重启后留下额外 runner，占用资源并干扰真实飞书消息处理。
+- Evidence:
+  - User screenshot: `/self-restart` succeeded but reported `runner 31 个（孤儿 15）` and attempted cleanup for 15 orphan runner PIDs.
+  - Local process table showed multiple historical `codex-acp` processes with `PPID=1`, from older runner process groups.
+  - `src/self-restart.ts` currently treats `codex-acp` as runner process but `cleanupOrphanRunnerProcesses()` only sends `SIGTERM` to the orphan PID list; it does not kill orphan process groups or descendants.
+  - `src/index.ts` self-restart residual inspection currently calls `ps -o pid,ppid,command -ax`, so cleanup has no `PGID` evidence to reap process groups safely.
+- Iteration plan:
+  - Parse `PGID` in residual process summaries and preserve orphan runner group ids.
+  - Cleanup orphan runner groups with negative-PGID `SIGTERM` before falling back to individual PID cleanup.
+  - Keep current backend and attached active runner trees protected by parent/ancestor checks.
+  - Surface attempted group cleanup in `/self-restart` residual output so future incidents can be verified from Feishu without shell access.
+- Next action:
+  - After safe restart, verify the next `/self-restart` residual summary reports PGID cleanup attempts when orphan groups exist; continue monitoring for recurring runner residue.
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 

@@ -660,6 +660,55 @@ Risks / Notes / Handoff:
   - Scope stayed within the allowed files.
   - The change is observability-only and does not alter queue, delivery, cursor, Feishu connection, or restart behavior.
 
+### Milestone 15
+
+Objective:
+- Fix the 2026-04-26 self-restart incident where Feishu-origin streaming work was persisted only to DB, marked committed, and therefore never retried in Feishu after restart; also make self-restart residual runner cleanup reap orphan runner process groups instead of only individual PIDs.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `src/self-restart.ts`
+- `tests/restart-recovery.test.ts`
+- `tests/self-restart.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm test -- --run tests/self-restart.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Incident evidence from 2026-04-26: Feishu message `om_x100b51ed3cf378a0b2df988b2f86630` reached `stream_started`, then self-restart suppressed IM delivery of the shutdown partial (`sendToIM=false`) while advancing `last_committed_cursor`, leaving no Feishu-visible reply and no retry after restart.
+- Incident evidence from `/self-restart`: residual summary reported runner `31` and orphan runner `15`; local process table showed old `codex-acp` children reparented to PID 1. Existing cleanup only sent `SIGTERM` to orphan PIDs and did not target the orphan process groups.
+- Follow TDD: add failing policy tests before changing production code.
+- TDD red observed before the cursor policy helper existed: `npm test -- --run tests/restart-recovery.test.ts` failed with `applyShutdownInterruptedStreamingCommittedCursor is not a function`.
+- TDD red observed before PGID summary/cleanup existed: `npm test -- --run tests/self-restart.test.ts` failed because `orphanRunnerGroupIds` was missing and cleanup called individual orphan PIDs instead of negative PGID.
+- `saveInterruptedStreamingMessages()` now leaves the Feishu committed cursor unchanged when self-restart intentionally suppresses IM delivery of the shutdown partial, so the inbound message remains retryable after restart.
+- Self-restart residual inspection now asks `ps` for `PGID`, summarizes orphan runner process groups, and cleanup sends `SIGTERM` to negative PGIDs before falling back to individual PID cleanup.
+- Validation passed:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm test -- --run tests/self-restart.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The cursor change is limited to self-restart shutdown partials whose IM delivery is intentionally suppressed.
+  - The residual cleanup path preserves the old individual PID fallback when PGID data is unavailable.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -671,7 +720,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 14
+- Milestone 15
 
 Current status:
 - done
@@ -679,20 +728,22 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `docs/COMMAND.md`
-- `src/im-command-utils.ts`
 - `src/index.ts`
-- `tests/im-command-utils.test.ts`
+- `src/self-restart.ts`
+- `tests/restart-recovery.test.ts`
+- `tests/self-restart.test.ts`
 
 Last failure summary:
-- No current validation or review failures. Milestone 14 validation passed with:
-  - `npm test -- --run tests/im-command-utils.test.ts`
+- No current validation or review failures. Milestone 15 validation passed with:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm test -- --run tests/self-restart.test.ts`
   - `npm run typecheck`
   - `git diff --check`
   - `./scripts/review.sh`
 
 Suspected cause:
-- The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
+- Self-restart intentionally suppressed Feishu shutdown partial delivery but still treated the interrupted turn as committed.
+- Self-restart residual cleanup only killed individual orphan runner PIDs, missing orphaned runner process groups and descendants.
 
 Next step:
-- Commit Milestone 14, apply through the documented safe restart path, then select the next small RM-2026-04-25-01 milestone before coding again.
+- Commit Milestone 15, apply through the documented safe restart path, then record restart evidence.
