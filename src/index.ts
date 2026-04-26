@@ -1075,6 +1075,16 @@ export function selectFeishuStartupBackfillChatIds(
   return chatIds;
 }
 
+export function shouldStartStartupMessageRecovery({
+  selfCheckMode,
+  imConnectionPhaseComplete,
+}: {
+  selfCheckMode: boolean;
+  imConnectionPhaseComplete: boolean;
+}): boolean {
+  return !selfCheckMode && imConnectionPhaseComplete;
+}
+
 /**
  * Write usage records from a usage event to the database.
  * Handles both modelUsage (per-model breakdown) and legacy flat format.
@@ -9695,10 +9705,7 @@ export async function startCliClaw(
 
   startIpcWatcher();
   recoverStreamingBuffer();
-  recoverPendingMessages();
-  recoverConversationAgents();
   startStreamingBuffer();
-  startMessageLoop();
 
   if (SELF_CHECK_MODE) {
     logger.info('CLI_CLAW_SELF_CHECK=1, skipping IM channel connections');
@@ -9856,6 +9863,17 @@ export async function startCliClaw(
   }
 
   await notifyCompletedSelfRestartIntents();
+
+  if (
+    shouldStartStartupMessageRecovery({
+      selfCheckMode: SELF_CHECK_MODE,
+      imConnectionPhaseComplete: true,
+    })
+  ) {
+    recoverPendingMessages();
+    recoverConversationAgents();
+    startMessageLoop();
+  }
 
   // Start Feishu group sync if any connection is active
   if (anyFeishuConnected) {

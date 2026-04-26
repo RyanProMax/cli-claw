@@ -39,11 +39,12 @@
   - 2026-04-25 milestone 6: conversation-agent routed static IM replies now block virtual cursor commit when Feishu delivery fails after retries; final-reply turns with a blocked cursor no longer persist duplicate interrupted partials from accumulated stream text. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-25 milestone 7: Feishu-origin interrupted partial replies now block cursor commit when no streaming card handled IM delivery and static IM partial delivery fails after retries; static partial delivery records `im_delivered` lifecycle evidence. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-25 milestone 8: Feishu startup backfill chat-id selection now includes ownerless or stale-owner Feishu registered chats when they share a workspace/folder with the connecting user's registered groups. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-25 milestone 9: startup pending-message recovery, conversation-agent recovery, and message loop start now wait until the normal IM connection phase has completed, reducing the race where recovered Feishu-origin work attempts delivery before Feishu is connected. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Iteration plan:
   - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to remaining later stages, especially `stream_started`.
-  - Add failing tests for startup recovery waiting for IM readiness and remaining direct/mirror delivery paths.
+  - Add failing tests for remaining direct/mirror delivery paths.
   - Extend the delivery-gated cursor commit behavior to remaining direct/routed IM delivery paths such as mirror/direct file sends; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
-  - Gate startup recovery/backfill drain on channel readiness, or queue pending outbound until Feishu is connected.
+  - Continue hardening outbound behavior so pending outbound can survive temporary channel unavailability after the startup connection phase.
   - Add a compact `/status` or `/self-status` section for recent Feishu lifecycle failures.
 - Next action:
   - Continue with the next smallest reliability fix behind the lifecycle contract: startup recovery readiness or remaining mirror/direct delivery cursor semantics.

@@ -14,6 +14,7 @@
 - `/status` formatting has a compact section for recent Feishu lifecycle evidence.
 - Queue max-retry exhaustion records `dead_lettered` lifecycle events for pending Feishu-origin messages.
 - Startup Feishu backfill includes Feishu chats that share a workspace/folder with the connecting user even when the Feishu row is ownerless or has a stale owner.
+- Startup pending-message recovery and message loop start only after the IM connection phase has completed in normal service mode.
 - `PLANS/ROADMAP.md` records the milestone progress.
 - Validation and review gate pass.
 
@@ -384,6 +385,48 @@ Risks / Notes / Handoff:
   - The change targets only startup Feishu backfill chat-id selection.
   - Remaining startup readiness and mirror/direct file delivery fixes remain in `PLANS/ROADMAP.md`.
 
+### Milestone 9
+
+Objective:
+- Gate startup pending-message recovery and the message loop until after the IM connection phase finishes, so recovered Feishu-origin work does not attempt delivery before Feishu is connected.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to startup ordering only. Do not change queue retry, cursor, delivery, or Feishu connection internals here.
+- TDD red observed before the helper existed: `npm test -- --run tests/restart-recovery.test.ts` failed with `shouldStartStartupMessageRecovery is not a function`.
+- Added `shouldStartStartupMessageRecovery()` and moved `recoverPendingMessages()`, `recoverConversationAgents()`, and `startMessageLoop()` until after the normal IM connection phase completes.
+- `recoverStreamingBuffer()` can still run before IM readiness because it restores persisted streaming state, but pending-message recovery and message loop should wait until normal IM connection attempts finish.
+- Validation passed:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - Queue retry, cursor, delivery, and Feishu connection internals were not changed.
+  - The startup pending recovery/message loop now run after the IM connection phase in normal service mode and do not run in self-check mode.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -395,10 +438,10 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 8
+- Milestone 9
 
 Current status:
-- done; committed and safely restarted
+- done
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -428,6 +471,4 @@ Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Milestone 8 is committed as `4ff9f2a Expand Feishu startup backfill coverage`.
-- Safe restart passed via `~/.cli-claw/ops/restarts/restart-2026-04-25T21-01-50-253Z-ca8afe4b.json`; current backend PID `15898` started at `2026-04-25T21:01:55.882Z` and `/api/health` is healthy on port `3000`.
-- Continue RM-2026-04-25-01 later with startup readiness or remaining mirror/direct delivery cursor semantics.
+- Continue RM-2026-04-25-01 later with remaining mirror/direct delivery cursor semantics or `stream_started` lifecycle coverage.

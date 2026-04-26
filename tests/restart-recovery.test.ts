@@ -492,6 +492,29 @@ describe('restart recovery cursor handling', () => {
     ]);
   });
 
+  test('starts pending-message recovery only after normal IM connection phase completes', async () => {
+    const { shouldStartStartupMessageRecovery } = await loadIndexModule();
+
+    expect(
+      shouldStartStartupMessageRecovery({
+        selfCheckMode: false,
+        imConnectionPhaseComplete: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldStartStartupMessageRecovery({
+        selfCheckMode: false,
+        imConnectionPhaseComplete: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldStartStartupMessageRecovery({
+        selfCheckMode: true,
+        imConnectionPhaseComplete: true,
+      }),
+    ).toBe(false);
+  });
+
   test('keeps recovery history free of internal control rows', async () => {
     const { isRestartRecoveryHistoryMessage } = await loadIndexModule();
 
