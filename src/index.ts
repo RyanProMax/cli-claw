@@ -541,15 +541,8 @@ export function applyShutdownInterruptedStreamingCommittedCursor(
     PersistedStreamingTurnState,
     'commitJid' | 'cursor' | 'replyJid'
   >,
-  options: { imDeliverySuppressed?: boolean } = {},
+  _options: { imDeliverySuppressed?: boolean } = {},
 ): Record<string, MessageCursor> {
-  const replyRouteJid = stripVirtualJidSuffix(recoveryEntry.replyJid);
-  if (
-    options.imDeliverySuppressed === true &&
-    getChannelType(replyRouteJid) !== null
-  ) {
-    return committedCursors;
-  }
   return applyActiveStreamingTurnCommittedCursor(
     committedCursors,
     recoveryEntry,
@@ -5254,7 +5247,10 @@ export async function persistInterruptedStreamingReply(
     buildInterruptedReply(entry.partialText, undefined, entry.commentaryText),
     {
       sendToIM:
-        deliveryOptions.sendToIM ?? getChannelType(entry.replyJid) !== null,
+        deliveryOptions.sendToIM ??
+        (finalizationReason === 'shutdown'
+          ? false
+          : getChannelType(entry.replyJid) !== null),
       messageMeta: {
         sourceKind: 'interrupt_partial',
         finalizationReason,
@@ -5296,9 +5292,7 @@ async function saveInterruptedStreamingMessages(): Promise<void> {
         );
       }
       await persistInterruptedStreamingReply(entry, 'shutdown', sendMessage, {
-        sendToIM: suppressImDuringSelfRestart
-          ? false
-          : getChannelType(entry.replyJid) !== null,
+        sendToIM: false,
       });
       // Mark as saved so the per-group finally blocks don't duplicate
       shutdownSavedJids.add(entry.streamingKey);

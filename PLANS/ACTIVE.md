@@ -1104,6 +1104,60 @@ Risks / Notes / Handoff:
   - `./scripts/review.sh`
 - Review gate passed against `RUNBOOKS/Review.md`: scope stayed within the milestone, the regression test failed before the fix and passes after it, and the production change only expands card creation triggers without changing queue, runner, cursor, restart, or final delivery policy.
 
+### Milestone 24
+
+Objective:
+- Stop graceful restart/shutdown from leaking long interrupted process text into Feishu/Web visible replies, and stop the next Feishu message from being batched with a previous interrupted user request. Also strip Codex WebSocket-to-HTTPS transport diagnostics from assistant-visible output.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `tests/codex-session-runtime.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm test -- --run tests/codex-session-runtime.test.ts`
+- `npm run typecheck`
+- `npm --prefix container/agent-runner run build:runner`
+- `git diff --check`
+- `npx prettier --check src/index.ts tests/restart-recovery.test.ts container/agent-runner/src/codex-session-runtime.ts tests/codex-session-runtime.test.ts PLANS/ACTIVE.md PLANS/ROADMAP.md`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Incident evidence from 2026-04-26 10:15-10:40 UTC: shutdown saved a 1961-char `interrupt_partial|shutdown` to Feishu with `sendToIM: true`; the next user message at `2026-04-26T10:36:19.009Z` processed `messageCount: 2`, batching the old `继续任务` with the new `当前ROADMAP还有哪些任务TODO`; the final reply started with old process text and included `Falling back from WebSockets to HTTPS transport. stream disconnected before completion: tls handshake eof`.
+- Root cause hypothesis: shutdown partials are treated as user-visible IM output and the accepted cursor is not advanced as a terminal interruption, so the next normal message replays the old pending user row. Separately, Codex transport diagnostics are not in the runtime diagnostic strip list.
+- Follow TDD: first update/add failing tests for shutdown partial visibility/cursor behavior and Codex transport diagnostic stripping, then make the minimum implementation change.
+- Keep queue retry and ordinary non-shutdown delivery-failure cursor policy unchanged.
+- TDD red observed before the fix:
+  - `npm test -- --run tests/restart-recovery.test.ts` failed because shutdown partials still used `sendToIM: true` and suppressed shutdown cursors stayed retryable.
+  - `npm test -- --run tests/codex-session-runtime.test.ts` failed because `Falling back from WebSockets to HTTPS transport... tls handshake eof` was not stripped.
+- Implemented:
+  - Graceful shutdown partials now default to DB-only delivery (`sendToIM: false`) instead of pushing long process text into IM.
+  - Shutdown interrupted cursors are treated as terminal for processing, so old interrupted user rows do not batch into the next live Feishu turn.
+  - Codex transport fallback diagnostics are stripped from assistant chunks alongside existing model metadata diagnostics.
+- Validation passed:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm test -- --run tests/codex-session-runtime.test.ts`
+  - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build:runner`
+  - `git diff --check`
+  - `npx prettier --check src/index.ts tests/restart-recovery.test.ts container/agent-runner/src/codex-session-runtime.ts tests/codex-session-runtime.test.ts PLANS/ACTIVE.md PLANS/ROADMAP.md`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`: scope stayed within the milestone, shutdown visibility/cursor behavior is covered by regression tests, Codex diagnostic filtering is covered by a runtime unit test, and ordinary non-shutdown delivery failure retry policy was not changed.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1115,22 +1169,24 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 23
+- Milestone 24
 
 Current status:
-- done; Web-streaming-but-Feishu-card-stale incident fixed, safe restart required after commit
+- done; shutdown partial/context leakage and Codex transport diagnostic leakage fixed, safe restart required after commit
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `src/feishu-streaming-card.ts`
-- `tests/feishu-streaming-card.test.ts`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `tests/codex-session-runtime.test.ts`
 
 Last failure summary:
-- RED before fix: `npm test -- --run tests/feishu-streaming-card.test.ts` failed in four new cases because auxiliary progress from `idle` did not create any Feishu card.
+- RED before fix: restart recovery tests failed on `sendToIM: true` and unadvanced shutdown cursor; Codex runtime test failed because the transport fallback prefix was still present.
 
 Suspected cause:
-- `StreamingCardController` creates an initial card from `idle` for answer text, thinking, or commentary, but not for tool/status/hook/todo progress. Real Codex turns often begin with a long tool/status phase; Web can show the stream buffer while Feishu has no card yet.
+- Shutdown/restart partial persistence is mixing two contracts: it persists process text for recovery visibility, but also sends it to IM and leaves the old user cursor replayable for the next normal turn. Codex transport fallback text is emitted as assistant text because the diagnostic prefix stripper only handles model metadata warnings.
 
 Next step:
-- Commit this milestone, then apply it with the documented safe restart path. After restart, monitor the next Feishu `继续任务` turn for immediate card creation during tool/status progress.
+- Commit this milestone, then run the documented safe restart path and verify `/api/health`, process residue, and current cursor state.

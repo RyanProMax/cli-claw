@@ -14,6 +14,7 @@ export interface CodexRuntimeErrorFormatOptions {
 
 const CODEX_RUNTIME_DIAGNOSTIC_PREFIXES = [
   /^Model metadata for (?:`[^`]+`|\S+) not found\. Defaulting to fallback metadata; this can degrade performance and cause issues\.\s*/u,
+  /^Falling back from WebSockets to HTTPS transport\. stream disconnected before completion:\s*(?:tls handshake eof|The model (?:`[^`]+`|\S+) does not exist or you do not have access to it\.)\s*/u,
 ];
 
 const CODEX_CONTEXT_WINDOW_ERROR_MESSAGE =

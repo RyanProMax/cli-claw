@@ -225,7 +225,7 @@ describe('restart recovery cursor handling', () => {
     expect(next).toBe(committed);
   });
 
-  test('keeps Feishu cursor retryable when self-restart suppresses shutdown IM delivery', async () => {
+  test('commits shutdown interrupted cursors so old turns do not batch with the next live message', async () => {
     const { applyShutdownInterruptedStreamingCommittedCursor } =
       await loadIndexModule();
     const committed = {
@@ -248,7 +248,12 @@ describe('restart recovery cursor handling', () => {
       { imDeliverySuppressed: true },
     );
 
-    expect(next).toBe(committed);
+    expect(next).toEqual({
+      'feishu:chat-1': {
+        timestamp: '2026-04-26T04:40:04.065Z',
+        id: 'om_x100b51ed3cf378a0b2df988b2f86630',
+      },
+    });
   });
 
   test('uses the committed cursor when replaying a recovered chat after restart', async () => {
@@ -638,7 +643,7 @@ describe('restart recovery cursor handling', () => {
     );
   });
 
-  test('routes graceful-shutdown partial replies back through the normal IM delivery path', async () => {
+  test('keeps graceful-shutdown partial replies DB-only instead of sending process text to IM', async () => {
     const { buildInterruptedReply, persistInterruptedStreamingReply } =
       await loadIndexModule();
     const deliverMessage = vi.fn().mockResolvedValue('msg-1');
@@ -656,7 +661,7 @@ describe('restart recovery cursor handling', () => {
       'feishu:chat-1',
       buildInterruptedReply('partial from shutdown'),
       {
-        sendToIM: true,
+        sendToIM: false,
         messageMeta: {
           sourceKind: 'interrupt_partial',
           finalizationReason: 'shutdown',

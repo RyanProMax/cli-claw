@@ -99,6 +99,20 @@ describe('codex ACP runtime overrides', () => {
     expect(stripCodexRuntimeDiagnosticPrefix('正常回答')).toBe('正常回答');
   });
 
+  test('strips Codex transport fallback diagnostics from assistant chunks', () => {
+    expect(
+      stripCodexRuntimeDiagnosticPrefix(
+        'Falling back from WebSockets to HTTPS transport. stream disconnected before completion: tls handshake eof收到新消息，我先暂停重启动作。',
+      ),
+    ).toBe('收到新消息，我先暂停重启动作。');
+
+    expect(
+      stripCodexRuntimeDiagnosticPrefix(
+        'Falling back from WebSockets to HTTPS transport. stream disconnected before completion: The model `gpt-5.5` does not exist or you do not have access to it.\n\n---\n*⚠️ 已中断*',
+      ),
+    ).toBe('---\n*⚠️ 已中断*');
+  });
+
   test('keeps diagnostics out of final Codex turn accumulation', () => {
     const cleaned = stripCodexRuntimeDiagnosticPrefix(
       'Model metadata for `gpt-5.5` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.我看一下当前状态。',
