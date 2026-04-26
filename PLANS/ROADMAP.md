@@ -42,14 +42,15 @@
   - 2026-04-25 milestone 9: startup pending-message recovery, conversation-agent recovery, and message loop start now wait until the normal IM connection phase has completed, reducing the race where recovered Feishu-origin work attempts delivery before Feishu is connected. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-25 milestone 10: Feishu-origin stream init turns now record durable `stream_started` lifecycle evidence for main-session and conversation-agent runs, including cursor and route details. Validation passed with `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-25 milestone 11: fire-and-forget mirror reply sends now record `im_delivered` lifecycle success/failure for Feishu-origin turns without blocking the source reply cursor. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-25 milestone 12: direct `send_image` and `send_file` IPC tool deliveries now record `im_delivered` lifecycle evidence for Feishu-origin active turns, including retry failure, no-route skip, and file-not-found skip. Validation passed with `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Iteration plan:
   - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to any remaining later-stage gaps found during delivery hardening.
-  - Add failing tests for remaining direct file/image delivery paths.
-  - Extend the delivery-gated cursor commit behavior to remaining direct/routed IM delivery paths such as direct file/image sends; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
+  - Add failing tests for any remaining direct file/image delivery semantics not covered by lifecycle evidence.
+  - Extend the delivery-gated cursor commit behavior to remaining direct/routed IM delivery paths where an inbound cursor can safely stay retryable; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
   - Continue hardening outbound behavior so pending outbound can survive temporary channel unavailability after the startup connection phase.
   - Add a compact `/status` or `/self-status` section for recent Feishu lifecycle failures.
 - Next action:
-  - Continue with the next smallest reliability fix behind the lifecycle contract: remaining direct file/image delivery gaps.
+  - Continue with the next smallest reliability fix behind the lifecycle contract: compact recent Feishu lifecycle failure surfacing in `/status` or `/self-status`.
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 

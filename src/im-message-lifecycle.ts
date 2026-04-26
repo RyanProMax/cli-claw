@@ -112,3 +112,41 @@ export function recordStreamStartedLifecycleForMessages({
     },
   });
 }
+
+export type DirectImDeliveryKind = 'direct_image' | 'direct_file';
+
+export interface RecordDirectImDeliveryLifecycleForMessagesOptions {
+  messages: NewMessage[];
+  delivery: DirectImDeliveryKind;
+  targetJid?: string | null;
+  sent: boolean | null;
+  reason?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
+export function recordDirectImDeliveryLifecycleForMessages({
+  messages,
+  delivery,
+  targetJid = null,
+  sent,
+  reason,
+  details = null,
+}: RecordDirectImDeliveryLifecycleForMessagesOptions): number {
+  const status: ImMessageLifecycleStatus =
+    sent === null ? 'skipped' : sent ? 'ok' : 'error';
+  const resolvedReason =
+    reason ??
+    (sent === null ? 'no_im_route' : sent ? null : 'send_failed_after_retries');
+
+  return recordLifecycleForMessages({
+    messages,
+    stage: 'im_delivered',
+    status,
+    reason: resolvedReason,
+    details: {
+      delivery,
+      ...(targetJid ? { targetJid } : {}),
+      ...(details ?? {}),
+    },
+  });
+}

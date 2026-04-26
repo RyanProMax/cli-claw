@@ -204,9 +204,8 @@ describe('IM message lifecycle ledger', () => {
 
   test('records stream-started lifecycle events for Feishu-origin stream init turns', async () => {
     const db = await loadDbModule();
-    const { recordStreamStartedLifecycleForMessages } = await import(
-      '../src/im-message-lifecycle.ts'
-    );
+    const { recordStreamStartedLifecycleForMessages } =
+      await import('../src/im-message-lifecycle.ts');
 
     const recorded = recordStreamStartedLifecycleForMessages({
       messages: [
@@ -265,6 +264,112 @@ describe('IM message lifecycle ledger', () => {
           timestamp: '2026-04-25T02:00:00.000Z',
           id: 'msg-feishu-stream',
         },
+      },
+    });
+
+    db.closeDatabase();
+  });
+
+  test('records direct IPC image delivery failures for Feishu-origin messages', async () => {
+    const db = await loadDbModule();
+    const { recordDirectImDeliveryLifecycleForMessages } =
+      await import('../src/im-message-lifecycle.ts');
+
+    const recorded = recordDirectImDeliveryLifecycleForMessages({
+      messages: [
+        {
+          id: 'msg-feishu-direct-image',
+          chat_jid: 'web:main',
+          source_jid: 'feishu:chat-1',
+          sender: 'user',
+          sender_name: 'User',
+          content: 'send an image from this Feishu turn',
+          timestamp: '2026-04-25T04:00:00.000Z',
+        },
+        {
+          id: 'msg-web-direct-image',
+          chat_jid: 'web:main',
+          source_jid: 'web:main',
+          sender: 'user',
+          sender_name: 'User',
+          content:
+            'web-only direct image should not create Feishu lifecycle rows',
+          timestamp: '2026-04-25T04:00:01.000Z',
+        },
+      ],
+      delivery: 'direct_image',
+      targetJid: 'feishu:chat-1',
+      sent: false,
+      details: { fileName: 'plot.png' },
+    });
+
+    expect(recorded).toBe(1);
+
+    const events = db.getImMessageLifecycleEvents({
+      provider: 'feishu',
+      chatJid: 'feishu:chat-1',
+      messageId: 'msg-feishu-direct-image',
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      provider: 'feishu',
+      chat_jid: 'web:main',
+      source_jid: 'feishu:chat-1',
+      message_id: 'msg-feishu-direct-image',
+      stage: 'im_delivered',
+      status: 'error',
+      reason: 'send_failed_after_retries',
+      details: {
+        delivery: 'direct_image',
+        targetJid: 'feishu:chat-1',
+        fileName: 'plot.png',
+      },
+    });
+
+    db.closeDatabase();
+  });
+
+  test('records direct IPC file delivery skips when no IM route exists', async () => {
+    const db = await loadDbModule();
+    const { recordDirectImDeliveryLifecycleForMessages } =
+      await import('../src/im-message-lifecycle.ts');
+
+    const recorded = recordDirectImDeliveryLifecycleForMessages({
+      messages: [
+        {
+          id: 'msg-feishu-direct-file',
+          chat_jid: 'web:main',
+          source_jid: 'feishu:chat-1',
+          sender: 'user',
+          sender_name: 'User',
+          content: 'send a file from this Feishu turn',
+          timestamp: '2026-04-25T04:05:00.000Z',
+        },
+      ],
+      delivery: 'direct_file',
+      targetJid: null,
+      sent: null,
+      reason: 'no_im_route',
+      details: { fileName: 'report.pdf' },
+    });
+
+    expect(recorded).toBe(1);
+
+    const events = db.getImMessageLifecycleEvents({
+      provider: 'feishu',
+      chatJid: 'feishu:chat-1',
+      messageId: 'msg-feishu-direct-file',
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      stage: 'im_delivered',
+      status: 'skipped',
+      reason: 'no_im_route',
+      details: {
+        delivery: 'direct_file',
+        fileName: 'report.pdf',
       },
     });
 

@@ -517,6 +517,54 @@ Risks / Notes / Handoff:
   - Mirror delivery remains secondary and non-blocking.
   - The new test exercises the actual fire-and-forget wrapper with injected retry/lifecycle dependencies.
 
+### Milestone 12
+
+Objective:
+- Record durable `im_delivered` lifecycle evidence for Feishu-origin direct `send_image` and `send_file` IPC tool deliveries, including failure and skipped/no-route outcomes.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `src/im-message-lifecycle.ts`
+- `tests/im-message-lifecycle.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-message-lifecycle.test.ts`
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to lifecycle evidence for direct IPC image/file delivery. Do not change retry counts, cursor commit policy, or scheduled-task broadcast semantics here.
+- Follow TDD: add a direct IPC delivery lifecycle helper regression first, observe the expected red, then wire `send_image` and `send_file` IPC paths to use the active Feishu-origin turn context.
+- TDD red observed before the helper existed: `npm test -- --run tests/im-message-lifecycle.test.ts` failed with `recordDirectImDeliveryLifecycleForMessages is not a function`.
+- Added `recordDirectImDeliveryLifecycleForMessages()` so direct IPC tool delivery can record `im_delivered` lifecycle events as `ok`, `error`, or `skipped`.
+- Main and conversation-agent runs now publish the active Feishu-origin turn context for direct `send_image` / `send_file` IPC processing; web-origin route updates clear stale lifecycle context.
+- Direct `send_image` and `send_file` IPC paths now record lifecycle evidence for retry failure, no-route skip, and file-not-found skip without changing retry counts, cursor policy, or scheduled-task broadcast semantics.
+- Validation passed:
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - Direct image failure and direct file no-route skip are covered by lifecycle tests.
+  - Retry, cursor commit, and scheduled-task broadcast behavior were not changed.
+  - The restart-recovery suite emitted the existing MaxListeners warnings but all tests passed.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -528,7 +576,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 11
+- Milestone 12
 
 Current status:
 - done
@@ -558,9 +606,10 @@ Last failure summary:
   - Missing Feishu startup backfill chat-id selection helper.
   - Missing stream-started lifecycle helper for Feishu-origin stream init turns.
   - Missing fire-and-forget mirror IM delivery lifecycle wrapper.
+  - Missing direct IPC image/file delivery lifecycle helper.
 
 Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 later with remaining direct file/image delivery gaps.
+- Commit Milestone 12, apply it through the documented safe restart path, then continue RM-2026-04-25-01 later with the next smallest outbound reliability hardening item.

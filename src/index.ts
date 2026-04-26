@@ -120,6 +120,7 @@ import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
 import { appendActivePlanProgressFromFile } from './active-plan-progress.js';
 import {
   recordDeadLetteredLifecycleForPendingMessages,
+  recordDirectImDeliveryLifecycleForMessages,
   recordLifecycleForMessages,
   recordStreamStartedLifecycleForMessages,
 } from './im-message-lifecycle.js';
@@ -868,13 +869,21 @@ const OOM_AUTO_RESET_THRESHOLD = 2;
 // Per-folder reply route updater: lets sendMessage callers update the
 // reply routing of a running processGroupMessages without killing the process.
 // Key is group folder (one active processGroupMessages per folder).
-type ReplyRouteUpdater = (newSourceJid: string | null) => void;
+type ReplyRouteUpdater = (
+  newSourceJid: string | null,
+  lifecycleMessages?: NewMessage[],
+) => void;
 const activeRouteUpdaters = new Map<string, ReplyRouteUpdater>();
 
 // Per-folder IM reply route: tracks the current replySourceImJid for each
 // running processGroupMessages.  IPC watcher reads this to forward send_message
 // outputs to the correct IM channel (the running session holds the truth).
 const activeImReplyRoutes = new Map<string, string | null>();
+
+// Per-folder Feishu-origin turn context for direct IPC tools such as send_image
+// and send_file. The IPC watcher is decoupled from runner output callbacks, so it
+// reads this to attach delivery evidence to the active inbound message ids.
+const activeImLifecycleMessages = new Map<string, NewMessage[]>();
 
 // Track consecutive IM send failures per JID for auto-unbind
 const imSendFailCounts = new Map<string, number>();
@@ -3347,6 +3356,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // Publish the current IM reply route so the IPC watcher can forward
   // send_message outputs to the correct IM channel.
   activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
+  activeImLifecycleMessages.set(effectiveGroup.folder, missedMessages);
 
   const shared = isGroupShared(group.folder);
   let prompt = formatMessages(messagesForAgent, shared);
@@ -3461,45 +3471,53 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // Allows IPC-injected messages (from web.ts / IM polling) to update the
   // reply routing target without killing the agent process.  This replaces
   // the old "closeStdin + restart" approach for home groups (#99).
-  activeRouteUpdaters.set(effectiveGroup.folder, (newSourceJid) => {
-    const newImJid =
-      newSourceJid && getChannelType(newSourceJid) ? newSourceJid : null;
-    // New IPC user message arrived — reset sentReply so the next result
-    // can be delivered to IM. This is the correct place to reset, NOT
-    // in the streaming session rebuild (which also fires on SDK Task
-    // completion and would cause multi-result IM spam).
-    sentReply = false;
-    if (newImJid === replySourceImJid) return; // no change
-    logger.debug(
-      { chatJid, oldRoute: replySourceImJid, newRoute: newImJid },
-      'Reply route updated via IPC injection',
-    );
-    replySourceImJid = newImJid;
-    activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
-    updateActiveStreamingTurnReplyJid(
-      activeStreamingTurnKey,
-      replySourceImJid ?? chatJid,
-    );
-
-    // Rebuild streaming session if the target channel changed.
-    // When the route is cleared to null (web message injected into IM-originated
-    // session), fall back to the web JID — NOT the original IM chatJid — so the
-    // Feishu streaming card is properly disposed.
-    const newStreamingJid =
-      replySourceImJid ??
-      (directImReply ? `web:${effectiveGroup.folder}` : chatJid);
-    if (newStreamingJid !== streamingSessionJid) {
-      if (streamingSession) {
-        if (streamingSession.isActive()) streamingSession.dispose();
-        unregisterStreamingSession(streamingSessionJid);
+  activeRouteUpdaters.set(
+    effectiveGroup.folder,
+    (newSourceJid, lifecycleMessages) => {
+      if (lifecycleMessages?.length) {
+        activeImLifecycleMessages.set(effectiveGroup.folder, lifecycleMessages);
+      } else if (!newSourceJid || getChannelType(newSourceJid) === null) {
+        activeImLifecycleMessages.delete(effectiveGroup.folder);
       }
-      streamingSessionJid = newStreamingJid;
-      streamingSession = undefined;
-      streamingPresentationText = createEmptyStreamPresentationTextState();
-      streamingAccumulatedThinking = '';
-      ensureStreamingSessionAvailable();
-    }
-  });
+      const newImJid =
+        newSourceJid && getChannelType(newSourceJid) ? newSourceJid : null;
+      // New IPC user message arrived — reset sentReply so the next result
+      // can be delivered to IM. This is the correct place to reset, NOT
+      // in the streaming session rebuild (which also fires on SDK Task
+      // completion and would cause multi-result IM spam).
+      sentReply = false;
+      if (newImJid === replySourceImJid) return; // no change
+      logger.debug(
+        { chatJid, oldRoute: replySourceImJid, newRoute: newImJid },
+        'Reply route updated via IPC injection',
+      );
+      replySourceImJid = newImJid;
+      activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
+      updateActiveStreamingTurnReplyJid(
+        activeStreamingTurnKey,
+        replySourceImJid ?? chatJid,
+      );
+
+      // Rebuild streaming session if the target channel changed.
+      // When the route is cleared to null (web message injected into IM-originated
+      // session), fall back to the web JID — NOT the original IM chatJid — so the
+      // Feishu streaming card is properly disposed.
+      const newStreamingJid =
+        replySourceImJid ??
+        (directImReply ? `web:${effectiveGroup.folder}` : chatJid);
+      if (newStreamingJid !== streamingSessionJid) {
+        if (streamingSession) {
+          if (streamingSession.isActive()) streamingSession.dispose();
+          unregisterStreamingSession(streamingSessionJid);
+        }
+        streamingSessionJid = newStreamingJid;
+        streamingSession = undefined;
+        streamingPresentationText = createEmptyStreamPresentationTextState();
+        streamingAccumulatedThinking = '';
+        ensureStreamingSessionAvailable();
+      }
+    },
+  );
 
   const pickRunningTaskForNotification = (): string | null => {
     const runningInQuery = Array.from(queryTaskIds)
@@ -4264,6 +4282,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (idleTimer) clearTimeout(idleTimer);
     activeRouteUpdaters.delete(effectiveGroup.folder);
     activeImReplyRoutes.delete(effectiveGroup.folder);
+    activeImLifecycleMessages.delete(effectiveGroup.folder);
 
     // ── 检测中断：有累积文本但从未发送回复 ──
     const wasInterrupted = streamInterrupted && !sentReply;
@@ -5785,11 +5804,36 @@ function startIpcWatcher(): void {
                           fileName,
                         ),
                     );
+                    recordDirectImDeliveryLifecycleForMessages({
+                      messages:
+                        activeImLifecycleMessages.get(sourceGroup) ?? [],
+                      delivery: 'direct_image',
+                      targetJid: imgImRoute,
+                      sent,
+                      details: {
+                        fileName,
+                        mimeType,
+                        size: imageBuffer.length,
+                      },
+                    });
                     if (!sent) {
                       const failMsg = `⚠️ 图片 "${fileName || caption || 'image'}" 发送失败（IM 通道发送失败），请稍后重试。`;
                       broadcastToWebClients(sourceGroup, failMsg);
                     }
                   } else {
+                    recordDirectImDeliveryLifecycleForMessages({
+                      messages:
+                        activeImLifecycleMessages.get(sourceGroup) ?? [],
+                      delivery: 'direct_image',
+                      targetJid: null,
+                      sent: null,
+                      reason: 'no_im_route',
+                      details: {
+                        fileName,
+                        mimeType,
+                        size: imageBuffer.length,
+                      },
+                    });
                     logger.debug(
                       { chatJid: data.chatJid, sourceGroup },
                       'No IM route for send_image, skipped IM delivery',
@@ -6596,6 +6640,17 @@ async function processTaskIpc(
               broadcastToWebClients(sourceGroup, warnMsg);
               // Also notify via DingTalk for conversation agents bound to IM
               const imRoute = activeImReplyRoutes.get(sourceGroup);
+              recordDirectImDeliveryLifecycleForMessages({
+                messages: activeImLifecycleMessages.get(sourceGroup) ?? [],
+                delivery: 'direct_file',
+                targetJid: imRoute ?? null,
+                sent: null,
+                reason: 'file_not_found',
+                details: {
+                  fileName: data.fileName,
+                  filePath: data.filePath,
+                },
+              });
               if (imRoute) {
                 try {
                   await imManager.sendMessage(imRoute, warnMsg);
@@ -6623,6 +6678,16 @@ async function processTaskIpc(
             const sent = await retryImOperation('send_file', fileImRoute, () =>
               imManager.sendFile(fileImRoute, resolvedPath, imFileName),
             );
+            recordDirectImDeliveryLifecycleForMessages({
+              messages: activeImLifecycleMessages.get(sourceGroup) ?? [],
+              delivery: 'direct_file',
+              targetJid: fileImRoute,
+              sent,
+              details: {
+                fileName: imFileName,
+                filePath: data.filePath,
+              },
+            });
             if (!sent) {
               const failMsg = `⚠️ 文件 "${data.fileName}" 发送失败，请稍后重试。`;
               broadcastToWebClients(sourceGroup, failMsg);
@@ -6634,6 +6699,17 @@ async function processTaskIpc(
               }
             }
           } else {
+            recordDirectImDeliveryLifecycleForMessages({
+              messages: activeImLifecycleMessages.get(sourceGroup) ?? [],
+              delivery: 'direct_file',
+              targetJid: null,
+              sent: null,
+              reason: 'no_im_route',
+              details: {
+                fileName: data.fileName,
+                filePath: data.filePath,
+              },
+            });
             logger.debug(
               { chatJid: data.chatJid, sourceGroup },
               'No IM route for send_file, skipped IM delivery',
@@ -6772,6 +6848,7 @@ async function processAgentConversation(
     // Also publish to activeImReplyRoutes so send_file/send_image IPC can route to IM.
     activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
   }
+  activeImLifecycleMessages.set(effectiveGroup.folder, missedMessages);
 
   // ── Feishu Streaming Card (conversation agent) ──
   // Unlike processGroupMessages which falls back to chatJid, conversation agents
@@ -7918,6 +7995,7 @@ async function processAgentConversation(
       saveState();
     }
 
+    activeImLifecycleMessages.delete(effectiveGroup.folder);
     ipcWatcherManager?.unwatchGroup(effectiveGroup.folder);
   }
 }
@@ -8049,7 +8127,10 @@ async function startMessageLoop(): Promise<void> {
             imagesForAgent,
             () => {
               // IPC write succeeded — update reply route for the running agent
-              activeRouteUpdaters.get(group.folder)?.(lastSourceJidForRoute);
+              activeRouteUpdaters.get(group.folder)?.(
+                lastSourceJidForRoute,
+                messagesToSend,
+              );
             },
             {
               timestamp: messagesToSend[messagesToSend.length - 1]!.timestamp,
