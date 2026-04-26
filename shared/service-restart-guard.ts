@@ -1,6 +1,7 @@
 export interface CliClawServiceControlContext {
   backendPid?: number | null;
   launchdServiceName?: string | null;
+  allowSafeRestartCommand?: boolean;
 }
 
 export interface UnsafeCliClawServiceControlMatch {
@@ -11,6 +12,9 @@ export interface UnsafeCliClawServiceControlMatch {
 
 export const BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE =
   '禁止直接控制正在运行的 Cli Claw 服务；请使用 `cli-claw restart` 或 IM `/self-restart`。';
+
+export const BLOCKED_AGENT_SAFE_RESTART_MESSAGE =
+  '禁止由 agent 在 IM 会话中自主执行服务重启；只有用户显式发送 `/self-restart` 或“重启服务”这类受管命令时才能重启。';
 
 const MANAGED_SELF_RESTART_PATTERNS = [
   /^(?:请\s*)?重启(?:一下)?(?:\s*(?:服务|项目|cli[-\s]?claw|cliclaw))?(?:\s*[吧呀啊呢])?$/i,
@@ -42,9 +46,7 @@ function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function buildServiceRefs(
-  context: CliClawServiceControlContext,
-): string[] {
+function buildServiceRefs(context: CliClawServiceControlContext): string[] {
   const refs = new Set<string>(GENERIC_SERVICE_REFS);
   const serviceName = context.launchdServiceName?.trim();
   if (serviceName) {
@@ -66,8 +68,21 @@ function matchesBackendPid(
   if (!backendPid || !Number.isFinite(backendPid) || backendPid <= 0) {
     return false;
   }
-  const pidPattern = new RegExp(`(^|\\D)${escapeRegex(String(backendPid))}(\\D|$)`);
+  const pidPattern = new RegExp(
+    `(^|\\D)${escapeRegex(String(backendPid))}(\\D|$)`,
+  );
   return pidPattern.test(normalizedCommand);
+}
+
+function matchesCliClawSafeRestartCommand(normalizedCommand: string): boolean {
+  return (
+    /(?:^|[;&|]\s*)(?:\S+\/)?cli-claw\s+restart(?:\s|$)/.test(
+      normalizedCommand,
+    ) ||
+    /\b(?:bun|node|tsx)\s+\S*(?:src\/cli\.ts|dist\/cli\.js)\s+restart(?:\s|$)/.test(
+      normalizedCommand,
+    )
+  );
 }
 
 export function resolveManagedSelfRestartCommand(
@@ -108,6 +123,17 @@ export function detectUnsafeCliClawServiceControl(
 
   const refs = buildServiceRefs(context);
 
+  if (
+    context.allowSafeRestartCommand === false &&
+    matchesCliClawSafeRestartCommand(normalizedCommand)
+  ) {
+    return {
+      matchedText: commandText,
+      reason: 'agent-initiated cli-claw safe restart command',
+      message: BLOCKED_AGENT_SAFE_RESTART_MESSAGE,
+    };
+  }
+
   const hasKill = /\bkill\b/.test(normalizedCommand);
   const hasPkill = /\bpkill\b/.test(normalizedCommand);
   const hasKillall = /\bkillall\b/.test(normalizedCommand);
@@ -115,10 +141,7 @@ export function detectUnsafeCliClawServiceControl(
     /\blaunchctl\b/.test(normalizedCommand) &&
     /\b(bootout|kickstart|stop|remove|disable)\b/.test(normalizedCommand);
 
-  if (
-    hasDangerousLaunchctl &&
-    matchesAnyRef(normalizedCommand, refs)
-  ) {
+  if (hasDangerousLaunchctl && matchesAnyRef(normalizedCommand, refs)) {
     return {
       matchedText: commandText,
       reason: 'direct launchctl control of the cli-claw service',
@@ -126,10 +149,7 @@ export function detectUnsafeCliClawServiceControl(
     };
   }
 
-  if (
-    hasKillall &&
-    /\b(bun|node|cli-claw)\b/.test(normalizedCommand)
-  ) {
+  if (hasKillall && /\b(bun|node|cli-claw)\b/.test(normalizedCommand)) {
     return {
       matchedText: commandText,
       reason: 'broad killall against runtime processes',
@@ -140,8 +160,8 @@ export function detectUnsafeCliClawServiceControl(
   if (
     hasPkill &&
     (matchesAnyRef(normalizedCommand, refs) ||
-      /\b-f\b/.test(normalizedCommand) &&
-        /\b(bun|node)\b/.test(normalizedCommand))
+      (/\b-f\b/.test(normalizedCommand) &&
+        /\b(bun|node)\b/.test(normalizedCommand)))
   ) {
     return {
       matchedText: commandText,

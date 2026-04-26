@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  BLOCKED_AGENT_SAFE_RESTART_MESSAGE,
   BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE,
   detectUnsafeCliClawServiceControl,
   resolveManagedSelfRestartCommand,
@@ -56,5 +57,29 @@ describe('detectUnsafeCliClawServiceControl', () => {
         launchdServiceName: 'gui/501/com.ryan.cli-claw',
       }),
     ).toBeNull();
+  });
+
+  test('blocks safe restart commands when agent-runner policy disallows them', () => {
+    expect(
+      detectUnsafeCliClawServiceControl('cli-claw restart', {
+        backendPid: 69981,
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        allowSafeRestartCommand: false,
+      }),
+    ).toMatchObject({
+      reason: 'agent-initiated cli-claw safe restart command',
+      message: BLOCKED_AGENT_SAFE_RESTART_MESSAGE,
+    });
+
+    expect(
+      detectUnsafeCliClawServiceControl('bun src/cli.ts restart', {
+        backendPid: 69981,
+        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        allowSafeRestartCommand: false,
+      }),
+    ).toMatchObject({
+      reason: 'agent-initiated cli-claw safe restart command',
+      message: BLOCKED_AGENT_SAFE_RESTART_MESSAGE,
+    });
   });
 });

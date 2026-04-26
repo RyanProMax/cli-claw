@@ -97,6 +97,26 @@
 - Next action:
   - Monitor the next Feishu "继续任务" turn for absence of an immediate Web `scheduled_task` history reply.
 
+### P0 RM-2026-04-26-03 Block Agent-Initiated IM Safe Restarts
+
+- Status: `monitoring`
+- Source: 2026-04-26 user report: Feishu "继续任务 -" still caused an automatic service restart.
+- Summary: IM-origin agent runs must not be able to autonomously shell-call `cli-claw restart` or equivalent CLI restart commands from stale continuation context. Explicit IM `/self-restart` and managed restart phrases remain the only Feishu restart path.
+- Evidence:
+  - Feishu message `om_x100b51ee3e1b50acb3b0af6442e5761` content was `继续任务 -`.
+  - The backend processed it with two older uncommitted Feishu messages and reused session `019dc849-58e3-7d03-9a5d-168cb1bd5efb`.
+  - The streamed partial shows stale task continuation text ending with "现在执行 `cli-claw restart` 路径并检查健康状态".
+  - Restart intent `restart-2026-04-26T05-48-29-442Z-fa67eec6` was created with `requestChatJid = feishu:oc_98f0bb60f284627bf20f9386704f8c82`; this was not an explicit `/self-restart` user message.
+- Iteration plan:
+  - Extend the service restart guard with a stricter agent-runner policy that can block otherwise safe restart CLI commands.
+  - Apply that stricter policy to IM-origin Bash/ACP tool permission hooks, while preserving backend-managed `/self-restart` and Feishu managed command handling.
+  - Keep pending cursor replay and recovery-history behavior for a separate milestone after the restart hazard is removed.
+- Progress:
+  - 2026-04-26 milestone 19: service restart guard now supports a stricter agent-runner policy that blocks safe restart CLI commands, and agent-runner applies it to IM-origin Bash and Codex ACP tool calls while preserving Web-origin safe restart behavior. Validation passed with `npm test -- --run tests/service-restart-guard.test.ts`, `npm run typecheck`, `npm --prefix container/agent-runner run build:runner`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-26 milestone 19 applied: commit `Block IM agent safe restarts`; safe restart `restart-2026-04-26T06-00-46-820Z-0cfc177e` passed, `/api/health` returned healthy for backend PID `78587`, and the post-restart process table showed only the current backend with no residual runner process.
+- Next action:
+  - Monitor the next Feishu "继续任务" for absence of an actual service restart; then open a follow-up for pending cursor replay and recovery-history leakage.
+
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 
 - Status: `in_progress`

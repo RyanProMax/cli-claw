@@ -105,6 +105,14 @@ const CLI_CLAW_SERVICE_CONTROL_CONTEXT = {
   launchdServiceName: process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME || null,
 };
 
+function buildServiceControlContext(chatJid: string | undefined) {
+  const channel = chatJid ? getChannelFromJid(chatJid) : null;
+  return {
+    ...CLI_CLAW_SERVICE_CONTROL_CONTEXT,
+    allowSafeRestartCommand: channel === 'web',
+  };
+}
+
 function normalizeRuntimeText(value: string | undefined): string | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -1453,7 +1461,7 @@ function extractAcpToolCallCommandText(toolCall: {
   return null;
 }
 
-function createPreToolUseHook(): HookCallback {
+function createPreToolUseHook(chatJid: string): HookCallback {
   return async (input) => {
     const preTool = input as {
       hook_event_name: 'PreToolUse';
@@ -1467,7 +1475,7 @@ function createPreToolUseHook(): HookCallback {
 
     const blocked = detectUnsafeCliClawServiceControl(
       commandText,
-      CLI_CLAW_SERVICE_CONTROL_CONTEXT,
+      buildServiceControlContext(chatJid),
     );
     if (!blocked) return {};
 
@@ -1600,7 +1608,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
         if (commandText) {
           const blocked = detectUnsafeCliClawServiceControl(
             commandText,
-            CLI_CLAW_SERVICE_CONTROL_CONTEXT,
+            buildServiceControlContext(containerInput.chatJid),
           );
           if (blocked) {
             log(
@@ -2277,7 +2285,7 @@ async function runQuery(
         hooks: {
           PreToolUse: [
             {
-              hooks: [createPreToolUseHook()],
+              hooks: [createPreToolUseHook(containerInput.chatJid)],
             },
           ],
           PreCompact: [

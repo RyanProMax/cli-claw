@@ -783,7 +783,7 @@ Validation:
 - Manual review against `RUNBOOKS/Review.md`
 
 Status:
-- in_progress
+- pending
 
 Validation status:
 - pending
@@ -795,6 +795,7 @@ Risks / Notes / Handoff:
 - Keep this milestone scoped to self-check launch-spec alignment and operator-visible formatting. Do not change Makefile, package scripts, LaunchAgent install defaults, or restart semantics here.
 - Follow TDD: add failing tests for launch-spec cwd propagation and self-check command formatting before changing implementation.
 - Paused before code changes on 2026-04-26 because the Feishu-triggered Web autopilot reply leak is a higher-priority P0 production incident.
+- Paused again on 2026-04-26 because Feishu "继续任务 -" triggered an agent-initiated safe restart; preventing unexpected restarts is higher priority than self-check formatting.
 
 ### Milestone 18
 
@@ -844,6 +845,59 @@ Risks / Notes / Handoff:
   - `/api/health` returned healthy for backend PID `72604`.
   - Post-restart process table showed one current backend and one current runner group, not the previous historical runner residue.
 
+### Milestone 19
+
+Objective:
+- Prevent IM-origin agent runs from autonomously triggering `cli-claw restart` or equivalent CLI restart commands from shell/tool execution. Feishu users must explicitly send `/self-restart` or a managed restart phrase such as "重启服务"; a vague continuation message must never execute a stale restart action from previous context.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `shared/service-restart-guard.ts`
+- `container/agent-runner/src/index.ts`
+- `tests/service-restart-guard.test.ts`
+
+Validation:
+- `npm test -- --run tests/service-restart-guard.test.ts`
+- `npm run typecheck`
+- `npm --prefix container/agent-runner run build:runner`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Incident evidence from 2026-04-26: Feishu message `om_x100b51ee3e1b50acb3b0af6442e5761` content `继续任务 -` was processed together with two older uncommitted Feishu messages; the run reused session `019dc849-58e3-7d03-9a5d-168cb1bd5efb`, streamed stale task text, then generated restart intent `restart-2026-04-26T05-48-29-442Z-fa67eec6` with `requestChatJid = feishu:oc_98f0bb60f284627bf20f9386704f8c82`.
+- Keep this milestone scoped to blocking agent-runner shell/tool restarts from IM-origin runs. Do not change pending cursor replay, recovery-history injection, Feishu card rendering, or self-check behavior here.
+- Follow TDD: add a failing service restart guard test for disallowing safe restart commands in agent-runner context, then wire the runner permission hooks to use that stricter policy for IM-origin chats.
+- TDD red observed before the fix: `npm test -- --run tests/service-restart-guard.test.ts` failed because `cli-claw restart` returned `null` even with `allowSafeRestartCommand: false`.
+- `detectUnsafeCliClawServiceControl()` now supports a stricter agent-runner policy that blocks `cli-claw restart` and `bun/node/tsx .../cli.ts restart` variants with an IM-specific denial message.
+- Agent-runner Bash and Codex ACP permission hooks now allow shell safe restart only for Web-origin chats; IM-origin runs must use backend-managed `/self-restart` or Feishu managed restart phrases.
+- Validation passed:
+  - `npm test -- --run tests/service-restart-guard.test.ts`
+  - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build:runner`
+  - `git diff --check`
+  - `./scripts/review.sh`
+  - `npx prettier --check shared/service-restart-guard.ts container/agent-runner/src/index.ts tests/service-restart-guard.test.ts`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - Default external `cli-claw restart` remains allowed when the stricter policy is not requested.
+  - The stricter policy is applied to both Claude Bash hooks and Codex ACP permission requests for IM-origin runs.
+- Applied evidence:
+  - Commit `Block IM agent safe restarts`.
+  - Safe restart `restart-2026-04-26T06-00-46-820Z-0cfc177e` passed.
+  - `/api/health` returned healthy for backend PID `78587`.
+  - Post-restart process table showed only the current backend and no residual runner process.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -855,20 +909,28 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 17
+- Milestone 19
 
 Current status:
-- in_progress
+- done
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `shared/service-restart-guard.ts`
+- `container/agent-runner/src/index.ts`
+- `tests/service-restart-guard.test.ts`
 
 Last failure summary:
-- No current validation or review failures. Milestone 17 is starting from pending state after Milestone 18 interrupted it for a higher-priority production incident.
+- No current validation or review failures. Milestone 19 validation passed with:
+  - `npm test -- --run tests/service-restart-guard.test.ts`
+  - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build:runner`
+  - `git diff --check`
+  - `./scripts/review.sh`
 
 Suspected cause:
-- `/self-check` still defaults to checking a generic dist backend candidate instead of the current saved launch spec, so operators can get a green check for a command different from the real restart command.
+- Agent-runner permission hooks only block unsafe direct process control (`kill`, `pkill`, `launchctl`), but allow `cli-claw restart`; in an IM-origin continuation run, stale context can therefore execute a real service restart without an explicit `/self-restart` command from the user.
 
 Next step:
-- Add failing tests for saved/current launch-spec cwd propagation and candidate command formatting, then implement the smallest self-check alignment.
+- Monitor the next Feishu "继续任务" for a denied shell restart instead of an actual service restart. Follow-up scope remains: pending cursor replay and recovery-history leakage.
