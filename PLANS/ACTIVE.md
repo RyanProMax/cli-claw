@@ -1312,6 +1312,50 @@ Risks / Notes / Handoff:
 - `docs/COMMAND.md` and `docs/RUNTIME.md` now document the standard `cli-claw start/restart` entrypoint, repo-local fallback, direct backend debug boundary, and source-launch build wording.
 - ROADMAP now leaves only the live-service migration/PATH-install follow-up under the launch contract.
 
+### Milestone 28
+
+Objective:
+- Finish the remaining P0 launch contract operationally by migrating the installed LaunchAgent from direct backend `bun src/index.ts` to the launcher entrypoint using the documented repo-local fallback.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+
+Validation:
+- Inspect current LaunchAgent ProgramArguments before migration.
+- Run `ops/install-launch-agent.sh install -- /Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start`.
+- Verify LaunchAgent ProgramArguments point to `src/cli.ts start`.
+- Verify `/api/health` is healthy after launchd restart.
+- Verify `~/.cli-claw/ops/current-backend.json` reports `source: cli_start` and `artifactMode: source`.
+- Verify process table has one backend and no obvious orphan runner residue.
+- `git diff --check`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - Pre-migration evidence: LaunchAgent `ProgramArguments` were `/Users/ryan/.bun/bin/bun`, `src/index.ts`; current-backend launch spec was `source: direct_backend`, `artifactMode: source`.
+  - `ops/install-launch-agent.sh install -- /Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start` wrote the new plist but returned `Bootstrap failed: 5` during bootstrap.
+  - Recovery validation: manual `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ryan.cli-claw.plist` followed by `launchctl kickstart -k gui/$(id -u)/com.ryan.cli-claw` succeeded against the same plist.
+  - Post-migration evidence:
+    - LaunchAgent `ProgramArguments` are `/Users/ryan/.bun/bin/bun`, `/Users/ryan/projects/cli-claw/src/cli.ts`, `start`.
+    - `/api/health` returned `healthy`.
+    - `~/.cli-claw/ops/current-backend.json` reports PID `26433`, `source: cli_start`, `artifactMode: source`, and display command `/Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start`.
+    - Process table shows one backend process for `src/cli.ts start` and no obvious orphan `agent-runner` / `codex-acp` residue.
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- This is an operational migration, not a code change. Use the repository LaunchAgent installer rather than direct `launchctl` commands.
+- `cli-claw` is not currently on PATH in this shell, so use the documented repo-local fallback command for the LaunchAgent.
+- Do not alter Feishu, runner, watchdog, or process cleanup code in this milestone.
+- The installer produced a transient `Bootstrap failed: 5` after writing the new plist and booting out the old service. Manual bootstrap/kickstart with the same plist succeeded. ROADMAP now tracks hardening the installer around that failure mode.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1323,30 +1367,20 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 27
+- Milestone 28
 
 Current status:
-- done; package start now enters the launcher layer, source-launched self-status is source-aware, and docs/roadmap record the remaining live-service migration follow-up
+- done; LaunchAgent now starts through the repo-local launcher and current-backend reports `cli_start`
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `docs/COMMAND.md`
-- `docs/RUNTIME.md`
-- `package.json`
-- `src/startup-launch.ts`
-- `src/im-command-utils.ts`
-- `src/index.ts`
-- `tests/im-command-utils.test.ts`
-- `tests/package-manifest.test.ts`
-- `tests/startup-launch.test.ts`
-- `tests/runtime-build.test.ts`
 
 Last failure summary:
-- none; validation and review passed
+- `ops/install-launch-agent.sh install -- /Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start` returned `Bootstrap failed: 5` after writing the new plist; manual bootstrap/kickstart with the same plist recovered successfully.
 
 Suspected cause:
-- Historical ambiguity came from package `start` bypassing the launcher layer and self-status comparing dist artifacts even when the backend was source-launched.
+- The installed user LaunchAgent still has `ProgramArguments = /Users/ryan/.bun/bin/bun src/index.ts`, so safe restarts keep returning to `direct_backend` even after the launcher contract code change.
 
 Next step:
-- Commit Milestone 27, then apply changes through the safe restart path. The current saved live launch spec may still be `direct_backend`, so switching the live service to launcher ownership remains a separate supervised-start follow-up in ROADMAP.
+- Commit Milestone 28 evidence, then consider hardening `ops/install-launch-agent.sh` with bootstrap retry/recovery before moving to the next user-facing reliability item.

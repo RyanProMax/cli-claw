@@ -18,7 +18,7 @@
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 
-- Status: `in_progress`
+- Status: `monitoring`
 - Source: 2026-04-25 user request item `2`; current `/self-status`; current shell check after milestone 25
 - Summary: 长期运行和安全重启入口必须收敛到 `cli-claw start` / `cli-claw restart`；`bun src/index.ts` / `bun start` 只能是开发直启路径，并且所有状态面都要说清楚差异。
 - Current state:
@@ -29,10 +29,12 @@
   - `/self-status` also marks source-launched services with source/build artifact mode so dist freshness is not presented as the live TypeScript backend freshness signal.
   - `/self-check` validates the backend-captured authoritative launch spec.
   - `docs/COMMAND.md` documents repo-local `bun src/cli.ts start` / `bun src/cli.ts restart` fallback for shells where `cli-claw` is not yet on PATH.
-  - Current live service still reports `direct_backend`.
+  - Current LaunchAgent now runs `/Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start`.
+  - Current backend state reports `source: cli_start`, `artifactMode: source`, PID `26433`, and `/api/health` healthy after the launchd migration.
 - Next action:
-  - Migrate the live service from the current `direct_backend` launch spec to the launcher entrypoint (`cli-claw start`, or repo-local `bun src/cli.ts start` until PATH is fixed) through a supervised start path.
-  - Decide whether the development environment should install/link `cli-claw` onto PATH during setup so future operator shells do not need the repo-local fallback.
+  - Monitor the next `/self-status` / `/self-restart` cycle to confirm it stays on `cli_start`.
+  - Harden `ops/install-launch-agent.sh` around transient `Bootstrap failed: 5` after bootout; this migration hit that once, then manual bootstrap/kickstart succeeded.
+  - Decide whether the development environment should install/link `cli-claw` onto PATH so future operator shells do not need the repo-local fallback.
 
 ### P0 RM-2026-04-25-01 Feishu Message Reliability Control Plane
 
