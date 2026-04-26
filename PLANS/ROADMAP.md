@@ -77,6 +77,26 @@
 - Next action:
   - Continue monitoring future `/self-restart` residual summaries and process snapshots; reopen if orphan runner groups recur.
 
+### P0 RM-2026-04-26-02 Suppress Interrupted Autopilot Visible Replies
+
+- Status: `monitoring`
+- Source: 2026-04-26 user report: Feishu "继续任务" made Web instantly show old process/context text, while the Feishu card did not show that content.
+- Summary: Workspace autopilot/background results must not publish visible Web replies after the background run was interrupted by real user/IM work. Preempted background output is run-log evidence only, not a chat answer.
+- Evidence:
+  - Feishu inbound message `om_x100b51ee7e1e90acb22c773d634b6dd` was stored at `2026-04-26T05:30:53.296Z`.
+  - Logs at `2026-04-26T05:30:53.565Z` show the queue closing the active background task for both IPC user message and pending user message handling.
+  - At `2026-04-26T05:30:53.722Z`, the closed background task published a `scheduled_task` message to `web:main` beginning with stale process text, before the Feishu run was dispatched.
+  - Feishu streaming for the real message started later on the Feishu route, so the Web content was not expected to sync to the Feishu card; it belonged to the interrupted background task.
+- Iteration plan:
+  - Add a scheduler regression proving substantive autopilot results are not sent when the queue reports active or pending user work for the target serialization group.
+  - Keep successful uninterrupted autopilot publication behavior unchanged.
+  - Preserve run-log recording of suppressed output for operator diagnosis.
+- Progress:
+  - 2026-04-26 milestone 18: scheduler now suppresses visible workspace autopilot publication when pending IM work exists for the target Web workspace, while keeping uninterrupted autopilot publication and task-run log evidence. Validation passed with `npm test -- --run tests/task-scheduler-host-cwd.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-26 milestone 18 applied: commit `Suppress interrupted autopilot replies`; safe restart `restart-2026-04-26T05-44-42-058Z-81afb19b` passed, `/api/health` returned healthy for backend PID `72604`, and the post-restart process table showed only the current backend and current runner group.
+- Next action:
+  - Monitor the next Feishu "继续任务" turn for absence of an immediate Web `scheduled_task` history reply.
+
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 
 - Status: `in_progress`
@@ -101,8 +121,9 @@
   - Make build-staleness reporting source-aware so direct Bun source mode does not misleadingly report dist freshness as runtime freshness.
 - Progress:
   - 2026-04-26 milestone 16: admin `/self-status` now emits an explicit `direct_backend` warning and recommends `cli-claw start / cli-claw restart` when the service is running from a direct backend launch. Validation passed with `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-26 milestone 16 applied: commit `54c0e47 Warn on direct backend self status`; safe restart `restart-2026-04-26T05-35-28-464Z-595d6899` passed and `/api/health` returned healthy for backend PID `63108`.
 - Next action:
-  - Continue with the next small contract step: either make `/self-check` validate the saved/current launch spec, or update LaunchAgent/default start paths to use the service launcher instead of direct backend launch.
+  - Continue with milestone 17: make `/self-check` validate the saved/current launch spec and show the candidate command in the self-check result.
 
 ### P0 RM-2026-04-25-03 Feishu Answer/Commentary Presentation Contract
 

@@ -753,6 +753,96 @@ Risks / Notes / Handoff:
 - Review gate passed against `RUNBOOKS/Review.md`:
   - Scope stayed within the allowed files.
   - The change is presentation-only and does not alter startup, self-check, or restart behavior.
+- Applied evidence:
+  - Commit `54c0e47 Warn on direct backend self status`.
+  - Safe restart `restart-2026-04-26T05-35-28-464Z-595d6899` passed.
+  - `/api/health` returned healthy for backend PID `63108`.
+
+### Milestone 17
+
+Objective:
+- Make admin `/self-check` validate the same authoritative startup launch spec captured by the running backend, instead of implicitly checking `node dist/index.js`, and show the candidate command in the self-check result.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `src/self-check.ts`
+- `src/index.ts`
+- `src/im-command-utils.ts`
+- `tests/self-check.test.ts`
+- `tests/im-command-utils.test.ts`
+
+Validation:
+- `npm test -- --run tests/self-check.test.ts`
+- `npm test -- --run tests/im-command-utils.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- in_progress
+
+Validation status:
+- pending
+
+Review status:
+- pending
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to self-check launch-spec alignment and operator-visible formatting. Do not change Makefile, package scripts, LaunchAgent install defaults, or restart semantics here.
+- Follow TDD: add failing tests for launch-spec cwd propagation and self-check command formatting before changing implementation.
+- Paused before code changes on 2026-04-26 because the Feishu-triggered Web autopilot reply leak is a higher-priority P0 production incident.
+
+### Milestone 18
+
+Objective:
+- Prevent workspace autopilot/background task results from publishing visible Web replies when the task was interrupted or preempted by real user/IM work, so a Feishu message such as "继续任务" cannot cause Web to immediately receive the background task's stale process/history text.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/task-scheduler.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
+
+Validation:
+- `npm test -- --run tests/task-scheduler-host-cwd.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Incident evidence from 2026-04-26: Feishu message `om_x100b51ee7e1e90acb22c773d634b6dd` arrived at `2026-04-26T05:30:53.296Z`; the queue closed the active `web:main` background task, and that task immediately published a `scheduled_task` message to `web:main` at `2026-04-26T05:30:53.722Z` before the Feishu run started.
+- Keep this milestone scoped to suppressing visible background/autopilot publication after user work preempts the run. Do not change Feishu streaming card rendering, recovery-history injection, cursor semantics, or the self-check launch milestone here.
+- Follow TDD: add a failing scheduler regression first, then make `runWorkspaceAutopilotTask()` consult queue state before publishing the result.
+- TDD red observed before the fix: `npm test -- --run tests/task-scheduler-host-cwd.test.ts` failed because the interrupted autopilot still called `sendMessage('web:source', ..., { source: 'scheduled_task' })`.
+- `runWorkspaceAutopilotTask()` now suppresses visible scheduled-task publication when the queue reports a pending IM sibling for the target Web workspace, while preserving task-run log evidence.
+- Validation passed:
+  - `npm test -- --run tests/task-scheduler-host-cwd.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change keeps normal uninterrupted autopilot publication behavior unchanged.
+  - The regression test covers the incident class and confirms suppressed output is still recorded in the task run log.
+- Applied evidence:
+  - Commit `Suppress interrupted autopilot replies`.
+  - Safe restart `restart-2026-04-26T05-44-42-058Z-81afb19b` passed.
+  - `/api/health` returned healthy for backend PID `72604`.
+  - Post-restart process table showed one current backend and one current runner group, not the previous historical runner residue.
 
 ## Working Rules
 
@@ -765,27 +855,20 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 16
+- Milestone 17
 
 Current status:
-- done
+- in_progress
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `docs/COMMAND.md`
-- `src/im-command-utils.ts`
-- `tests/im-command-utils.test.ts`
 
 Last failure summary:
-- No current validation or review failures. Milestone 16 validation passed with:
-  - `npm test -- --run tests/im-command-utils.test.ts`
-  - `npm run typecheck`
-  - `git diff --check`
-  - `./scripts/review.sh`
+- No current validation or review failures. Milestone 17 is starting from pending state after Milestone 18 interrupted it for a higher-priority production incident.
 
 Suspected cause:
-- Current live backend still reports `source = direct_backend`; operators can see the exact command, but the status text does not yet say this is a dev/internal launch mode or what canonical command should replace it.
+- `/self-check` still defaults to checking a generic dist backend candidate instead of the current saved launch spec, so operators can get a green check for a command different from the real restart command.
 
 Next step:
-- Commit Milestone 16, apply through the documented safe restart path, then select the next small RM-2026-04-25-02 or RM-2026-04-25-03 milestone before coding again.
+- Add failing tests for saved/current launch-spec cwd propagation and candidate command formatting, then implement the smallest self-check alignment.

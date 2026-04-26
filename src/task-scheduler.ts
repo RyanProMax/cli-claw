@@ -288,6 +288,25 @@ interface RunWorkspaceAutopilotOptions {
   alreadyTracked?: boolean;
 }
 
+function shouldPublishWorkspaceAutopilotVisibleResult(
+  deps: SchedulerDependencies,
+  targetGroupJid: string,
+  result: string | null,
+): boolean {
+  if (!shouldPublishWorkspaceAutopilotResult(result)) return false;
+  const hasPendingImSibling = (
+    deps.queue as { hasPendingImSibling?: (jid: string) => boolean }
+  ).hasPendingImSibling;
+  if (hasPendingImSibling?.(targetGroupJid)) {
+    logger.info(
+      { targetGroupJid },
+      'Suppressing workspace autopilot visible result behind pending IM work',
+    );
+    return false;
+  }
+  return true;
+}
+
 const runningTaskIds = new Set<string>();
 const WORKSPACE_AUTOPILOT_MAX_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
@@ -1063,7 +1082,10 @@ export async function runWorkspaceAutopilotTask(
       result = output.result;
     }
 
-    if (!error && shouldPublishWorkspaceAutopilotResult(result)) {
+    if (
+      !error &&
+      shouldPublishWorkspaceAutopilotVisibleResult(deps, targetGroupJid, result)
+    ) {
       await deps.sendMessage(targetGroupJid, result!.trim(), {
         source: 'scheduled_task',
       });

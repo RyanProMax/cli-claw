@@ -258,6 +258,56 @@ describe('task scheduler host cwd forwarding', () => {
     );
   });
 
+  test('suppresses substantive workspace autopilot results when IM work is pending', async () => {
+    const task = buildTask({
+      id: 'autopilot:workspace:main',
+      context_mode: 'group',
+      schedule_type: 'interval',
+      schedule_value: '300000',
+      next_run: '2026-04-05T10:00:00.000Z',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+    const sendMessage = vi.fn();
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+        hasPendingImSibling: vi.fn(() => true),
+      },
+      onProcess: vi.fn(),
+      sendMessage,
+      storePromptMessage: vi.fn(),
+      assistantName: 'cli-claw',
+    };
+
+    vi.mocked((await import('../src/db.js')).getTaskById).mockReturnValue(task);
+    runHostAgentMock.mockResolvedValue({
+      status: 'success',
+      result: '已完成主动检查：发现并修复了一个验证脚本入口问题。',
+    });
+
+    await runWorkspaceAutopilotTask(task, deps as never, 'web:source', {
+      manualRun: true,
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(
+      vi.mocked((await import('../src/db.js')).updateTaskRunLog),
+    ).toHaveBeenCalledWith(
+      'run-log-1',
+      expect.objectContaining({
+        status: 'success',
+        result: '已完成主动检查：发现并修复了一个验证脚本入口问题。',
+      }),
+    );
+  });
+
   test('backs off workspace autopilot after consecutive failed runs', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-05T10:30:00.000Z'));
