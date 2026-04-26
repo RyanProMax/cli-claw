@@ -809,6 +809,10 @@ Risks / Notes / Handoff:
 - Review gate passed against `RUNBOOKS/Review.md`:
   - Scope stayed within the allowed files.
   - The change aligns `/self-check` with the current launch spec without changing Makefile, package scripts, LaunchAgent defaults, or restart semantics.
+- Applied evidence:
+  - Commit `8d80269 Align self-check with launch spec`.
+  - Safe restart `restart-2026-04-26T07-28-18-396Z-782b72ee` passed.
+  - `/api/health` returned healthy for backend PID `86007`.
 
 ### Milestone 18
 
