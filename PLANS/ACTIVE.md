@@ -427,6 +427,51 @@ Risks / Notes / Handoff:
   - Queue retry, cursor, delivery, and Feishu connection internals were not changed.
   - The startup pending recovery/message loop now run after the IM connection phase in normal service mode and do not run in self-check mode.
 
+### Milestone 10
+
+Objective:
+- Record durable `stream_started` lifecycle evidence for Feishu-origin turns when the runner emits the first stream init event.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `src/im-message-lifecycle.ts`
+- `tests/im-message-lifecycle.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-message-lifecycle.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone observability-only: do not change stream rendering, queue retry, delivery, or cursor commit semantics.
+- Follow TDD: add a lifecycle helper regression first, observe the expected red, then wire the helper into main and conversation-agent stream init handling.
+- TDD red observed before the helper existed: `npm test -- --run tests/im-message-lifecycle.test.ts` failed with `recordStreamStartedLifecycleForMessages is not a function`.
+- Added `recordStreamStartedLifecycleForMessages()` so stream init events can write durable `stream_started` lifecycle rows only for Feishu-origin messages while ignoring web-only rows.
+- Main-session and conversation-agent stream init handlers now record `stream_started` once per processed Feishu-origin turn with cursor, turn/session ids, route, and streaming target details.
+- Validation passed:
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change is observability-only and does not alter stream rendering, queue retry, delivery, or cursor commit semantics.
+  - Directly related lifecycle test uses the real DB helper path and confirms web-only rows are ignored.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -438,7 +483,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 9
+- Milestone 10
 
 Current status:
 - done
@@ -466,9 +511,10 @@ Last failure summary:
   - Missing dead-letter lifecycle helper for pending Feishu-origin messages.
   - Missing routed IM cursor commit policy helper.
   - Missing Feishu startup backfill chat-id selection helper.
+  - Missing stream-started lifecycle helper for Feishu-origin stream init turns.
 
 Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 later with remaining mirror/direct delivery cursor semantics or `stream_started` lifecycle coverage.
+- Continue RM-2026-04-25-01 later with remaining mirror/direct delivery cursor semantics.

@@ -1,5 +1,6 @@
 import { getChannelFromJid } from './channel-prefixes.js';
 import { getMessagesSince, recordImMessageLifecycleEvent } from './db.js';
+import type { StreamEvent } from './stream-event.types.js';
 import type {
   ImMessageLifecycleStage,
   ImMessageLifecycleStatus,
@@ -75,5 +76,39 @@ export function recordDeadLetteredLifecycleForPendingMessages({
     status: 'error',
     reason,
     details,
+  });
+}
+
+export interface RecordStreamStartedLifecycleForMessagesOptions {
+  messages: NewMessage[];
+  streamEvent: Pick<
+    StreamEvent,
+    'eventType' | 'turnId' | 'sessionId' | 'messageCursor'
+  >;
+  details?: Record<string, unknown> | null;
+}
+
+export function recordStreamStartedLifecycleForMessages({
+  messages,
+  streamEvent,
+  details = null,
+}: RecordStreamStartedLifecycleForMessagesOptions): number {
+  if (streamEvent.eventType !== 'init') return 0;
+  const cursor = streamEvent.messageCursor
+    ? {
+        timestamp: streamEvent.messageCursor.timestamp,
+        id: streamEvent.messageCursor.id ?? '',
+      }
+    : undefined;
+
+  return recordLifecycleForMessages({
+    messages,
+    stage: 'stream_started',
+    details: {
+      ...(details ?? {}),
+      turnId: streamEvent.turnId,
+      sessionId: streamEvent.sessionId,
+      ...(cursor ? { cursor } : {}),
+    },
   });
 }

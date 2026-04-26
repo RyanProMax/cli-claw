@@ -201,4 +201,73 @@ describe('IM message lifecycle ledger', () => {
 
     db.closeDatabase();
   });
+
+  test('records stream-started lifecycle events for Feishu-origin stream init turns', async () => {
+    const db = await loadDbModule();
+    const { recordStreamStartedLifecycleForMessages } = await import(
+      '../src/im-message-lifecycle.ts'
+    );
+
+    const recorded = recordStreamStartedLifecycleForMessages({
+      messages: [
+        {
+          id: 'msg-feishu-stream',
+          chat_jid: 'web:main',
+          source_jid: 'feishu:chat-1',
+          sender: 'user',
+          sender_name: 'User',
+          content: 'stream this from feishu',
+          timestamp: '2026-04-25T02:00:00.000Z',
+        },
+        {
+          id: 'msg-web-stream',
+          chat_jid: 'web:main',
+          source_jid: 'web:main',
+          sender: 'user',
+          sender_name: 'User',
+          content: 'web-only stream should not create Feishu lifecycle rows',
+          timestamp: '2026-04-25T02:00:01.000Z',
+        },
+      ],
+      streamEvent: {
+        eventType: 'init',
+        turnId: 'turn-1',
+        sessionId: 'session-1',
+        messageCursor: {
+          timestamp: '2026-04-25T02:00:00.000Z',
+          id: 'msg-feishu-stream',
+        },
+      },
+      details: { route: 'main' },
+    });
+
+    expect(recorded).toBe(1);
+
+    const events = db.getImMessageLifecycleEvents({
+      provider: 'feishu',
+      chatJid: 'feishu:chat-1',
+      messageId: 'msg-feishu-stream',
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      provider: 'feishu',
+      chat_jid: 'web:main',
+      source_jid: 'feishu:chat-1',
+      message_id: 'msg-feishu-stream',
+      stage: 'stream_started',
+      status: 'ok',
+      details: {
+        route: 'main',
+        turnId: 'turn-1',
+        sessionId: 'session-1',
+        cursor: {
+          timestamp: '2026-04-25T02:00:00.000Z',
+          id: 'msg-feishu-stream',
+        },
+      },
+    });
+
+    db.closeDatabase();
+  });
 });

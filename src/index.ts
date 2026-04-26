@@ -121,6 +121,7 @@ import { appendActivePlanProgressFromFile } from './active-plan-progress.js';
 import {
   recordDeadLetteredLifecycleForPendingMessages,
   recordLifecycleForMessages,
+  recordStreamStartedLifecycleForMessages,
 } from './im-message-lifecycle.js';
 import {
   buildProvisionalTokenUsage,
@@ -3410,6 +3411,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let streamingAccumulatedThinking = '';
   let streamInterrupted = false;
   let activeStreamingEventTurnId: string | undefined;
+  let streamStartedLifecycleRecorded = false;
   if (streamingSession) {
     registerStreamingSession(streamingSessionJid, streamingSession);
     logger.debug({ chatJid }, 'Streaming card session created for Feishu');
@@ -3608,6 +3610,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 streamingSnapshotKey,
               );
               activeTurnCursor = normalizeCursor(streamEvent.messageCursor);
+              if (!streamStartedLifecycleRecorded) {
+                recordStreamStartedLifecycleForMessages({
+                  messages: missedMessages,
+                  streamEvent,
+                  details: {
+                    route: replySourceImJid
+                      ? replySourceImJid === chatJid
+                        ? 'direct_im'
+                        : 'routed_im'
+                      : 'web',
+                    streamingJid: streamingSessionJid,
+                  },
+                });
+                streamStartedLifecycleRecorded = true;
+              }
             }
             broadcastStreamEvent(chatJid, streamEvent);
 
@@ -6741,6 +6758,7 @@ async function processAgentConversation(
   let agentStreamingThinking = '';
   let agentStreamInterrupted = false;
   let agentStreamingEventTurnId: string | undefined;
+  let agentStreamStartedLifecycleRecorded = false;
   if (agentStreamingSession && streamingSessionJid) {
     registerStreamingSession(streamingSessionJid, agentStreamingSession);
     logger.debug(
@@ -6898,6 +6916,18 @@ async function processAgentConversation(
           streamingSnapshotKey,
         );
         activeTurnCursor = normalizeCursor(streamEvent.messageCursor);
+        if (!agentStreamStartedLifecycleRecorded) {
+          recordStreamStartedLifecycleForMessages({
+            messages: missedMessages,
+            streamEvent,
+            details: {
+              agentId,
+              route: 'conversation_agent',
+              streamingJid: streamingSessionJid,
+            },
+          });
+          agentStreamStartedLifecycleRecorded = true;
+        }
       }
       broadcastStreamEvent(chatJid, streamEvent, agentId);
 
