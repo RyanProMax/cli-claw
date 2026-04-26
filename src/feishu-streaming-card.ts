@@ -1733,6 +1733,7 @@ export class StreamingCardController {
       startTime: Date.now(),
     });
     this.stateVersion++;
+    if (this.createInitialCardFromIdle('tool')) return;
     if (this.state === 'streaming') {
       this.backendMode === 'streaming'
         ? this.scheduleAuxFlush()
@@ -1828,6 +1829,7 @@ export class StreamingCardController {
     if (this.isTerminal()) return;
     this.systemStatus = status;
     this.stateVersion++;
+    if (status && this.createInitialCardFromIdle('system_status')) return;
     if (this.state === 'streaming') {
       this.backendMode === 'streaming'
         ? this.scheduleAuxFlush()
@@ -1842,6 +1844,7 @@ export class StreamingCardController {
     if (this.isTerminal()) return;
     this.activeHook = hook;
     this.stateVersion++;
+    if (hook && this.createInitialCardFromIdle('hook')) return;
     if (this.state === 'streaming') {
       this.backendMode === 'streaming'
         ? this.scheduleAuxFlush()
@@ -1858,6 +1861,7 @@ export class StreamingCardController {
     if (this.isTerminal()) return;
     this.todos = todos;
     this.stateVersion++;
+    if (todos.length > 0 && this.createInitialCardFromIdle('todos')) return;
     if (this.state === 'streaming') {
       this.backendMode === 'streaming'
         ? this.scheduleAuxFlush()
@@ -2132,6 +2136,20 @@ export class StreamingCardController {
   }
 
   // ─── Internal Methods ──────────────────────────────────
+
+  private createInitialCardFromIdle(reason: string): boolean {
+    if (this.state !== 'idle') return false;
+    this.state = 'creating';
+    this.createInitialCard().catch((err) => {
+      logger.warn(
+        { err, chatId: this.chatId, reason },
+        'Streaming card: initial create failed, will use fallback',
+      );
+      this.state = 'error';
+      this.onFallback?.();
+    });
+    return true;
+  }
 
   private async createInitialCard(): Promise<void> {
     const initialText = this.accumulatedText;

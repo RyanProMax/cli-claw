@@ -1059,6 +1059,51 @@ Risks / Notes / Handoff:
 - Review gate passed against `RUNBOOKS/Review.md`: scope stayed within tests/plans, no production runtime behavior changed, and the new harness intentionally uses real DB/notifier modules while only faking external Feishu SDK transport.
 - Full queue/runner/card/cursor E2E remains follow-up after this foundation lands.
 
+### Milestone 23
+
+Objective:
+- Fix the real incident where a Feishu-origin turn streams visibly in Web but the Feishu card stays absent/stale while the agent is still in tool/status progress. Auxiliary stream events that happen before first answer text must create and update a Feishu streaming card, so users see live progress instead of a silent bot.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/feishu-streaming-card.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm test -- --run tests/feishu-streaming-card.test.ts`
+- `npm test -- --run tests/stream-presentation.test.ts tests/feishu-e2e.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `npx prettier --check src/feishu-streaming-card.ts tests/feishu-streaming-card.test.ts PLANS/ACTIVE.md PLANS/ROADMAP.md`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Incident evidence from 2026-04-26 06:00 local: Feishu message `om_x100b51ea6b5738b0b3968d3483ea4e6` reached `stream_started`; `router_state.active_streaming_turns` still tracked the Feishu route; Web snapshot `web:main` had live content; no `finalized` / `im_delivered` / `cursor_committed` rows existed for that message.
+- Keep the fix narrow: do not change queue, runner, cursor commit, launch/restart, or final delivery semantics here.
+- Follow TDD: first add a failing streaming-card test proving `tool_use_start` / auxiliary progress while idle does not create a Feishu card, then minimally change card startup behavior.
+- Full queue/runner/card/cursor E2E remains a follow-up after this production bug is fixed.
+- TDD red observed before the fix: `npm test -- --run tests/feishu-streaming-card.test.ts` failed for `tool progress`, `system status`, `hook status`, and `todo progress` because `createdCards` stayed empty when auxiliary events arrived from `idle`.
+- Implemented `createInitialCardFromIdle()` and wired `startTool`, `setSystemStatus`, `setHook`, and `setTodos` so long pre-answer progress creates the Feishu card immediately and then reuses the existing patch/degradation path.
+- Validation passed:
+  - `npm test -- --run tests/feishu-streaming-card.test.ts`
+  - `npm test -- --run tests/stream-presentation.test.ts tests/feishu-e2e.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `npx prettier --check src/feishu-streaming-card.ts tests/feishu-streaming-card.test.ts PLANS/ACTIVE.md PLANS/ROADMAP.md`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`: scope stayed within the milestone, the regression test failed before the fix and passes after it, and the production change only expands card creation triggers without changing queue, runner, cursor, restart, or final delivery policy.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1070,21 +1115,22 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 22
+- Milestone 23
 
 Current status:
-- done; test-only change, no safe restart required
+- done; Web-streaming-but-Feishu-card-stale incident fixed, safe restart required after commit
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `tests/feishu-e2e.test.ts`
+- `src/feishu-streaming-card.ts`
+- `tests/feishu-streaming-card.test.ts`
 
 Last failure summary:
-- `npm test -- --run tests/feishu-e2e.test.ts` initially failed for the stale-message case because the test incorrectly replayed a live websocket event while asserting startup-backfill stale behavior. The test was corrected to use `startupBackfillChatIds` plus mocked Feishu message list data, then passed.
+- RED before fix: `npm test -- --run tests/feishu-streaming-card.test.ts` failed in four new cases because auxiliary progress from `idle` did not create any Feishu card.
 
 Suspected cause:
-- Existing tests covered Feishu handler branches mostly through mocked DB/notifier spies; they did not prove the real temp DB lifecycle ledger and real notifier wakeup path worked together.
+- `StreamingCardController` creates an initial card from `idle` for answer text, thinking, or commentary, but not for tool/status/hook/todo progress. Real Codex turns often begin with a long tool/status phase; Web can show the stream buffer while Feishu has no card yet.
 
 Next step:
-- Extend the E2E harness upward into queue/runner/card/cursor coverage, starting with `Feishu inbound -> queue wake -> fake runner final -> Feishu outbox/card -> cursor commit` and a delivery-failure case that keeps the cursor retryable.
+- Commit this milestone, then apply it with the documented safe restart path. After restart, monitor the next Feishu `继续任务` turn for immediate card creation during tool/status progress.

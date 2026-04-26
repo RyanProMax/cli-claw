@@ -406,6 +406,63 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test.each([
+    {
+      name: 'tool progress',
+      seed: (controller: StreamingCardController) => {
+        controller.startTool('tool-1', 'exec_command');
+        controller.updateToolSummary('tool-1', 'sed -n 1,120p AGENTS.md');
+      },
+      expected: 'exec_command',
+    },
+    {
+      name: 'system status',
+      seed: (controller: StreamingCardController) => {
+        controller.setSystemStatus('读取计划中');
+      },
+      expected: '读取计划中',
+    },
+    {
+      name: 'hook status',
+      seed: (controller: StreamingCardController) => {
+        controller.setHook({
+          hookName: 'pre_tool_use',
+          hookEvent: 'tool_call',
+        });
+      },
+      expected: 'pre_tool_use',
+    },
+    {
+      name: 'todo progress',
+      seed: (controller: StreamingCardController) => {
+        controller.setTodos([
+          { id: '1', content: '核对飞书卡片链路', status: 'in_progress' },
+        ]);
+      },
+      expected: '核对飞书卡片链路',
+    },
+  ])(
+    'creates an initial Feishu card from idle for $name before answer text arrives',
+    async ({ seed, expected }) => {
+      const { client, createdCards } = createStreamingModeClient();
+      const controller = new StreamingCardController({
+        client,
+        chatId: 'chat-test',
+      });
+
+      seed(controller);
+
+      await vi.waitFor(() => {
+        expect(createdCards).toHaveLength(1);
+        expect((controller as any).state).toBe('streaming');
+      });
+
+      expect(JSON.stringify(createdCards[0])).toContain(expected);
+
+      controller.dispose();
+    },
+  );
+
   test('creates standalone streaming cards without replying to the triggering Feishu message', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
