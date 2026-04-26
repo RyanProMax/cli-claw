@@ -1397,6 +1397,48 @@ Risks / Notes / Handoff:
 - This follows the Milestone 28 observed failure: installer wrote the correct plist but `launchctl bootstrap` returned `Bootstrap failed: 5`; running the same bootstrap manually moments later succeeded.
 - Added `bootstrap_launch_agent()` with two attempts and a one-second retry delay before failing with a clearer message.
 
+### Milestone 30
+
+Objective:
+- Extend Feishu E2E coverage beyond inbound storage/notifier wakeup to a success path that drives a Feishu message through queue dispatch, fake runner streaming output, streaming card delivery, lifecycle evidence, and cursor commit.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `tests/feishu-e2e.test.ts`
+
+Validation:
+- `npm test -- --run tests/feishu-e2e.test.ts`
+- `git diff --check`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md tests/feishu-e2e.test.ts`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - RED confirmed: `npm test -- --run tests/feishu-e2e.test.ts` failed because the new success-path test only saw `received -> stored -> notified` and did not yet have `queued`, `runner_started`, `stream_started`, `finalized`, `im_delivered`, or `cursor_committed`.
+  - GREEN validation passed:
+    - `npm test -- --run tests/feishu-e2e.test.ts`
+    - `git diff --check`
+    - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md tests/feishu-e2e.test.ts`
+    - `./scripts/review.sh`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- This milestone intentionally improves the E2E harness only. Do not change production Feishu, queue, runner, card, or cursor logic unless the new E2E exposes a concrete production gap.
+- The driver should use real persisted DB state, real `GroupQueue`, real lifecycle ledger helpers, and real `StreamingCardController` against a fake Lark client.
+- The runner itself should stay fake/deterministic so the test can prove plumbing without invoking Codex/Claude.
+- Implemented deterministic in-process success-path coverage in `tests/feishu-e2e.test.ts`: real Feishu SDK event handling stores the message, real `GroupQueue` dispatches it, a fake runner emits visible progress/final text through real `StreamingCardController`, card create/update calls are captured by the fake Lark client, and cursor commit evidence is persisted.
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed inside `PLANS/ACTIVE.md`, `PLANS/ROADMAP.md`, and `tests/feishu-e2e.test.ts`.
+  - No production Feishu, queue, runner, card, or cursor logic changed.
+  - The remaining retry/failure E2E work stays in `PLANS/ROADMAP.md` and should be added only for concrete real-world gaps.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1408,22 +1450,21 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 29
+- Milestone 30
 
 Current status:
-- done; LaunchAgent installer now retries bootstrap once after bootout before failing
+- done; Feishu E2E now covers inbound -> queue -> fake runner -> streaming card delivery -> cursor commit success path
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `ops/install-launch-agent.sh`
-- `tests/launch-command-contract.test.ts`
+- `tests/feishu-e2e.test.ts`
 
 Last failure summary:
-- none; validation and review passed
+- RED was confirmed before the helper existed: the new success-path test only observed inbound `received -> stored -> notified` lifecycle rows.
 
 Suspected cause:
-- The installer calls `launchctl bootout` and immediately attempts a single `launchctl bootstrap`; macOS can return transient `Bootstrap failed: 5` even though retrying the same plist shortly afterward succeeds.
+- Existing `tests/feishu-e2e.test.ts` verified inbound Feishu SDK handling, DB storage, lifecycle, duplicate/stale/mention behavior, and notifier wakeup, but did not exercise queue dispatch, runner output, streaming card completion, or cursor commit.
 
 Next step:
-- Commit Milestone 29, then do one final health/current-backend/process check before ending this iteration.
+- Continue with the next roadmap item in priority order.

@@ -6,11 +6,33 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const hoisted = vi.hoisted(() => {
   const handlers: Record<string, (payload: any) => Promise<void> | void> = {};
+  const createdCards: Array<Record<string, any>> = [];
+  const updatedCards: Array<Record<string, any>> = [];
+  const streamedContents: string[] = [];
   return {
     handlers,
     requestSpy: vi.fn().mockResolvedValue({ bot: { open_id: 'bot-open-id' } }),
-    createSpy: vi.fn().mockResolvedValue({}),
+    createSpy: vi.fn().mockResolvedValue({ data: { message_id: 'msg-1' } }),
     messageListSpy: vi.fn().mockResolvedValue({ data: { items: [] } }),
+    cardCreateSpy: vi.fn(async ({ data }: any) => {
+      const card = JSON.parse(data.data);
+      createdCards.push(card);
+      return { data: { card_id: `card-${createdCards.length}` } };
+    }),
+    cardUpdateSpy: vi.fn(async ({ data }: any) => {
+      const card = JSON.parse(data.card.data);
+      updatedCards.push(card);
+      return { data: {} };
+    }),
+    cardSettingsSpy: vi.fn(async () => ({ data: {} })),
+    cardElementContentSpy: vi.fn(async ({ data }: any) => {
+      streamedContents.push(data.content);
+      return { data: {} };
+    }),
+    cardElementUpdateSpy: vi.fn(async () => ({ data: {} })),
+    createdCards,
+    updatedCards,
+    streamedContents,
     wsStartSpy: vi.fn().mockResolvedValue(undefined),
     wsCloseSpy: vi.fn().mockResolvedValue(undefined),
   };
@@ -48,6 +70,19 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
             create: vi.fn().mockResolvedValue({ data: { reaction_id: 'r1' } }),
             delete: vi.fn().mockResolvedValue({}),
           },
+        },
+      },
+    };
+    cardkit = {
+      v1: {
+        card: {
+          create: hoisted.cardCreateSpy,
+          update: hoisted.cardUpdateSpy,
+          settings: hoisted.cardSettingsSpy,
+        },
+        cardElement: {
+          content: hoisted.cardElementContentSpy,
+          update: hoisted.cardElementUpdateSpy,
         },
       },
     };
@@ -109,12 +144,140 @@ async function loadFeishuE2EModules() {
   return { db, notifier, feishu, restartGuard };
 }
 
+async function driveQueuedFeishuSuccessPath(_: {
+  db: any;
+  connection: any;
+  chatJid: string;
+  messageId: string;
+  finalText: string;
+}): Promise<void> {
+  const { db, connection, chatJid, messageId, finalText } = _;
+  const [
+    { GroupQueue },
+    { recordLifecycleForMessages },
+    { StreamingCardController },
+  ] = await Promise.all([
+    import('../src/group-queue.ts'),
+    import('../src/im-message-lifecycle.ts'),
+    import('../src/feishu-streaming-card.ts'),
+  ]);
+  const emptyCursor = { timestamp: '', id: '' };
+  const queue = new GroupQueue();
+
+  queue.setHostModeChecker(() => true);
+  queue.setSerializationKeyResolver((groupJid: string) => groupJid);
+
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const processed = new Promise<void>((resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error('Timed out waiting for Feishu E2E queue processing'));
+    }, 2000);
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      if (groupJid !== chatJid) return true;
+
+      try {
+        const messages = db.getMessagesSince(chatJid, emptyCursor);
+        expect(messages.map((message: any) => message.id)).toContain(messageId);
+
+        recordLifecycleForMessages({ messages, stage: 'queued' });
+        recordLifecycleForMessages({ messages, stage: 'runner_started' });
+
+        const cardMessageIds: string[] = [];
+        const controller = new StreamingCardController({
+          client: connection.getLarkClient(),
+          chatId: chatJid.replace(/^feishu:/, ''),
+          replyToMsgId: messageId,
+          onCardCreated: (createdMessageId: string) => {
+            cardMessageIds.push(createdMessageId);
+          },
+        });
+
+        try {
+          controller.append('处理中');
+          await vi.waitFor(() => {
+            expect(cardMessageIds.length).toBeGreaterThan(0);
+          });
+
+          recordLifecycleForMessages({
+            messages,
+            stage: 'stream_started',
+            details: { runner: 'fake' },
+          });
+
+          await controller.complete(finalText);
+          await vi.waitFor(() => {
+            expect(JSON.stringify(hoisted.updatedCards.at(-1))).toContain(
+              finalText,
+            );
+          });
+        } finally {
+          controller.dispose();
+        }
+
+        recordLifecycleForMessages({ messages, stage: 'finalized' });
+        recordLifecycleForMessages({
+          messages,
+          stage: 'im_delivered',
+          details: {
+            delivery: 'streaming_card',
+            messageId: cardMessageIds.at(-1) ?? null,
+          },
+        });
+
+        const storedMessage = messages.find(
+          (message: any) => message.id === messageId,
+        );
+        const cursor = {
+          timestamp: storedMessage.timestamp,
+          id: storedMessage.id,
+        };
+        db.setRouterState(
+          'last_committed_cursor',
+          JSON.stringify({ [chatJid]: cursor }),
+        );
+        recordLifecycleForMessages({
+          messages,
+          stage: 'cursor_committed',
+          details: { cursor },
+        });
+
+        resolve();
+        return true;
+      } catch (err) {
+        reject(err);
+        return true;
+      }
+    });
+  });
+
+  queue.enqueueMessageCheck(chatJid);
+
+  try {
+    await processed;
+    await vi.waitFor(() => {
+      expect(queue.getStatus().activeCount).toBe(0);
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    await queue.shutdown(0);
+  }
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetModules();
   vi.clearAllMocks();
-  hoisted.createSpy.mockResolvedValue({});
+  hoisted.createSpy.mockResolvedValue({ data: { message_id: 'msg-1' } });
   hoisted.messageListSpy.mockResolvedValue({ data: { items: [] } });
+  hoisted.cardCreateSpy.mockClear();
+  hoisted.cardUpdateSpy.mockClear();
+  hoisted.cardSettingsSpy.mockClear();
+  hoisted.cardElementContentSpy.mockClear();
+  hoisted.cardElementUpdateSpy.mockClear();
+  hoisted.createdCards.length = 0;
+  hoisted.updatedCards.length = 0;
+  hoisted.streamedContents.length = 0;
   Object.keys(hoisted.handlers).forEach((key) => delete hoisted.handlers[key]);
   for (const dir of tempHomes.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -183,6 +346,96 @@ describe('Feishu in-process E2E harness', () => {
       'notified',
     ]);
     expect(lifecycle.every((event) => event.status === 'ok')).toBe(true);
+  });
+
+  test('drives a Feishu message through queue, fake runner, streaming card delivery, and cursor commit', async () => {
+    const { db, notifier, feishu, restartGuard } = await loadFeishuE2EModules();
+    const connection = feishu.createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+    const chatJid = 'feishu:oc_success_path';
+    const messageId = 'om_success_path';
+
+    await connection.connect({
+      onReady: vi.fn(),
+      onCommand: vi.fn(),
+      onNewChat: vi.fn(),
+      resolveManagedCommandText: (_chatJid, text) =>
+        restartGuard.resolveManagedSelfRestartCommand(text),
+    });
+
+    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_success_path',
+        message_id: messageId,
+        create_time: '1777070337000',
+        message_type: 'text',
+        content: JSON.stringify({ text: '继续任务' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_success',
+        },
+      },
+    });
+
+    await expect(wakeup).resolves.toBe('woke');
+
+    await driveQueuedFeishuSuccessPath({
+      db,
+      connection,
+      chatJid,
+      messageId,
+      finalText: '已继续当前任务',
+    });
+
+    const lifecycle = db.getImMessageLifecycleEvents({
+      provider: 'feishu',
+      chatJid,
+      messageId,
+    });
+    expect(
+      lifecycle.map((event) => [event.stage, event.status, event.reason]),
+    ).toEqual([
+      ['received', 'ok', null],
+      ['stored', 'ok', null],
+      ['notified', 'ok', null],
+      ['queued', 'ok', null],
+      ['runner_started', 'ok', null],
+      ['stream_started', 'ok', null],
+      ['finalized', 'ok', null],
+      ['im_delivered', 'ok', null],
+      ['cursor_committed', 'ok', null],
+    ]);
+
+    expect(hoisted.cardCreateSpy).toHaveBeenCalledTimes(1);
+    expect(hoisted.createSpy).toHaveBeenCalledWith({
+      params: { receive_id_type: 'chat_id' },
+      data: expect.objectContaining({
+        receive_id: 'oc_success_path',
+        msg_type: 'interactive',
+      }),
+    });
+    expect(JSON.stringify(hoisted.updatedCards.at(-1))).toContain(
+      '已继续当前任务',
+    );
+
+    const storedMessage = db.getMessagesSince(chatJid, {
+      timestamp: '',
+      id: '',
+    })[0];
+    expect(
+      JSON.parse(db.getRouterState('last_committed_cursor') ?? '{}'),
+    ).toEqual({
+      [chatJid]: {
+        timestamp: storedMessage.timestamp,
+        id: messageId,
+      },
+    });
   });
 
   test('routes explicit managed restart phrases without storing them as model messages', async () => {

@@ -49,9 +49,9 @@
   - Latest applied evidence: commit `357f756 Gate interrupted context resume`; safe restart `restart-2026-04-26T11-34-00-685Z-5b68e5d4` passed; `/api/health` was healthy for PID `14317`.
   - Post-restart process check showed one backend and current runner group only; no historical orphan runner group was visible.
   - Feishu E2E harness exists for inbound SDK event handling, lifecycle DB writes, notifier wakeup, duplicate/stale/mention cases, and managed restart phrase handling.
+  - Feishu E2E success-path coverage now drives a real inbound SDK event through real `GroupQueue`, a deterministic fake runner, real `StreamingCardController` card create/update, lifecycle evidence from `queued` through `cursor_committed`, and persisted cursor state.
 - Next action:
   - Monitor the next real Feishu turn that has interrupted residue; expected behavior is a confirmation prompt, not automatic stale-context replay.
-  - Extend E2E coverage from inbound handling to queue -> runner -> streaming card -> cursor commit success path.
   - Add retry/failure E2E cases only for concrete remaining gaps found in real incidents or lifecycle evidence.
 
 ### P1 RM-2026-04-25-03 Feishu Answer/Commentary Presentation Contract
