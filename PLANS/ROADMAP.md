@@ -57,13 +57,16 @@
   - 2026-04-26 milestone 24 started: investigate the follow-up context-leak incident. Evidence: graceful restart persisted a 1961-char `interrupt_partial|shutdown` with `sendToIM: true`, the next Feishu turn processed `messageCount: 2` and batched the old `继续任务` with the new question, and Codex transport fallback text (`Falling back from WebSockets to HTTPS transport... tls handshake eof`) leaked into visible assistant output.
   - 2026-04-26 milestone 24: graceful shutdown partials are now DB-only, shutdown interrupted cursors are treated as terminal for normal processing so old interrupted user rows do not batch into the next live Feishu message, and Codex WebSocket-to-HTTPS transport diagnostics are stripped from assistant chunks. Validation passed with restart recovery tests, Codex runtime tests, `npm run typecheck`, `npm --prefix container/agent-runner run build:runner`, `git diff --check`, targeted Prettier check, and `./scripts/review.sh`.
   - 2026-04-26 milestone 24 applied: commit `58b552c Suppress shutdown process leaks`; safe restarts `restart-2026-04-26T10-51-43-100Z-88e72d00` and `restart-2026-04-26T11-08-51-302Z-df7f19dc` passed, `/api/health` returned healthy for backend PID `9568`, startup cleanup reaped residual runner groups `5642` and `7770`, and DB cursor state currently has `active_streaming_turns = {}` with Feishu committed cursor at `om_x100b51eae4e3bca4b4b74b1260b1ee1`.
+  - 2026-04-26 milestone 25 started: add an explicit interrupted-resume confirmation gate so a fresh user/Feishu message does not automatically consume older interrupted context; old interrupted context may only be replayed after the user confirms continuation.
+  - 2026-04-26 milestone 25: interrupted residual context now creates a persisted resume-confirmation gate, asks the user whether to continue the interrupted task, ignores the confirmation prompt itself, and only replays old context after explicit confirmation; otherwise it processes the fresh message. Validation passed with restart recovery tests, `npm run typecheck`, `git diff --check`, targeted Prettier check, and `./scripts/review.sh`.
+  - 2026-04-26 milestone 25 applied: safe restart `restart-2026-04-26T11-34-00-685Z-5b68e5d4` passed, `/api/health` returned healthy for backend PID `14317`, and the post-restart process snapshot showed one backend plus one current runner group with no historical orphan runner group visible.
 - Iteration plan:
   - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to any remaining later-stage gaps found during delivery hardening.
   - Add failing tests for any remaining direct file/image delivery semantics not covered by lifecycle evidence.
   - Extend the delivery-gated cursor commit behavior to remaining direct/routed IM delivery paths where an inbound cursor can safely stay retryable; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
   - Continue hardening outbound behavior so pending outbound can survive temporary channel unavailability after the startup connection phase.
 - Next action:
-  - Monitor the next real Feishu turn after the `58b552c` restart for `messageCount: 1`, no visible shutdown partial, and no `Falling back from WebSockets...` prefix in persisted assistant replies.
+  - Monitor the next real Feishu turn for a confirmation prompt instead of automatic stale-context replay when interrupted residue exists.
 
 ### P0 RM-2026-04-26-01 Safe Restart Runner Reaping
 

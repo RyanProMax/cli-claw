@@ -1164,6 +1164,60 @@ Risks / Notes / Handoff:
   - Startup cleanup reaped residual runner groups `5642` and `7770`.
   - DB cursor state after the restart has `active_streaming_turns = {}` and Feishu committed cursor at `om_x100b51eae4e3bca4b4b74b1260b1ee1`; no newer real Feishu user message has arrived yet for post-restart observation.
 
+### Milestone 25
+
+Objective:
+- Add an explicit interrupted-resume confirmation gate: when a new user/Feishu message arrives while an older interrupted turn would otherwise be replayed into the same agent prompt, Cli Claw must first ask whether to continue the interrupted task and must not consume the old interrupted context until the user explicitly confirms.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/MEMORY.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `npx prettier --check src/index.ts tests/restart-recovery.test.ts docs/MEMORY.md PLANS/ACTIVE.md PLANS/ROADMAP.md`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- User contract from 2026-04-26: if an incoming message detects residual interrupted context, the system should reply with a confirmation question instead of immediately carrying that context into the new turn; only after the user opts in should the previous interrupted context be consumed.
+- Follow TDD: first add failing pure routing tests for ask / explicit continue / fresh-message-after-prompt behavior, then wire the smallest production change.
+- Keep this milestone scoped to interrupted residual context gating. Do not refactor general history compaction, Feishu card rendering, restart command policy, or runner transport behavior here.
+- TDD red observed before the helper existed: `npm test -- --run tests/restart-recovery.test.ts` failed because `resolveInterruptedResumeDecision` was not exported.
+- Implemented an interrupted-resume decision gate that:
+  - Detects old user context followed by an assistant `interrupt_partial` and a newer user message.
+  - Sends a confirmation prompt and persists a pending old/new message snapshot instead of immediately starting a runner.
+  - Replays old context only after `继续上次` / equivalent explicit confirmation.
+  - Uses the fresh message after `忽略上次` or a new user request.
+  - Ignores the confirmation prompt itself while waiting for the user reply.
+- Pending confirmation state is persisted in `router_state` so a service restart between prompt and reply does not lose the decision boundary.
+- `docs/MEMORY.md` now documents that interrupted residual context is not auto-injected into runner prompts.
+- Validation passed:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `npx prettier --check src/index.ts tests/restart-recovery.test.ts docs/MEMORY.md PLANS/ACTIVE.md PLANS/ROADMAP.md`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`: scope stayed inside the milestone, the new tests cover ask/continue/ignore/wait behavior, state is cleared only after cursor commit, and no runner/card/restart semantics were changed.
+- Applied evidence:
+  - Safe restart intent `restart-2026-04-26T11-34-00-685Z-5b68e5d4` passed.
+  - `/api/health` returned `healthy` for backend PID `14317`.
+  - Post-restart process snapshot shows one backend and one current runner process group, with no historical orphan runner group visible.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1175,24 +1229,23 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 24
+- Milestone 25
 
 Current status:
-- done; shutdown partial/context leakage and Codex transport diagnostic leakage fixed, committed, safely restarted, and waiting for the next real Feishu turn to confirm production behavior
+- done; interrupted residual context now requires explicit user confirmation before old context is replayed into runner prompts, and the running service has been safely restarted
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
 - `src/index.ts`
 - `tests/restart-recovery.test.ts`
-- `container/agent-runner/src/codex-session-runtime.ts`
-- `tests/codex-session-runtime.test.ts`
+- `docs/MEMORY.md`
 
 Last failure summary:
-- RED before fix: restart recovery tests failed on `sendToIM: true` and unadvanced shutdown cursor; Codex runtime test failed because the transport fallback prefix was still present.
+- RED before fix: restart recovery tests failed because `resolveInterruptedResumeDecision` did not exist; after implementation, the targeted restart recovery test suite passes.
 
 Suspected cause:
-- Shutdown/restart partial persistence is mixing two contracts: it persists process text for recovery visibility, but also sends it to IM and leaves the old user cursor replayable for the next normal turn. Codex transport fallback text is emitted as assistant text because the diagnostic prefix stripper only handles model metadata warnings.
+- `selectRecentTurnMessages()` and restart/recovery cursor handling can still let an older interrupted user row and a newer user row enter the same agent prompt when the old context has not been deliberately resumed by the user.
 
 Next step:
-- Monitor the next real Feishu turn for `messageCount: 1`, no visible shutdown partial, and no `Falling back from WebSockets...` prefix in persisted assistant replies.
+- Monitor the next real Feishu turn with interrupted residue: it should show a concise confirmation prompt instead of immediately replaying stale context.

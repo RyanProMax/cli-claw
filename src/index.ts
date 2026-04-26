@@ -908,6 +908,37 @@ const IM_SEND_FAIL_THRESHOLD = 3;
 // so the fresh session has context despite the session being cleared.
 const recoveryGroups = new Set<string>();
 
+interface PendingInterruptedResumeConfirmation {
+  chatJid: string;
+  interruptedAt: string;
+  interruptedMessageId: string;
+  createdAt: string;
+  resumeMessages: NewMessage[];
+  freshMessages: NewMessage[];
+}
+
+type InterruptedResumeDecisionAction =
+  | 'none'
+  | 'ask'
+  | 'wait_for_reply'
+  | 'continue_previous'
+  | 'use_fresh';
+
+interface InterruptedResumeDecision {
+  action: InterruptedResumeDecisionAction;
+  messagesForAgent: NewMessage[];
+  promptText?: string;
+  pendingConfirmation?: PendingInterruptedResumeConfirmation;
+  clearPendingConfirmation?: boolean;
+}
+
+const pendingInterruptedResumeConfirmations: Record<
+  string,
+  PendingInterruptedResumeConfirmation
+> = {};
+const PENDING_INTERRUPTED_RESUME_CONFIRMATIONS_STATE_KEY =
+  'pending_interrupted_resume_confirmations';
+
 // Track consecutive IM health check failures per JID for safe auto-unbind
 const imHealthCheckFailCounts = new Map<string, number>();
 const IM_HEALTH_CHECK_FAIL_THRESHOLD = 3;
@@ -1536,6 +1567,182 @@ export function selectRecoverableRestartPendingMessages<
   T extends RestartPendingMessage,
 >(messages: readonly T[]): T[] {
   return messages.filter(isRecoverableRestartPendingMessage);
+}
+
+type InterruptedResumeMessage = NewMessage & {
+  is_from_me?: boolean | number | null;
+};
+
+function isHumanUserMessage(message: InterruptedResumeMessage): boolean {
+  return isRecoverableRestartPendingMessage(message);
+}
+
+function isInterruptedPartialMessage(
+  message: InterruptedResumeMessage,
+): boolean {
+  return (
+    message.source_kind === 'interrupt_partial' &&
+    (message.is_from_me === true ||
+      message.is_from_me === 1 ||
+      message.sender === 'cli-claw-agent')
+  );
+}
+
+function findLastHumanUserIndex(messages: InterruptedResumeMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (isHumanUserMessage(messages[i])) return i;
+  }
+  return -1;
+}
+
+function normalizeResumeReplyText(content: string): string {
+  return content
+    .trim()
+    .replace(/[。.!！?？\s]+$/g, '')
+    .toLowerCase();
+}
+
+function isInterruptedResumeContinueReply(content: string): boolean {
+  const normalized = normalizeResumeReplyText(content);
+  return [
+    '继续',
+    '继续上次',
+    '继续上次任务',
+    '继续之前',
+    '继续之前任务',
+    '继续任务',
+    '是',
+    '确认',
+    'yes',
+    'y',
+  ].includes(normalized);
+}
+
+function stripInterruptedResumeDiscardPrefix(content: string): string | null {
+  const trimmed = content.trim();
+  const stripped = trimmed.replace(
+    /^(忽略上次|忽略旧任务|不继续|不用继续|不要继续|丢弃上次|放弃上次|否|no|n)([\s,，。.:：-]+)?/i,
+    '',
+  );
+  if (stripped === trimmed) return null;
+  return stripped.trim();
+}
+
+function buildInterruptedResumePrompt(
+  pending: PendingInterruptedResumeConfirmation,
+): string {
+  const interruptedTime = pending.interruptedAt || '上次';
+  return [
+    `检测到上次任务被中断（${interruptedTime}）。是否继续上次任务？`,
+    '',
+    '回复“继续上次”会继续旧任务；回复“忽略上次”会只处理你刚才这条新消息。也可以直接发送新的需求。',
+  ].join('\n');
+}
+
+function cloneMessageWithContent(
+  message: NewMessage,
+  content: string,
+): NewMessage {
+  return {
+    ...message,
+    content,
+  };
+}
+
+export function resolveInterruptedResumeDecision({
+  chatJid,
+  missedMessages,
+  pendingConfirmation,
+}: {
+  chatJid: string;
+  missedMessages: NewMessage[];
+  pendingConfirmation?: PendingInterruptedResumeConfirmation;
+}): InterruptedResumeDecision {
+  const messages = missedMessages as InterruptedResumeMessage[];
+  if (pendingConfirmation) {
+    const latestUserIndex = findLastHumanUserIndex(messages);
+    if (latestUserIndex < 0) {
+      return {
+        action: 'wait_for_reply',
+        messagesForAgent: [],
+      };
+    }
+
+    const latestUserMessage = messages[latestUserIndex];
+    if (isInterruptedResumeContinueReply(latestUserMessage.content)) {
+      return {
+        action: 'continue_previous',
+        messagesForAgent: pendingConfirmation.resumeMessages,
+        clearPendingConfirmation: true,
+      };
+    }
+
+    const discardSuffix = stripInterruptedResumeDiscardPrefix(
+      latestUserMessage.content,
+    );
+    if (discardSuffix !== null) {
+      const messagesForAgent =
+        discardSuffix.length > 0
+          ? [cloneMessageWithContent(latestUserMessage, discardSuffix)]
+          : pendingConfirmation.freshMessages;
+      return {
+        action: 'use_fresh',
+        messagesForAgent,
+        clearPendingConfirmation: true,
+      };
+    }
+
+    return {
+      action: 'use_fresh',
+      messagesForAgent: [latestUserMessage],
+      clearPendingConfirmation: true,
+    };
+  }
+
+  const latestUserIndex = findLastHumanUserIndex(messages);
+  if (latestUserIndex < 0) {
+    return { action: 'none', messagesForAgent: [] };
+  }
+
+  let interruptIndex = -1;
+  for (let i = latestUserIndex - 1; i >= 0; i -= 1) {
+    if (isInterruptedPartialMessage(messages[i])) {
+      interruptIndex = i;
+      break;
+    }
+  }
+  if (interruptIndex < 0) {
+    return { action: 'none', messagesForAgent: [] };
+  }
+
+  const resumeCandidates = messages
+    .slice(0, interruptIndex)
+    .filter(isHumanUserMessage) as NewMessage[];
+  const resumeMessages = selectRecentTurnMessages(resumeCandidates);
+  const freshMessages = messages
+    .slice(interruptIndex + 1)
+    .filter(isHumanUserMessage);
+
+  if (resumeMessages.length === 0 || freshMessages.length === 0) {
+    return { action: 'none', messagesForAgent: [] };
+  }
+
+  const interrupted = messages[interruptIndex];
+  const pending: PendingInterruptedResumeConfirmation = {
+    chatJid,
+    interruptedAt: interrupted.timestamp,
+    interruptedMessageId: interrupted.id,
+    createdAt: new Date().toISOString(),
+    resumeMessages,
+    freshMessages,
+  };
+
+  return {
+    action: 'ask',
+    messagesForAgent: [],
+    promptText: buildInterruptedResumePrompt(pending),
+    pendingConfirmation: pending,
+  };
 }
 
 export function isRestartRecoveryHistoryMessage(
@@ -2963,6 +3170,56 @@ interface SendMessageOptions {
   messageMeta?: OutboundMessageMeta;
 }
 
+function isMessageSnapshot(value: unknown): value is NewMessage {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as Partial<NewMessage>;
+  return (
+    typeof message.id === 'string' &&
+    typeof message.chat_jid === 'string' &&
+    typeof message.sender === 'string' &&
+    typeof message.sender_name === 'string' &&
+    typeof message.content === 'string' &&
+    typeof message.timestamp === 'string'
+  );
+}
+
+function normalizePendingInterruptedResumeConfirmation(
+  value: unknown,
+): PendingInterruptedResumeConfirmation | null {
+  if (!value || typeof value !== 'object') return null;
+  const pending = value as Partial<PendingInterruptedResumeConfirmation>;
+  if (
+    typeof pending.chatJid !== 'string' ||
+    typeof pending.interruptedAt !== 'string' ||
+    typeof pending.interruptedMessageId !== 'string' ||
+    typeof pending.createdAt !== 'string' ||
+    !Array.isArray(pending.resumeMessages) ||
+    !Array.isArray(pending.freshMessages)
+  ) {
+    return null;
+  }
+  const resumeMessages = pending.resumeMessages.filter(isMessageSnapshot);
+  const freshMessages = pending.freshMessages.filter(isMessageSnapshot);
+  if (resumeMessages.length === 0 || freshMessages.length === 0) return null;
+  return {
+    chatJid: pending.chatJid,
+    interruptedAt: pending.interruptedAt,
+    interruptedMessageId: pending.interruptedMessageId,
+    createdAt: pending.createdAt,
+    resumeMessages,
+    freshMessages,
+  };
+}
+
+function replacePendingInterruptedResumeConfirmations(
+  next: Record<string, PendingInterruptedResumeConfirmation>,
+): void {
+  for (const key of Object.keys(pendingInterruptedResumeConfirmations)) {
+    delete pendingInterruptedResumeConfirmations[key];
+  }
+  Object.assign(pendingInterruptedResumeConfirmations, next);
+}
+
 function loadState(): void {
   // Load from SQLite
   const persistedTimestamp = getRouterState('last_timestamp') || '';
@@ -3017,6 +3274,28 @@ function loadState(): void {
   lastAgentTimestamp = loadCursorMap('last_agent_timestamp');
   lastCommittedCursor = loadCursorMap('last_committed_cursor');
   activeStreamingTurns = loadStreamingTurnMap('active_streaming_turns');
+  {
+    const raw = getRouterState(
+      PENDING_INTERRUPTED_RESUME_CONFIRMATIONS_STATE_KEY,
+    );
+    try {
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const normalized: Record<string, PendingInterruptedResumeConfirmation> =
+        {};
+      for (const [jid, value] of Object.entries(parsed)) {
+        const pending = normalizePendingInterruptedResumeConfirmation(value);
+        if (pending && pending.chatJid === jid) {
+          normalized[jid] = pending;
+        }
+      }
+      replacePendingInterruptedResumeConfirmations(normalized);
+    } catch {
+      logger.warn(
+        `Corrupted ${PENDING_INTERRUPTED_RESUME_CONFIRMATIONS_STATE_KEY} in DB, resetting`,
+      );
+      replacePendingInterruptedResumeConfirmations({});
+    }
+  }
 
   // Migration: fill in missing lastCommittedCursor entries from lastAgentTimestamp.
   // The original migration only triggered when lastCommittedCursor was completely empty,
@@ -3212,6 +3491,10 @@ function saveState(): void {
     'active_streaming_turns',
     JSON.stringify(activeStreamingTurns),
   );
+  setRouterState(
+    PENDING_INTERRUPTED_RESUME_CONFIRMATIONS_STATE_KEY,
+    JSON.stringify(pendingInterruptedResumeConfirmations),
+  );
 }
 
 function registerGroup(jid: string, group: RegisteredGroup): void {
@@ -3379,7 +3662,61 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     return true;
   }
   if (isRecovery) recoveryGroups.delete(chatJid);
-  const messagesForAgent = selectRecentTurnMessages(missedMessages);
+  const interruptedResumeDecision = resolveInterruptedResumeDecision({
+    chatJid,
+    missedMessages,
+    pendingConfirmation: pendingInterruptedResumeConfirmations[chatJid],
+  });
+  if (interruptedResumeDecision.action === 'ask') {
+    if (
+      interruptedResumeDecision.pendingConfirmation &&
+      interruptedResumeDecision.promptText
+    ) {
+      pendingInterruptedResumeConfirmations[chatJid] =
+        interruptedResumeDecision.pendingConfirmation;
+      saveState();
+      try {
+        await sendMessage(chatJid, interruptedResumeDecision.promptText);
+      } catch (err) {
+        logger.error(
+          { chatJid, err },
+          'Failed to send interrupted resume confirmation prompt',
+        );
+        return false;
+      }
+      const latest = missedMessages[missedMessages.length - 1];
+      advanceCursors(chatJid, {
+        timestamp: latest.timestamp,
+        id: latest.id,
+      });
+      logger.info(
+        {
+          chatJid,
+          interruptedMessageId:
+            interruptedResumeDecision.pendingConfirmation.interruptedMessageId,
+          freshMessageCount:
+            interruptedResumeDecision.pendingConfirmation.freshMessages.length,
+        },
+        'Interrupted context gated behind user confirmation',
+      );
+      return true;
+    }
+  }
+  if (interruptedResumeDecision.action === 'wait_for_reply') {
+    const latest = missedMessages[missedMessages.length - 1];
+    advanceCursors(chatJid, {
+      timestamp: latest.timestamp,
+      id: latest.id,
+    });
+    return true;
+  }
+  let clearInterruptedResumeOnCommit =
+    interruptedResumeDecision.clearPendingConfirmation === true;
+  const messagesForAgent =
+    interruptedResumeDecision.action === 'continue_previous' ||
+    interruptedResumeDecision.action === 'use_fresh'
+      ? interruptedResumeDecision.messagesForAgent
+      : selectRecentTurnMessages(missedMessages);
 
   // Admin home is shared as web:main, so select runtime owner from the latest
   // active admin sender to avoid writing global memory into another admin's
@@ -3619,6 +3956,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         'Skipping cursor commit until IM delivery succeeds',
       );
       return false;
+    }
+    if (clearInterruptedResumeOnCommit) {
+      delete pendingInterruptedResumeConfirmations[chatJid];
+      clearInterruptedResumeOnCommit = false;
     }
     advanceCursors(chatJid, activeTurnCursor);
     if (clearActiveStreamingTurns([activeStreamingTurnKey])) {

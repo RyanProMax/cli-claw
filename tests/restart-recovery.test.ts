@@ -516,6 +516,198 @@ describe('restart recovery cursor handling', () => {
     ).toEqual(['user-1']);
   });
 
+  test('asks for confirmation before consuming older interrupted context with a fresh message', async () => {
+    const { resolveInterruptedResumeDecision } = await loadIndexModule();
+    const interruptedBatch = [
+      {
+        id: 'old-user',
+        chat_jid: 'feishu:chat-1',
+        sender: 'ou_user',
+        sender_name: 'Ryan',
+        content: '继续任务',
+        timestamp: '2026-04-26T10:00:00.000Z',
+      },
+      {
+        id: 'old-interrupt',
+        chat_jid: 'feishu:chat-1',
+        sender: 'cli-claw-agent',
+        sender_name: 'Cli Claw',
+        content: '旧任务执行过程',
+        timestamp: '2026-04-26T10:01:00.000Z',
+        source_kind: 'interrupt_partial' as const,
+        finalization_reason: 'interrupted' as const,
+      },
+      {
+        id: 'fresh-user',
+        chat_jid: 'feishu:chat-1',
+        sender: 'ou_user',
+        sender_name: 'Ryan',
+        content: '现在 ROADMAP 还有哪些任务',
+        timestamp: '2026-04-26T10:05:00.000Z',
+      },
+    ];
+
+    const decision = resolveInterruptedResumeDecision({
+      chatJid: 'feishu:chat-1',
+      missedMessages: interruptedBatch,
+    });
+
+    expect(decision.action).toBe('ask');
+    expect(decision.messagesForAgent).toEqual([]);
+    expect(decision.promptText).toContain('检测到上次任务被中断');
+    expect(
+      decision.pendingConfirmation?.resumeMessages.map((m) => m.id),
+    ).toEqual(['old-user']);
+    expect(
+      decision.pendingConfirmation?.freshMessages.map((m) => m.id),
+    ).toEqual(['fresh-user']);
+  });
+
+  test('replays interrupted context only after an explicit continue reply', async () => {
+    const { resolveInterruptedResumeDecision } = await loadIndexModule();
+    const pendingConfirmation = {
+      chatJid: 'feishu:chat-1',
+      interruptedAt: '2026-04-26T10:01:00.000Z',
+      interruptedMessageId: 'old-interrupt',
+      createdAt: '2026-04-26T10:05:00.000Z',
+      resumeMessages: [
+        {
+          id: 'old-user',
+          chat_jid: 'feishu:chat-1',
+          sender: 'ou_user',
+          sender_name: 'Ryan',
+          content: '继续任务',
+          timestamp: '2026-04-26T10:00:00.000Z',
+        },
+      ],
+      freshMessages: [
+        {
+          id: 'fresh-user',
+          chat_jid: 'feishu:chat-1',
+          sender: 'ou_user',
+          sender_name: 'Ryan',
+          content: '现在 ROADMAP 还有哪些任务',
+          timestamp: '2026-04-26T10:05:00.000Z',
+        },
+      ],
+    };
+
+    const decision = resolveInterruptedResumeDecision({
+      chatJid: 'feishu:chat-1',
+      missedMessages: [
+        {
+          id: 'resume-reply',
+          chat_jid: 'feishu:chat-1',
+          sender: 'ou_user',
+          sender_name: 'Ryan',
+          content: '继续上次',
+          timestamp: '2026-04-26T10:06:00.000Z',
+        },
+      ],
+      pendingConfirmation,
+    });
+
+    expect(decision.action).toBe('continue_previous');
+    expect(decision.messagesForAgent.map((m) => m.id)).toEqual(['old-user']);
+    expect(decision.clearPendingConfirmation).toBe(true);
+  });
+
+  test('does not feed the confirmation prompt itself back to the runner', async () => {
+    const { resolveInterruptedResumeDecision } = await loadIndexModule();
+
+    const decision = resolveInterruptedResumeDecision({
+      chatJid: 'feishu:chat-1',
+      missedMessages: [
+        {
+          id: 'resume-prompt',
+          chat_jid: 'feishu:chat-1',
+          sender: 'cli-claw-agent',
+          sender_name: 'Cli Claw',
+          content: '检测到上次任务被中断。是否继续上次任务？',
+          timestamp: '2026-04-26T10:05:01.000Z',
+        },
+      ],
+      pendingConfirmation: {
+        chatJid: 'feishu:chat-1',
+        interruptedAt: '2026-04-26T10:01:00.000Z',
+        interruptedMessageId: 'old-interrupt',
+        createdAt: '2026-04-26T10:05:00.000Z',
+        resumeMessages: [
+          {
+            id: 'old-user',
+            chat_jid: 'feishu:chat-1',
+            sender: 'ou_user',
+            sender_name: 'Ryan',
+            content: '继续任务',
+            timestamp: '2026-04-26T10:00:00.000Z',
+          },
+        ],
+        freshMessages: [
+          {
+            id: 'fresh-user',
+            chat_jid: 'feishu:chat-1',
+            sender: 'ou_user',
+            sender_name: 'Ryan',
+            content: '现在 ROADMAP 还有哪些任务',
+            timestamp: '2026-04-26T10:05:00.000Z',
+          },
+        ],
+      },
+    });
+
+    expect(decision.action).toBe('wait_for_reply');
+    expect(decision.messagesForAgent).toEqual([]);
+  });
+
+  test('uses the fresh message when interrupted context is explicitly ignored', async () => {
+    const { resolveInterruptedResumeDecision } = await loadIndexModule();
+    const pendingConfirmation = {
+      chatJid: 'feishu:chat-1',
+      interruptedAt: '2026-04-26T10:01:00.000Z',
+      interruptedMessageId: 'old-interrupt',
+      createdAt: '2026-04-26T10:05:00.000Z',
+      resumeMessages: [
+        {
+          id: 'old-user',
+          chat_jid: 'feishu:chat-1',
+          sender: 'ou_user',
+          sender_name: 'Ryan',
+          content: '继续任务',
+          timestamp: '2026-04-26T10:00:00.000Z',
+        },
+      ],
+      freshMessages: [
+        {
+          id: 'fresh-user',
+          chat_jid: 'feishu:chat-1',
+          sender: 'ou_user',
+          sender_name: 'Ryan',
+          content: '现在 ROADMAP 还有哪些任务',
+          timestamp: '2026-04-26T10:05:00.000Z',
+        },
+      ],
+    };
+
+    const decision = resolveInterruptedResumeDecision({
+      chatJid: 'feishu:chat-1',
+      missedMessages: [
+        {
+          id: 'discard-reply',
+          chat_jid: 'feishu:chat-1',
+          sender: 'ou_user',
+          sender_name: 'Ryan',
+          content: '忽略上次',
+          timestamp: '2026-04-26T10:06:00.000Z',
+        },
+      ],
+      pendingConfirmation,
+    });
+
+    expect(decision.action).toBe('use_fresh');
+    expect(decision.messagesForAgent.map((m) => m.id)).toEqual(['fresh-user']);
+    expect(decision.clearPendingConfirmation).toBe(true);
+  });
+
   test('selects Feishu startup backfill chats from the user workspace even when the Feishu row owner is missing or stale', async () => {
     const { selectFeishuStartupBackfillChatIds } = await loadIndexModule();
     const groups = {
