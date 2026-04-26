@@ -1011,6 +1011,54 @@ Risks / Notes / Handoff:
   - The launch helper defaults now align with the canonical `cli-claw start` contract.
   - `package.json` `npm start`, build-staleness reporting, self-check, and restart semantics remain untouched for later milestones.
 
+### Milestone 22
+
+Objective:
+- Add the first in-process Feishu E2E harness coverage so real `createFeishuConnection` inbound handling writes to the real temp DB, records lifecycle evidence, and wakes the real IM message notifier instead of only asserting a mocked `notifyNewImMessage` call.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `tests/feishu-e2e.test.ts`
+
+Validation:
+- `npm test -- --run tests/feishu-e2e.test.ts`
+- `npm test -- --run tests/feishu-connection.test.ts tests/service-restart-guard.test.ts tests/stream-presentation.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `npx prettier --check tests/feishu-e2e.test.ts PLANS/ACTIVE.md PLANS/ROADMAP.md`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to test harness foundation. Do not refactor `src/index.ts`, runner dispatch, cursor commit, or streaming-card production behavior here.
+- Follow TDD: first add a failing in-process Feishu E2E test that replays the real incident-shaped `继续任务 -` event through the registered Feishu SDK handler using a temp HOME and real DB/notifier modules.
+- This harness should prove more than the existing unit mock: the inbound event is persisted to the real `messages` table, records `received/stored/notified` lifecycle rows, and resolves a live `interruptibleSleep()` waiter.
+- Added `tests/feishu-e2e.test.ts` with five in-process Feishu cases:
+  - Incident-shaped `继续任务 -` replay through real temp DB, lifecycle ledger, and notifier wakeup.
+  - Explicit managed restart phrase routes to `onCommand('self-restart')` and does not enter model message storage.
+  - Duplicate Feishu delivery records `skipped/duplicate` without storing twice.
+  - Startup backfill stale message records `skipped/stale_before_reconnection` without poisoning DB storage or later live duplicate detection.
+  - Unmentioned group message records `skipped/mention_required` without storage.
+- Validation passed:
+  - `npm test -- --run tests/feishu-e2e.test.ts`
+  - `npm test -- --run tests/feishu-connection.test.ts tests/service-restart-guard.test.ts tests/stream-presentation.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `npx prettier --check tests/feishu-e2e.test.ts PLANS/ACTIVE.md PLANS/ROADMAP.md`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`: scope stayed within tests/plans, no production runtime behavior changed, and the new harness intentionally uses real DB/notifier modules while only faking external Feishu SDK transport.
+- Full queue/runner/card/cursor E2E remains follow-up after this foundation lands.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1022,25 +1070,21 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 21
+- Milestone 22
 
 Current status:
-- done; no safe restart required
+- done; test-only change, no safe restart required
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `Makefile`
-- `ops/install-launch-agent.sh`
-- `docs/COMMAND.md`
-- `docs/RUNTIME.md`
-- `tests/launch-command-contract.test.ts`
+- `tests/feishu-e2e.test.ts`
 
 Last failure summary:
-- No current validation or review failures. Milestone 21 validation and review passed.
+- `npm test -- --run tests/feishu-e2e.test.ts` initially failed for the stale-message case because the test incorrectly replayed a live websocket event while asserting startup-backfill stale behavior. The test was corrected to use `startupBackfillChatIds` plus mocked Feishu message list data, then passed.
 
 Suspected cause:
-- Repo-level production helpers still carry direct backend defaults from before the public launcher contract became canonical.
+- Existing tests covered Feishu handler branches mostly through mocked DB/notifier spies; they did not prove the real temp DB lifecycle ledger and real notifier wakeup path worked together.
 
 Next step:
-- Continue the next RM-2026-04-25-02 follow-up: decide whether to rename or relabel `package.json` `npm start`, then make build-staleness reporting source-aware.
+- Extend the E2E harness upward into queue/runner/card/cursor coverage, starting with `Feishu inbound -> queue wake -> fake runner final -> Feishu outbox/card -> cursor commit` and a delivery-failure case that keeps the cursor retryable.

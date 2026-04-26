@@ -50,13 +50,15 @@
   - 2026-04-26 milestone 15 applied: commit `8cf18c7 Harden self restart recovery`; safe restart `restart-2026-04-26T04-58-57-873Z-0f3fa00a` passed and `/api/health` returned healthy for backend PID `53009`.
   - 2026-04-26 milestone 15 follow-up validated: backend startup now reuses the same PGID-first residual runner cleanup helper so orphan runner groups left by older restarts can be reaped before the next `/self-restart` notification path. Validation passed with `npm test -- --run tests/self-restart.test.ts`, `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-26 milestone 15 follow-up applied: commit `0eaf441 Clean residual runners on startup`; safe restart `restart-2026-04-26T05-04-49-794Z-b2656fb5` passed, `/api/health` returned healthy for backend PID `57601`, startup cleanup attempted runner PGIDs `5327`, `27865`, `44590`, and old active runner PGID `53012`, and the post-restart process table no longer shows historical orphan `codex-acp` PIDs `5355`, `27978`, or `44614`.
+  - 2026-04-26 milestone 22 started: add an in-process Feishu E2E harness foundation that replays Feishu SDK events through real inbound handling, temp DB lifecycle storage, and the real IM notifier.
+  - 2026-04-26 milestone 22: added `tests/feishu-e2e.test.ts` covering incident-shaped `继续任务 -`, managed restart phrases, duplicate deliveries, stale startup backfill without poisoning later live delivery, and unmentioned group messages through real temp DB lifecycle storage plus real notifier wakeup. Validation passed with `npm test -- --run tests/feishu-e2e.test.ts`, `npm test -- --run tests/feishu-connection.test.ts tests/service-restart-guard.test.ts tests/stream-presentation.test.ts`, `npm run typecheck`, `git diff --check`, `npx prettier --check tests/feishu-e2e.test.ts PLANS/ACTIVE.md PLANS/ROADMAP.md`, and `./scripts/review.sh`.
 - Iteration plan:
   - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to any remaining later-stage gaps found during delivery hardening.
   - Add failing tests for any remaining direct file/image delivery semantics not covered by lifecycle evidence.
   - Extend the delivery-gated cursor commit behavior to remaining direct/routed IM delivery paths where an inbound cursor can safely stay retryable; when delivery is impossible, keep retryable state or emit a clear operator-visible dead-letter.
   - Continue hardening outbound behavior so pending outbound can survive temporary channel unavailability after the startup connection phase.
 - Next action:
-  - No additional RM-2026-04-25-01 milestone is selected in this autopilot round; wait for new reliability evidence before expanding scope.
+  - Extend the harness to cover queue/runner/card/cursor scenarios, starting with successful Feishu final delivery and delivery-failure cursor retryability.
 
 ### P0 RM-2026-04-26-01 Safe Restart Runner Reaping
 
