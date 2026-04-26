@@ -1157,6 +1157,12 @@ Risks / Notes / Handoff:
   - `npx prettier --check src/index.ts tests/restart-recovery.test.ts container/agent-runner/src/codex-session-runtime.ts tests/codex-session-runtime.test.ts PLANS/ACTIVE.md PLANS/ROADMAP.md`
   - `./scripts/review.sh`
 - Review gate passed against `RUNBOOKS/Review.md`: scope stayed within the milestone, shutdown visibility/cursor behavior is covered by regression tests, Codex diagnostic filtering is covered by a runtime unit test, and ordinary non-shutdown delivery failure retry policy was not changed.
+- Applied evidence:
+  - Commit `58b552c Suppress shutdown process leaks`.
+  - Safe restart `restart-2026-04-26T10-51-43-100Z-88e72d00` passed after the commit.
+  - Follow-up safe restart `restart-2026-04-26T11-08-51-302Z-df7f19dc` passed; `/api/health` returned healthy for backend PID `9568`.
+  - Startup cleanup reaped residual runner groups `5642` and `7770`.
+  - DB cursor state after the restart has `active_streaming_turns = {}` and Feishu committed cursor at `om_x100b51eae4e3bca4b4b74b1260b1ee1`; no newer real Feishu user message has arrived yet for post-restart observation.
 
 ## Working Rules
 
@@ -1172,7 +1178,7 @@ Current milestone:
 - Milestone 24
 
 Current status:
-- done; shutdown partial/context leakage and Codex transport diagnostic leakage fixed, safe restart required after commit
+- done; shutdown partial/context leakage and Codex transport diagnostic leakage fixed, committed, safely restarted, and waiting for the next real Feishu turn to confirm production behavior
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -1189,4 +1195,4 @@ Suspected cause:
 - Shutdown/restart partial persistence is mixing two contracts: it persists process text for recovery visibility, but also sends it to IM and leaves the old user cursor replayable for the next normal turn. Codex transport fallback text is emitted as assistant text because the diagnostic prefix stripper only handles model metadata warnings.
 
 Next step:
-- Commit this milestone, then run the documented safe restart path and verify `/api/health`, process residue, and current cursor state.
+- Monitor the next real Feishu turn for `messageCount: 1`, no visible shutdown partial, and no `Falling back from WebSockets...` prefix in persisted assistant replies.
