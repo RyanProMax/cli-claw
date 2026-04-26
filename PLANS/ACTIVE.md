@@ -1356,6 +1356,47 @@ Risks / Notes / Handoff:
 - Do not alter Feishu, runner, watchdog, or process cleanup code in this milestone.
 - The installer produced a transient `Bootstrap failed: 5` after writing the new plist and booting out the old service. Manual bootstrap/kickstart with the same plist succeeded. ROADMAP now tracks hardening the installer around that failure mode.
 
+### Milestone 29
+
+Objective:
+- Harden `ops/install-launch-agent.sh` so a transient `launchctl bootstrap` failure after `bootout` is retried before the installer exits and leaves the service down.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `ops/install-launch-agent.sh`
+- `tests/launch-command-contract.test.ts`
+
+Validation:
+- `npm test -- --run tests/launch-command-contract.test.ts`
+- `git diff --check`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md tests/launch-command-contract.test.ts`
+- `bash -n ops/install-launch-agent.sh`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - RED confirmed: `npm test -- --run tests/launch-command-contract.test.ts` failed because `ops/install-launch-agent.sh` had no retrying bootstrap helper.
+  - GREEN validation passed:
+    - `npm test -- --run tests/launch-command-contract.test.ts`
+    - `git diff --check`
+    - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md tests/launch-command-contract.test.ts`
+    - `bash -n ops/install-launch-agent.sh`
+    - `./scripts/review.sh`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Use TDD. First add a script-contract test that requires a retrying bootstrap helper, then implement the smallest shell change.
+- Keep this scoped to installer resilience. Do not change LaunchAgent default command, watchdog logic, or service runtime code.
+- This follows the Milestone 28 observed failure: installer wrote the correct plist but `launchctl bootstrap` returned `Bootstrap failed: 5`; running the same bootstrap manually moments later succeeded.
+- Added `bootstrap_launch_agent()` with two attempts and a one-second retry delay before failing with a clearer message.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1367,20 +1408,22 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 28
+- Milestone 29
 
 Current status:
-- done; LaunchAgent now starts through the repo-local launcher and current-backend reports `cli_start`
+- done; LaunchAgent installer now retries bootstrap once after bootout before failing
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `ops/install-launch-agent.sh`
+- `tests/launch-command-contract.test.ts`
 
 Last failure summary:
-- `ops/install-launch-agent.sh install -- /Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start` returned `Bootstrap failed: 5` after writing the new plist; manual bootstrap/kickstart with the same plist recovered successfully.
+- none; validation and review passed
 
 Suspected cause:
-- The installed user LaunchAgent still has `ProgramArguments = /Users/ryan/.bun/bin/bun src/index.ts`, so safe restarts keep returning to `direct_backend` even after the launcher contract code change.
+- The installer calls `launchctl bootout` and immediately attempts a single `launchctl bootstrap`; macOS can return transient `Bootstrap failed: 5` even though retrying the same plist shortly afterward succeeds.
 
 Next step:
-- Commit Milestone 28 evidence, then consider hardening `ops/install-launch-agent.sh` with bootstrap retry/recovery before moving to the next user-facing reliability item.
+- Commit Milestone 29, then do one final health/current-backend/process check before ending this iteration.

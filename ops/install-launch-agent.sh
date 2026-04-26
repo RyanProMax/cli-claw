@@ -134,6 +134,28 @@ print_status() {
   launchctl print "${SERVICE_NAME}" | sed -n '1,80p'
 }
 
+bootstrap_launch_agent() {
+  local attempt=1
+  local max_attempts=2
+  local status=0
+
+  while [[ ${attempt} -le ${max_attempts} ]]; do
+    if launchctl bootstrap "gui/$(id -u)" "${PLIST_PATH}"; then
+      return 0
+    fi
+
+    status=$?
+    if [[ ${attempt} -lt ${max_attempts} ]]; then
+      echo "launchctl bootstrap failed (attempt ${attempt}/${max_attempts}); retrying..." >&2
+      sleep 1
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "launchctl bootstrap failed after ${max_attempts} attempts for ${PLIST_PATH}" >&2
+  return ${status}
+}
+
 if [[ "${SUBCOMMAND}" == "status" ]]; then
   print_status
   exit 0
@@ -200,7 +222,7 @@ EOF
 mv "${TMP_PLIST}" "${PLIST_PATH}"
 
 launchctl bootout "${SERVICE_NAME}" >/dev/null 2>&1 || true
-launchctl bootstrap "gui/$(id -u)" "${PLIST_PATH}"
+bootstrap_launch_agent
 launchctl kickstart -k "${SERVICE_NAME}"
 
 echo "Installed ${PLIST_PATH}"

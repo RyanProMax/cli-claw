@@ -40,6 +40,20 @@ describe('launch command contract', () => {
     expect(script).toContain('install without COMMAND uses: cli-claw start');
     expect(script).toContain('command -v cli-claw');
     expect(script).toContain('PROGRAM_ARGS=("$(command -v cli-claw)" "start")');
-    expect(script).not.toContain('PROGRAM_ARGS=("$(command -v bun)" "src/index.ts")');
+    expect(script).not.toContain(
+      'PROGRAM_ARGS=("$(command -v bun)" "src/index.ts")',
+    );
+  });
+
+  test('LaunchAgent installer retries transient bootstrap failures', () => {
+    const script = readRepoFile('ops/install-launch-agent.sh');
+
+    expect(script).toContain('bootstrap_launch_agent()');
+    expect(script).toContain('local max_attempts=2');
+    expect(script).toContain(
+      'launchctl bootstrap "gui/$(id -u)" "${PLIST_PATH}"',
+    );
+    expect(script).toContain('sleep 1');
+    expect(script).toContain('bootstrap_launch_agent');
   });
 });

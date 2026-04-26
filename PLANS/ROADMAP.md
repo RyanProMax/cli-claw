@@ -31,9 +31,9 @@
   - `docs/COMMAND.md` documents repo-local `bun src/cli.ts start` / `bun src/cli.ts restart` fallback for shells where `cli-claw` is not yet on PATH.
   - Current LaunchAgent now runs `/Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start`.
   - Current backend state reports `source: cli_start`, `artifactMode: source`, PID `26433`, and `/api/health` healthy after the launchd migration.
+  - `ops/install-launch-agent.sh` now retries `launchctl bootstrap` once after `bootout` before failing, covering the transient `Bootstrap failed: 5` observed during migration.
 - Next action:
   - Monitor the next `/self-status` / `/self-restart` cycle to confirm it stays on `cli_start`.
-  - Harden `ops/install-launch-agent.sh` around transient `Bootstrap failed: 5` after bootout; this migration hit that once, then manual bootstrap/kickstart succeeded.
   - Decide whether the development environment should install/link `cli-claw` onto PATH so future operator shells do not need the repo-local fallback.
 
 ### P0 RM-2026-04-25-01 Feishu Message Reliability Control Plane
