@@ -1317,13 +1317,42 @@ async function sendImWithRetry(
   return false;
 }
 
+export interface SendImWithFailTrackingOptions {
+  lifecycleMessages?: NewMessage[];
+  lifecycleDetails?: Record<string, unknown>;
+  sendWithRetry?: (
+    imJid: string,
+    text: string,
+    localImagePaths: string[],
+  ) => Promise<boolean>;
+  recordLifecycle?: typeof recordLifecycleForMessages;
+}
+
 /** Fire-and-forget wrapper for sendImWithRetry (used in non-await contexts). */
-function sendImWithFailTracking(
+export function sendImWithFailTracking(
   imJid: string,
   text: string,
   localImagePaths: string[],
-): void {
-  sendImWithRetry(imJid, text, localImagePaths).catch(() => {});
+  options: SendImWithFailTrackingOptions = {},
+): Promise<void> {
+  const sendWithRetry = options.sendWithRetry ?? sendImWithRetry;
+  const recordLifecycle = options.recordLifecycle ?? recordLifecycleForMessages;
+  return sendWithRetry(imJid, text, localImagePaths)
+    .then((sent) => {
+      if (options.lifecycleMessages) {
+        recordLifecycle({
+          messages: options.lifecycleMessages,
+          stage: 'im_delivered',
+          status: sent ? 'ok' : 'error',
+          reason: sent ? null : 'send_failed_after_retries',
+          details: {
+            ...(options.lifecycleDetails ?? {}),
+            targetJid: imJid,
+          },
+        });
+      }
+    })
+    .catch(() => {});
 }
 
 export function isCursorAfter(
@@ -4192,7 +4221,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   continue;
                 if (g.reply_policy !== 'mirror') continue;
                 if (getChannelType(imJid))
-                  sendImWithFailTracking(imJid, visibleText, localImagePaths);
+                  sendImWithFailTracking(imJid, visibleText, localImagePaths, {
+                    lifecycleMessages: missedMessages,
+                    lifecycleDetails: { delivery: 'mirror_message' },
+                  });
               }
 
               sentReply = true;
@@ -7339,7 +7371,10 @@ async function processAgentConversation(
             continue;
           if (g.reply_policy !== 'mirror') continue;
           if (getChannelType(imJid))
-            sendImWithFailTracking(imJid, visibleText, localImagePaths);
+            sendImWithFailTracking(imJid, visibleText, localImagePaths, {
+              lifecycleMessages: missedMessages,
+              lifecycleDetails: { agentId, delivery: 'mirror_message' },
+            });
         }
 
         commitCursor();

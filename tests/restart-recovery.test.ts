@@ -342,6 +342,46 @@ describe('restart recovery cursor handling', () => {
     ).toBe(true);
   });
 
+  test('records lifecycle evidence when fire-and-forget mirror IM delivery fails', async () => {
+    const { sendImWithFailTracking } = await loadIndexModule();
+    const sendWithRetry = vi.fn().mockResolvedValue(false);
+    const recordLifecycle = vi.fn();
+    const lifecycleMessages = [
+      {
+        id: 'msg-feishu-mirror',
+        chat_jid: 'web:main',
+        source_jid: 'feishu:chat-1',
+        sender: 'user',
+        sender_name: 'User',
+        content: 'mirror this reply',
+        timestamp: '2026-04-25T03:00:00.000Z',
+      },
+    ];
+
+    await sendImWithFailTracking('feishu:mirror', 'reply text', [], {
+      lifecycleMessages,
+      lifecycleDetails: { delivery: 'mirror_message' },
+      sendWithRetry,
+      recordLifecycle,
+    });
+
+    expect(sendWithRetry).toHaveBeenCalledWith(
+      'feishu:mirror',
+      'reply text',
+      [],
+    );
+    expect(recordLifecycle).toHaveBeenCalledWith({
+      messages: lifecycleMessages,
+      stage: 'im_delivered',
+      status: 'error',
+      reason: 'send_failed_after_retries',
+      details: {
+        delivery: 'mirror_message',
+        targetJid: 'feishu:mirror',
+      },
+    });
+  });
+
   test('does not save conversation-agent partial text after a final reply already exists', async () => {
     const { shouldSaveAgentConversationPartialReply } = await loadIndexModule();
 

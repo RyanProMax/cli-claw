@@ -472,6 +472,51 @@ Risks / Notes / Handoff:
   - The change is observability-only and does not alter stream rendering, queue retry, delivery, or cursor commit semantics.
   - Directly related lifecycle test uses the real DB helper path and confirms web-only rows are ignored.
 
+### Milestone 11
+
+Objective:
+- Record durable `im_delivered` lifecycle evidence for Feishu-origin mirror reply sends that still use the fire-and-forget IM delivery path.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts`
+- `npm test -- --run tests/im-message-lifecycle.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to mirror reply observability. Mirror delivery remains secondary and must not block the source reply cursor.
+- Follow TDD: add a fire-and-forget delivery lifecycle test first, observe the expected red, then wire mirror call sites to pass lifecycle context.
+- TDD red observed before the wrapper supported lifecycle evidence: `npm test -- --run tests/restart-recovery.test.ts` failed with `sendImWithFailTracking is not a function`.
+- `sendImWithFailTracking()` now returns a swallowed promise for testability and can record `im_delivered` lifecycle success/failure after the background IM retry finishes.
+- Main-session and conversation-agent mirror reply paths now pass Feishu-origin turn messages into the fire-and-forget delivery wrapper, so mirror failures become durable lifecycle evidence without blocking the source cursor.
+- Validation passed:
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - Mirror delivery remains secondary and non-blocking.
+  - The new test exercises the actual fire-and-forget wrapper with injected retry/lifecycle dependencies.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -483,7 +528,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 10
+- Milestone 11
 
 Current status:
 - done
@@ -512,9 +557,10 @@ Last failure summary:
   - Missing routed IM cursor commit policy helper.
   - Missing Feishu startup backfill chat-id selection helper.
   - Missing stream-started lifecycle helper for Feishu-origin stream init turns.
+  - Missing fire-and-forget mirror IM delivery lifecycle wrapper.
 
 Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Continue RM-2026-04-25-01 later with remaining mirror/direct delivery cursor semantics.
+- Continue RM-2026-04-25-01 later with remaining direct file/image delivery gaps.
