@@ -44,6 +44,7 @@
   - 2026-04-25 milestone 11: fire-and-forget mirror reply sends now record `im_delivered` lifecycle success/failure for Feishu-origin turns without blocking the source reply cursor. Validation passed with `npm test -- --run tests/restart-recovery.test.ts`, `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-25 milestone 12: direct `send_image` and `send_file` IPC tool deliveries now record `im_delivered` lifecycle evidence for Feishu-origin active turns, including retry failure, no-route skip, and file-not-found skip. Validation passed with `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm test -- --run tests/restart-recovery.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-26 milestone 13: Feishu `/status` now shows a separate compact `飞书异常` line for recent non-ok lifecycle events, so delivery failures and skipped processing reasons remain visible even when newer ok events exist. Validation passed with `npm test -- --run tests/im-message-lifecycle.test.ts`, `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
+  - 2026-04-26 milestone 13 applied: commit `46ffe9b Surface Feishu lifecycle issues in status`; safe restart `restart-2026-04-26T04-10-01-740Z-99dba7b7` passed and `/api/health` returned healthy for backend PID `41442`.
 - Iteration plan:
   - Extend message lifecycle instrumentation keyed by inbound message id and chat jid to any remaining later-stage gaps found during delivery hardening.
   - Add failing tests for any remaining direct file/image delivery semantics not covered by lifecycle evidence.
@@ -51,7 +52,7 @@
   - Continue hardening outbound behavior so pending outbound can survive temporary channel unavailability after the startup connection phase.
   - Add a compact `/self-status` or shared operator status section for recent Feishu lifecycle failures if `/status` evidence is not enough during real operations.
 - Next action:
-  - Commit and apply milestone 13 through the documented safe restart path, then continue with the next smallest reliability hardening item behind the lifecycle contract.
+  - Select and write the next small RM-2026-04-25-01 milestone before coding; remaining work should continue behind the lifecycle/delivery reliability contract.
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 

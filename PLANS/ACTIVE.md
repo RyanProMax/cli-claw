@@ -653,4 +653,5 @@ Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Commit Milestone 13, then apply it through the documented safe restart path because runtime status behavior changed.
+- Milestone 13 has been committed as `46ffe9b Surface Feishu lifecycle issues in status` and applied through safe restart `restart-2026-04-26T04-10-01-740Z-99dba7b7`; `/api/health` returned healthy for backend PID `41442`.
+- Before coding again, select the next small RM-2026-04-25-01 milestone and update this active plan with its objective, scope, and validation commands.
