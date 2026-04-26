@@ -354,6 +354,62 @@ describe('formatSelfStatus', () => {
       ].join('\n'),
     );
   });
+
+  test('surfaces recent Feishu lifecycle issues in self status', () => {
+    expect(
+      formatSelfStatus({
+        pid: 1234,
+        startedAt: '2026-04-12T12:00:00.000Z',
+        cwd: '/Users/ryan/projects/cli-claw',
+        stale: false,
+        backend: {
+          stale: false,
+          loadedMtimeIso: '2026-04-12T11:00:00.000Z',
+          currentMtimeIso: '2026-04-12T11:00:00.000Z',
+        },
+        agentRunner: {
+          stale: false,
+          loadedMtimeIso: '2026-04-12T11:00:00.000Z',
+          currentMtimeIso: '2026-04-12T11:00:00.000Z',
+        },
+        lastCheck: null,
+        restart: {
+          restartable: true,
+          source: 'direct_backend',
+          displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
+          validationError: null,
+        },
+        feishuIssueEvents: [
+          {
+            id: 3,
+            provider: 'feishu',
+            chat_jid: 'web:main',
+            source_jid: 'feishu:oc_abc123',
+            message_id: 'om_failed_delivery',
+            stage: 'im_delivered',
+            status: 'error',
+            reason: 'send_failed_after_retries',
+            details: null,
+            created_at: '2026-04-25T12:20:03.000Z',
+          },
+          {
+            id: 2,
+            provider: 'feishu',
+            chat_jid: 'feishu:oc_def456',
+            source_jid: 'feishu:oc_def456',
+            message_id: 'om_require_mention',
+            stage: 'skipped',
+            status: 'skipped',
+            reason: 'require_mention',
+            details: null,
+            created_at: '2026-04-25T12:20:02.000Z',
+          },
+        ],
+      } as any),
+    ).toContain(
+      '⚠️ 飞书异常: ...ed_delivery im_delivered error(send_failed_after_retries) · ...ire_mention skipped skipped(require_mention)',
+    );
+  });
 });
 
 describe('formatSelfCheckResult', () => {

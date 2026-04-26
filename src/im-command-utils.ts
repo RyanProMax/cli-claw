@@ -293,18 +293,26 @@ export function formatImLifecycleStatus(
     lines.push(`🧭 飞书链路: ${summary}`);
   }
 
-  if (issueEvents && issueEvents.length > 0) {
-    const issueSummary = issueEvents
-      .slice(0, 3)
-      .map((event) => {
-        const reason = event.reason ? `(${event.reason})` : '';
-        return `${compactLifecycleMessageId(event.message_id)} ${event.stage} ${event.status}${reason}`;
-      })
-      .join(' · ');
-    lines.push(`⚠️ 飞书异常: ${issueSummary}`);
+  const issueSummary = formatImLifecycleIssueSummary(issueEvents);
+  if (issueSummary) {
+    lines.push(issueSummary);
   }
 
   return lines.join('\n');
+}
+
+function formatImLifecycleIssueSummary(
+  issueEvents?: readonly ImMessageLifecycleEvent[],
+): string | null {
+  if (!issueEvents || issueEvents.length === 0) return null;
+  const issueSummary = issueEvents
+    .slice(0, 3)
+    .map((event) => {
+      const reason = event.reason ? `(${event.reason})` : '';
+      return `${compactLifecycleMessageId(event.message_id)} ${event.stage} ${event.status}${reason}`;
+    })
+    .join(' · ');
+  return `⚠️ 飞书异常: ${issueSummary}`;
 }
 
 // ─── Conversation Status Formatting ────────────────────────────
@@ -400,6 +408,7 @@ export interface SelfStatusInfo {
   backend: SelfBuildArtifactStatusInfo;
   agentRunner: SelfBuildArtifactStatusInfo;
   lastCheck: SelfCheckResultInfo | null;
+  feishuIssueEvents?: readonly ImMessageLifecycleEvent[];
 }
 
 function formatMtime(value: string | null): string {
@@ -447,6 +456,13 @@ export function formatSelfStatus(info: SelfStatusInfo): string {
     `🧪 最近自检: ${lastCheck}`,
     '💡 /self-check 冷启动验证，不会重启当前服务',
   );
+
+  const feishuIssueSummary = formatImLifecycleIssueSummary(
+    info.feishuIssueEvents,
+  );
+  if (feishuIssueSummary) {
+    lines.push(feishuIssueSummary);
+  }
 
   return lines.join('\n');
 }

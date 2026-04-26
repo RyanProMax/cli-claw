@@ -615,6 +615,51 @@ Risks / Notes / Handoff:
   - The change is observability-only and does not alter queue, delivery, cursor, or Feishu connection behavior.
   - The new DB and formatter tests cover the key failure surfacing contract.
 
+### Milestone 14
+
+Objective:
+- Surface recent non-ok Feishu lifecycle events in admin `/self-status` so global service diagnostics include delivery failures and skipped processing reasons without requiring operators to run `/status` in each Feishu chat.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
+- `src/im-command-utils.ts`
+- `src/index.ts`
+- `tests/im-command-utils.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-command-utils.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone observability-only: do not change queue, delivery, cursor, Feishu connection, or restart behavior.
+- Follow TDD: add a formatter regression first, observe the expected red, then wire `/self-status` to query global recent Feishu issue lifecycle events.
+- TDD red observed before formatter support existed: `npm test -- --run tests/im-command-utils.test.ts` failed because `/self-status` output did not include the Feishu issue summary.
+- Added optional `feishuIssueEvents` to `formatSelfStatus()` and reused the compact Feishu issue summary from `/status`.
+- `buildCurrentSelfStatusText()` now queries the three most recent non-ok Feishu lifecycle events globally.
+- `docs/COMMAND.md` documents the additional `/self-status` Feishu issue summary.
+- Validation passed:
+  - `npm test -- --run tests/im-command-utils.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change is observability-only and does not alter queue, delivery, cursor, Feishu connection, or restart behavior.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -626,7 +671,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 13
+- Milestone 14
 
 Current status:
 - done
@@ -635,15 +680,12 @@ Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
 - `docs/COMMAND.md`
-- `src/db.ts`
 - `src/im-command-utils.ts`
 - `src/index.ts`
-- `tests/im-message-lifecycle.test.ts`
 - `tests/im-command-utils.test.ts`
 
 Last failure summary:
-- No current validation or review failures. Milestone 13 validation passed with:
-  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+- No current validation or review failures. Milestone 14 validation passed with:
   - `npm test -- --run tests/im-command-utils.test.ts`
   - `npm run typecheck`
   - `git diff --check`
@@ -653,5 +695,4 @@ Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Milestone 13 has been committed as `46ffe9b Surface Feishu lifecycle issues in status` and applied through safe restart `restart-2026-04-26T04-10-01-740Z-99dba7b7`; `/api/health` returned healthy for backend PID `41442`.
-- Before coding again, select the next small RM-2026-04-25-01 milestone and update this active plan with its objective, scope, and validation commands.
+- Commit Milestone 14, apply through the documented safe restart path, then select the next small RM-2026-04-25-01 milestone before coding again.

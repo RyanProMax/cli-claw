@@ -2319,6 +2319,10 @@ function buildCurrentSelfStatusText(): string {
       currentMtimeIso: buildStatus.agentRunner.current.mtimeIso,
     },
     lastCheck: lastSelfCheckResult,
+    feishuIssueEvents: getRecentImMessageLifecycleIssueEvents({
+      provider: 'feishu',
+      limit: 3,
+    }),
   });
 }
 
