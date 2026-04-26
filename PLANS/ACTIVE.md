@@ -1561,7 +1561,7 @@ Current milestone:
 - Milestone 32
 
 Current status:
-- done; fresh IM turns no longer IPC-inject into active Web runners and no longer reuse the Web primary runtime session
+- done and applied; fresh IM turns no longer IPC-inject into active Web runners and no longer reuse the Web primary runtime session
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -1585,4 +1585,6 @@ Suspected cause:
 - Resolved: the old design optimized cross-channel continuity by sharing the folder runner/session. The unsafe defaults have been narrowed without deleting true restart recovery behavior.
 
 Next step:
-- Apply the backend change via the safe restart path, then monitor a real Feishu first turn. Remaining RM-2026-04-25-04 follow-ups: restart first-turn, autopilot/no-op history, and Codex context-window auto-reset regression coverage.
+- Safe restart `restart-2026-04-26T14-14-01-621Z-556190ce` passed after commit `38e6ef4`; `/api/health` returned healthy for backend PID `48618`.
+- Post-restart process snapshot showed the current backend and current active runner group only; no older Cli Claw runner process group was observed.
+- Monitor a real Feishu first turn. Remaining RM-2026-04-25-04 follow-ups: restart first-turn, autopilot/no-op history, and Codex context-window auto-reset regression coverage.

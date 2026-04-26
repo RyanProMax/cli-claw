@@ -70,7 +70,7 @@
 
 ### P1 RM-2026-04-25-04 First-Turn Session Isolation And Context Leakage
 
-- Status: `proposed`
+- Status: `monitoring`
 - Source: 2026-04-25 user request item `5`; restart recovery and resume-gate incidents
 - Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息，除非用户显式要求恢复上下文；历史上下文和 recovery context 不能让 agent “继续上一轮”。
 - Current state:
@@ -79,6 +79,7 @@
   - `docs/MEMORY.md` documents the current recovery and resume boundaries.
   - Milestone 32 separates Web primary runtime sessions from IM-origin primary runtime session slots and blocks unsafe IM-to-Web runner IPC.
   - Main workspace reset paths delete all primary runtime slots (`''` and `im:*`) while preserving conversation agent sessions.
+  - Latest applied evidence: commit `38e6ef4 Isolate IM primary runtime sessions`; safe restart `restart-2026-04-26T14-14-01-621Z-556190ce` passed; `/api/health` was healthy for backend PID `48618`; post-restart process snapshot showed no older Cli Claw runner process group.
 - Next action:
   - Split “crash recovery for uncommitted pending work” from ordinary activation after idle/restart; only true crash recovery may inject compact history.
   - Add remaining regression tests for restart first-turn, autopilot/no-op history, and Codex context-window auto-reset after real traffic confirms the source-slot fix.
