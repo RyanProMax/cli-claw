@@ -898,6 +898,50 @@ Risks / Notes / Handoff:
   - `/api/health` returned healthy for backend PID `78587`.
   - Post-restart process table showed only the current backend and no residual runner process.
 
+### Milestone 20
+
+Objective:
+- Add incident-shaped mocked-message regression coverage for the Feishu "继续任务" auto-restart failure, so future fixes are validated by tests instead of relying on the user to discover regressions in real Feishu.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `shared/service-restart-guard.ts`
+- `container/agent-runner/src/index.ts`
+- `tests/service-restart-guard.test.ts`
+- `tests/feishu-connection.test.ts`
+
+Validation:
+- `npm test -- --run tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`
+- `npm run typecheck`
+- `npm --prefix container/agent-runner run build:runner`
+- `git diff --check`
+- `./scripts/review.sh`
+- `npx prettier --check shared/service-restart-guard.ts container/agent-runner/src/index.ts tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- This milestone is explicitly test-shape hardening for the 2026-04-26 incident. It should not add new runtime behavior beyond extracting the existing agent-runner restart policy into a testable shared helper.
+- The mocked-message coverage should prove a Feishu `继续任务 -` message is stored/queued as a normal message and does not trigger `onCommand('self-restart')`.
+- The runner-policy coverage should prove the same Feishu-origin turn cannot execute `cli-claw restart` or `bun src/cli.ts restart` through agent tools, while Web-origin explicit safe restart remains allowed.
+- Validation passed on 2026-04-26 with:
+  - `npm test -- --run tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`
+  - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build:runner`
+  - `git diff --check`
+  - `npx prettier --check shared/service-restart-guard.ts container/agent-runner/src/index.ts tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`: scope stayed within Milestone 20, both incident-shaped tests are present, no public protocol docs were required, and no blocking regression risk was found.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -909,10 +953,10 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 19
+- Milestone 20
 
 Current status:
-- done
+- done; pending commit and safe restart application
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -920,17 +964,13 @@ Changed files:
 - `shared/service-restart-guard.ts`
 - `container/agent-runner/src/index.ts`
 - `tests/service-restart-guard.test.ts`
+- `tests/feishu-connection.test.ts`
 
 Last failure summary:
-- No current validation or review failures. Milestone 19 validation passed with:
-  - `npm test -- --run tests/service-restart-guard.test.ts`
-  - `npm run typecheck`
-  - `npm --prefix container/agent-runner run build:runner`
-  - `git diff --check`
-  - `./scripts/review.sh`
+- No current validation or review failures. Milestone 20 validation and review passed.
 
 Suspected cause:
-- Agent-runner permission hooks only block unsafe direct process control (`kill`, `pkill`, `launchctl`), but allow `cli-claw restart`; in an IM-origin continuation run, stale context can therefore execute a real service restart without an explicit `/self-restart` command from the user.
+- Previous validations covered pieces of the fix but not the incident-shaped Feishu message path; regressions can slip through if tests do not model the real "Feishu continuation message plus attempted runner restart" flow.
 
 Next step:
-- Monitor the next Feishu "继续任务" for a denied shell restart instead of an actual service restart. Follow-up scope remains: pending cursor replay and recovery-history leakage.
+- Commit Milestone 20, then apply via the safe `cli-claw restart` path and record restart evidence.

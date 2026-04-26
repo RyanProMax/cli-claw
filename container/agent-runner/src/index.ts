@@ -37,7 +37,7 @@ import { spawn } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 import {
-  detectUnsafeCliClawServiceControl,
+  detectAgentRunnerCliClawServiceControl,
   extractShellCommandText,
 } from '../../../shared/dist/service-restart-guard.js';
 
@@ -106,10 +106,8 @@ const CLI_CLAW_SERVICE_CONTROL_CONTEXT = {
 };
 
 function buildServiceControlContext(chatJid: string | undefined) {
-  const channel = chatJid ? getChannelFromJid(chatJid) : null;
   return {
     ...CLI_CLAW_SERVICE_CONTROL_CONTEXT,
-    allowSafeRestartCommand: channel === 'web',
   };
 }
 
@@ -1473,8 +1471,9 @@ function createPreToolUseHook(chatJid: string): HookCallback {
     const commandText = extractShellCommandText(preTool.tool_input);
     if (!commandText) return {};
 
-    const blocked = detectUnsafeCliClawServiceControl(
+    const blocked = detectAgentRunnerCliClawServiceControl(
       commandText,
+      chatJid,
       buildServiceControlContext(chatJid),
     );
     if (!blocked) return {};
@@ -1606,8 +1605,9 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       requestPermission: async (params) => {
         const commandText = extractAcpToolCallCommandText(params.toolCall);
         if (commandText) {
-          const blocked = detectUnsafeCliClawServiceControl(
+          const blocked = detectAgentRunnerCliClawServiceControl(
             commandText,
+            containerInput.chatJid,
             buildServiceControlContext(containerInput.chatJid),
           );
           if (blocked) {

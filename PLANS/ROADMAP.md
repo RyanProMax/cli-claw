@@ -114,8 +114,10 @@
 - Progress:
   - 2026-04-26 milestone 19: service restart guard now supports a stricter agent-runner policy that blocks safe restart CLI commands, and agent-runner applies it to IM-origin Bash and Codex ACP tool calls while preserving Web-origin safe restart behavior. Validation passed with `npm test -- --run tests/service-restart-guard.test.ts`, `npm run typecheck`, `npm --prefix container/agent-runner run build:runner`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-26 milestone 19 applied: commit `Block IM agent safe restarts`; safe restart `restart-2026-04-26T06-00-46-820Z-0cfc177e` passed, `/api/health` returned healthy for backend PID `78587`, and the post-restart process table showed only the current backend with no residual runner process.
+  - 2026-04-26 milestone 20 started: add mocked Feishu continuation-message coverage and a testable agent-runner restart policy helper so the auto-restart incident is covered by regression tests, not only unit-level guard checks.
+  - 2026-04-26 milestone 20: Feishu continuation-message regression now proves `继续任务 -` is stored as a normal message instead of becoming `self-restart`; service restart guard coverage now uses a shared agent-runner policy helper for Feishu-vs-Web safe restart behavior. Validation passed with `npm test -- --run tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`, `npm run typecheck`, `npm --prefix container/agent-runner run build:runner`, `git diff --check`, `npx prettier --check shared/service-restart-guard.ts container/agent-runner/src/index.ts tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`, and `./scripts/review.sh`.
 - Next action:
-  - Monitor the next Feishu "继续任务" for absence of an actual service restart; then open a follow-up for pending cursor replay and recovery-history leakage.
+  - Commit and safe-restart Milestone 20, then monitor the next Feishu "继续任务" for absence of an actual service restart. Pending cursor replay and recovery-history leakage remain the next follow-up.
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 

@@ -185,3 +185,24 @@ export function detectUnsafeCliClawServiceControl(
 
   return null;
 }
+
+export function buildAgentRunnerCliClawServiceControlContext(
+  chatJid: string,
+  context: CliClawServiceControlContext = {},
+): CliClawServiceControlContext {
+  return {
+    ...context,
+    allowSafeRestartCommand: chatJid.trim().startsWith('web:'),
+  };
+}
+
+export function detectAgentRunnerCliClawServiceControl(
+  commandText: string,
+  chatJid: string,
+  context: CliClawServiceControlContext = {},
+): UnsafeCliClawServiceControlMatch | null {
+  return detectUnsafeCliClawServiceControl(
+    commandText,
+    buildAgentRunnerCliClawServiceControlContext(chatJid, context),
+  );
+}
