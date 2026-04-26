@@ -253,6 +253,58 @@ describe('formatImLifecycleStatus', () => {
     );
   });
 
+  test('renders recent non-ok Feishu lifecycle issues separately', () => {
+    expect(
+      formatImLifecycleStatus(
+        [
+          {
+            id: 4,
+            provider: 'feishu',
+            chat_jid: 'web:main',
+            source_jid: 'feishu:chat-1',
+            message_id: 'om_recent_ok',
+            stage: 'cursor_committed',
+            status: 'ok',
+            reason: null,
+            details: null,
+            created_at: '2026-04-25T12:20:04.000Z',
+          },
+        ],
+        [
+          {
+            id: 3,
+            provider: 'feishu',
+            chat_jid: 'web:main',
+            source_jid: 'feishu:chat-1',
+            message_id: 'om_failed_delivery',
+            stage: 'im_delivered',
+            status: 'error',
+            reason: 'send_failed_after_retries',
+            details: null,
+            created_at: '2026-04-25T12:20:03.000Z',
+          },
+          {
+            id: 2,
+            provider: 'feishu',
+            chat_jid: 'feishu:chat-1',
+            source_jid: 'feishu:chat-1',
+            message_id: 'om_mention_skipped',
+            stage: 'skipped',
+            status: 'skipped',
+            reason: 'require_mention',
+            details: null,
+            created_at: '2026-04-25T12:20:02.000Z',
+          },
+        ],
+      ),
+    ).toBe(
+      [
+        '🧭 飞书链路: ...m_recent_ok cursor_committed',
+        '⚠️ 飞书异常: ...ed_delivery im_delivered error(send_failed_after_retries) · ...ion_skipped skipped skipped(require_mention)',
+      ].join('\n'),
+    );
+  });
+
   test('keeps empty lifecycle status short', () => {
     expect(formatImLifecycleStatus([])).toBe('🧭 飞书链路: 最近无记录');
   });

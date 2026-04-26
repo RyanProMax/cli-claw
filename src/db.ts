@@ -2001,6 +2001,33 @@ export function getRecentImMessageLifecycleEvents(filter: {
   return rows.map(mapImMessageLifecycleEventRow);
 }
 
+export function getRecentImMessageLifecycleIssueEvents(filter: {
+  provider: string;
+  chatJid?: string;
+  limit?: number;
+}): ImMessageLifecycleEvent[] {
+  const limit = Math.max(1, Math.min(filter.limit ?? 20, 200));
+  const params: unknown[] = [filter.provider];
+  let chatWhere = '';
+  if (filter.chatJid) {
+    chatWhere = 'AND (chat_jid = ? OR source_jid = ?)';
+    params.push(filter.chatJid, filter.chatJid);
+  }
+  params.push(limit);
+  const rows = db
+    .prepare(
+      `SELECT *
+       FROM im_message_lifecycle_events
+       WHERE provider = ?
+         AND status != 'ok'
+       ${chatWhere}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+    )
+    .all(...params) as DbImMessageLifecycleEventRow[];
+  return rows.map(mapImMessageLifecycleEventRow);
+}
+
 export function createTask(
   task: Omit<ScheduledTask, 'last_run' | 'last_result'>,
 ): void {

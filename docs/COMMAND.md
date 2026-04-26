@@ -123,7 +123,8 @@ skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发
 
 - `/status` 会以 “Agent” 与 “运行状态” 两段展示当前 runtime 摘要（Agent
   类型、模型、推理强度）、当前 Codex 5h / 7d
- 余额、当前工作区、当前会话、会话数、队列负载、服务进程 cwd，以及当前工作区主动模式状态。
+  余额、当前工作区、当前会话、会话数、队列负载、服务进程 cwd，以及当前工作区主动模式状态。
+- Feishu 入口的 `/status` 还会附加最近 Feishu 消息链路事件；当存在最近非 ok 事件时，会单独显示一行紧凑的“飞书异常”，避免投递失败或跳过原因被后续正常事件盖掉。
 - Codex 余额读取自本机 `~/.codex/sessions/**/*.jsonl` 的最新 usage 快照；当前 runtime 不是 `codex` 或本地快照不可用时，对应余额会显示 `unavailable` / `unknown`。
 - `/autopilot` 只作用于当前工作区；实现形态是一个受控的低优先级后台 interval run，不会创建一个永久存活的独立 agent 进程，也不会把主动模式 prompt 当作普通用户消息写入主对话。
 - 主动模式在执行前会让路给真实用户/IM 消息和已活跃的工作区 runner；运行中若收到用户消息，会请求后台 run 尽快收尾，再处理真实消息。无实质进展的 no-op 结果只写任务日志，不发送用户可见回复。

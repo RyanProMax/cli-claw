@@ -277,16 +277,34 @@ function compactLifecycleMessageId(messageId: string): string {
 
 export function formatImLifecycleStatus(
   events: readonly ImMessageLifecycleEvent[],
+  issueEvents?: readonly ImMessageLifecycleEvent[],
 ): string {
-  if (events.length === 0) return '🧭 飞书链路: 最近无记录';
-  const summary = events
-    .slice(0, 3)
-    .map((event) => {
-      const reason = event.reason ? `(${event.reason})` : '';
-      return `${compactLifecycleMessageId(event.message_id)} ${event.stage}${reason}`;
-    })
-    .join(' · ');
-  return `🧭 飞书链路: ${summary}`;
+  const lines: string[] = [];
+  if (events.length === 0) {
+    lines.push('🧭 飞书链路: 最近无记录');
+  } else {
+    const summary = events
+      .slice(0, 3)
+      .map((event) => {
+        const reason = event.reason ? `(${event.reason})` : '';
+        return `${compactLifecycleMessageId(event.message_id)} ${event.stage}${reason}`;
+      })
+      .join(' · ');
+    lines.push(`🧭 飞书链路: ${summary}`);
+  }
+
+  if (issueEvents && issueEvents.length > 0) {
+    const issueSummary = issueEvents
+      .slice(0, 3)
+      .map((event) => {
+        const reason = event.reason ? `(${event.reason})` : '';
+        return `${compactLifecycleMessageId(event.message_id)} ${event.stage} ${event.status}${reason}`;
+      })
+      .join(' · ');
+    lines.push(`⚠️ 飞书异常: ${issueSummary}`);
+  }
+
+  return lines.join('\n');
 }
 
 // ─── Conversation Status Formatting ────────────────────────────

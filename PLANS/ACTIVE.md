@@ -565,6 +565,56 @@ Risks / Notes / Handoff:
   - Retry, cursor commit, and scheduled-task broadcast behavior were not changed.
   - The restart-recovery suite emitted the existing MaxListeners warnings but all tests passed.
 
+### Milestone 13
+
+Objective:
+- Surface recent non-ok Feishu lifecycle events in `/status` so delivery failures and skipped processing reasons stay visible even when later ok events arrive.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
+- `src/db.ts`
+- `src/im-command-utils.ts`
+- `src/index.ts`
+- `tests/im-message-lifecycle.test.ts`
+- `tests/im-command-utils.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-message-lifecycle.test.ts`
+- `npm test -- --run tests/im-command-utils.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone observability-only: do not change queue, delivery, cursor, or Feishu connection behavior.
+- Follow TDD: add the failure-specific lifecycle query/formatting tests first, observe the expected red, then wire `/status` to include the compact failure line for Feishu chats.
+- Added `getRecentImMessageLifecycleIssueEvents()` so `/status` can query recent Feishu lifecycle rows whose status is not `ok`, even when newer successful lifecycle rows exist.
+- `formatImLifecycleStatus()` now keeps the existing compact lifecycle line and appends a separate compact `飞书异常` line for recent non-ok lifecycle events.
+- Feishu `/status` now passes recent issue events into the formatter; non-Feishu `/status` output is unchanged.
+- `docs/COMMAND.md` documents the additional Feishu `/status` failure line.
+- Validation passed:
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm test -- --run tests/im-command-utils.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change is observability-only and does not alter queue, delivery, cursor, or Feishu connection behavior.
+  - The new DB and formatter tests cover the key failure surfacing contract.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -576,7 +626,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 12
+- Milestone 13
 
 Current status:
 - done
@@ -584,32 +634,23 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `src/types.ts`
+- `docs/COMMAND.md`
 - `src/db.ts`
-- `src/feishu.ts`
 - `src/im-command-utils.ts`
 - `src/index.ts`
-- `src/im-message-lifecycle.ts`
 - `tests/im-message-lifecycle.test.ts`
-- `tests/feishu-connection.test.ts`
 - `tests/im-command-utils.test.ts`
-- `tests/restart-recovery.test.ts`
 
 Last failure summary:
-- Expected TDD reds:
-  - Missing lifecycle DB API.
-  - Missing Feishu lifecycle instrumentation.
-  - Missing compact lifecycle status formatter.
-  - Missing post-store lifecycle helper for Feishu-origin routed messages.
-  - Missing dead-letter lifecycle helper for pending Feishu-origin messages.
-  - Missing routed IM cursor commit policy helper.
-  - Missing Feishu startup backfill chat-id selection helper.
-  - Missing stream-started lifecycle helper for Feishu-origin stream init turns.
-  - Missing fire-and-forget mirror IM delivery lifecycle wrapper.
-  - Missing direct IPC image/file delivery lifecycle helper.
+- No current validation or review failures. Milestone 13 validation passed with:
+  - `npm test -- --run tests/im-message-lifecycle.test.ts`
+  - `npm test -- --run tests/im-command-utils.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
 
 Suspected cause:
 - The prior system had only scattered logs and no durable, message-keyed lifecycle ledger for real Feishu diagnostics.
 
 Next step:
-- Commit Milestone 12, apply it through the documented safe restart path, then continue RM-2026-04-25-01 later with the next smallest outbound reliability hardening item.
+- Commit Milestone 13, then apply it through the documented safe restart path because runtime status behavior changed.

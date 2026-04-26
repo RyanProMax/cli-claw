@@ -93,6 +93,62 @@ describe('IM message lifecycle ledger', () => {
     db.closeDatabase();
   });
 
+  test('finds recent non-ok lifecycle events even when newer ok events exist', async () => {
+    const db = await loadDbModule();
+
+    db.recordImMessageLifecycleEvent({
+      provider: 'feishu',
+      chatJid: 'web:main',
+      sourceJid: 'feishu:chat-1',
+      messageId: 'om_failed_delivery',
+      stage: 'im_delivered',
+      status: 'error',
+      reason: 'send_failed_after_retries',
+      createdAt: '2026-04-25T12:00:00.000Z',
+    });
+    db.recordImMessageLifecycleEvent({
+      provider: 'feishu',
+      chatJid: 'web:main',
+      sourceJid: 'feishu:chat-1',
+      messageId: 'om_later_ok_1',
+      stage: 'cursor_committed',
+      status: 'ok',
+      createdAt: '2026-04-25T12:01:00.000Z',
+    });
+    db.recordImMessageLifecycleEvent({
+      provider: 'feishu',
+      chatJid: 'web:main',
+      sourceJid: 'feishu:chat-1',
+      messageId: 'om_later_ok_2',
+      stage: 'notified',
+      status: 'ok',
+      createdAt: '2026-04-25T12:02:00.000Z',
+    });
+    db.recordImMessageLifecycleEvent({
+      provider: 'feishu',
+      chatJid: 'web:main',
+      sourceJid: 'feishu:chat-1',
+      messageId: 'om_skipped',
+      stage: 'skipped',
+      status: 'skipped',
+      reason: 'require_mention',
+      createdAt: '2026-04-25T12:03:00.000Z',
+    });
+
+    const events = db.getRecentImMessageLifecycleIssueEvents({
+      provider: 'feishu',
+      chatJid: 'feishu:chat-1',
+      limit: 5,
+    });
+
+    expect(events.map((event) => event.message_id)).toEqual([
+      'om_skipped',
+      'om_failed_delivery',
+    ]);
+
+    db.closeDatabase();
+  });
+
   test('records post-store lifecycle stages for Feishu-origin routed messages', async () => {
     const db = await loadDbModule();
     const { recordLifecycleForMessages } =

@@ -57,6 +57,7 @@ import {
   getLastGroupSync,
   getRegisteredGroup,
   getRecentImMessageLifecycleEvents,
+  getRecentImMessageLifecycleIssueEvents,
   getUserById,
   getMessagesSince,
   getNewMessages,
@@ -2190,6 +2191,11 @@ function handleStatusCommand(chatJid: string): string {
   const lifecycleStatus = chatJid.startsWith('feishu:')
     ? `\n${formatImLifecycleStatus(
         getRecentImMessageLifecycleEvents({
+          provider: 'feishu',
+          chatJid,
+          limit: 3,
+        }),
+        getRecentImMessageLifecycleIssueEvents({
           provider: 'feishu',
           chatJid,
           limit: 3,
