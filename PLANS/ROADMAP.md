@@ -79,7 +79,7 @@
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 
-- Status: `proposed`
+- Status: `in_progress`
 - Source: 2026-04-25 user request item `2`; startup subagent analysis; local `~/.cli-claw/ops/current-backend.json`
 - Summary: 明确边界：用户/长期运行/安全重启统一使用 `cli-claw start`；`bun start` / `bun src/index.ts` 只保留为开发直启路径，不能作为默认生产或 LaunchAgent 路径。
 - Evidence:
@@ -99,8 +99,10 @@
   - Make `/self-status` and Web Monitor show launch source, exact restart command, canonical recommended command, and warning when running in direct backend mode.
   - Make `/self-check` validate the saved/current launch spec or clearly say it is only checking the default dist backend.
   - Make build-staleness reporting source-aware so direct Bun source mode does not misleadingly report dist freshness as runtime freshness.
+- Progress:
+  - 2026-04-26 milestone 16: admin `/self-status` now emits an explicit `direct_backend` warning and recommends `cli-claw start / cli-claw restart` when the service is running from a direct backend launch. Validation passed with `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Next action:
-  - Plan implementation across `Makefile`, `package.json`, `ops/install-launch-agent.sh`, `src/startup-launch.ts`, `src/self-check.ts`, `src/im-command-utils.ts`, docs, and launch/restart tests.
+  - Continue with the next small contract step: either make `/self-check` validate the saved/current launch spec, or update LaunchAgent/default start paths to use the service launcher instead of direct backend launch.
 
 ### P0 RM-2026-04-25-03 Feishu Answer/Commentary Presentation Contract
 

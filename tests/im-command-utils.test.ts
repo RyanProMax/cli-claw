@@ -410,6 +410,35 @@ describe('formatSelfStatus', () => {
       '⚠️ 飞书异常: ...ed_delivery im_delivered error(send_failed_after_retries) · ...ire_mention skipped skipped(require_mention)',
     );
   });
+
+  test('warns when the service is running through direct backend launch', () => {
+    const status = formatSelfStatus({
+      pid: 1234,
+      startedAt: '2026-04-12T12:00:00.000Z',
+      cwd: '/Users/ryan/projects/cli-claw',
+      stale: false,
+      backend: {
+        stale: false,
+        loadedMtimeIso: '2026-04-12T11:00:00.000Z',
+        currentMtimeIso: '2026-04-12T11:00:00.000Z',
+      },
+      agentRunner: {
+        stale: false,
+        loadedMtimeIso: '2026-04-12T11:00:00.000Z',
+        currentMtimeIso: '2026-04-12T11:00:00.000Z',
+      },
+      lastCheck: null,
+      restart: {
+        restartable: true,
+        source: 'direct_backend',
+        displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
+        validationError: null,
+      },
+    } as any);
+
+    expect(status).toContain('⚠️ 启动模式: direct_backend 是开发直启路径');
+    expect(status).toContain('✅ 推荐入口: cli-claw start / cli-claw restart');
+  });
 });
 
 describe('formatSelfCheckResult', () => {

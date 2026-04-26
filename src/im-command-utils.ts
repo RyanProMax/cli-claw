@@ -449,6 +449,11 @@ export function formatSelfStatus(info: SelfStatusInfo): string {
     lines.push(`⚠️ 原因: ${info.restart.validationError}`);
   }
 
+  if (info.restart.source === 'direct_backend') {
+    lines.push('⚠️ 启动模式: direct_backend 是开发直启路径');
+    lines.push('✅ 推荐入口: cli-claw start / cli-claw restart');
+  }
+
   lines.push(`📦 build: ${buildState}`);
   lines.push(formatArtifactLine('backend', info.backend));
   lines.push(formatArtifactLine('agent-runner', info.agentRunner));
