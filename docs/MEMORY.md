@@ -35,6 +35,7 @@ Cli Claw 里有三类容易混淆的数据：
 - 主工作区会把用户全局 `AGENTS.md` 和截断后的 `HEARTBEAT.md` 注入系统提示。
 - 其他工作区可通过 `memory_search` / `memory_get` 查找全局、工作区、日期记忆和对话归档。
 - 常规对话只把最近新增 turn 发送给 runner；更早内容依赖 runtime session 自己续用。服务重启恢复时，Cli Claw 只注入压缩后的最近历史。
+- restart recovery 只能服务于“已入库但尚未提交 cursor 的待处理用户消息”；`scheduled_task_prompt`、`user_command`、assistant、system 等内部行不能触发恢复 prompt 或被回放成用户输入。
 - 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 会先挂起旧任务快照并询问用户是否继续上次任务；只有用户明确回复继续时才会把旧中断上下文送入 runner，回复忽略或发送新需求时只处理新消息。
 
 ## 增长与清理

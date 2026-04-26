@@ -1219,6 +1219,43 @@ Risks / Notes / Handoff:
   - `/api/health` returned `healthy` for backend PID `14317`.
   - Post-restart process snapshot shows one backend and one current runner process group, with no historical orphan runner group visible.
 
+### Milestone 26
+
+Objective:
+- Converge `PLANS/ROADMAP.md` so it only tracks live follow-up work, deleting completed historical items after preserving durable contracts in the owner docs.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
+- `docs/MEMORY.md`
+
+Validation:
+- `git diff --check`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/ARCHITECTURE.md docs/COMMAND.md docs/MEMORY.md`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `git diff --check` passed.
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/ARCHITECTURE.md docs/COMMAND.md docs/MEMORY.md` passed.
+  - `./scripts/review.sh` passed automated checks.
+  - Manual review against `RUNBOOKS/Review.md` passed.
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- User request from 2026-04-26: inspect current project state and converge ROADMAP; completed items may be deleted, and anything still useful should be recorded in docs instead.
+- Scope is documentation/plan hygiene only. Do not change runtime behavior, tests, or launch scripts.
+- Preserve only live backlog in ROADMAP: current true TODOs, monitoring items that still need user-facing observation, and proposed follow-ups with concrete next action.
+- ROADMAP is now reduced to live backlog only; durable Feishu reliability, restart/recovery, autopilot preemption, command, and memory contracts were preserved in owner docs.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1230,23 +1267,23 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 25
+- Milestone 26
 
 Current status:
-- done; interrupted residual context now requires explicit user confirmation before old context is replayed into runner prompts, and the running service has been safely restarted
+- done; ROADMAP has been converged to live follow-up items only and durable completed contracts have been moved into owner docs
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `src/index.ts`
-- `tests/restart-recovery.test.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
 - `docs/MEMORY.md`
 
 Last failure summary:
-- RED before fix: restart recovery tests failed because `resolveInterruptedResumeDecision` did not exist; after implementation, the targeted restart recovery test suite passes.
+- none; validation and review passed
 
 Suspected cause:
-- `selectRecentTurnMessages()` and restart/recovery cursor handling can still let an older interrupted user row and a newer user row enter the same agent prompt when the old context has not been deliberately resumed by the user.
+- `PLANS/ROADMAP.md` has accumulated completed milestone evidence and old monitoring items that are now either documented in owner docs or superseded by newer consolidated roadmap items.
 
 Next step:
-- Monitor the next real Feishu turn with interrupted residue: it should show a concise confirmation prompt instead of immediately replaying stale context.
+- Commit the documentation/roadmap convergence.

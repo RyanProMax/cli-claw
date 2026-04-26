@@ -26,6 +26,16 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 7. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 8. 任务调度、技能安装、记忆读写和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
 
+## IM 消息可靠性
+
+- IM 入站消息先落库，再进入队列；飞书链路会记录 durable lifecycle 事件，覆盖 `received` / `stored` / `notified` / `queued` / `runner_started` / `stream_started` / `finalized` / `im_delivered` / `cursor_committed` / `dead_lettered`。
+- 飞书 live WS 与 startup backfill 共用去重语义：只有通过 stale-window 过滤的消息才会写入 seen cache，避免自启动阶段的过期 WS 事件毒化后续 backfill。
+- startup backfill 不只依赖 owner 字段；只要 Feishu chat 与正在连接用户共享 workspace/folder，就应纳入启动恢复候选，覆盖 ownerless 或 stale-owner 的历史绑定。
+- 普通服务模式下，startup pending-message recovery、conversation-agent recovery 和主消息循环必须等待 IM connection phase 完成后再启动，避免恢复消息早于飞书连接可用而丢投递。
+- 回复游标提交必须受 IM 投递结果约束：当某条 Feishu-origin turn 依赖 static IM delivery 且投递最终失败时，不能提交对应 inbound cursor；该 turn 应保持 retryable 或记录明确 dead-letter。
+- 飞书 streaming card 是 IM 可见进度面；answer 文本出现前的工具、hook、status、todo 等辅助进度也应创建/更新卡片，避免 Web 有流式进展而飞书静默。
+- graceful shutdown / self-restart 持久化的 interrupted partial 默认只写 DB，不直接发到 IM；若后续新用户消息前仍存在中断残留，必须先询问是否继续旧任务，不能自动把旧上下文混入新 prompt。
+
 ## 工作区与会话身份
 
 - `registered_groups` 是工作区入口注册表；`jid` 是 Web / IM 对外入口，`folder` 是平台存储和默认主会话的目录键。
@@ -38,6 +48,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 - 工作区主动模式由 `src/workspace-autopilot.ts` 管理任务 ID、prompt 与 quota pause/resume 状态，由 `src/task-scheduler.ts` 在到期时创建后台 run。
 - 主动模式不把 prompt 写入主聊天消息表；后台 run 会读取最近工作区上下文构造隐藏 prompt，只有产生实质进展、风险或阻塞时才通过 scheduled-task 消息发出摘要。
 - `src/group-queue.ts` 把主动模式作为 low-priority background task 处理：真实用户/IM 消息优先；若后台 run 正在执行时收到用户消息，队列会请求后台 run 收尾并排队处理真实消息。
+- 被真实用户/IM 工作抢占的主动模式输出只保留在 task run log；不能再向 Web/IM 发布可见 `scheduled_task` 回复，避免用户刚发消息时看到上一轮后台任务过程文本。
 
 ## 边界
 
