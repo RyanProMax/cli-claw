@@ -144,6 +144,23 @@ describe('IM channel footer consumption', () => {
     );
   });
 
+  test('feishu forwards footer metadata to the connection adapter', async () => {
+    const channel = createFeishuChannel({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+    await channel.connect(connectOpts as any);
+
+    await channel.sendMessage('chat-1', 'Hello world', undefined, messageMeta);
+
+    expect(hoisted.feishuInner.sendMessage).toHaveBeenCalledWith(
+      'chat-1',
+      'Hello world',
+      undefined,
+      messageMeta,
+    );
+  });
+
   test('telegram appends footer before delegating to the connection', async () => {
     const channel = createTelegramChannel({ botToken: 'token' });
     await channel.connect(connectOpts as any);

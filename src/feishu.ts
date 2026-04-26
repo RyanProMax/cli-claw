@@ -28,9 +28,15 @@ import {
 } from './feishu-streaming-card.js';
 import { optimizeMarkdownStyle } from './feishu-markdown-style.js';
 import {
+  appendAssistantMetaFooter,
+  formatAssistantCardFooter,
+  type AssistantFooterTokenUsage,
+} from './assistant-meta-footer.js';
+import {
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
 } from './runtime-command-registry.js';
+import type { RuntimeIdentity } from './types.js';
 
 type FeishuLifecycleEventInput = Omit<
   Parameters<typeof recordImMessageLifecycleEvent>[0],
@@ -42,6 +48,11 @@ type FeishuLifecycleEventInput = Omit<
 export interface FeishuConnectionConfig {
   appId: string;
   appSecret: string;
+}
+
+interface FeishuOutboundMessageMeta {
+  runtimeIdentity?: RuntimeIdentity | null;
+  tokenUsage?: AssistantFooterTokenUsage | string | null;
 }
 
 /** 飞书文件信息（用于下载到工作区） */
@@ -105,6 +116,7 @@ export interface FeishuConnection {
     chatId: string,
     text: string,
     localImagePaths?: string[],
+    messageMeta?: FeishuOutboundMessageMeta,
   ): Promise<void>;
   sendImage(
     chatId: string,
@@ -472,6 +484,29 @@ function buildPostMdFallback(text: string): string {
   });
 }
 
+function formatFeishuFooterNote(
+  messageMeta?: FeishuOutboundMessageMeta,
+): string | undefined {
+  if (!messageMeta) return undefined;
+  return (
+    formatAssistantCardFooter({
+      runtimeIdentity: messageMeta.runtimeIdentity,
+      tokenUsage: messageMeta.tokenUsage,
+    }) ?? undefined
+  );
+}
+
+function appendFeishuPostFooter(
+  text: string,
+  messageMeta?: FeishuOutboundMessageMeta,
+): string {
+  if (!messageMeta) return text;
+  return appendAssistantMetaFooter(text, {
+    runtimeIdentity: messageMeta.runtimeIdentity,
+    tokenUsage: messageMeta.tokenUsage,
+  });
+}
+
 function extractPrebuiltInteractiveCardContent(text: string): string | null {
   if (!text.startsWith('{"type":"interactive"')) return null;
 
@@ -484,8 +519,14 @@ function extractPrebuiltInteractiveCardContent(text: string): string | null {
   }
 }
 
-function buildInteractiveCard(text: string): object {
-  return buildStaticReplyCard(text);
+function buildInteractiveCard(
+  text: string,
+  messageMeta?: FeishuOutboundMessageMeta,
+): object {
+  return buildStaticReplyCard(text, {
+    footerNote: formatFeishuFooterNote(messageMeta),
+    runtimeIdentity: messageMeta?.runtimeIdentity,
+  });
 }
 
 function readNestedValue(source: unknown, path: string[]): unknown {
@@ -2027,6 +2068,7 @@ export function createFeishuConnection(
       chatId: string,
       text: string,
       localImagePaths?: string[],
+      messageMeta?: FeishuOutboundMessageMeta,
     ): Promise<void> {
       if (!client) {
         logger.warn(
@@ -2061,10 +2103,11 @@ export function createFeishuConnection(
         // Each table has exactly one separator row (e.g. |---|---|), so counting those = table count
         const tableCount = (text.match(/^\|[\s:-]+\|/gm) || []).length;
         const usePostMd = tableCount > CARD_TABLE_LIMIT;
+        const postFallbackText = appendFeishuPostFooter(text, messageMeta);
 
         if (usePostMd) {
           // Too many tables for card format, go directly to post+md
-          const postContent = buildPostMdFallback(text);
+          const postContent = buildPostMdFallback(postFallbackText);
           await client.im.v1.message.create({
             params: { receive_id_type: 'chat_id' },
             data: {
@@ -2074,7 +2117,7 @@ export function createFeishuConnection(
             },
           });
         } else {
-          const card = buildInteractiveCard(text);
+          const card = buildInteractiveCard(text, messageMeta);
           const content = JSON.stringify(card);
           try {
             await client.im.v1.message.create({
@@ -2095,7 +2138,7 @@ export function createFeishuConnection(
               data: {
                 receive_id: chatId,
                 msg_type: 'post',
-                content: buildPostMdFallback(text),
+                content: buildPostMdFallback(postFallbackText),
               },
             });
           }

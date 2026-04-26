@@ -230,7 +230,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
       chatId: string,
       text: string,
       localImagePaths?: string[],
-      _messageMeta?: OutboundMessageMeta,
+      messageMeta?: OutboundMessageMeta,
     ): Promise<void> {
       if (!inner) {
         logger.warn(
@@ -239,7 +239,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         );
         throw new Error('Feishu channel not connected');
       }
-      await inner.sendMessage(chatId, text, localImagePaths);
+      await inner.sendMessage(chatId, text, localImagePaths, messageMeta);
     },
 
     async sendImage(

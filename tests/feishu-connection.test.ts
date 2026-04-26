@@ -133,7 +133,7 @@ vi.mock('../src/im-slash-command.js', () => ({
 }));
 
 vi.mock('../src/feishu-streaming-card.js', () => ({
-  buildStaticReplyCard: vi.fn((text: string) => ({
+  buildStaticReplyCard: vi.fn((text: string, _options?: unknown) => ({
     schema: '2.0',
     body: { text },
   })),
@@ -148,6 +148,7 @@ vi.mock('../src/feishu-markdown-style.js', () => ({
 }));
 
 import { createFeishuConnection } from '../src/feishu.ts';
+import { buildStaticReplyCard } from '../src/feishu-streaming-card.js';
 import {
   recordImMessageLifecycleEvent,
   storeMessageDirect,
@@ -193,6 +194,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.wsCloseSpy.mockClear();
     hoisted.onReadySpy.mockClear();
     hoisted.resolveImSlashCommandReplySpy.mockClear();
+    vi.mocked(buildStaticReplyCard).mockClear();
     vi.mocked(recordImMessageLifecycleEvent).mockClear();
     vi.mocked(storeMessageDirect).mockClear();
     vi.mocked(notifyNewImMessage).mockClear();
@@ -262,6 +264,91 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       },
     });
     expect(hoisted.replySpy).not.toHaveBeenCalled();
+  });
+
+  test('adds assistant meta footer to static reply cards', async () => {
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'GPT-5.5',
+      reasoningEffort: 'high',
+      supportsReasoningEffort: true,
+    };
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+    });
+
+    await connection.sendMessage('chat-footer', '最终回复', undefined, {
+      runtimeIdentity,
+      tokenUsage: {
+        inputTokens: 900,
+        outputTokens: 300,
+        durationMs: 2_500,
+      },
+    });
+
+    expect(buildStaticReplyCard).toHaveBeenCalledWith('最终回复', {
+      footerNote: '2.5s | Codex | GPT-5.5 | high',
+      runtimeIdentity,
+    });
+    expect(hoisted.createSpy).toHaveBeenCalledWith({
+      params: { receive_id_type: 'chat_id' },
+      data: expect.objectContaining({
+        receive_id: 'chat-footer',
+        msg_type: 'interactive',
+      }),
+    });
+  });
+
+  test('keeps assistant meta footer when static card delivery falls back to post markdown', async () => {
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+    });
+
+    hoisted.createSpy
+      .mockRejectedValueOnce(new Error('interactive failed'))
+      .mockResolvedValueOnce({});
+
+    await connection.sendMessage('chat-footer-fallback', '最终回复', undefined, {
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'GPT-5.5',
+        reasoningEffort: 'high',
+        supportsReasoningEffort: true,
+      },
+      tokenUsage: {
+        durationMs: 2_500,
+      },
+    });
+
+    expect(hoisted.createSpy).toHaveBeenLastCalledWith({
+      params: { receive_id_type: 'chat_id' },
+      data: {
+        receive_id: 'chat-footer-fallback',
+        msg_type: 'post',
+        content: JSON.stringify({
+          zh_cn: {
+            content: [
+              [
+                {
+                  tag: 'md',
+                  text: '最终回复\n\n2.5s | Codex | GPT-5.5 | high',
+                },
+              ],
+            ],
+          },
+        }),
+      },
+    });
   });
 
   test('rejects when both interactive card delivery and post fallback fail', async () => {
