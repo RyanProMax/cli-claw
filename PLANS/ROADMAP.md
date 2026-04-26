@@ -62,9 +62,9 @@
 - Current state:
   - Shared stream presentation already has answer/commentary concepts and Feishu cards can render auxiliary progress.
   - Graceful shutdown partials and known Codex transport/model diagnostics are suppressed from user-visible正文.
-  - Codex-specific prompt policy and `send_message` visible-tool policy still need hardening.
+  - Claude and Codex ACP turns now share the same minimal necessary reply-policy block; Codex prompts are wrapped with that policy while preserving the raw user message.
+  - `send_message` visible-tool policy still needs hardening.
 - Next action:
-  - Inject the minimal reply policy into Codex ACP prompts and add tests proving Claude/Codex receive equivalent visible-reply guidance.
   - Tighten `shared/stream-presentation.ts`, `src/reply-visibility.ts`, `src/feishu-streaming-card.ts`, and `container/agent-runner/src/mcp-tools.ts` so process text cannot become Feishu main body by default.
   - Add per-channel concise reply budgets for Feishu final answers.
 

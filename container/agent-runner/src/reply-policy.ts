@@ -22,3 +22,17 @@ export function buildMinimalNecessaryReplyGuidelines(): string {
     '- ' + MINIMAL_NECESSARY_REPLY_POLICY.exceptions,
   ].join('\n');
 }
+
+export function buildMinimalNecessaryReplyPolicyBlock(): string {
+  return `<reply-policy>\n${buildMinimalNecessaryReplyGuidelines()}\n</reply-policy>`;
+}
+
+export function wrapCodexPromptWithReplyPolicy(prompt: string): string {
+  return [
+    buildMinimalNecessaryReplyPolicyBlock(),
+    '',
+    '<user-message>',
+    prompt,
+    '</user-message>',
+  ].join('\n');
+}

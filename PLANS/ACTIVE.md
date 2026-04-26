@@ -1439,6 +1439,55 @@ Risks / Notes / Handoff:
   - No production Feishu, queue, runner, card, or cursor logic changed.
   - The remaining retry/failure E2E work stays in `PLANS/ROADMAP.md` and should be added only for concrete real-world gaps.
 
+### Milestone 31
+
+Objective:
+- Start P1 `RM-2026-04-25-03` by making Codex ACP turns receive the same minimal necessary reply-policy guidance that the Claude path already injects, so process narration and tool-log style text are less likely to become Feishu main-body replies.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `container/agent-runner/src/reply-policy.ts`
+- `container/agent-runner/src/index.ts`
+- local ignored `container/agent-runner/dist/**` build output
+- `tests/minimal-reply-policy.test.ts`
+
+Validation:
+- `npm test -- --run tests/minimal-reply-policy.test.ts`
+- `npm run typecheck`
+- `npm --prefix container/agent-runner run build:runner`
+- `git diff --check`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md container/agent-runner/src/reply-policy.ts container/agent-runner/src/index.ts tests/minimal-reply-policy.test.ts`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- TDD RED was confirmed with `npm test -- --run tests/minimal-reply-policy.test.ts`: the new runner-path assertion failed because `container/agent-runner/src/index.ts` did not yet use `buildMinimalNecessaryReplyPolicyBlock()` / `wrapCodexPromptWithReplyPolicy(prompt)`.
+- Implemented a shared `buildMinimalNecessaryReplyPolicyBlock()` and `wrapCodexPromptWithReplyPolicy()` helper, switched the Claude path to the shared block, and wrapped Codex ACP text prompts before `connection.prompt()` while preserving image blocks and the raw user message inside `<user-message>`.
+- Built the local ignored agent-runner dist artifact because host-mode runners execute `container/agent-runner/dist/index.js`.
+- Validation passed:
+  - `npm test -- --run tests/minimal-reply-policy.test.ts`
+  - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build:runner`
+  - `git diff --check`
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md container/agent-runner/src/reply-policy.ts container/agent-runner/src/index.ts tests/minimal-reply-policy.test.ts`
+  - `./scripts/review.sh`
+- Manual review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed inside `PLANS/ACTIVE.md`, `PLANS/ROADMAP.md`, agent-runner source files plus local ignored dist build output, and `tests/minimal-reply-policy.test.ts`.
+  - Objective covered: Codex ACP prompts now receive the same minimal necessary reply-policy block used by the Claude/system path.
+  - No stream parsing, Feishu card rendering, `send_message` semantics, final reply classifier, or runtime session behavior changed.
+- Keep this milestone narrowly scoped to prompt policy injection. Do not change stream parsing, Feishu card rendering, send_message semantics, or final reply classifiers here.
+- The Codex prompt wrapper must not hide or mutate the user message; it should add the policy as surrounding guidance and keep the original prompt text intact.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1450,21 +1499,23 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 30
+- Milestone 31
 
 Current status:
-- done; Feishu E2E now covers inbound -> queue -> fake runner -> streaming card delivery -> cursor commit success path
+- done; Codex ACP prompts now receive the shared minimal necessary reply-policy block
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `tests/feishu-e2e.test.ts`
+- `container/agent-runner/src/reply-policy.ts`
+- `container/agent-runner/src/index.ts`
+- `tests/minimal-reply-policy.test.ts`
 
 Last failure summary:
-- RED was confirmed before the helper existed: the new success-path test only observed inbound `received -> stored -> notified` lifecycle rows.
+- RED test confirmed `container/agent-runner/src/index.ts` lacked shared reply-policy block usage for Codex ACP prompt injection; GREEN validation passed after adding the wrapper.
 
 Suspected cause:
-- Existing `tests/feishu-e2e.test.ts` verified inbound Feishu SDK handling, DB storage, lifecycle, duplicate/stale/mention behavior, and notifier wakeup, but did not exercise queue dispatch, runner output, streaming card completion, or cursor commit.
+- Resolved: Claude/system prompt path and Codex ACP prompt path now both use the shared reply-policy block from `container/agent-runner/src/reply-policy.ts`.
 
 Next step:
-- Continue with the next roadmap item in priority order.
+- Continue remaining `RM-2026-04-25-03` work from `PLANS/ROADMAP.md`: harden process-text/card/send_message presentation boundaries and per-channel concise Feishu reply budgets.
