@@ -1214,6 +1214,7 @@ Risks / Notes / Handoff:
   - `./scripts/review.sh`
 - Review gate passed against `RUNBOOKS/Review.md`: scope stayed inside the milestone, the new tests cover ask/continue/ignore/wait behavior, state is cleared only after cursor commit, and no runner/card/restart semantics were changed.
 - Applied evidence:
+  - Commit `357f756 Gate interrupted context resume`.
   - Safe restart intent `restart-2026-04-26T11-34-00-685Z-5b68e5d4` passed.
   - `/api/health` returned `healthy` for backend PID `14317`.
   - Post-restart process snapshot shows one backend and one current runner process group, with no historical orphan runner group visible.
