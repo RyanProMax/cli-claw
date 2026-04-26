@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 
 import { runSelfCheck } from '../src/self-check.js';
+import { createStartupLaunchSpec } from '../src/startup-launch.js';
 
 class FakeChildProcess extends EventEmitter {
   stdout = new EventEmitter();
@@ -64,6 +65,47 @@ describe('runSelfCheck', () => {
     expect(cleanupTempHome).toHaveBeenCalledWith(
       '/tmp/cli-claw-self-check-abc',
     );
+  });
+
+  test('starts the candidate with the authoritative launch spec command and cwd', async () => {
+    const child = new FakeChildProcess();
+    const spawnFn = vi.fn(() => child);
+    const launchSpec = createStartupLaunchSpec({
+      command: '/usr/local/bin/node',
+      args: ['/repo/dist/cli.js', 'start'],
+      cwd: '/workspace/from-launch-spec',
+      source: 'cli_start',
+    });
+
+    const result = await runSelfCheck({
+      appRoot: '/repo',
+      launchSpec,
+      now: vi
+        .fn()
+        .mockReturnValueOnce(new Date('2026-04-12T12:00:00.000Z'))
+        .mockReturnValueOnce(new Date('2026-04-12T12:00:03.000Z')),
+      makeTempHome: () => '/tmp/cli-claw-self-check-abc',
+      cleanupTempHome: vi.fn(),
+      getFreePort: async () => 3101,
+      spawnFn,
+      fetchFn: vi.fn(async () => ({ ok: true, status: 200 })),
+      sleep: vi.fn(async () => {}),
+      timeoutMs: 5000,
+      intervalMs: 100,
+    });
+
+    expect(spawnFn).toHaveBeenCalledWith(
+      '/usr/local/bin/node',
+      ['/repo/dist/cli.js', 'start'],
+      expect.objectContaining({
+        cwd: '/workspace/from-launch-spec',
+      }),
+    );
+    expect(result).toMatchObject({
+      command: '/usr/local/bin/node',
+      args: ['/repo/dist/cli.js', 'start'],
+      cwd: '/workspace/from-launch-spec',
+    });
   });
 
   test('fails when the candidate exits before health becomes healthy', async () => {

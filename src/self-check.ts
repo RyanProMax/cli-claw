@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { APP_ROOT } from './app-root.js';
+import type { StartupLaunchSpec } from './startup-launch.js';
 
 export interface SelfCheckResult {
   status: 'passed' | 'failed';
@@ -15,6 +16,7 @@ export interface SelfCheckResult {
   port: number;
   command: string;
   args: string[];
+  cwd: string;
   tempHome: string;
   healthUrl: string;
   error: string | null;
@@ -39,6 +41,7 @@ export interface RunSelfCheckOptions {
   appRoot?: string;
   command?: string;
   args?: string[];
+  launchSpec?: StartupLaunchSpec;
   timeoutMs?: number;
   intervalMs?: number;
   now?: () => Date;
@@ -128,8 +131,11 @@ export async function runSelfCheck(
   options: RunSelfCheckOptions = {},
 ): Promise<SelfCheckResult> {
   const appRoot = options.appRoot || APP_ROOT;
-  const command = options.command || process.execPath;
-  const args = options.args || [path.join(appRoot, 'dist', 'index.js')];
+  const command =
+    options.command || options.launchSpec?.command || process.execPath;
+  const args = options.args ||
+    options.launchSpec?.args || [path.join(appRoot, 'dist', 'index.js')];
+  const cwd = options.launchSpec?.cwd || appRoot;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   const now = options.now || (() => new Date());
@@ -163,6 +169,7 @@ export async function runSelfCheck(
       port,
       command,
       args,
+      cwd,
       tempHome,
       healthUrl,
       error,
@@ -178,7 +185,7 @@ export async function runSelfCheck(
     healthUrl = `http://127.0.0.1:${port}/api/health`;
 
     proc = spawnFn(command, args, {
-      cwd: appRoot,
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,

@@ -2308,7 +2308,9 @@ async function handleSelfCheckCommand(chatJid: string): Promise<string> {
 
   selfCheckRunning = true;
   try {
-    lastSelfCheckResult = await runSelfCheck();
+    lastSelfCheckResult = await runSelfCheck({
+      launchSpec: startupLaunchSpec,
+    });
     return formatSelfCheckResult(lastSelfCheckResult);
   } finally {
     selfCheckRunning = false;

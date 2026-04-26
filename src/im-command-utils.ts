@@ -386,6 +386,7 @@ export interface SelfCheckResultInfo {
   port: number;
   command: string;
   args: string[];
+  cwd: string;
   tempHome: string;
   healthUrl: string;
   error: string | null;
@@ -473,10 +474,12 @@ export function formatSelfStatus(info: SelfStatusInfo): string {
 }
 
 export function formatSelfCheckResult(result: SelfCheckResultInfo): string {
+  const command = [result.command, ...result.args].filter(Boolean).join(' ');
   const lines = [
     `🧪 自检结果: ${result.status === 'passed' ? '通过' : '失败'}`,
     '━━━━━━━━━━',
     `⏱️ 耗时: ${result.durationMs}ms`,
+    `🚀 候选命令: ${command || 'unknown'}`,
     `🌐 端口: ${result.port}`,
     `📂 隔离 HOME: ${result.tempHome}`,
   ];

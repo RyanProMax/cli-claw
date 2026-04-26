@@ -145,8 +145,9 @@
 - Progress:
   - 2026-04-26 milestone 16: admin `/self-status` now emits an explicit `direct_backend` warning and recommends `cli-claw start / cli-claw restart` when the service is running from a direct backend launch. Validation passed with `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-26 milestone 16 applied: commit `54c0e47 Warn on direct backend self status`; safe restart `restart-2026-04-26T05-35-28-464Z-595d6899` passed and `/api/health` returned healthy for backend PID `63108`.
+  - 2026-04-26 milestone 17: admin `/self-check` now validates the backend-captured authoritative launch spec, propagates candidate cwd, and shows the candidate command in the result. Validation passed with `npm test -- --run tests/self-check.test.ts`, `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Next action:
-  - Continue with milestone 17: make `/self-check` validate the saved/current launch spec and show the candidate command in the self-check result.
+  - Commit milestone 17, apply it through the safe restart path, then continue with launch command contract hardening: route `make start` / LaunchAgent defaults through the launcher and make build-staleness reporting source-aware.
 
 ### P0 RM-2026-04-25-03 Feishu Answer/Commentary Presentation Contract
 

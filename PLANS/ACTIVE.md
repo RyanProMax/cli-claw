@@ -783,19 +783,32 @@ Validation:
 - Manual review against `RUNBOOKS/Review.md`
 
 Status:
-- pending
+- done
 
 Validation status:
-- pending
+- passed
 
 Review status:
-- pending
+- passed
 
 Risks / Notes / Handoff:
 - Keep this milestone scoped to self-check launch-spec alignment and operator-visible formatting. Do not change Makefile, package scripts, LaunchAgent install defaults, or restart semantics here.
 - Follow TDD: add failing tests for launch-spec cwd propagation and self-check command formatting before changing implementation.
 - Paused before code changes on 2026-04-26 because the Feishu-triggered Web autopilot reply leak is a higher-priority P0 production incident.
 - Paused again on 2026-04-26 because Feishu "继续任务 -" triggered an agent-initiated safe restart; preventing unexpected restarts is higher priority than self-check formatting.
+- TDD red observed before implementation: `npm test -- --run tests/self-check.test.ts tests/im-command-utils.test.ts` failed because `runSelfCheck()` ignored `launchSpec` and `formatSelfCheckResult()` did not show the candidate command.
+- `runSelfCheck()` now accepts the authoritative startup launch spec, uses its command/args/cwd for the candidate process, and returns the candidate cwd with the result.
+- `/self-check` now passes the backend-captured startup launch spec into `runSelfCheck()` instead of relying on the default dist backend command.
+- `formatSelfCheckResult()` now shows the candidate command, and `docs/COMMAND.md` / `docs/RUNTIME.md` document the launch-spec-aligned behavior.
+- Validation passed:
+  - `npm test -- --run tests/self-check.test.ts`
+  - `npm test -- --run tests/im-command-utils.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The change aligns `/self-check` with the current launch spec without changing Makefile, package scripts, LaunchAgent defaults, or restart semantics.
 
 ### Milestone 18
 
