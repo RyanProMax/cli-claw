@@ -24,14 +24,15 @@
 - Current state:
   - Owner docs already define canonical launcher behavior in `docs/COMMAND.md` and `docs/RUNTIME.md`.
   - `make start` and the default LaunchAgent installer path now route through `cli-claw start`.
+  - `package.json` `start` now delegates to `bun src/cli.ts start`, so repo-local `bun start` / `npm start` enters the same launcher layer instead of direct `src/index.ts`.
   - `/self-status` warns when the running service is `direct_backend` and shows the recommended canonical entrypoint.
+  - `/self-status` also marks source-launched services with source/build artifact mode so dist freshness is not presented as the live TypeScript backend freshness signal.
   - `/self-check` validates the backend-captured authoritative launch spec.
+  - `docs/COMMAND.md` documents repo-local `bun src/cli.ts start` / `bun src/cli.ts restart` fallback for shells where `cli-claw` is not yet on PATH.
   - Current live service still reports `direct_backend`.
-  - Current shell check after milestone 25 showed `cli-claw` was not on PATH, so the restart had to be requested through `bun src/cli.ts restart`.
 - Next action:
-  - Decide whether `package.json` `npm start` should be renamed/relabelled as a dev-direct backend command.
-  - Make build-staleness reporting source-aware so direct Bun source mode does not imply dist freshness equals runtime freshness.
-  - Ensure the local/operator shell path can resolve `cli-claw` or document the repo-local fallback command explicitly.
+  - Migrate the live service from the current `direct_backend` launch spec to the launcher entrypoint (`cli-claw start`, or repo-local `bun src/cli.ts start` until PATH is fixed) through a supervised start path.
+  - Decide whether the development environment should install/link `cli-claw` onto PATH during setup so future operator shells do not need the repo-local fallback.
 
 ### P0 RM-2026-04-25-01 Feishu Message Reliability Control Plane
 

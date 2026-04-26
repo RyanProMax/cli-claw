@@ -402,6 +402,7 @@ export interface SelfStatusInfo {
   restart: {
     restartable: boolean;
     source: string;
+    artifactMode?: string;
     displayCommand: string;
     validationError: string | null;
   };
@@ -428,7 +429,14 @@ function formatArtifactLine(
 }
 
 export function formatSelfStatus(info: SelfStatusInfo): string {
-  const buildState = info.stale ? '需要重启' : '已是当前 build';
+  const sourceLaunched = info.restart.artifactMode === 'source';
+  const buildState = sourceLaunched
+    ? info.agentRunner.stale
+      ? '源码运行，agent-runner build 需要重启'
+      : '源码运行，dist build 仅供打包参考'
+    : info.stale
+      ? '需要重启'
+      : '已是当前 build';
   const lastCheck = info.lastCheck
     ? `${info.lastCheck.status === 'passed' ? '通过' : '失败'} ${info.lastCheck.finishedAt}`
     : '未运行';
@@ -452,6 +460,9 @@ export function formatSelfStatus(info: SelfStatusInfo): string {
 
   if (info.restart.source === 'direct_backend') {
     lines.push('⚠️ 启动模式: direct_backend 是开发直启路径');
+    lines.push('✅ 推荐入口: cli-claw start / cli-claw restart');
+  } else if (sourceLaunched) {
+    lines.push('⚠️ 启动模式: repo-local source launcher 是开发入口');
     lines.push('✅ 推荐入口: cli-claw start / cli-claw restart');
   }
 

@@ -2526,6 +2526,7 @@ function buildCurrentSelfStatusText(): string {
     restart: {
       restartable: startupLaunchSpec.restartable,
       source: startupLaunchSpec.source,
+      artifactMode: startupLaunchSpec.artifactMode,
       displayCommand: startupLaunchSpec.displayCommand,
       validationError: startupLaunchSpec.validationError,
     },

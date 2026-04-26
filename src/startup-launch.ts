@@ -2,12 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export type StartupLaunchSource = 'cli_start' | 'direct_backend' | 'unknown';
+export type StartupLaunchArtifactMode = 'source' | 'build' | 'unknown';
 
 export interface StartupLaunchSpec {
   command: string;
   args: string[];
   cwd: string;
   source: StartupLaunchSource;
+  artifactMode: StartupLaunchArtifactMode;
   restartable: boolean;
   validationError: string | null;
   displayCommand: string;
@@ -58,11 +60,20 @@ function formatLaunchCommand(command: string, args: string[]): string {
   return [command, ...args].filter(Boolean).map(quoteShellArg).join(' ');
 }
 
+function matchesPathSuffix(arg: string | undefined, suffix: string[]): boolean {
+  if (!arg) return false;
+  const normalized = arg.replace(/\\/g, path.sep);
+  const suffixPath = suffix.join(path.sep);
+  return (
+    normalized === suffixPath || normalized.endsWith(path.sep + suffixPath)
+  );
+}
+
 function looksLikeCliEntrypoint(arg: string | undefined): boolean {
   if (!arg) return false;
   return (
-    arg.endsWith(`${path.sep}dist${path.sep}cli.js`) ||
-    arg.endsWith(`${path.sep}src${path.sep}cli.ts`) ||
+    matchesPathSuffix(arg, ['dist', 'cli.js']) ||
+    matchesPathSuffix(arg, ['src', 'cli.ts']) ||
     /(?:^|[/\\])cli-claw(?:\.js)?$/.test(arg)
   );
 }
@@ -70,10 +81,27 @@ function looksLikeCliEntrypoint(arg: string | undefined): boolean {
 function looksLikeBackendEntrypoint(arg: string | undefined): boolean {
   if (!arg) return false;
   return (
-    arg.endsWith(`${path.sep}src${path.sep}index.ts`) ||
-    arg.endsWith(`${path.sep}dist${path.sep}index.js`) ||
+    matchesPathSuffix(arg, ['src', 'index.ts']) ||
+    matchesPathSuffix(arg, ['dist', 'index.js']) ||
     /(?:^|[/\\])index\.(?:ts|js)$/.test(arg)
   );
+}
+
+function inferArtifactMode(args: string[]): StartupLaunchArtifactMode {
+  const entry = args[0] ?? '';
+  if (
+    matchesPathSuffix(entry, ['src', 'cli.ts']) ||
+    matchesPathSuffix(entry, ['src', 'index.ts'])
+  ) {
+    return 'source';
+  }
+  if (
+    matchesPathSuffix(entry, ['dist', 'cli.js']) ||
+    matchesPathSuffix(entry, ['dist', 'index.js'])
+  ) {
+    return 'build';
+  }
+  return 'unknown';
 }
 
 function inferLaunchSource(args: string[]): StartupLaunchSource {
@@ -131,6 +159,7 @@ export function createStartupLaunchSpec(
   const args = normalizeArgs(input.args);
   const cwd = normalizePathLike(input.cwd);
   const source = input.source || inferLaunchSource(args);
+  const artifactMode = inferArtifactMode(args);
   const validationError =
     command.length === 0
       ? 'missing launch command'
@@ -141,6 +170,7 @@ export function createStartupLaunchSpec(
     args,
     cwd,
     source,
+    artifactMode,
     restartable: validationError === null,
     validationError,
     displayCommand: formatLaunchCommand(command, args),

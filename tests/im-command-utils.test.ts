@@ -439,6 +439,40 @@ describe('formatSelfStatus', () => {
     expect(status).toContain('⚠️ 启动模式: direct_backend 是开发直启路径');
     expect(status).toContain('✅ 推荐入口: cli-claw start / cli-claw restart');
   });
+
+  test('marks source-launched services without implying dist build freshness', () => {
+    const status = formatSelfStatus({
+      pid: 1234,
+      startedAt: '2026-04-12T12:00:00.000Z',
+      cwd: '/Users/ryan/projects/cli-claw',
+      stale: false,
+      backend: {
+        stale: false,
+        loadedMtimeIso: '2026-04-12T11:00:00.000Z',
+        currentMtimeIso: '2026-04-12T11:00:00.000Z',
+      },
+      agentRunner: {
+        stale: false,
+        loadedMtimeIso: '2026-04-12T11:00:00.000Z',
+        currentMtimeIso: '2026-04-12T11:00:00.000Z',
+      },
+      lastCheck: null,
+      restart: {
+        restartable: true,
+        source: 'cli_start',
+        artifactMode: 'source',
+        displayCommand: '/Users/ryan/.bun/bin/bun src/cli.ts start',
+        validationError: null,
+      },
+    } as any);
+
+    expect(status).toContain(
+      '⚠️ 启动模式: repo-local source launcher 是开发入口',
+    );
+    expect(status).toContain('✅ 推荐入口: cli-claw start / cli-claw restart');
+    expect(status).toContain('📦 build: 源码运行，dist build 仅供打包参考');
+    expect(status).not.toContain('📦 build: 已是当前 build');
+  });
 });
 
 describe('formatSelfCheckResult', () => {

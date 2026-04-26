@@ -6,13 +6,13 @@
 
 Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由 `container/agent-runner/` 按工作区运行时配置调用底层 CLI runtime。
 
-服务进程本身由外部 launcher `cli-claw start` 启动；源码仓库与同名 `cli-claw` 发布包复用同一个 launcher 入口，负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。
+服务进程本身由外部 launcher `cli-claw start` 启动；源码仓库与同名 `cli-claw` 发布包复用同一个 launcher 入口，负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。源码仓库的 `bun start` / `npm start` 会委托到 `bun src/cli.ts start`，因此仍属于 launcher 入口；`bun src/index.ts` 只用于 direct backend 调试。
 
 ## 服务自检与 Shadow Start
 
 `/self-status`、`/self-check` 和 `/self-restart` 用于通过正在运行的 Cli Claw 检查仓库自身迭代风险：
 
-- `/self-status` 输出当前 backend PID、启动时间、cwd、已加载 build 与磁盘 build 是否一致，以及最近一次 `/self-check` 结果。
+- `/self-status` 输出当前 backend PID、启动时间、cwd、已加载 build 与磁盘 build 是否一致，以及最近一次 `/self-check` 结果。若当前 backend 由 TypeScript source launcher 启动，build 摘要会明确标注源码运行，dist build 只作为打包参考；agent-runner build stale 仍会保留为需要处理的运行风险。
 - `/self-status` 还会输出当前进程解析出的 self-restart launch spec：是否可安全自重启、launch source，以及 watchdog/launchd 将复用的精确启动命令。
 - `/self-check` 复用 backend 启动时捕获的 authoritative launch spec 启动候选 backend，并用临时 `WEB_PORT` 轮询候选服务的 `/api/health`；结果会展示实际候选命令，便于确认自检目标与当前服务启动入口一致。
 - 候选进程会使用隔离 `HOME`，因此数据目录落在临时 `~/.cli-claw`，不会写入生产 `~/.cli-claw`。
@@ -31,10 +31,10 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 ## 运行时矩阵
 
-| `agentType` | 底层运行时 | 支持执行模式 | 当前认证方式 | 备注 |
-| --- | --- | --- | --- | --- |
-| `claude` | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 向导配置 Claude Provider（OAuth / setup-token / API Key） | 容器镜像当前只内置这条运行时 |
-| `codex` | Codex CLI + `codex-acp` | `host` | 宿主机执行 `codex login` | 不支持 `container`；host preflight 会区分“CLI 不在服务 PATH 中”与“CLI 未登录” |
+| `agentType` | 底层运行时                         | 支持执行模式         | 当前认证方式                                                  | 备注                                                                          |
+| ----------- | ---------------------------------- | -------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `claude`    | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 向导配置 Claude Provider（OAuth / setup-token / API Key） | 容器镜像当前只内置这条运行时                                                  |
+| `codex`     | Codex CLI + `codex-acp`            | `host`               | 宿主机执行 `codex login`                                      | 不支持 `container`；host preflight 会区分“CLI 不在服务 PATH 中”与“CLI 未登录” |
 
 ## 选择规则
 

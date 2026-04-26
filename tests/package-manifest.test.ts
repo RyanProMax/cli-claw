@@ -4,7 +4,9 @@ import { describe, expect, test } from 'vitest';
 
 describe('npm package manifest', () => {
   test('exposes the cli launcher and release packaging contract', () => {
-    const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    const pkg = JSON.parse(
+      fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as {
       name?: string;
       bin?: Record<string, string>;
       files?: string[];
@@ -33,12 +35,14 @@ describe('npm package manifest', () => {
     );
     expect(pkg.files).not.toContain('container/agent-runner/src');
     expect(pkg.files).not.toContain('container/agent-runner/tsconfig.json');
-    expect(pkg.scripts?.start).toBe('bun src/index.ts');
+    expect(pkg.scripts?.start).toBe('bun src/cli.ts start');
     expect(pkg.scripts?.build).toBe(
       'npm run build:shared && npm run build:backend && npm run build:web && npm --prefix container/agent-runner run build:runner',
     );
     expect(pkg.scripts?.['build:web']).toBe('npm --prefix web run build');
-    expect(pkg.scripts?.['release:check']).toBe('bash ./scripts/release-check.sh');
+    expect(pkg.scripts?.['release:check']).toBe(
+      'bash ./scripts/release-check.sh',
+    );
     expect(pkg.scripts?.prepack).toBe('npm run build');
     expect(pkg.scripts?.dev).toBeUndefined();
     expect(pkg.scripts?.['dev:bun']).toBeUndefined();

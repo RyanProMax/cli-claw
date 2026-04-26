@@ -25,6 +25,9 @@ Cli Claw 的“命令”分成两层：
 说明：
 
 - launcher 命令发生在服务外部，不会路由到任何工作区。
+- 长期运行的标准入口是安装到 PATH 上的 `cli-claw start` / `cli-claw restart`。
+- 源码仓库里的 `bun start` / `npm start` 只是开发便利入口；它们委托到 `bun src/cli.ts start`，仍先进入 launcher 层，再启动 backend。若本机 PATH 还找不到已安装的 `cli-claw`，在仓库目录可临时使用 `bun src/cli.ts start` / `bun src/cli.ts restart` 作为 repo-local fallback。不要再把 `bun src/index.ts` 当作推荐启动方式。
+- `bun src/index.ts` / `bun dist/index.js` 属于 direct backend 调试路径；服务可识别并在 `/self-status` 中标注为开发直启，不作为长期 supervisor 或安全重启的推荐入口。
 - `cli-claw start` 会先校验当前目录是否符合 host allowlist，再为缺失 `custom_cwd` 的 host 工作区物化默认值。
 - `cli-claw restart` 不会在当前 shell 里直接 kill/拉起服务；它会复用 backend 启动时保存的 authoritative restart state，写入 restart intent，再交给 watchdog 执行。若当前服务由 `launchd` 托管，watchdog 会改为 `launchctl kickstart -k ...` 保持 supervision。
 - 这些命令与下文的 `/help`、`/model`、`/clear` 等应用内命令不是同一层协议。
@@ -129,7 +132,7 @@ skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发
 - `/autopilot` 只作用于当前工作区；实现形态是一个受控的低优先级后台 interval run，不会创建一个永久存活的独立 agent 进程，也不会把主动模式 prompt 当作普通用户消息写入主对话。
 - 主动模式在执行前会让路给真实用户/IM 消息和已活跃的工作区 runner；运行中若收到用户消息，会请求后台 run 尽快收尾，再处理真实消息。无实质进展的 no-op 结果只写任务日志，不发送用户可见回复。
 - `/autopilot on` 后若当前 `5h < 20%` 或 `week < 10%`，主动模式会立即进入“已因额度不足暂停”；后续由 scheduler 在 quota 恢复后自动恢复。
-- `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-status` 会直接展示当前 backend 解析到的 self-restart launch source 和精确命令，便于判断当前进程是否真的可安全重启；若当前是 `direct_backend` 开发直启路径，还会提示长期运行推荐使用 `cli-claw start` / `cli-claw restart`，并在存在最近非 ok Feishu lifecycle 事件时追加全局“飞书异常”摘要。`/self-check` 会复用当前 backend 捕获的 authoritative launch spec，用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，结果会展示候选命令，不会停止或重启当前服务。
+- `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-status` 会直接展示当前 backend 解析到的 self-restart launch source、source/build artifact mode 和精确命令，便于判断当前进程是否真的可安全重启；若当前是 `direct_backend` 开发直启路径，或 repo-local source launcher 入口，还会提示长期运行推荐使用 `cli-claw start` / `cli-claw restart`。source launcher 模式下，build 摘要会标注“源码运行，dist build 仅供打包参考”，避免把 dist 指纹误当作当前 backend 代码新旧判断；存在最近非 ok Feishu lifecycle 事件时还会追加全局“飞书异常”摘要。`/self-check` 会复用当前 backend 捕获的 authoritative launch spec，用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，结果会展示候选命令，不会停止或重启当前服务。
 - `/self-restart` 仅管理员可用；backend 只会在当前 launch spec 已通过结构校验时写入 restart intent 并启动独立 watchdog。若当前进程的启动命令不安全或不完整（例如只剩 `bun` 空参数），命令会直接失败，不会生成一个注定错误的 intent。watchdog 会先做 shadow self-check，通过后才停止旧 PID、启动同一启动命令并检查生产端口 `/api/health`。它不是 blue-green/rollback 机制，结果以 `~/.cli-claw/ops/restarts/*.json` 为准；重启成功后，新进程会向发起命令的 IM 会话补发一条成功回执，附带当前服务状态和残留进程检查摘要。若摘要里发现真正孤儿的 runner residue，服务会优先按孤儿 runner 进程组发送 `SIGTERM`，必要时再回退到单个 PID 的 best-effort 清理；普通 backend 启动时也会对残留孤儿 runner 执行同一套 best-effort 清理。
 - 对“飞书里让 agent 自己重启 cli-claw 项目”这类场景，不要在任务里直接执行 `pkill` / `kill` / `launchctl bootout` 之类的停机命令；应改用外部 shell 的 `cli-claw restart` 或 IM `/self-restart`，让重启继续走同一条 safe intent/watchdog 路径。
 - IM-origin agent runner 的 Bash / Codex ACP 工具调用会使用更严格的 restart guard：即使命令本身看起来是 safe launcher，也不能由普通 IM 任务上下文自发触发服务重启。只有显式应用内命令 `/self-restart` 或被管理短语改写成的 `self-restart` 命令能从 IM 发起重启。

@@ -1256,6 +1256,62 @@ Risks / Notes / Handoff:
 - Preserve only live backlog in ROADMAP: current true TODOs, monitoring items that still need user-facing observation, and proposed follow-ups with concrete next action.
 - ROADMAP is now reduced to live backlog only; durable Feishu reliability, restart/recovery, autopilot preemption, command, and memory contracts were preserved in owner docs.
 
+### Milestone 27
+
+Objective:
+- Continue P0 `RM-2026-04-25-02` by removing the `bun start` / `cli-claw start` ambiguity: make package `start` enter the launcher layer, and make self-status build reporting source-aware when the backend is running from TypeScript source.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `package.json`
+- `src/startup-launch.ts`
+- `src/im-command-utils.ts`
+- `src/index.ts`
+- `tests/im-command-utils.test.ts`
+- `tests/package-manifest.test.ts`
+- `tests/startup-launch.test.ts`
+- `tests/runtime-build.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-command-utils.test.ts tests/package-manifest.test.ts tests/startup-launch.test.ts tests/runtime-build.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `npx prettier --check package.json src/startup-launch.ts src/im-command-utils.ts src/index.ts tests/im-command-utils.test.ts tests/package-manifest.test.ts tests/startup-launch.test.ts tests/runtime-build.test.ts docs/COMMAND.md docs/RUNTIME.md PLANS/ACTIVE.md PLANS/ROADMAP.md`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - RED confirmed:
+    - `npm test -- --run tests/im-command-utils.test.ts tests/startup-launch.test.ts` failed because source-launched self-status still said `已是当前 build`, and startup launch specs lacked `artifactMode`.
+    - `npm test -- --run tests/package-manifest.test.ts` failed because `package.json` still used `bun src/index.ts`.
+    - Additional RED confirmed `src/cli.ts` and `src/index.ts` relative repo-local entrypoints were not fully accepted/source-tagged.
+  - GREEN validation passed:
+    - `npm test -- --run tests/im-command-utils.test.ts tests/package-manifest.test.ts tests/startup-launch.test.ts tests/runtime-build.test.ts`
+    - `npm run typecheck`
+    - `git diff --check`
+    - `npx prettier --check package.json src/startup-launch.ts src/im-command-utils.ts src/index.ts tests/im-command-utils.test.ts tests/package-manifest.test.ts tests/startup-launch.test.ts tests/runtime-build.test.ts docs/COMMAND.md docs/RUNTIME.md PLANS/ACTIVE.md PLANS/ROADMAP.md`
+    - `./scripts/review.sh`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Use TDD. First add failing expectations for source-launch self-status wording and source-launch mode inference, then implement the smallest production change.
+- Keep this milestone scoped to launch command clarity and status wording. Do not change watchdog semantics, process killing, Feishu delivery, or runner cleanup.
+- `cli-claw start` remains the canonical long-running entrypoint. Repo-local `bun start` / `npm start` should delegate to the same launcher path rather than direct `src/index.ts`.
+- Implemented `StartupLaunchSpec.artifactMode` with source/build/unknown inference for absolute and relative repo-local entrypoints.
+- `package.json` `start` now runs `bun src/cli.ts start`, so `bun start` / `npm start` enter the launcher layer.
+- `/self-status` now marks repo-local source launcher mode and avoids saying dist build is the live backend freshness source.
+- `docs/COMMAND.md` and `docs/RUNTIME.md` now document the standard `cli-claw start/restart` entrypoint, repo-local fallback, direct backend debug boundary, and source-launch build wording.
+- ROADMAP now leaves only the live-service migration/PATH-install follow-up under the launch contract.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1267,23 +1323,30 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 26
+- Milestone 27
 
 Current status:
-- done; ROADMAP has been converged to live follow-up items only and durable completed contracts have been moved into owner docs
+- done; package start now enters the launcher layer, source-launched self-status is source-aware, and docs/roadmap record the remaining live-service migration follow-up
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `docs/ARCHITECTURE.md`
 - `docs/COMMAND.md`
-- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `package.json`
+- `src/startup-launch.ts`
+- `src/im-command-utils.ts`
+- `src/index.ts`
+- `tests/im-command-utils.test.ts`
+- `tests/package-manifest.test.ts`
+- `tests/startup-launch.test.ts`
+- `tests/runtime-build.test.ts`
 
 Last failure summary:
 - none; validation and review passed
 
 Suspected cause:
-- `PLANS/ROADMAP.md` has accumulated completed milestone evidence and old monitoring items that are now either documented in owner docs or superseded by newer consolidated roadmap items.
+- Historical ambiguity came from package `start` bypassing the launcher layer and self-status comparing dist artifacts even when the backend was source-launched.
 
 Next step:
-- Commit the documentation/roadmap convergence.
+- Commit Milestone 27, then apply changes through the safe restart path. The current saved live launch spec may still be `direct_backend`, so switching the live service to launcher ownership remains a separate supervised-start follow-up in ROADMAP.
