@@ -744,11 +744,24 @@ Last failure summary:
   - `git diff --check`
   - `./scripts/review.sh`
 - Earlier Milestone 15 code was committed as `8cf18c7 Harden self restart recovery` and applied by safe restart `restart-2026-04-26T04-58-57-873Z-0f3fa00a`; current backend PID `53009` started at `2026-04-26T04:59:03.519Z` and `/api/health` returned healthy.
-- Follow-up startup cleanup/doc sync still needs fresh full validation, commit, and safe restart because `src/index.ts` changed after `8cf18c7`.
+- Follow-up startup cleanup/doc sync validation passed with:
+  - `npm test -- --run tests/self-restart.test.ts`
+  - `npm test -- --run tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Follow-up review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the updated allowed files.
+  - Startup cleanup reuses the same PGID-first residual summary protections and skips self-check mode.
+  - The helper-level regression covers one-pass inspection and PGID-first cleanup.
+- Startup cleanup follow-up was committed as `0eaf441 Clean residual runners on startup`.
+- Safe restart `restart-2026-04-26T05-04-49-794Z-b2656fb5` passed; current backend PID `57601` started at `2026-04-26T05:04:55.378Z`, and `/api/health` returned healthy.
+- Startup log evidence: residual cleanup attempted orphan runner PGIDs `5327`, `27865`, `44590`, and old active runner PGID `53012`, with no failed runner group ids.
+- Post-restart process table shows only the current backend `57601` and current runner group `57604`; historical orphan `codex-acp` PIDs `5355`, `27978`, and `44614` are gone.
 
 Suspected cause:
 - Self-restart intentionally suppressed Feishu shutdown partial delivery but still treated the interrupted turn as committed.
 - Self-restart residual cleanup only killed individual orphan runner PIDs, missing orphaned runner process groups and descendants.
 
 Next step:
-- Run full Milestone 15 validation for the startup cleanup follow-up, commit it, apply through the documented safe restart path, then record the new restart evidence.
+- No further RM-2026-04-25-01 implementation is selected in this autopilot round; monitor real Feishu usage and runner residue before opening the next milestone.
