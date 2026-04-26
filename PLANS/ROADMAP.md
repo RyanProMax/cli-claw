@@ -116,8 +116,9 @@
   - 2026-04-26 milestone 19 applied: commit `Block IM agent safe restarts`; safe restart `restart-2026-04-26T06-00-46-820Z-0cfc177e` passed, `/api/health` returned healthy for backend PID `78587`, and the post-restart process table showed only the current backend with no residual runner process.
   - 2026-04-26 milestone 20 started: add mocked Feishu continuation-message coverage and a testable agent-runner restart policy helper so the auto-restart incident is covered by regression tests, not only unit-level guard checks.
   - 2026-04-26 milestone 20: Feishu continuation-message regression now proves `继续任务 -` is stored as a normal message instead of becoming `self-restart`; service restart guard coverage now uses a shared agent-runner policy helper for Feishu-vs-Web safe restart behavior. Validation passed with `npm test -- --run tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`, `npm run typecheck`, `npm --prefix container/agent-runner run build:runner`, `git diff --check`, `npx prettier --check shared/service-restart-guard.ts container/agent-runner/src/index.ts tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`, and `./scripts/review.sh`.
+  - 2026-04-26 milestone 20 applied: commit `beea4de Harden Feishu restart regressions`; safe restart `restart-2026-04-26T06-10-50-716Z-6158c2cf` passed with `requestChatJid = null`, `/api/health` returned healthy for backend PID `82418`, and the post-restart process table showed only the current Cli Claw backend and current active runner group.
 - Next action:
-  - Commit and safe-restart Milestone 20, then monitor the next Feishu "继续任务" for absence of an actual service restart. Pending cursor replay and recovery-history leakage remain the next follow-up.
+  - Monitor the next Feishu "继续任务" for absence of an actual service restart. Pending cursor replay and recovery-history leakage remain the next follow-up.
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 

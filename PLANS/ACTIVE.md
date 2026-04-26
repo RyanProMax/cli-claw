@@ -941,6 +941,11 @@ Risks / Notes / Handoff:
   - `npx prettier --check shared/service-restart-guard.ts container/agent-runner/src/index.ts tests/service-restart-guard.test.ts tests/feishu-connection.test.ts`
   - `./scripts/review.sh`
 - Review gate passed against `RUNBOOKS/Review.md`: scope stayed within Milestone 20, both incident-shaped tests are present, no public protocol docs were required, and no blocking regression risk was found.
+- Applied evidence:
+  - Commit `beea4de Harden Feishu restart regressions`.
+  - Safe restart `restart-2026-04-26T06-10-50-716Z-6158c2cf` passed with `requestChatJid = null`.
+  - `/api/health` returned healthy for backend PID `82418`.
+  - Post-restart process table showed the current Cli Claw backend PID `82418` and current active runner group PGID `82421`, with no older Cli Claw runner process group observed.
 
 ## Working Rules
 
@@ -956,7 +961,7 @@ Current milestone:
 - Milestone 20
 
 Current status:
-- done; pending commit and safe restart application
+- done and applied
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -973,4 +978,4 @@ Suspected cause:
 - Previous validations covered pieces of the fix but not the incident-shaped Feishu message path; regressions can slip through if tests do not model the real "Feishu continuation message plus attempted runner restart" flow.
 
 Next step:
-- Commit Milestone 20, then apply via the safe `cli-claw restart` path and record restart evidence.
+- Monitor the next Feishu "继续任务" turn for absence of an actual service restart. Pending cursor replay and recovery-history leakage remain follow-up scope, not part of Milestone 20.
