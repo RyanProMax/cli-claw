@@ -147,8 +147,9 @@
   - 2026-04-26 milestone 16 applied: commit `54c0e47 Warn on direct backend self status`; safe restart `restart-2026-04-26T05-35-28-464Z-595d6899` passed and `/api/health` returned healthy for backend PID `63108`.
   - 2026-04-26 milestone 17: admin `/self-check` now validates the backend-captured authoritative launch spec, propagates candidate cwd, and shows the candidate command in the result. Validation passed with `npm test -- --run tests/self-check.test.ts`, `npm test -- --run tests/im-command-utils.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
   - 2026-04-26 milestone 17 applied: commit `8d80269 Align self-check with launch spec`; safe restart `restart-2026-04-26T07-28-18-396Z-782b72ee` passed and `/api/health` returned healthy for backend PID `86007`.
+  - 2026-04-26 milestone 21: `make start` and the default LaunchAgent install path now route through the canonical `cli-claw start` launcher contract instead of direct backend commands. Validation passed with `npm test -- --run tests/launch-command-contract.test.ts`, `npm run typecheck`, `git diff --check`, and `./scripts/review.sh`.
 - Next action:
-  - Continue launch command contract hardening: route `make start` / LaunchAgent defaults through the launcher and make build-staleness reporting source-aware.
+  - Continue launch command contract hardening: decide whether to rename or relabel `package.json` `npm start`, then make build-staleness reporting source-aware.
 
 ### P0 RM-2026-04-25-03 Feishu Answer/Commentary Presentation Contract
 

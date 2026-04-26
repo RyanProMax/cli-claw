@@ -72,10 +72,11 @@ Usage:
   ops/install-launch-agent.sh uninstall [--label LABEL]
 
 Defaults:
-  install without COMMAND uses: $(command -v bun) src/index.ts
+  install without COMMAND uses: cli-claw start
 
 Examples:
-  ops/install-launch-agent.sh install -- /Users/ryan/.bun/bin/bun src/index.ts
+  ops/install-launch-agent.sh install
+  ops/install-launch-agent.sh install -- /path/to/custom-cli start
   ops/install-launch-agent.sh status
   ops/install-launch-agent.sh uninstall
 EOF
@@ -148,11 +149,11 @@ fi
 mkdir -p "${HOME}/Library/LaunchAgents" "${LOG_DIR}"
 
 if [[ $# -eq 0 ]]; then
-  if ! command -v bun >/dev/null 2>&1; then
-    echo "bun not found in PATH; pass an explicit launch command after --" >&2
+  if ! command -v cli-claw >/dev/null 2>&1; then
+    echo "cli-claw not found in PATH; pass an explicit launch command after --" >&2
     exit 2
   fi
-  PROGRAM_ARGS=("$(command -v bun)" "src/index.ts")
+  PROGRAM_ARGS=("$(command -v cli-claw)" "start")
 else
   PROGRAM_ARGS=("$@")
 fi

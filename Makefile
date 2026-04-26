@@ -20,6 +20,7 @@ else
 endif
 
 CLI_CLAW_HOME := $(HOME)/.cli-claw
+CLI_CLAW ?= cli-claw
 
 # ─── Development ─────────────────────────────────────────────
 
@@ -61,6 +62,7 @@ start: ensure-latest-sdk ## 一键启动生产环境
 	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
 	@$(MAKE) _ensure-docker-image
 	@$(MAKE) build-shared
+	@$(MAKE) build-backend
 	@NEED_SYNC=0; \
 	for target in src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
 	  if [ ! -f "$$target" ] || [ -n "$$(find shared/ -newer "$$target" -name '*.ts' 2>/dev/null | head -1)" ]; then NEED_SYNC=1; break; fi; \
@@ -85,8 +87,6 @@ ifeq ($(HAS_BUN),1)
 	  if [ "$$NEED_AR" = "0" ] && [ -n "$$(find container/agent-runner/src/ -newer container/agent-runner/dist/.tsbuildinfo -name '*.ts' 2>/dev/null | head -1)" ]; then NEED_AR=1; fi; \
 	fi; \
 	if [ "$$NEED_AR" = "1" ]; then echo "🔨 检测到 agent-runner 变更，重新编译..."; cd container/agent-runner && bun run build; else echo "✅ agent-runner 无变更，跳过编译"; fi
-	@echo "⚡ Bun 模式：直接运行 TypeScript，跳过后端编译"
-	bun src/index.ts
 else
 	@NEED_SYNC=0; \
 	for target in src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
@@ -120,8 +120,9 @@ else
 	  if [ "$$NEED_AR" = "0" ] && [ -n "$$(find container/agent-runner/src/ -newer container/agent-runner/dist/.tsbuildinfo -name '*.ts' 2>/dev/null | head -1)" ]; then NEED_AR=1; fi; \
 	fi; \
 	if [ "$$NEED_AR" = "1" ]; then echo "🔨 检测到 agent-runner 变更，重新编译..."; cd container/agent-runner && npm run build; else echo "✅ agent-runner 无变更，跳过编译"; fi
-	node dist/index.js
 endif
+	@echo "🚀 使用 cli-claw launcher 启动服务..."
+	$(CLI_CLAW) start
 
 # ─── Quality ─────────────────────────────────────────────────
 

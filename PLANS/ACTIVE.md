@@ -964,6 +964,53 @@ Risks / Notes / Handoff:
   - `/api/health` returned healthy for backend PID `82418`.
   - Post-restart process table showed the current Cli Claw backend PID `82418` and current active runner group PGID `82421`, with no older Cli Claw runner process group observed.
 
+### Milestone 21
+
+Objective:
+- Route the repo-level production start helpers through the public launcher contract so `make start` and the default LaunchAgent install path use `cli-claw start` instead of direct backend `bun src/index.ts` / `node dist/index.js`.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `Makefile`
+- `ops/install-launch-agent.sh`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `tests/launch-command-contract.test.ts`
+
+Validation:
+- `npm test -- --run tests/launch-command-contract.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep this milestone scoped to production helper defaults. Do not change `package.json` `npm start`, build-staleness reporting, self-check, or restart semantics here.
+- Follow TDD: add a failing launch command contract test first, then update `Makefile`, `ops/install-launch-agent.sh`, and owner docs.
+- TDD red observed before implementation: `npm test -- --run tests/launch-command-contract.test.ts` failed because `make start` still ended in direct backend commands and the LaunchAgent default still used `$(command -v bun) src/index.ts`.
+- `make start` now builds backend output before launching and delegates the final service process to `$(CLI_CLAW) start`, with `CLI_CLAW ?= cli-claw` for explicit overrides.
+- `ops/install-launch-agent.sh` now defaults to the resolved `cli-claw` launcher plus `start`; direct backend LaunchAgent commands are only available through an explicit `-- COMMAND [ARGS...]`.
+- `docs/COMMAND.md` and `docs/RUNTIME.md` document the new LaunchAgent default.
+- Validation passed:
+  - `npm test -- --run tests/launch-command-contract.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- Review gate passed against `RUNBOOKS/Review.md`:
+  - Scope stayed within the allowed files.
+  - The launch helper defaults now align with the canonical `cli-claw start` contract.
+  - `package.json` `npm start`, build-staleness reporting, self-check, and restart semantics remain untouched for later milestones.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -975,24 +1022,25 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 20
+- Milestone 21
 
 Current status:
-- done and applied
+- done; no safe restart required
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `shared/service-restart-guard.ts`
-- `container/agent-runner/src/index.ts`
-- `tests/service-restart-guard.test.ts`
-- `tests/feishu-connection.test.ts`
+- `Makefile`
+- `ops/install-launch-agent.sh`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `tests/launch-command-contract.test.ts`
 
 Last failure summary:
-- No current validation or review failures. Milestone 20 validation and review passed.
+- No current validation or review failures. Milestone 21 validation and review passed.
 
 Suspected cause:
-- Previous validations covered pieces of the fix but not the incident-shaped Feishu message path; regressions can slip through if tests do not model the real "Feishu continuation message plus attempted runner restart" flow.
+- Repo-level production helpers still carry direct backend defaults from before the public launcher contract became canonical.
 
 Next step:
-- Monitor the next Feishu "继续任务" turn for absence of an actual service restart. Pending cursor replay and recovery-history leakage remain follow-up scope, not part of Milestone 20.
+- Continue the next RM-2026-04-25-02 follow-up: decide whether to rename or relabel `package.json` `npm start`, then make build-staleness reporting source-aware.

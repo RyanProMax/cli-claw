@@ -27,7 +27,7 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 `/self-restart` 不是 blue-green 或 rollback 机制。它能避免“preflight 失败还杀旧进程”的 badcase，但不能保证源码/二进制级回滚；更强的生产发布仍应使用 release 目录、symlink 或系统级 supervisor。
 
-对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 应复用 `/self-status` 暴露的同一份 validated launch command，而不是另起一套不同的启动脚本；安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` / `codex` 这类宿主机 runtime 依赖，同时注入 `CLI_CLAW_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
+对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 默认使用 `cli-claw start`，也可以通过 `-- COMMAND [ARGS...]` 显式复用 `/self-status` 暴露的 validated launch command；不要另起一套不同的启动脚本。安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` / `codex` 这类宿主机 runtime 依赖，同时注入 `CLI_CLAW_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
 
 ## 运行时矩阵
 
