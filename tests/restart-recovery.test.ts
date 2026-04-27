@@ -27,67 +27,55 @@ afterEach(() => {
 });
 
 describe('restart recovery cursor handling', () => {
-  test('keeps IM runtime slots distinct without falling back to the web slot', async () => {
-    const {
-      resolvePrimaryRuntimeSessionSlot,
-      resolvePrimaryRuntimeSessionId,
-      shouldPersistPrimaryRuntimeSession,
-    } = await loadIndexModule();
+  test('uses the same primary runtime session for web and IM-origin main turns', async () => {
+    const { resolvePrimaryRuntimeSessionId } = await loadIndexModule();
     const sessions = { main: 'web-session-1' };
-    const loadSession = vi.fn((folder: string, slot?: string | null) =>
-      folder === 'main' && slot === 'im:feishu:chat-1'
-        ? 'feishu-session-1'
-        : undefined,
-    );
+    const loadSession = vi.fn(() => 'db-session-1');
 
-    expect(resolvePrimaryRuntimeSessionSlot(null)).toBeNull();
-    expect(resolvePrimaryRuntimeSessionSlot('web:main')).toBeNull();
-    expect(resolvePrimaryRuntimeSessionSlot('feishu:chat-1')).toBe(
-      'im:feishu:chat-1',
-    );
-    expect(shouldPersistPrimaryRuntimeSession(null)).toBe(true);
-    expect(shouldPersistPrimaryRuntimeSession('im:feishu:chat-1')).toBe(false);
     expect(
       resolvePrimaryRuntimeSessionId({
         folder: 'main',
-        sessionSlot: null,
         sessions,
         loadSession,
       }),
     ).toBe('web-session-1');
-    expect(
-      resolvePrimaryRuntimeSessionId({
-        folder: 'main',
-        sessionSlot: 'im:feishu:chat-1',
-        sessions,
-        loadSession,
-      }),
-    ).toBeUndefined();
-    expect(loadSession).not.toHaveBeenCalledWith('main', 'im:feishu:chat-1');
+    expect(loadSession).not.toHaveBeenCalled();
   });
 
-  test('does not resume runtime sessions for IM-origin main conversation turns', async () => {
-    const {
-      resolvePrimaryRuntimeSessionSlot,
-      resolvePrimaryRuntimeSessionId,
-      shouldPersistPrimaryRuntimeSession,
-    } = await loadIndexModule();
-    const sessions = { main: 'web-session-1' };
-    const loadSession = vi.fn(() => 'stale-im-session');
+  test('falls back to the persisted primary session when memory cache is empty', async () => {
+    const { resolvePrimaryRuntimeSessionId } = await loadIndexModule();
+    const loadSession = vi.fn(() => 'persisted-primary-session');
 
-    const imSlot = resolvePrimaryRuntimeSessionSlot('feishu:chat-1');
-
-    expect(imSlot).toBe('im:feishu:chat-1');
-    expect(shouldPersistPrimaryRuntimeSession(imSlot)).toBe(false);
     expect(
       resolvePrimaryRuntimeSessionId({
         folder: 'main',
-        sessionSlot: imSlot,
-        sessions,
+        sessions: {},
         loadSession,
       }),
-    ).toBeUndefined();
-    expect(loadSession).not.toHaveBeenCalled();
+    ).toBe('persisted-primary-session');
+    expect(loadSession).toHaveBeenCalledWith('main');
+  });
+
+  test('selects only the leading contiguous source batch for a primary turn', async () => {
+    const { selectLeadingSourceTurnMessages } = await loadIndexModule();
+    const messages = [
+      { id: 'a1', chat_jid: 'web:main', source_jid: 'feishu:A' },
+      { id: 'a2', chat_jid: 'web:main', source_jid: 'feishu:A' },
+      { id: 'b1', chat_jid: 'web:main', source_jid: 'feishu:B' },
+      { id: 'a3', chat_jid: 'web:main', source_jid: 'feishu:A' },
+      { id: 'b2', chat_jid: 'web:main', source_jid: 'feishu:B' },
+      { id: 'b3', chat_jid: 'web:main', source_jid: 'feishu:B' },
+    ].map((message, index) => ({
+      ...message,
+      sender: 'user',
+      sender_name: 'User',
+      content: message.id,
+      timestamp: `2026-04-27T10:00:0${index}.000Z`,
+    }));
+
+    expect(
+      selectLeadingSourceTurnMessages(messages, 'web:main').map((m) => m.id),
+    ).toEqual(['a1', 'a2']);
   });
 
   test('creates a late-bound streaming session once the IM channel becomes available', async () => {

@@ -72,17 +72,18 @@
 
 - Status: `monitoring`
 - Source: 2026-04-25 user request item `5`; restart recovery and resume-gate incidents
-- Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息，除非用户显式要求恢复上下文；历史上下文和 recovery context 不能让 agent “继续上一轮”。
+- Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息，除非用户显式要求恢复上下文；连续性由同一 workspace 主 runtime session 提供，不能靠 recovery context 自动拼接历史。
 - Current state:
   - Startup recovery ignores internal prompt/command/assistant/system rows.
   - Interrupted residual context now requires explicit user confirmation before old context can be replayed.
   - `docs/MEMORY.md` documents the current recovery and resume boundaries.
-  - Milestone 32 separates Web primary runtime sessions from IM-origin primary runtime session slots and blocks unsafe IM-to-Web runner IPC.
-  - Main workspace reset paths delete all primary runtime slots (`''` and `im:*`) while preserving conversation agent sessions.
-  - Latest applied evidence: commit `38e6ef4 Isolate IM primary runtime sessions`; safe restart `restart-2026-04-26T14-14-01-621Z-556190ce` passed; `/api/health` was healthy for backend PID `48618`; post-restart process snapshot showed no older Cli Claw runner process group.
+  - Milestone 38 replaces IM source runtime isolation with one primary runtime session per workspace.
+  - Primary turn selection now processes contiguous same-source pending messages in DB order; different sources wait for the next turn instead of being regrouped or mixed into the active source.
+  - Restart recovery resumes the saved runtime session and pending messages; it no longer clears the primary session or injects compact DB history.
+  - Main workspace reset paths delete only the primary runtime slot while preserving conversation agent sessions.
 - Next action:
-  - Split “crash recovery for uncommitted pending work” from ordinary activation after idle/restart; only true crash recovery may inject compact history.
-  - Add remaining regression tests for restart first-turn, autopilot/no-op history, and Codex context-window auto-reset after real traffic confirms the source-slot fix.
+  - Monitor real Feishu/Web mixed-channel turns after applying Milestone 38; expected behavior is ordered contiguous-source turns using one shared runtime session.
+  - Add remaining regression tests for Codex context-window auto-reset only if real traffic shows recurrence.
 
 ### P1 RM-2026-04-25-05 Workspace Autopilot Resource Governance
 
@@ -90,7 +91,7 @@
 - Source: 2026-04-25 task-run logs; 2026-04-26 interrupted autopilot visible reply incident
 - Summary: 主动模式不能长期占用 Codex、制造过程性文本、消耗上下文或影响飞书回复；它需要更窄的 health-check contract、短超时和独立会话/模型策略。
 - Current state:
-  - Autopilot is a low-priority background task, skips busy/pending IM work, backs off repeated failures, and suppresses preempted visible replies.
+  - Autopilot is a low-priority background task, skips busy workspace queues, backs off repeated failures, and suppresses preempted visible replies.
   - `docs/ARCHITECTURE.md` documents the current autopilot execution and preemption contract.
 - Next action:
   - Convert autopilot from general agent prompt into bounded health-check jobs that emit structured `no_op | action | risk`.

@@ -34,8 +34,8 @@ Cli Claw 里有三类容易混淆的数据：
 
 - 主工作区会把用户全局 `AGENTS.md` 和截断后的 `HEARTBEAT.md` 注入系统提示。
 - 其他工作区可通过 `memory_search` / `memory_get` 查找全局、工作区、日期记忆和对话归档。
-- 常规对话只把最近新增 turn 发送给 runner；更早内容依赖 runtime session 自己续用。Web 主对话和每个 IM 来源使用不同的主会话 runtime slot，因此飞书等 IM 的新 turn 不会自动继承同一工作区 Web 侧正在进行或已经保存的 runtime transcript。
-- 服务重启恢复只用于已入库但尚未提交 cursor 的待处理用户消息；该路径会先清理可能脏掉的 runtime session，再注入压缩后的最近历史，避免丢失真实 crash/restart 前未完成的用户工作。普通激活、闲置后新消息和新的 IM turn 不走这条历史注入路径。
+- 常规对话只把当前待处理 turn 发送给 runner；更早内容依赖 runtime session 自己续用。同一个 workspace 主对话的 Web / IM channel 共用同一份主 runtime session，channel 只决定消息来源和回复路由。
+- 服务重启恢复只用于已入库但尚未提交 cursor 的待处理用户消息；该路径恢复原 runtime session 并发送待处理消息，不再把数据库最近历史拼成 `<system_context>` 注入 prompt。
 - restart recovery 只能服务于“已入库但尚未提交 cursor 的待处理用户消息”；`scheduled_task_prompt`、`user_command`、assistant、system 等内部行不能触发恢复 prompt 或被回放成用户输入。
 - 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 会先挂起旧任务快照并询问用户是否继续上次任务；只有用户明确回复继续时才会把旧中断上下文送入 runner，回复忽略或发送新需求时只处理新消息。
 
@@ -44,7 +44,7 @@ Cli Claw 里有三类容易混淆的数据：
 - `messages.db` 没有按天自动清理；会随聊天增长。清除历史、删除工作区或删除 conversation agent 会删除对应消息；SQLite 文件体积需要 `VACUUM` 才会真正回收。
 - Runtime transcript 不统一落在 `~/.cli-claw/sessions`：Claude 使用 `~/.cli-claw/sessions/{folder}/.claude/`，Codex 使用自己的 `~/.codex/sessions/**/*.jsonl`。Cli Claw 的 `sessions` 表只保存当前 session id。
 - 日期记忆按追加写入，单次 append 有大小上限，单个记忆文件约 500KB 上限；搜索会跳过过大的记忆文件。
-- `/clear` 或 reset session 只清 runtime 上下文，不删除聊天历史或长期记忆；主对话 reset 会清默认 Web 主会话 slot 和 `im:*` 主会话 slot，但保留 conversation agent 自己的 session；clear-history 会清聊天历史、session 和该工作区运行时 artifacts。
+- `/clear` 或 reset session 只清 runtime 上下文，不删除聊天历史或长期记忆；主对话 reset 会清该 workspace 的主会话 slot，但保留 conversation agent 自己的 session；clear-history 会清聊天历史、session 和该工作区运行时 artifacts。
 
 ## 边界
 

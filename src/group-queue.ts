@@ -5,7 +5,6 @@ import path from 'path';
 import { DATA_DIR } from './config.js';
 import { killProcessTree } from './container-runner.js';
 import { getTaskById } from './db.js';
-import { getChannelType } from './im-channel.js';
 import { getSystemSettings } from './runtime-config.js';
 import { logger } from './logger.js';
 import type { MessageCursor } from './types.js';
@@ -50,6 +49,8 @@ interface GroupState {
   agentId: string | null;
   /** Isolated task run ID — used for tasks-run/{taskRunId}/ IPC namespace. */
   taskRunId: string | null;
+  /** Source JID of the turn currently owned by this active runner. */
+  activeSourceJid: string | null;
   retryCount: number;
   retryTimer: ReturnType<typeof setTimeout> | null;
   restarting: boolean;
@@ -92,9 +93,6 @@ export class GroupQueue {
   private onUnconsumedAgentIpcFn:
     | ((groupJid: string, agentId: string) => void)
     | null = null;
-  private pendingImSiblingResolver:
-    | ((groupJid: string) => string | null)
-    | null = null;
 
   private getGroup(groupJid: string): GroupState {
     let state = this.groups.get(groupJid);
@@ -113,6 +111,7 @@ export class GroupQueue {
         groupFolder: null,
         agentId: null,
         taskRunId: null,
+        activeSourceJid: null,
         retryCount: 0,
         retryTimer: null,
         restarting: false,
@@ -166,10 +165,6 @@ export class GroupQueue {
     fn: (groupJid: string, agentId: string) => void,
   ): void {
     this.onUnconsumedAgentIpcFn = fn;
-  }
-
-  setPendingImSiblingResolver(fn: (groupJid: string) => string | null): void {
-    this.pendingImSiblingResolver = fn;
   }
 
   /**
@@ -234,78 +229,6 @@ export class GroupQueue {
     const shared = this.getGroup(activeRunner);
     if (!shared.active || !shared.groupFolder) return null;
     return shared as ActiveGroupState;
-  }
-
-  private hasInjectedImSource(
-    state: Pick<GroupState, 'ipcInjectedMessageJids'>,
-  ) {
-    for (const jid of state.ipcInjectedMessageJids) {
-      if (getChannelType(jid) !== null) return true;
-    }
-    return false;
-  }
-
-  private hasWaitingImSibling(groupJid: string): boolean {
-    const key = this.getSerializationKey(groupJid);
-    for (const jid of this.waitingGroups) {
-      if (jid === groupJid) continue;
-      if (getChannelType(jid) === null) continue;
-      if (this.getSerializationKey(jid) !== key) continue;
-      return true;
-    }
-    return false;
-  }
-
-  private findPendingImSibling(groupJid: string): string | null {
-    if (getChannelType(groupJid) !== null) return null;
-    if (!this.pendingImSiblingResolver) return null;
-
-    let siblingJid: string | null = null;
-    try {
-      siblingJid = this.pendingImSiblingResolver(groupJid);
-    } catch (err) {
-      logger.warn({ groupJid, err }, 'Failed to resolve pending IM sibling');
-      return null;
-    }
-
-    if (!siblingJid || siblingJid === groupJid) return null;
-    if (getChannelType(siblingJid) === null) return null;
-    if (
-      this.getSerializationKey(siblingJid) !==
-      this.getSerializationKey(groupJid)
-    ) {
-      return null;
-    }
-    return siblingJid;
-  }
-
-  private promotePendingImSibling(
-    groupJid: string,
-    reason: string,
-  ): string | null {
-    const siblingJid = this.findPendingImSibling(groupJid);
-    if (!siblingJid) return null;
-
-    const siblingState = this.getGroup(siblingJid);
-    siblingState.pendingMessages = true;
-    this.waitingGroups.add(siblingJid);
-    logger.info({ groupJid, siblingJid }, reason);
-    return siblingJid;
-  }
-
-  private shouldDeferWebWaitingCandidate(groupJid: string): boolean {
-    return (
-      getChannelType(groupJid) === null &&
-      (this.hasWaitingImSibling(groupJid) ||
-        this.findPendingImSibling(groupJid) !== null)
-    );
-  }
-
-  hasPendingImSibling(groupJid: string): boolean {
-    return (
-      this.hasWaitingImSibling(groupJid) ||
-      this.findPendingImSibling(groupJid) !== null
-    );
   }
 
   hasActiveOrPendingWork(groupJid: string): boolean {
@@ -378,58 +301,6 @@ export class GroupQueue {
       return task;
     }
     return null;
-  }
-
-  /**
-   * Web/workspace-originated work must not hijack an active sibling IM runner.
-   * Otherwise a queued `web:main` task can clear the IM reply route, turning a
-   * real IM recovery turn into a DB-only reply with no visible follow-up.
-   */
-  private shouldDeferWebWorkBehindImRunner(
-    groupJid: string,
-    activeRunnerJid: string | null,
-    activeState: ActiveGroupState | null = null,
-  ): boolean {
-    if (getChannelType(groupJid) !== null) return false;
-    if (!activeRunnerJid) return false;
-    if (
-      activeRunnerJid !== groupJid &&
-      getChannelType(activeRunnerJid) !== null
-    )
-      return true;
-    return !!activeState && this.hasInjectedImSource(activeState);
-  }
-
-  /**
-   * IM-originated user work must not be piped into an already-running Web
-   * runner. The Web runner may be processing an unrelated browser/autopilot
-   * turn and would otherwise answer with stale context on the IM card.
-   */
-  private shouldDeferImWorkBehindWebRunner(
-    groupJid: string,
-    activeRunnerJid: string | null,
-    sourceJid?: string | null,
-  ): boolean {
-    const originJid = sourceJid || groupJid;
-    if (getChannelType(originJid) === null) return false;
-    if (!activeRunnerJid) return false;
-    return getChannelType(activeRunnerJid) === null;
-  }
-
-  /**
-   * IM turns should not be appended to an idle runner after the previous answer
-   * completed. While a query is still in flight we still allow IPC aggregation,
-   * so rapid-fire messages remain one natural turn.
-   */
-  private shouldStartFreshCompletedImTurn(
-    groupJid: string,
-    state: ActiveGroupState,
-    sourceJid?: string | null,
-  ): boolean {
-    const originJid = sourceJid || groupJid;
-    if (getChannelType(originJid) === null) return false;
-    if (state.queryInFlight) return false;
-    return true;
   }
 
   /**
@@ -563,13 +434,8 @@ export class GroupQueue {
     if (this.shuttingDown) return;
 
     const state = this.getGroup(groupJid);
-    const pendingImSibling = this.promotePendingImSibling(
-      groupJid,
-      'Deferring web-originated work behind uncommitted IM sibling',
-    );
 
     const activeRunner = this.findActiveRunnerFor(groupJid);
-    const activeState = this.resolveActiveState(groupJid);
     if (state.active || (activeRunner && activeRunner !== groupJid)) {
       state.pendingMessages = true;
       this.waitingGroups.add(groupJid);
@@ -580,36 +446,18 @@ export class GroupQueue {
         )
       ) {
         // The pending message will run when the background task exits.
-      } else if (
-        !this.shouldDeferWebWorkBehindImRunner(
-          groupJid,
-          activeRunner,
-          activeState,
-        )
-      ) {
+      } else {
         // Write _drain to the actual active runner so sibling JIDs sharing one
         // folder also unblock immediately instead of waiting for idle timeout.
         this.requestDrainForActiveRunner(
           groupJid,
           'Drain sentinel written during enqueueMessageCheck to unblock pending messages',
         );
-      } else {
-        logger.debug(
-          { groupJid, activeRunner },
-          'Queued web-originated work behind active IM runner without drain',
-        );
       }
       logger.debug(
         { groupJid, activeRunner: activeRunner || groupJid },
         'Group runner active, message queued',
       );
-      return;
-    }
-
-    if (pendingImSibling) {
-      state.pendingMessages = true;
-      this.waitingGroups.add(groupJid);
-      this.drainWaiting();
       return;
     }
 
@@ -667,10 +515,7 @@ export class GroupQueue {
       return;
     }
 
-    if (
-      priority >= BACKGROUND_TASK_PRIORITY &&
-      (state.pendingMessages || this.hasPendingImSibling(groupJid))
-    ) {
+    if (priority >= BACKGROUND_TASK_PRIORITY && state.pendingMessages) {
       state.pendingTasks.push({
         id: taskId,
         groupJid,
@@ -730,6 +575,7 @@ export class GroupQueue {
     displayName?: string,
     agentId?: string,
     taskRunId?: string,
+    activeSourceJid?: string | null,
   ): void {
     const state = this.getGroup(groupJid);
     state.process = proc;
@@ -738,6 +584,7 @@ export class GroupQueue {
     if (groupFolder) state.groupFolder = groupFolder;
     state.agentId = agentId || null;
     state.taskRunId = taskRunId || null;
+    state.activeSourceJid = activeSourceJid ?? null;
   }
 
   /**
@@ -786,37 +633,23 @@ export class GroupQueue {
     const activeRunner = this.findActiveRunnerFor(groupJid);
     const state = this.resolveActiveState(groupJid);
     if (!state) return 'no_active';
-    if (
-      getChannelType(groupJid) === null &&
-      (this.findPendingImSibling(groupJid) ||
-        this.hasWaitingImSibling(groupJid))
-    ) {
+    const messageSourceJid = sourceJid || groupJid;
+    if (state.activeSourceJid && state.activeSourceJid !== messageSourceJid) {
       logger.debug(
-        { groupJid, activeRunner },
-        'Deferring web-originated IPC behind uncommitted IM sibling',
+        {
+          groupJid,
+          activeRunner,
+          activeSourceJid: state.activeSourceJid,
+          messageSourceJid,
+        },
+        'Deferring IPC behind active turn from another source',
       );
       return 'no_active';
     }
-    if (getChannelType(groupJid) === null && state.pendingMessages) {
+    if (state.pendingMessages) {
       logger.debug(
         { groupJid, activeRunner },
-        'Deferring web-originated IPC behind already queued messages',
-      );
-      return 'no_active';
-    }
-    if (
-      this.shouldDeferImWorkBehindWebRunner(groupJid, activeRunner, sourceJid)
-    ) {
-      logger.debug(
-        { groupJid, activeRunner, sourceJid },
-        'Deferring IM-originated IPC behind active Web runner',
-      );
-      return 'no_active';
-    }
-    if (this.shouldDeferWebWorkBehindImRunner(groupJid, activeRunner, state)) {
-      logger.debug(
-        { groupJid, activeRunner },
-        'Deferring web-originated IPC behind active IM runner',
+        'Deferring IPC behind already queued messages',
       );
       return 'no_active';
     }
@@ -841,15 +674,6 @@ export class GroupQueue {
       logger.debug(
         { groupJid },
         'Active runner is a scheduled task; deferring user message until task completes',
-      );
-      return 'no_active';
-    }
-
-    if (this.shouldStartFreshCompletedImTurn(groupJid, state, sourceJid)) {
-      this.closeStdin(groupJid);
-      logger.debug(
-        { groupJid, activeRunner, sourceJid },
-        'Deferring completed IM turn behind fresh runner to avoid transcript reuse',
       );
       return 'no_active';
     }
@@ -1365,6 +1189,7 @@ export class GroupQueue {
       state.groupFolder = null;
       state.agentId = null;
       state.taskRunId = null;
+      state.activeSourceJid = null;
       this.activeCount--;
       if (isHostMode) {
         this.activeHostProcessCount--;
@@ -1535,23 +1360,6 @@ export class GroupQueue {
       return;
     }
 
-    if (
-      getChannelType(groupJid) === null &&
-      state.pendingMessages &&
-      (this.hasWaitingImSibling(groupJid) ||
-        this.promotePendingImSibling(
-          groupJid,
-          'Deferring drained web work behind uncommitted IM sibling',
-        ) !== null)
-    ) {
-      // An IM sibling was re-queued from a shared runner exit. Let that IM
-      // turn commit before restarting web/autopilot work on the same folder.
-      this.waitingGroups.delete(groupJid);
-      this.waitingGroups.add(groupJid);
-      this.drainWaiting();
-      return;
-    }
-
     // Foreground tasks first (they won't be re-discovered from SQLite like
     // messages), then pending messages, then low-priority background work.
     const foregroundTask = this.takeNextPendingTask(state, {
@@ -1589,21 +1397,9 @@ export class GroupQueue {
     // Drain waiting groups one at a time, re-checking capacity after each launch.
     // runTask/runForGroup increment counters synchronously, so capacity checks
     // stay accurate even though the async work is not awaited.
-    for (const jid of [...this.waitingGroups]) {
-      if (getChannelType(jid) === null) {
-        this.promotePendingImSibling(
-          jid,
-          'Deferring waiting web work behind uncommitted IM sibling',
-        );
-      }
-    }
     const candidates = [...this.waitingGroups];
-    const orderedCandidates = [
-      ...candidates.filter((jid) => !this.shouldDeferWebWaitingCandidate(jid)),
-      ...candidates.filter((jid) => this.shouldDeferWebWaitingCandidate(jid)),
-    ];
 
-    for (const jid of orderedCandidates) {
+    for (const jid of candidates) {
       const activeRunner = this.findActiveRunnerFor(jid);
       if (activeRunner && activeRunner !== jid) continue;
       if (!this.hasCapacityFor(jid)) continue;

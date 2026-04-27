@@ -289,22 +289,9 @@ interface RunWorkspaceAutopilotOptions {
 }
 
 function shouldPublishWorkspaceAutopilotVisibleResult(
-  deps: SchedulerDependencies,
-  targetGroupJid: string,
   result: string | null,
 ): boolean {
-  if (!shouldPublishWorkspaceAutopilotResult(result)) return false;
-  const hasPendingImSibling = (
-    deps.queue as { hasPendingImSibling?: (jid: string) => boolean }
-  ).hasPendingImSibling;
-  if (hasPendingImSibling?.(targetGroupJid)) {
-    logger.info(
-      { targetGroupJid },
-      'Suppressing workspace autopilot visible result behind pending IM work',
-    );
-    return false;
-  }
-  return true;
+  return shouldPublishWorkspaceAutopilotResult(result);
 }
 
 const runningTaskIds = new Set<string>();
@@ -392,9 +379,6 @@ function getWorkspaceAutopilotSkipReason(
   deps: SchedulerDependencies,
   targetGroupJid: string,
 ): string | null {
-  if (deps.queue.hasPendingImSibling(targetGroupJid)) {
-    return 'skipped: pending IM message';
-  }
   if (deps.queue.hasActiveOrPendingWork(targetGroupJid)) {
     return 'skipped: workspace busy';
   }
@@ -1082,10 +1066,7 @@ export async function runWorkspaceAutopilotTask(
       result = output.result;
     }
 
-    if (
-      !error &&
-      shouldPublishWorkspaceAutopilotVisibleResult(deps, targetGroupJid, result)
-    ) {
+    if (!error && shouldPublishWorkspaceAutopilotVisibleResult(result)) {
       await deps.sendMessage(targetGroupJid, result!.trim(), {
         source: 'scheduled_task',
       });

@@ -1754,23 +1754,87 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 37
+- Milestone 38
 
 Current status:
-- done; built-in skill docs and shared security prompt are shorter and grouped by trigger, rules, workflow, and reference
+- done; destructive refactor makes workspace primary conversations use one runtime session across Web/IM channels, processes contiguous same-source batches in order, and removes restart recovery history injection
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `container/agent-runner/prompts/security-rules.md`
-- `container/skills/agent-browser/SKILL.md`
-- `container/skills/install-skill/SKILL.md`
-- `container/skills/post-test-cleanup/SKILL.md`
+- `PLANS/ROADMAP.md`
+- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `src/context-compaction.ts`
+- `src/db.ts`
+- `src/group-queue.ts`
+- `src/index.ts`
+- `src/task-scheduler.ts`
+- `tests/context-compaction.test.ts`
+- `tests/group-queue.test.ts`
+- `tests/restart-recovery.test.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
 
 Last failure summary:
-- Resolved: initial markdown formatting check flagged `container/skills/install-skill/SKILL.md`; Prettier formatting fixed it.
+- Resolved: full `npm test -- --run` initially failed because `getRecentImMessageLifecycleIssueEvents()` only returned `error` rows, while lifecycle/self-status tests and real Feishu restart evidence treat `skipped` as a non-ok issue. Query now returns all `status != 'ok'`.
 
 Suspected cause:
-- Documentation drift had accumulated repeated safety, workflow, and reference details across skill docs and the shared security prompt.
+- Previous mitigations coupled channel routing with runtime session isolation and recovery history injection, causing Feishu/IM turns to lose continuity or receive stale context.
 
 Next step:
-- Commit the documentation cleanup.
+- Commit Milestone 38; do not restart the live service because the user has active work running.
+
+
+### Milestone 38
+
+Objective:
+- Simplify primary conversation semantics: every channel bound to one workspace uses the same primary runtime session and queue, messages are processed in DB order with only contiguous same-source messages merged into one turn, restart recovery resumes the saved runtime session instead of injecting DB history, and `/clear` resets only the current runtime session context.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `docs/MEMORY.md`
+- `src/context-compaction.ts`
+- `src/db.ts`
+- `src/group-queue.ts`
+- `src/index.ts`
+- `src/task-scheduler.ts`
+- `tests/group-queue.test.ts`
+- `tests/restart-recovery.test.ts`
+- `tests/context-compaction.test.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts tests/group-queue.test.ts tests/context-compaction.test.ts tests/task-scheduler-host-cwd.test.ts`
+- `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/group-queue.test.ts tests/context-compaction.test.ts tests/task-scheduler-host-cwd.test.ts tests/im-command-utils.test.ts tests/im-message-lifecycle.test.ts`
+- `npm test -- --run`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/RUNTIME.md docs/MEMORY.md src/db.ts src/group-queue.ts src/index.ts src/task-scheduler.ts tests/restart-recovery.test.ts tests/group-queue.test.ts tests/context-compaction.test.ts tests/task-scheduler-host-cwd.test.ts`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - RED confirmed first with `npm test -- --run tests/restart-recovery.test.ts tests/group-queue.test.ts`.
+  - `npm test -- --run tests/restart-recovery.test.ts tests/group-queue.test.ts tests/context-compaction.test.ts tests/task-scheduler-host-cwd.test.ts tests/im-command-utils.test.ts`: passed, 71 tests.
+  - `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/group-queue.test.ts tests/context-compaction.test.ts tests/task-scheduler-host-cwd.test.ts tests/im-command-utils.test.ts tests/im-message-lifecycle.test.ts`: passed, 85 tests.
+  - `npm test -- --run`: passed, 61 files / 409 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check ...`: passed.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: updated to include `src/context-compaction.ts`; no unplanned files remain in the final diff.
+  - Objective: old IM runtime slots, recovery history injection, and pending-IM-sibling queue branches are removed; shared primary runtime session and source-ordered turn cutting are covered by tests.
+  - Docs: `docs/RUNTIME.md`, `docs/MEMORY.md`, and `PLANS/ROADMAP.md` describe the new contract.
+
+Risks / Notes / Handoff:
+- Do not restart the live service after this implementation; the user has active work running.
+- Destructive cleanup is intentional: remove old IM runtime-slot persistence rules, pending-IM-sibling prioritization, completed-IM fresh-runner guards, and restart recovery history injection rather than preserving compatibility branches.
+- Queue order contract: for pending source sequence `A1 A2 B1 A3 B2 B3`, process `A1+A2`, then `B1`, then `A3`, then `B2+B3`; do not regroup non-contiguous sources.

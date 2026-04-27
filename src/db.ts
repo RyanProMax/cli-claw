@@ -2019,7 +2019,7 @@ export function getRecentImMessageLifecycleIssueEvents(filter: {
       `SELECT *
        FROM im_message_lifecycle_events
        WHERE provider = ?
-         AND status = 'error'
+         AND status != 'ok'
        ${chatWhere}
        ORDER BY created_at DESC, id DESC
        LIMIT ?`,
@@ -2384,7 +2384,7 @@ export function deleteSession(
 
 export function deletePrimaryRuntimeSessions(groupFolder: string): void {
   db.prepare(
-    "DELETE FROM sessions WHERE group_folder = ? AND (agent_id = '' OR agent_id LIKE 'im:%')",
+    "DELETE FROM sessions WHERE group_folder = ? AND agent_id = ''",
   ).run(groupFolder);
 }
 

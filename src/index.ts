@@ -280,7 +280,6 @@ import {
 } from './startup-launch.js';
 import { getCodexRuntimeFallback } from './codex-config.js';
 import {
-  buildRecoveryContext,
   compactMessagesForAgent,
   selectRecentTurnMessages,
 } from './context-compaction.js';
@@ -911,9 +910,8 @@ const imSendFailCounts = new Map<string, number>();
 const IM_SEND_FAIL_THRESHOLD = 3;
 
 // Groups whose pending messages were recovered after a restart.
-// processGroupMessages injects recent conversation history for these groups
-// so the fresh session has context despite the session being cleared.
 const recoveryGroups = new Set<string>();
+const agentRecoveryVirtualJids = new Set<string>();
 
 interface PendingInterruptedResumeConfirmation {
   chatJid: string;
@@ -1028,28 +1026,6 @@ function resolveEffectiveGroup(group: RegisteredGroup): {
   }
 
   return { effectiveGroup: group, isHome: false };
-}
-
-function findUncommittedImSiblingForWebWork(groupJid: string): string | null {
-  const baseJid = stripVirtualJidSuffix(groupJid);
-  if (getChannelType(baseJid) !== null) return null;
-
-  const group = registeredGroups[baseJid] ?? getRegisteredGroup(baseJid);
-  if (!group) return null;
-
-  for (const siblingJid of getJidsByFolder(group.folder)) {
-    if (siblingJid === baseJid) continue;
-    if (getChannelType(siblingJid) === null) continue;
-
-    const acceptedCursor = lastAgentTimestamp[siblingJid];
-    const committedCursor = lastCommittedCursor[siblingJid];
-    if (!acceptedCursor || !committedCursor) continue;
-    if (!isCursorAfter(acceptedCursor, committedCursor)) continue;
-    if (getMessagesSince(siblingJid, committedCursor).length === 0) continue;
-    return siblingJid;
-  }
-
-  return null;
 }
 
 /**
@@ -3622,66 +3598,52 @@ export function collectMessageImages(
   return images;
 }
 
-export function resolvePrimaryRuntimeSessionSlot(
-  replySourceImJid: string | null,
-): string | null {
-  const trimmed = replySourceImJid?.trim();
-  if (!trimmed || getChannelType(trimmed) === null) return null;
-  return `im:${trimmed}`;
-}
-
 export function resolvePrimaryRuntimeSessionId({
   folder,
-  sessionSlot,
   sessions: sessionCache,
   loadSession,
 }: {
   folder: string;
-  sessionSlot: string | null;
   sessions: Record<string, string | undefined>;
-  loadSession: (folder: string, agentId?: string | null) => string | undefined;
+  loadSession: (folder: string) => string | undefined;
 }): string | undefined {
-  if (!shouldPersistPrimaryRuntimeSession(sessionSlot)) {
-    return undefined;
-  }
-  if (sessionSlot) {
-    return loadSession(folder, sessionSlot);
-  }
   return sessionCache[folder] || loadSession(folder);
-}
-
-export function shouldPersistPrimaryRuntimeSession(
-  sessionSlot: string | null,
-): boolean {
-  return sessionSlot === null;
 }
 
 function rememberPrimaryRuntimeSession(
   folder: string,
   sessionId: string,
-  sessionSlot: string | null,
 ): void {
-  if (!shouldPersistPrimaryRuntimeSession(sessionSlot)) {
-    return;
-  }
-  if (sessionSlot) {
-    setSession(folder, sessionId, sessionSlot);
-    return;
-  }
   sessions[folder] = sessionId;
   setSession(folder, sessionId);
 }
 
-function clearPrimaryRuntimeSession(
-  folder: string,
-  sessionSlot: string | null,
-): void {
-  if (sessionSlot) {
-    deleteSession(folder, sessionSlot);
-    return;
-  }
+function clearPrimaryRuntimeSession(folder: string): void {
   delete sessions[folder];
   deleteSession(folder);
+}
+
+export function resolveMessageSourceJid(
+  message: Pick<NewMessage, 'chat_jid' | 'source_jid'>,
+  fallbackChatJid: string,
+): string {
+  return message.source_jid || message.chat_jid || fallbackChatJid;
+}
+
+export function selectLeadingSourceTurnMessages<T extends NewMessage>(
+  messages: readonly T[],
+  fallbackChatJid: string,
+): T[] {
+  if (messages.length <= 1) return messages.slice();
+  const firstSource = resolveMessageSourceJid(messages[0], fallbackChatJid);
+  const selected: T[] = [];
+  for (const message of messages) {
+    if (resolveMessageSourceJid(message, fallbackChatJid) !== firstSource) {
+      break;
+    }
+    selected.push(message);
+  }
+  return selected;
 }
 
 /**
@@ -3786,7 +3748,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     interruptedResumeDecision.action === 'continue_previous' ||
     interruptedResumeDecision.action === 'use_fresh'
       ? interruptedResumeDecision.messagesForAgent
-      : selectRecentTurnMessages(missedMessages);
+      : selectLeadingSourceTurnMessages(missedMessages, chatJid);
+  const hasDeferredSourceMessages =
+    messagesForAgent.length < missedMessages.length;
 
   // Admin home is shared as web:main, so select runtime owner from the latest
   // active admin sender to avoid writing global memory into another admin's
@@ -3808,21 +3772,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // source_jid so workspace-bound conversations can reply back to the sender
   // without mirroring every Web reply into IM.
   //
-  // When messages from multiple sources (web + IM) are batched together, only
-  // route replies to IM if ALL messages came from the same IM source. If any
-  // message originated from web, the web user expects replies on web only — do
-  // not broadcast to IM (#99).
+  // Pending messages are cut at the first source boundary, so a turn has one
+  // reply route even when the DB backlog contains later messages from another
+  // channel.
   const directImReply = getChannelType(chatJid) !== null;
   let replySourceImJid: string | null = null;
   if (!directImReply) {
-    // chatJid is a web channel — check if ALL messages share the same IM source
+    // chatJid is a web channel. The current turn has already been cut at the
+    // first source boundary, so reply routing can follow the leading source.
     const firstSourceJid = messagesForAgent[0]?.source_jid || chatJid;
-    const allSameImSource =
-      getChannelType(firstSourceJid) !== null &&
-      messagesForAgent.every(
-        (m) => (m.source_jid || chatJid) === firstSourceJid,
-      );
-    if (allSameImSource) {
+    if (getChannelType(firstSourceJid) !== null) {
       replySourceImJid = firstSourceJid;
     }
   } else {
@@ -3832,38 +3791,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // Publish the current IM reply route so the IPC watcher can forward
   // send_message outputs to the correct IM channel.
   activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
-  activeImLifecycleMessages.set(effectiveGroup.folder, missedMessages);
-  const runtimeSessionSlot = resolvePrimaryRuntimeSessionSlot(replySourceImJid);
+  activeImLifecycleMessages.set(effectiveGroup.folder, messagesForAgent);
+  const currentTurnSourceJid = resolveMessageSourceJid(
+    messagesForAgent[0]!,
+    chatJid,
+  );
 
   const shared = isGroupShared(group.folder);
   let prompt = formatMessages(messagesForAgent, shared);
-
-  // Recovery mode: session was cleared to prevent session ghost, so inject
-  // recent conversation history to give the fresh session context.
-  if (isRecovery) {
-    const RECOVERY_HISTORY_LIMIT = 20;
-    const recentHistory = getMessagesPage(
-      chatJid,
-      undefined,
-      RECOVERY_HISTORY_LIMIT,
-    );
-    // getMessagesPage returns DESC order; reverse to chronological, exclude
-    // the pending messages themselves (already in prompt) and internal control
-    // rows that should not be replayed as recovery context.
-    const pendingIds = new Set(missedMessages.map((m) => m.id));
-    const historyMsgs = recentHistory
-      .reverse()
-      .filter((m) => !pendingIds.has(m.id))
-      .filter(isRestartRecoveryHistoryMessage);
-    const recoveryContext = buildRecoveryContext(historyMsgs);
-    if (recoveryContext) {
-      prompt = `${recoveryContext}\n\n${prompt}`;
-      logger.info(
-        { group: group.name, historyCount: historyMsgs.length },
-        'Recovery: injected compact recent conversation history into prompt',
-      );
-    }
-  }
 
   const images = collectMessageImages(chatJid, messagesForAgent);
   const imagesForAgent = images.length > 0 ? images : undefined;
@@ -3905,7 +3840,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let lastReplyMsgId: string | undefined;
   let lastSavedTurnId: string | undefined; // tracks last turnId saved to DB, prevents UPSERT overwrite
   const queryTaskIds = new Set<string>();
-  const lastProcessed = missedMessages[missedMessages.length - 1];
+  const lastProcessed = messagesForAgent[messagesForAgent.length - 1];
   let activeTurnCursor: MessageCursor = {
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
@@ -4017,6 +3952,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
 
   let cursorCommitBlockedReason: string | null = null;
+  let queuedDeferredSourceMessages = false;
   const blockCursorCommit = (reason: string): void => {
     cursorCommitBlockedReason ??= reason;
   };
@@ -4035,6 +3971,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     advanceCursors(chatJid, activeTurnCursor);
     if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
+    }
+    if (hasDeferredSourceMessages && !queuedDeferredSourceMessages) {
+      queuedDeferredSourceMessages = true;
+      queue.enqueueMessageCheck(chatJid);
     }
     return true;
   };
@@ -4071,7 +4011,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let activeSessionId =
     resolvePrimaryRuntimeSessionId({
       folder: effectiveGroup.folder,
-      sessionSlot: runtimeSessionSlot,
       sessions,
       loadSession: getSession,
     }) || undefined;
@@ -4146,7 +4085,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               activeTurnCursor = normalizeCursor(streamEvent.messageCursor);
               if (!streamStartedLifecycleRecorded) {
                 recordStreamStartedLifecycleForMessages({
-                  messages: missedMessages,
+                  messages: messagesForAgent,
                   streamEvent,
                   details: {
                     route: replySourceImJid
@@ -4281,7 +4220,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                       streamingCardHandledIm: streamingCardHandledIM,
                       text: interruptedText,
                       groupFolder: effectiveGroup.folder,
-                      lifecycleMessages: missedMessages,
+                      lifecycleMessages: messagesForAgent,
                       lifecycleDetails: { deliveryPoint: 'main_status' },
                     });
                   if (
@@ -4712,7 +4651,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                     localImagePaths,
                   );
                   recordLifecycleForMessages({
-                    messages: missedMessages,
+                    messages: messagesForAgent,
                     stage: 'im_delivered',
                     status: imSent ? 'ok' : 'error',
                     reason: imSent ? null : 'send_failed_after_retries',
@@ -4743,7 +4682,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 if (g.reply_policy !== 'mirror') continue;
                 if (getChannelType(imJid))
                   sendImWithFailTracking(imJid, visibleText, localImagePaths, {
-                    lifecycleMessages: missedMessages,
+                    lifecycleMessages: messagesForAgent,
                     lifecycleDetails: { delivery: 'mirror_message' },
                   });
               }
@@ -4776,7 +4715,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         }
       },
       imagesForAgent,
-      runtimeSessionSlot,
+      currentTurnSourceJid,
     );
   } finally {
     await setTyping(chatJid, false);
@@ -4879,7 +4818,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             streamingCardHandledIm: streamingCardHandledInterruptedPartial,
             text: interruptedText,
             groupFolder: effectiveGroup.folder,
-            lifecycleMessages: missedMessages,
+            lifecycleMessages: messagesForAgent,
             lifecycleDetails: { deliveryPoint: 'main_finally_interrupted' },
           });
         if (
@@ -4936,7 +4875,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             streamingCardHandledIm: streamingCardHandledInterruptedPartial,
             text: partialReply,
             groupFolder: effectiveGroup.folder,
-            lifecycleMessages: missedMessages,
+            lifecycleMessages: messagesForAgent,
             lifecycleDetails: { deliveryPoint: 'main_finally_error' },
           });
         if (
@@ -4989,7 +4928,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
     // 清除当前主会话（保留同 folder 下独立 agent 会话）
     try {
-      clearPrimaryRuntimeSession(group.folder, runtimeSessionSlot);
+      clearPrimaryRuntimeSession(group.folder);
     } catch (err) {
       logger.error(
         { folder: group.folder, err },
@@ -5296,14 +5235,13 @@ async function runAgent(
   messageCursor?: MessageCursor,
   onOutput?: (output: ContainerOutput) => Promise<void>,
   images?: Array<{ data: string; mimeType?: string }>,
-  runtimeSessionSlot: string | null = null,
+  activeSourceJid?: string | null,
 ): Promise<{ status: 'success' | 'error' | 'closed'; error?: string }> {
   const isHome = !!group.is_home;
   // For the agent-runner: isMain means this is an admin home container (full privileges)
   const isAdminHome = isHome && group.folder === MAIN_GROUP_FOLDER;
   const sessionId = resolvePrimaryRuntimeSessionId({
     folder: group.folder,
-    sessionSlot: runtimeSessionSlot,
     sessions,
     loadSession: getSession,
   });
@@ -5348,11 +5286,7 @@ async function runAgent(
         // 仅从成功的输出中更新 session ID；
         // error 输出可能携带 stale ID，会覆盖流式传递的有效 session
         if (output.newSessionId && output.status !== 'error') {
-          rememberPrimaryRuntimeSession(
-            group.folder,
-            output.newSessionId,
-            runtimeSessionSlot,
-          );
+          rememberPrimaryRuntimeSession(group.folder, output.newSessionId);
         }
         await onOutput(output);
       }
@@ -5379,7 +5313,7 @@ async function runAgent(
         agentType,
         executionMode,
         sessionId: sessionId || null,
-        runtimeSessionSlot,
+        activeSourceJid: activeSourceJid || chatJid,
         isHome,
         isAdminHome,
         ...runtimeBuildLogFields,
@@ -5396,6 +5330,9 @@ async function runAgent(
         containerName,
         group.folder,
         identifier,
+        undefined,
+        undefined,
+        activeSourceJid || chatJid,
       );
     };
 
@@ -5451,11 +5388,7 @@ async function runAgent(
     // 仅从成功的最终输出中更新 session ID；
     // error 状态的输出可能携带 stale ID，覆盖流式阶段已写入的有效 session
     if (output.newSessionId && output.status !== 'error') {
-      rememberPrimaryRuntimeSession(
-        group.folder,
-        output.newSessionId,
-        runtimeSessionSlot,
-      );
+      rememberPrimaryRuntimeSession(group.folder, output.newSessionId);
     }
 
     // Agent was interrupted by _close sentinel (home folder drain).
@@ -7298,10 +7231,16 @@ async function processAgentConversation(
   const virtualChatJid = `${chatJid}#agent:${agentId}`;
   const virtualJid = virtualChatJid; // used as queue key
 
-  // Get pending messages
-  const sinceCursor = lastAgentTimestamp[virtualChatJid] || EMPTY_CURSOR;
+  // Get pending messages. Recovery replays from the committed cursor because
+  // lastAgentTimestamp may have advanced when IPC accepted a message that the
+  // killed runner never completed.
+  const isRecovery = agentRecoveryVirtualJids.has(virtualChatJid);
+  const sinceCursor = isRecovery
+    ? lastCommittedCursor[virtualChatJid] || EMPTY_CURSOR
+    : lastAgentTimestamp[virtualChatJid] || EMPTY_CURSOR;
   const missedMessages = getMessagesSince(virtualChatJid, sinceCursor);
   if (missedMessages.length === 0) {
+    if (isRecovery) agentRecoveryVirtualJids.delete(virtualChatJid);
     // Spawn agents are fire-and-forget: if no messages are found (race condition
     // or cursor already advanced), mark as error so they don't stay idle forever.
     if (agent.kind === 'spawn' && agent.status === 'idle') {
@@ -7321,6 +7260,7 @@ async function processAgentConversation(
     }
     return;
   }
+  if (isRecovery) agentRecoveryVirtualJids.delete(virtualChatJid);
 
   const isHome = !!effectiveGroup.is_home;
   const isAdminHome = isHome && effectiveGroup.folder === MAIN_GROUP_FOLDER;
@@ -8662,7 +8602,10 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
-          const recentTurnMessages = selectRecentTurnMessages(messagesToSend);
+          const leadingSourceMessages = selectLeadingSourceTurnMessages(
+            messagesToSend,
+            chatJid,
+          );
 
           // Home and non-home groups now share the same IPC injection path.
           // Reply routing is dynamically updated via activeRouteUpdaters when
@@ -8670,16 +8613,19 @@ async function startMessageLoop(): Promise<void> {
           // the process for home groups.
 
           const shared = !group.is_home && isGroupShared(group.folder);
-          const compactedMessagesToSend =
-            compactMessagesForAgent(recentTurnMessages);
+          const compactedMessagesToSend = compactMessagesForAgent(
+            leadingSourceMessages,
+          );
           const formatted = formatMessages(compactedMessagesToSend, shared);
 
           const images = collectMessageImages(chatJid, compactedMessagesToSend);
           const imagesForAgent = images.length > 0 ? images : undefined;
 
           // Determine the IM source JID for route update on successful injection
-          const lastSourceJidForRoute =
-            messagesToSend[messagesToSend.length - 1]?.source_jid || chatJid;
+          const lastSourceJidForRoute = resolveMessageSourceJid(
+            leadingSourceMessages[0]!,
+            chatJid,
+          );
 
           const sendResult = queue.sendMessage(
             chatJid,
@@ -8689,18 +8635,20 @@ async function startMessageLoop(): Promise<void> {
               // IPC write succeeded — update reply route for the running agent
               activeRouteUpdaters.get(group.folder)?.(
                 lastSourceJidForRoute,
-                messagesToSend,
+                leadingSourceMessages,
               );
             },
             {
-              timestamp: messagesToSend[messagesToSend.length - 1]!.timestamp,
-              id: messagesToSend[messagesToSend.length - 1]!.id,
+              timestamp:
+                leadingSourceMessages[leadingSourceMessages.length - 1]!
+                  .timestamp,
+              id: leadingSourceMessages[leadingSourceMessages.length - 1]!.id,
             },
             lastSourceJidForRoute,
           );
           if (sendResult === 'sent') {
             recordLifecycleForMessages({
-              messages: messagesToSend,
+              messages: leadingSourceMessages,
               stage: 'queued',
               details: { route: 'ipc_injected', targetJid: chatJid },
             });
@@ -8713,7 +8661,8 @@ async function startMessageLoop(): Promise<void> {
               },
               'Piped messages to active container',
             );
-            const lastProcessed = messagesToSend[messagesToSend.length - 1];
+            const lastProcessed =
+              leadingSourceMessages[leadingSourceMessages.length - 1];
             setLastAgentCursor(chatJid, {
               timestamp: lastProcessed.timestamp,
               id: lastProcessed.id,
@@ -8723,7 +8672,7 @@ async function startMessageLoop(): Promise<void> {
             // no_active — enqueue for a new one
             queue.enqueueMessageCheck(chatJid);
             recordLifecycleForMessages({
-              messages: messagesToSend,
+              messages: leadingSourceMessages,
               stage: 'queued',
               details: { route: 'message_loop', targetJid: chatJid },
             });
@@ -8769,12 +8718,8 @@ function recoverStuckPendingGroups(): void {
  * that were IPC-injected but never processed because the service was
  * killed before the agent could handle them.
  *
- * When pending messages are found, the group's SDK session is cleared to
- * prevent the "session ghost" bug: if the previous agent was killed mid-
- * response (SIGKILL / crash), the SDK session is left in a dirty state.
- * Resuming it would cause the agent to complete the OLD interrupted work
- * instead of processing the NEW pending messages, sending irrelevant
- * replies to the user.
+ * Pending messages resume against the saved runtime session. Cli Claw does not
+ * inject DB history during recovery; continuity belongs to the runtime session.
  */
 function recoverPendingMessages(): void {
   for (const [chatJid, group] of Object.entries(registeredGroups)) {
@@ -8788,15 +8733,6 @@ function recoverPendingMessages(): void {
     const pending = getMessagesSince(chatJid, sinceCursor);
     const recoverablePending = selectRecoverableRestartPendingMessages(pending);
     if (recoverablePending.length > 0) {
-      // Clear stale session to avoid "session ghost" — the agent will start
-      // a fresh conversation and process the pending messages cleanly.
-      logger.info(
-        { group: group.name, folder: group.folder },
-        'Recovery: clearing stale primary sessions to prevent session ghost',
-      );
-      delete sessions[group.folder];
-      deletePrimaryRuntimeSessions(group.folder);
-
       logger.info(
         {
           group: group.name,
@@ -8879,6 +8815,7 @@ function recoverConversationAgents(): void {
         });
 
         // Enqueue the agent conversation for processing
+        agentRecoveryVirtualJids.add(virtualChatJid);
         const taskId = `agent-recover:${agentId}:${Date.now()}`;
         queue.enqueueTask(virtualChatJid, taskId, async () => {
           await processAgentConversation(chatJid, agentId);
@@ -10288,7 +10225,6 @@ export async function startCliClaw(
     const group = registeredGroups[groupJid];
     return group?.folder || groupJid;
   });
-  queue.setPendingImSiblingResolver(findUncommittedImSiblingForWebWork);
   queue.setOnMaxRetriesExceeded((groupJid: string) => {
     const group = registeredGroups[groupJid];
     const name = group?.name || groupJid;

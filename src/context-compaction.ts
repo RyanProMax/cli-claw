@@ -112,33 +112,3 @@ export function compactMessagesForAgent<T extends CompactableMessage>(
 
   return selected.reverse();
 }
-
-export function buildRecoveryContext(
-  messages: CompactableMessage[],
-  options: CompactMessageOptions = {},
-): string {
-  const maxMessages = positiveInt(options.maxMessages, 6);
-  const maxCharsPerMessage = positiveInt(options.maxCharsPerMessage, 160);
-  const compacted = compactMessagesForAgent(messages, {
-    maxMessages,
-    maxCharsPerMessage,
-    maxTotalChars: maxMessages * (maxCharsPerMessage + 1),
-  });
-
-  if (compacted.length === 0) return '';
-
-  const lines = compacted.map((message) => {
-    const role = message.is_from_me
-      ? 'assistant'
-      : message.sender_name || message.sender || 'user';
-    return `[${role}] ${message.content}`;
-  });
-
-  return [
-    '<system_context>',
-    '服务刚重启，当前为新会话。以下是压缩后的最近对话记录，仅供恢复上下文：',
-    '',
-    ...lines,
-    '</system_context>',
-  ].join('\n');
-}

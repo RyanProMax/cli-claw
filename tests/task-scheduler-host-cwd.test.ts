@@ -258,7 +258,7 @@ describe('task scheduler host cwd forwarding', () => {
     );
   });
 
-  test('suppresses substantive workspace autopilot results when IM work is pending', async () => {
+  test('publishes substantive workspace autopilot results through the normal workspace queue', async () => {
     const task = buildTask({
       id: 'autopilot:workspace:main',
       context_mode: 'group',
@@ -278,7 +278,6 @@ describe('task scheduler host cwd forwarding', () => {
         closeStdin: vi.fn(),
         enqueueTask: vi.fn(),
         enqueueMessageCheck: vi.fn(),
-        hasPendingImSibling: vi.fn(() => true),
       },
       onProcess: vi.fn(),
       sendMessage,
@@ -296,7 +295,11 @@ describe('task scheduler host cwd forwarding', () => {
       manualRun: true,
     });
 
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'web:source',
+      '已完成主动检查：发现并修复了一个验证脚本入口问题。',
+      { source: 'scheduled_task' },
+    );
     expect(
       vi.mocked((await import('../src/db.js')).updateTaskRunLog),
     ).toHaveBeenCalledWith(
