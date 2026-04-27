@@ -1,51 +1,50 @@
 ---
 name: agent-browser
-description: Browse the web for any task — research topics, read articles, interact with web apps, fill forms, take screenshots, extract data, and test web pages. Use whenever a browser would be useful, not just when the user explicitly asks.
+description: Use when a task needs browser-backed web access, page interaction, screenshots, PDF capture, form filling, data extraction, or local web app testing.
 allowed-tools: Bash(agent-browser:*)
 ---
 
-# Browser Automation with agent-browser
+# Agent Browser
 
-## Quick start
+## RULES
 
-```bash
-agent-browser open <url>        # Navigate to page
-agent-browser snapshot -i       # Get interactive elements with refs
-agent-browser click @e1         # Click element by ref
-agent-browser fill @e2 "text"   # Fill input by ref
-agent-browser close             # Close browser
-```
+- Use a snapshot before interacting; use element refs from the latest snapshot.
+- Re-snapshot after navigation, submit, modal, route, or major DOM change.
+- Prefer `snapshot -i` for actionable elements and compact output.
+- Use semantic locators when refs are unavailable or unstable.
+- Close the browser when the task no longer needs it.
 
-## Core workflow
+## Workflow
 
 1. Navigate: `agent-browser open <url>`
-2. Snapshot: `agent-browser snapshot -i` (returns elements with refs like `@e1`, `@e2`)
-3. Interact using refs from the snapshot
-4. Re-snapshot after navigation or significant DOM changes
+2. Inspect: `agent-browser snapshot -i`
+3. Act: `click`, `fill`, `press`, `scroll`, or semantic `find ...`
+4. Verify: wait, re-snapshot, get text/URL, screenshot, or PDF
+5. Close: `agent-browser close`
 
-## Commands
+## Reference
 
-### Navigation
+Navigation:
 
 ```bash
-agent-browser open <url>      # Navigate to URL
+agent-browser open <url>
 agent-browser back            # Go back
 agent-browser forward         # Go forward
 agent-browser reload          # Reload page
 agent-browser close           # Close browser
 ```
 
-### Snapshot (page analysis)
+Snapshots:
 
 ```bash
 agent-browser snapshot            # Full accessibility tree
-agent-browser snapshot -i         # Interactive elements only (recommended)
+agent-browser snapshot -i         # Interactive elements
 agent-browser snapshot -c         # Compact output
 agent-browser snapshot -d 3       # Limit depth to 3
 agent-browser snapshot -s "#main" # Scope to CSS selector
 ```
 
-### Interactions (use @refs from snapshot)
+Interactions:
 
 ```bash
 agent-browser click @e1           # Click
@@ -61,7 +60,7 @@ agent-browser scroll down 500     # Scroll page
 agent-browser upload @e1 file.pdf # Upload files
 ```
 
-### Get information
+Read data:
 
 ```bash
 agent-browser get text @e1        # Get element text
@@ -73,7 +72,7 @@ agent-browser get url             # Get current URL
 agent-browser get count ".item"   # Count matching elements
 ```
 
-### Screenshots & PDF
+Capture:
 
 ```bash
 agent-browser screenshot          # Save to temp directory
@@ -82,7 +81,7 @@ agent-browser screenshot --full   # Full page
 agent-browser pdf output.pdf      # Save as PDF
 ```
 
-### Wait
+Wait:
 
 ```bash
 agent-browser wait @e1                     # Wait for element
@@ -92,7 +91,7 @@ agent-browser wait --url "**/dashboard"    # Wait for URL pattern
 agent-browser wait --load networkidle      # Wait for network idle
 ```
 
-### Semantic locators (alternative to refs)
+Semantic locators:
 
 ```bash
 agent-browser find role button click --name "Submit"
@@ -101,10 +100,9 @@ agent-browser find label "Email" fill "user@test.com"
 agent-browser find placeholder "Search" type "query"
 ```
 
-### Authentication with saved state
+Auth state:
 
 ```bash
-# Login once
 agent-browser open https://app.example.com/login
 agent-browser snapshot -i
 agent-browser fill @e1 "username"
@@ -112,13 +110,11 @@ agent-browser fill @e2 "password"
 agent-browser click @e3
 agent-browser wait --url "**/dashboard"
 agent-browser state save auth.json
-
-# Later: load saved state
 agent-browser state load auth.json
 agent-browser open https://app.example.com/dashboard
 ```
 
-### Cookies & Storage
+Cookies and storage:
 
 ```bash
 agent-browser cookies                     # Get all cookies
@@ -128,32 +124,8 @@ agent-browser storage local               # Get localStorage
 agent-browser storage local set k v       # Set value
 ```
 
-### JavaScript
+JavaScript:
 
 ```bash
 agent-browser eval "document.title"   # Run JavaScript
-```
-
-## Example: Form submission
-
-```bash
-agent-browser open https://example.com/form
-agent-browser snapshot -i
-# Output shows: textbox "Email" [ref=e1], textbox "Password" [ref=e2], button "Submit" [ref=e3]
-
-agent-browser fill @e1 "user@example.com"
-agent-browser fill @e2 "password123"
-agent-browser click @e3
-agent-browser wait --load networkidle
-agent-browser snapshot -i  # Check result
-```
-
-## Example: Data extraction
-
-```bash
-agent-browser open https://example.com/products
-agent-browser snapshot -i
-agent-browser get text @e1  # Get product title
-agent-browser get attr @e2 href  # Get link URL
-agent-browser screenshot products.png
 ```

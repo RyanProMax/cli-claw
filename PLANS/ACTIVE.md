@@ -1708,6 +1708,41 @@ Risks / Notes / Handoff:
 - Implemented stateless completed IM main turns: IM runtime slots no longer load or persist session IDs, and idle IM runners are closed instead of accepting a fresh IPC message.
 - Updated `docs/RUNTIME.md` so the documented runtime contract matches the new IM stateless behavior.
 
+### Milestone 37
+
+Objective:
+- Reduce repetition in built-in skill and reference prompt markdown so each file has clear triggers, rules, workflow, and only necessary reference detail.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `container/skills/agent-browser/SKILL.md`
+- `container/skills/install-skill/SKILL.md`
+- `container/skills/post-test-cleanup/SKILL.md`
+- `container/agent-runner/prompts/security-rules.md`
+
+Validation:
+- `npx prettier --check PLANS/ACTIVE.md container/skills/agent-browser/SKILL.md container/skills/install-skill/SKILL.md container/skills/post-test-cleanup/SKILL.md container/agent-runner/prompts/security-rules.md`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npx prettier --check PLANS/ACTIVE.md container/skills/agent-browser/SKILL.md container/skills/install-skill/SKILL.md container/skills/post-test-cleanup/SKILL.md container/agent-runner/prompts/security-rules.md`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep operational commands accurate while shortening prose.
+- No references markdown files exist under `container/skills/`; the related markdown prompt in scope is `container/agent-runner/prompts/security-rules.md`.
+- Reorganized the scoped docs around triggers, `RULES`, workflow, and compact references; no runtime behavior changed.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1719,27 +1754,23 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 36
+- Milestone 37
 
 Current status:
-- done; Feishu/IM completed main turns now start fresh instead of inheriting previous runtime transcript history
+- done; built-in skill docs and shared security prompt are shorter and grouped by trigger, rules, workflow, and reference
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `docs/RUNTIME.md`
-- `src/group-queue.ts`
-- `src/index.ts`
-- `tests/group-queue.test.ts`
-- `tests/restart-recovery.test.ts`
-- `tests/im-command-utils.test.ts`
-- `tests/stream-presentation.test.ts`
-- `tests/codex-session-runtime.test.ts`
+- `container/agent-runner/prompts/security-rules.md`
+- `container/skills/agent-browser/SKILL.md`
+- `container/skills/install-skill/SKILL.md`
+- `container/skills/post-test-cleanup/SKILL.md`
 
 Last failure summary:
-- Resolved: same Feishu chat could IPC-inject a fresh message into its own idle runner, and IM runtime slots reused persisted session IDs.
+- Resolved: initial markdown formatting check flagged `container/skills/install-skill/SKILL.md`; Prettier formatting fixed it.
 
 Suspected cause:
-- Resolved: completed IM turns now skip persisted runtime session loading/saving and close idle runners before fresh turns.
+- Documentation drift had accumulated repeated safety, workflow, and reference details across skill docs and the shared security prompt.
 
 Next step:
-- Commit the fix and restart Cli Claw safely.
+- Commit the documentation cleanup.

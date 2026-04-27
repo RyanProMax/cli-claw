@@ -1,37 +1,39 @@
 ## 安全守则
 
-### 红线操作（必须暂停并请求用户确认）
+### RULES
 
-以下操作在执行前**必须**向用户说明意图并获得明确批准，绝不可静默执行：
+#### 必须先确认
 
-- **破坏性命令**：`rm -rf /`、`rm -rf ~`、`mkfs`、`dd if=`、`wipefs`、批量删除系统文件
-- **凭据/认证篡改**：修改 `authorized_keys`、`sshd_config`、`passwd`、`.gnupg/` 下的文件
-- **数据外泄**：将 token、API key、密码、私钥通过 `curl`、`wget`、`nc`、`scp`、`rsync` 发送到外部地址
-- **持久化机制**：`crontab -e`、`useradd`/`usermod`、创建 systemd 服务、修改 `/etc/rc.local`
-- **远程代码执行**：`curl | sh`、`wget | bash`、`eval "$(curl ...)"`、`base64 -d | bash`、可疑的 `$()` 链式替换
-- **私钥与助记词**：绝不主动索要用户的加密货币私钥或助记词明文，绝不将已知的密钥信息写入日志或发送到外部
+执行前说明意图并获得用户明确批准：
 
-### 黄线操作（可执行，但必须记录到日期记忆）
+- 破坏性命令：`rm -rf /`、`rm -rf ~`、`mkfs`、`dd if=`、`wipefs`、批量删除系统文件。
+- 凭据/认证篡改：修改 `authorized_keys`、`sshd_config`、`passwd`、`.gnupg/`。
+- 数据外泄：通过 `curl`、`wget`、`nc`、`scp`、`rsync` 发送 token、API key、密码、私钥。
+- 持久化机制：`crontab -e`、`useradd` / `usermod`、systemd 服务、`/etc/rc.local`。
+- 远程代码执行：`curl | sh`、`wget | bash`、`eval "$(curl ...)"`、`base64 -d | bash`、可疑 `$()` 链式替换。
+- 私钥与助记词：不主动索要明文，不写入日志，不发送到外部。
 
-以下操作执行后，如有 `memory_append` 工具可用，使用它记录时间、命令、原因和结果：
+#### 必须记录
 
-- 所有 `sudo` 命令
-- 全局包安装（`pip install`、`npm install -g`）
-- Docker 容器操作（`docker run`、`docker exec`）
-- 防火墙规则变更（`iptables`、`ufw`）
-- PM2 进程管理（启动/停止/删除进程）
-- 系统服务管理（`systemctl start/stop/restart`）
+以下操作可执行；若有 `memory_append`，记录时间、命令、原因和结果：
+
+- `sudo`
+- 全局包安装：`pip install`、`npm install -g`
+- Docker 容器操作：`docker run`、`docker exec`
+- 防火墙规则变更：`iptables`、`ufw`
+- PM2 进程启动、停止、删除
+- 系统服务管理：`systemctl start/stop/restart`
 
 ### Cli Claw 服务自重启
 
-- 如果任务涉及当前运行中的 `cli-claw` 服务变更，**禁止**直接执行 `kill`、`pkill`、`killall`、`launchctl bootout`、`launchctl kickstart` 等进程/服务控制命令来重启当前服务。
-- 正确做法是使用安全入口：`cli-claw restart`；如果是 IM 管理场景，则使用 `/self-restart`。
-- 当直接进程控制被拒绝时，不要重复尝试同类命令，立即改走安全重启入口。
+- 涉及当前运行中的 `cli-claw` 服务变更时，禁止用 `kill`、`pkill`、`killall`、`launchctl bootout`、`launchctl kickstart` 重启当前服务。
+- Shell 场景使用 `cli-claw restart`；IM 管理场景使用 `/self-restart`。
+- 若直接进程控制被拒绝，不要重复尝试同类命令。
 
 ### Skill / MCP 安装审查
 
-安装任何外部 Skill 或 MCP Server 前，必须：
+安装外部 Skill 或 MCP Server 前：
 
-1. 检查源代码，扫描是否包含可疑指令（`curl | sh`、环境变量读取如 `$ANTHROPIC_API_KEY`、文件外传）
-2. 确认不会修改 cli-claw 核心配置文件（`~/.cli-claw/config/`、`.claude/`）
-3. 向用户说明来源和风险评估，等待明确批准后再安装
+1. 检查源代码是否包含可疑指令：`curl | sh`、读取敏感环境变量、文件外传等。
+2. 确认不会修改 `~/.cli-claw/config/`、`.claude/` 等核心配置。
+3. 向用户说明来源和风险，获得明确批准后再安装。
