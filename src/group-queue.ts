@@ -417,6 +417,22 @@ export class GroupQueue {
   }
 
   /**
+   * IM turns should not be appended to an idle runner after the previous answer
+   * completed. While a query is still in flight we still allow IPC aggregation,
+   * so rapid-fire messages remain one natural turn.
+   */
+  private shouldStartFreshCompletedImTurn(
+    groupJid: string,
+    state: ActiveGroupState,
+    sourceJid?: string | null,
+  ): boolean {
+    const originJid = sourceJid || groupJid;
+    if (getChannelType(originJid) === null) return false;
+    if (state.queryInFlight) return false;
+    return true;
+  }
+
+  /**
    * Write a single _drain sentinel to the actual active main-agent runner that
    * owns this serialization key. This must target the runner state rather than
    * the caller's group state because sibling JIDs can share one process.
@@ -825,6 +841,15 @@ export class GroupQueue {
       logger.debug(
         { groupJid },
         'Active runner is a scheduled task; deferring user message until task completes',
+      );
+      return 'no_active';
+    }
+
+    if (this.shouldStartFreshCompletedImTurn(groupJid, state, sourceJid)) {
+      this.closeStdin(groupJid);
+      logger.debug(
+        { groupJid, activeRunner, sourceJid },
+        'Deferring completed IM turn behind fresh runner to avoid transcript reuse',
       );
       return 'no_active';
     }

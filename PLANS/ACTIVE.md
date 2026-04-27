@@ -1666,6 +1666,48 @@ Risks / Notes / Handoff:
 - Codex-origin Feishu replies no longer use the streaming card path; process/progress chunks are accumulated internally and only the final answer is delivered.
 - Interrupted Codex partial replies suppress commentary/progress text to avoid posting process chatter.
 
+
+### Milestone 36
+
+Objective:
+- Prevent Feishu/IM main-conversation messages from inheriting completed prior runtime transcript history.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `src/group-queue.ts`
+- `src/index.ts`
+- `tests/group-queue.test.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- tests/restart-recovery.test.ts tests/group-queue.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - Red observed first: `npm test -- tests/restart-recovery.test.ts tests/group-queue.test.ts` failed because same-IM idle runner IPC returned `sent`, and `shouldPersistPrimaryRuntimeSession` did not exist.
+  - `npm test -- tests/restart-recovery.test.ts tests/group-queue.test.ts`
+  - `npm run typecheck`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Root cause: IPC payload did not include history, but completed Feishu turns reused the same Codex/Claude runtime session slot and idle runner, so the runtime transcript carried prior context.
+- Keep same-turn aggregation while query is still in flight; only completed idle IM turns should start fresh.
+- Implemented stateless completed IM main turns: IM runtime slots no longer load or persist session IDs, and idle IM runners are closed instead of accepting a fresh IPC message.
+- Updated `docs/RUNTIME.md` so the documented runtime contract matches the new IM stateless behavior.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1677,25 +1719,27 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 35
+- Milestone 36
 
 Current status:
-- done; benign Feishu skipped lifecycle rows are no longer shown as warnings, and Codex progress chunks are not pushed into Feishu streaming cards
+- done; Feishu/IM completed main turns now start fresh instead of inheriting previous runtime transcript history
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/db.ts`
+- `docs/RUNTIME.md`
+- `src/group-queue.ts`
 - `src/index.ts`
-- `src/im-command-utils.ts`
+- `tests/group-queue.test.ts`
+- `tests/restart-recovery.test.ts`
 - `tests/im-command-utils.test.ts`
 - `tests/stream-presentation.test.ts`
 - `tests/codex-session-runtime.test.ts`
 
 Last failure summary:
-- Resolved: skipped Feishu lifecycle rows (`stale_before_reconnection`, `mention_required`) were being surfaced as `飞书异常`; Codex stream progress/commentary was also visible through Feishu streaming cards and interrupted partial replies.
+- Resolved: same Feishu chat could IPC-inject a fresh message into its own idle runner, and IM runtime slots reused persisted session IDs.
 
 Suspected cause:
-- Resolved: the issue summary queried all non-`ok` lifecycle rows, and the Feishu streaming card path treated Codex process chunks as user-visible answer progress.
+- Resolved: completed IM turns now skip persisted runtime session loading/saving and close idle runners before fresh turns.
 
 Next step:
 - Commit the fix and restart Cli Claw safely.

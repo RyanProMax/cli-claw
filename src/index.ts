@@ -3641,10 +3641,19 @@ export function resolvePrimaryRuntimeSessionId({
   sessions: Record<string, string | undefined>;
   loadSession: (folder: string, agentId?: string | null) => string | undefined;
 }): string | undefined {
+  if (!shouldPersistPrimaryRuntimeSession(sessionSlot)) {
+    return undefined;
+  }
   if (sessionSlot) {
     return loadSession(folder, sessionSlot);
   }
   return sessionCache[folder] || loadSession(folder);
+}
+
+export function shouldPersistPrimaryRuntimeSession(
+  sessionSlot: string | null,
+): boolean {
+  return sessionSlot === null;
 }
 
 function rememberPrimaryRuntimeSession(
@@ -3652,6 +3661,9 @@ function rememberPrimaryRuntimeSession(
   sessionId: string,
   sessionSlot: string | null,
 ): void {
+  if (!shouldPersistPrimaryRuntimeSession(sessionSlot)) {
+    return;
+  }
   if (sessionSlot) {
     setSession(folder, sessionId, sessionSlot);
     return;

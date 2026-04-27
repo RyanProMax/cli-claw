@@ -27,9 +27,12 @@ afterEach(() => {
 });
 
 describe('restart recovery cursor handling', () => {
-  test('separates primary runtime session slots for IM sources from the web slot', async () => {
-    const { resolvePrimaryRuntimeSessionSlot, resolvePrimaryRuntimeSessionId } =
-      await loadIndexModule();
+  test('keeps IM runtime slots distinct without falling back to the web slot', async () => {
+    const {
+      resolvePrimaryRuntimeSessionSlot,
+      resolvePrimaryRuntimeSessionId,
+      shouldPersistPrimaryRuntimeSession,
+    } = await loadIndexModule();
     const sessions = { main: 'web-session-1' };
     const loadSession = vi.fn((folder: string, slot?: string | null) =>
       folder === 'main' && slot === 'im:feishu:chat-1'
@@ -42,6 +45,8 @@ describe('restart recovery cursor handling', () => {
     expect(resolvePrimaryRuntimeSessionSlot('feishu:chat-1')).toBe(
       'im:feishu:chat-1',
     );
+    expect(shouldPersistPrimaryRuntimeSession(null)).toBe(true);
+    expect(shouldPersistPrimaryRuntimeSession('im:feishu:chat-1')).toBe(false);
     expect(
       resolvePrimaryRuntimeSessionId({
         folder: 'main',
@@ -57,8 +62,32 @@ describe('restart recovery cursor handling', () => {
         sessions,
         loadSession,
       }),
-    ).toBe('feishu-session-1');
-    expect(loadSession).toHaveBeenCalledWith('main', 'im:feishu:chat-1');
+    ).toBeUndefined();
+    expect(loadSession).not.toHaveBeenCalledWith('main', 'im:feishu:chat-1');
+  });
+
+  test('does not resume runtime sessions for IM-origin main conversation turns', async () => {
+    const {
+      resolvePrimaryRuntimeSessionSlot,
+      resolvePrimaryRuntimeSessionId,
+      shouldPersistPrimaryRuntimeSession,
+    } = await loadIndexModule();
+    const sessions = { main: 'web-session-1' };
+    const loadSession = vi.fn(() => 'stale-im-session');
+
+    const imSlot = resolvePrimaryRuntimeSessionSlot('feishu:chat-1');
+
+    expect(imSlot).toBe('im:feishu:chat-1');
+    expect(shouldPersistPrimaryRuntimeSession(imSlot)).toBe(false);
+    expect(
+      resolvePrimaryRuntimeSessionId({
+        folder: 'main',
+        sessionSlot: imSlot,
+        sessions,
+        loadSession,
+      }),
+    ).toBeUndefined();
+    expect(loadSession).not.toHaveBeenCalled();
   });
 
   test('creates a late-bound streaming session once the IM channel becomes available', async () => {

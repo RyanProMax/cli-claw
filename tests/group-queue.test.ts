@@ -351,7 +351,10 @@ describe('GroupQueue shared-runner IPC recovery', () => {
         },
       ),
     ).toBe('no_active');
-    expect(fs.existsSync(inputDir)).toBe(false);
+    const ipcFiles = fs.existsSync(inputDir)
+      ? fs.readdirSync(inputDir).filter((name) => name.endsWith('.json'))
+      : [];
+    expect(ipcFiles).toHaveLength(0);
 
     queue.enqueueMessageCheck('feishu:chat-1');
 
@@ -359,6 +362,56 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     await vi.waitFor(() => {
       expect(calls.slice(0, 2)).toEqual(['web:main', 'feishu:chat-1']);
     });
+  });
+
+  test('does not IPC-inject a fresh IM turn into its own idle runner', async () => {
+    const { GroupQueue, DATA_DIR } = await loadGroupQueueModule();
+    const queue = new GroupQueue();
+    const calls: string[] = [];
+    const fakeProcess = { pid: 22347, killed: false } as any;
+    const inputDir = path.join(DATA_DIR, 'ipc', 'main', 'input');
+
+    queue.setHostModeChecker(() => true);
+    queue.setSerializationKeyResolver((groupJid: string) =>
+      groupJid === 'feishu:chat-1' ? 'main' : groupJid,
+    );
+
+    let releaseFirstRun!: () => void;
+    const firstRunDone = new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    });
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      calls.push(groupJid);
+      queue.registerProcess(groupJid, fakeProcess, null, 'main');
+      queue.markRunnerQueryIdle(groupJid);
+      await firstRunDone;
+      return true;
+    });
+
+    queue.enqueueMessageCheck('feishu:chat-1');
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['feishu:chat-1']);
+    });
+
+    expect(
+      queue.sendMessage(
+        'feishu:chat-1',
+        'fresh standalone IM turn',
+        undefined,
+        undefined,
+        {
+          timestamp: '2026-04-27T12:40:10.753Z',
+          id: 'msg-feishu-standalone',
+        },
+      ),
+    ).toBe('no_active');
+    const ipcFiles = fs.existsSync(inputDir)
+      ? fs.readdirSync(inputDir).filter((name) => name.endsWith('.json'))
+      : [];
+    expect(ipcFiles).toHaveLength(0);
+
+    releaseFirstRun();
   });
 
   test('does not IPC-inject workspace-bound IM source work into an active web runner', async () => {
