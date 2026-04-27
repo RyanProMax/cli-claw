@@ -302,7 +302,7 @@ describe('formatImLifecycleStatus', () => {
     ).toBe(
       [
         '🧭 飞书链路: ...m_recent_ok cursor_committed',
-        '⚠️ 飞书异常: ...ed_delivery im_delivered error(send_failed_after_retries) · ...ion_skipped skipped skipped(require_mention)',
+        '⚠️ 飞书异常: ...ed_delivery im_delivered error(send_failed_after_retries)',
       ].join('\n'),
     );
   });
@@ -409,7 +409,7 @@ describe('formatSelfStatus', () => {
         ],
       } as any),
     ).toContain(
-      '⚠️ 飞书异常: ...ed_delivery im_delivered error(send_failed_after_retries) · ...ire_mention skipped skipped(require_mention)',
+      '⚠️ 飞书异常: ...ed_delivery im_delivered error(send_failed_after_retries)',
     );
   });
 

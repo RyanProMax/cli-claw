@@ -94,7 +94,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('feeds Codex text deltas into the answer slot during Feishu streaming', () => {
+  test('feeds only latest Codex answer text during Feishu streaming', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -137,9 +137,7 @@ describe('stream presentation', () => {
       supportsReasoningEffort: true,
     });
     expect(session.appendCommentary).not.toHaveBeenCalled();
-    expect(session.append).toHaveBeenCalledWith(
-      '先收集上下文\n\n最终结论',
-    );
+    expect(session.append).toHaveBeenCalledWith('最终结论');
   });
 
   test('syncs Codex commentary to Feishu cards only at terminal state', () => {

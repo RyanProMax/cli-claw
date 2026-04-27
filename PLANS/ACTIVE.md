@@ -1622,6 +1622,50 @@ Risks / Notes / Handoff:
 - Added `appendCodexFinalTurnChunk()` so `sdk_final` keeps accumulating chunks from the same Codex message but replaces the final body when Codex switches `messageUuid`, preventing replayed older assistant messages from being concatenated into the current final response.
 - Streaming `text_delta` output remains unchanged.
 
+
+### Milestone 35
+
+Objective:
+- Stop benign Feishu lifecycle skips from being surfaced as `飞书异常`; only real delivery/processing errors should appear in the warning summary.
+- Stop Codex process/progress chunks from being pushed into Feishu streaming cards or interrupted partial replies; Feishu should receive the final answer instead of progress chatter.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `src/db.ts`
+- `src/index.ts`
+- `src/im-command-utils.ts`
+- `tests/im-command-utils.test.ts`
+- `tests/stream-presentation.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-command-utils.test.ts`
+- `npm test -- --run tests/stream-presentation.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md src/db.ts src/index.ts src/im-command-utils.ts tests/im-command-utils.test.ts tests/stream-presentation.test.ts`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/im-command-utils.test.ts tests/stream-presentation.test.ts`
+  - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build`
+  - `npx prettier --check PLANS/ACTIVE.md src/db.ts src/index.ts src/im-command-utils.ts tests/im-command-utils.test.ts tests/stream-presentation.test.ts`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Keep lifecycle evidence rows for skipped stale/duplicate/mention-gated messages, but do not classify them as user-facing abnormalities.
+- Codex-origin Feishu replies no longer use the streaming card path; process/progress chunks are accumulated internally and only the final answer is delivered.
+- Interrupted Codex partial replies suppress commentary/progress text to avoid posting process chatter.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1633,22 +1677,25 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 34
+- Milestone 35
 
 Current status:
-- done; Codex final aggregation now drops older replayed message chunks by keeping only the latest assistant message body
+- done; benign Feishu skipped lifecycle rows are no longer shown as warnings, and Codex progress chunks are not pushed into Feishu streaming cards
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `container/agent-runner/src/codex-session-runtime.ts`
-- `container/agent-runner/src/index.ts`
+- `src/db.ts`
+- `src/index.ts`
+- `src/im-command-utils.ts`
+- `tests/im-command-utils.test.ts`
+- `tests/stream-presentation.test.ts`
 - `tests/codex-session-runtime.test.ts`
 
 Last failure summary:
-- Resolved: resumed Codex ACP sessions could replay assistant chunks from multiple historical message UUIDs and Cli Claw appended them into one `sdk_final`.
+- Resolved: skipped Feishu lifecycle rows (`stale_before_reconnection`, `mention_required`) were being surfaced as `飞书异常`; Codex stream progress/commentary was also visible through Feishu streaming cards and interrupted partial replies.
 
 Suspected cause:
-- Resolved: final-response aggregation reused the same cross-message append helper that intentionally preserved multiple assistant messages with blank-line boundaries.
+- Resolved: the issue summary queried all non-`ok` lifecycle rows, and the Feishu streaming card path treated Codex process chunks as user-visible answer progress.
 
 Next step:
-- Commit the fix and restart Cli Claw safely so the running runner uses the rebuilt artifact.
+- Commit the fix and restart Cli Claw safely.

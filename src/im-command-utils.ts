@@ -304,8 +304,10 @@ export function formatImLifecycleStatus(
 function formatImLifecycleIssueSummary(
   issueEvents?: readonly ImMessageLifecycleEvent[],
 ): string | null {
-  if (!issueEvents || issueEvents.length === 0) return null;
-  const issueSummary = issueEvents
+  const errorEvents =
+    issueEvents?.filter((event) => event.status === 'error') ?? [];
+  if (errorEvents.length === 0) return null;
+  const issueSummary = errorEvents
     .slice(0, 3)
     .map((event) => {
       const reason = event.reason ? `(${event.reason})` : '';

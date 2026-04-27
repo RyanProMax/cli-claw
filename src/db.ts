@@ -2019,7 +2019,7 @@ export function getRecentImMessageLifecycleIssueEvents(filter: {
       `SELECT *
        FROM im_message_lifecycle_events
        WHERE provider = ?
-         AND status != 'ok'
+         AND status = 'error'
        ${chatWhere}
        ORDER BY created_at DESC, id DESC
        LIMIT ?`,

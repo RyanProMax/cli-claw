@@ -10,6 +10,7 @@ import {
   createEmptyStreamPresentationTextState,
   type StreamPresentationTextState,
 } from '../shared/dist/stream-presentation.js';
+import type { StreamRuntimeIdentity } from '../shared/dist/stream-event.js';
 
 import { CronExpressionParser } from 'cron-parser';
 
@@ -322,8 +323,7 @@ export function feedStreamEventToCard(
     case 'text_delta':
       if (se.text) {
         if (se.runtimeIdentity?.agentType === 'codex') {
-          const streamingBodyText =
-            presentationText.streamText || presentationText.answerText;
+          const streamingBodyText = presentationText.answerText;
           if (streamingBodyText) {
             session.append(streamingBodyText);
           }
@@ -436,6 +436,12 @@ export function syncTerminalPresentationTextToCard(
   if (commentaryText.trim()) {
     session.appendCommentary(commentaryText);
   }
+}
+
+function shouldForwardRuntimeToFeishuStreamingCard(
+  runtimeIdentity?: StreamRuntimeIdentity | null,
+): boolean {
+  return runtimeIdentity?.agentType !== 'codex';
 }
 
 export interface StreamingTurnBoundaryState {
@@ -4162,16 +4168,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             // ── Feed stream events into Feishu streaming card ──
             // IPC 注入的新 query 开始时，旧卡片已 complete()/abort()，
             // 需要为新 query 重建流式卡片并重置会话级状态。
-            if (streamingSession && !streamingSession.isActive()) {
+            if (
+              !shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
+            ) {
+              if (streamingSession) {
+                streamingSession.dispose();
+                unregisterStreamingSession(streamingSessionJid);
+                streamingSession = undefined;
+              }
+            } else if (streamingSession && !streamingSession.isActive()) {
               unregisterStreamingSession(streamingSessionJid);
-              streamingPresentationText =
-                createEmptyStreamPresentationTextState();
-              streamingAccumulatedThinking = '';
-              // Note: sentReply is NOT reset here. Resetting it would cause
-              // subsequent SDK Task results to be sent to IM as separate messages,
-              // spamming the IM channel. The first substantive reply already
-              // delivered the main content; follow-up results are DB-only.
-              streamInterrupted = false;
               streamingSession = undefined;
               if (ensureStreamingSessionAvailable()) {
                 logger.debug(
@@ -4180,7 +4186,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 );
               }
             }
-            const activeStreamingSession = ensureStreamingSessionAvailable();
+            const activeStreamingSession =
+              shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
+                ? ensureStreamingSessionAvailable()
+                : undefined;
             if (activeStreamingSession) {
               feedStreamEventToCard(
                 activeStreamingSession,
@@ -4210,7 +4219,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 const interruptedText = buildInterruptedReply(
                   streamingPresentationText.answerText,
                   streamingAccumulatedThinking,
-                  streamingPresentationText.commentaryText,
+                  shouldForwardRuntimeToFeishuStreamingCard(
+                    activeRuntimeIdentity,
+                  )
+                    ? streamingPresentationText.commentaryText
+                    : '',
                 );
                 try {
                   let streamingCardHandledIM = false;
@@ -4225,6 +4238,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                     syncTerminalPresentationTextToCard(
                       activeStreamingSession,
                       streamingPresentationText,
+                      shouldForwardRuntimeToFeishuStreamingCard(
+                        activeRuntimeIdentity,
+                      )
+                        ? undefined
+                        : '',
                     );
                     streamingCardHandledIM = await activeStreamingSession
                       .abort('已中断')
@@ -4577,7 +4595,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   syncTerminalPresentationTextToCard(
                     activeStreamingSession,
                     streamingPresentationText,
-                    visibleReplyParts.commentaryText,
+                    shouldForwardRuntimeToFeishuStreamingCard(
+                      activeRuntimeIdentity,
+                    )
+                      ? visibleReplyParts.commentaryText
+                      : '',
                   );
                   if (result.finalizationReason === 'error') {
                     await activeStreamingSession.fail(visibleText);
@@ -4765,6 +4787,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         syncTerminalPresentationTextToCard(
           activeStreamingSession,
           streamingPresentationText,
+          shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
+            ? undefined
+            : '',
         );
         if (hadError || !output || output.status === 'error') {
           streamingCardHandledInterruptedPartial = await activeStreamingSession
@@ -4817,7 +4842,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const interruptedText = buildInterruptedReply(
         streamingPresentationText.answerText,
         streamingAccumulatedThinking,
-        streamingPresentationText.commentaryText,
+        shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
+          ? streamingPresentationText.commentaryText
+          : '',
       );
       try {
         lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
@@ -4873,7 +4900,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         const partialReply = buildInterruptedReply(
           streamingPresentationText.answerText,
           streamingAccumulatedThinking,
-          streamingPresentationText.commentaryText,
+          shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
+            ? streamingPresentationText.commentaryText
+            : '',
         );
         lastReplyMsgId = await sendMessage(chatJid, partialReply, {
           sendToIM: false,
@@ -7538,7 +7567,20 @@ async function processAgentConversation(
 
       // ── Feed stream events into Feishu streaming card ──
       const activeAgentStreamingSession =
-        ensureAgentStreamingSessionAvailable();
+        shouldForwardRuntimeToFeishuStreamingCard(currentAgentRuntimeIdentity)
+          ? ensureAgentStreamingSessionAvailable()
+          : undefined;
+      if (
+        !shouldForwardRuntimeToFeishuStreamingCard(
+          currentAgentRuntimeIdentity,
+        ) &&
+        agentStreamingSession
+      ) {
+        agentStreamingSession.dispose();
+        if (streamingSessionJid)
+          unregisterStreamingSession(streamingSessionJid);
+        agentStreamingSession = undefined;
+      }
       if (activeAgentStreamingSession) {
         feedStreamEventToCard(
           activeAgentStreamingSession,
@@ -7561,7 +7603,11 @@ async function processAgentConversation(
             buildInterruptedReply(
               agentStreamingPresentationText.answerText,
               agentStreamingThinking,
-              agentStreamingPresentationText.commentaryText,
+              shouldForwardRuntimeToFeishuStreamingCard(
+                currentAgentRuntimeIdentity,
+              )
+                ? agentStreamingPresentationText.commentaryText
+                : '',
             ),
             'interrupt_partial',
             virtualChatJid,
@@ -7579,6 +7625,11 @@ async function processAgentConversation(
               syncTerminalPresentationTextToCard(
                 activeAgentStreamingSession,
                 agentStreamingPresentationText,
+                shouldForwardRuntimeToFeishuStreamingCard(
+                  currentAgentRuntimeIdentity,
+                )
+                  ? undefined
+                  : '',
               );
               streamingCardHandledIM = await activeAgentStreamingSession
                 .abort('已中断')
@@ -7826,7 +7877,11 @@ async function processAgentConversation(
             syncTerminalPresentationTextToCard(
               activeAgentStreamingSession,
               agentStreamingPresentationText,
-              visibleReplyParts.commentaryText,
+              shouldForwardRuntimeToFeishuStreamingCard(
+                currentAgentRuntimeIdentity,
+              )
+                ? visibleReplyParts.commentaryText
+                : '',
             );
             if (output.finalizationReason === 'error') {
               await activeAgentStreamingSession.fail(visibleText);
@@ -8150,6 +8205,9 @@ async function processAgentConversation(
         syncTerminalPresentationTextToCard(
           activeAgentStreamingSession,
           agentStreamingPresentationText,
+          shouldForwardRuntimeToFeishuStreamingCard(currentAgentRuntimeIdentity)
+            ? undefined
+            : '',
         );
         if (hadError) {
           agentStreamingCardHandledInterruptedPartial =
@@ -8204,7 +8262,9 @@ async function processAgentConversation(
         buildInterruptedReply(
           agentStreamingPresentationText.answerText,
           agentStreamingThinking,
-          agentStreamingPresentationText.commentaryText,
+          shouldForwardRuntimeToFeishuStreamingCard(currentAgentRuntimeIdentity)
+            ? agentStreamingPresentationText.commentaryText
+            : '',
         ),
         'interrupt_partial',
         virtualChatJid,
@@ -8301,7 +8361,11 @@ async function processAgentConversation(
           buildInterruptedReply(
             agentStreamingPresentationText.answerText,
             agentStreamingThinking,
-            agentStreamingPresentationText.commentaryText,
+            shouldForwardRuntimeToFeishuStreamingCard(
+              currentAgentRuntimeIdentity,
+            )
+              ? agentStreamingPresentationText.commentaryText
+              : '',
           ),
           'interrupt_partial',
           virtualChatJid,
