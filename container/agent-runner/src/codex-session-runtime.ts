@@ -190,3 +190,35 @@ export function appendCodexTurnChunk(
     lastMessageUuid: nextMessageUuid || undefined,
   };
 }
+
+export function appendCodexFinalTurnChunk(
+  currentText: string,
+  chunk: { text?: string | null; messageUuid?: string | null },
+  previousMessageUuid?: string,
+): CodexTurnAccumulator {
+  const deltaText = typeof chunk.text === 'string' ? chunk.text : '';
+  if (!deltaText) {
+    return {
+      text: currentText,
+      lastMessageUuid: previousMessageUuid,
+    };
+  }
+
+  if (
+    currentText &&
+    previousMessageUuid &&
+    chunk.messageUuid &&
+    previousMessageUuid !== chunk.messageUuid
+  ) {
+    return {
+      text: deltaText,
+      lastMessageUuid: chunk.messageUuid,
+    };
+  }
+
+  const nextMessageUuid = chunk.messageUuid || previousMessageUuid;
+  return {
+    text: currentText + deltaText,
+    lastMessageUuid: nextMessageUuid || undefined,
+  };
+}

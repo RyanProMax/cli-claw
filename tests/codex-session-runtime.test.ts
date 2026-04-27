@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  appendCodexFinalTurnChunk,
   appendCodexTurnChunk,
   buildCodexAcpConfigOverrides,
   buildCodexAcpLaunchArgs,
@@ -80,6 +81,46 @@ describe('codex ACP runtime overrides', () => {
     expect(second).toEqual({
       text: '我先核对当前计划和服务进程状态。\n\n然后我会直接把重启和效果验证补完。',
       lastMessageUuid: 'msg-2',
+    });
+  });
+
+  test('keeps only the latest Codex assistant message for final output', () => {
+    const replayed = appendCodexFinalTurnChunk('', {
+      text: '旧回复第一段。',
+      messageUuid: 'old-msg',
+    });
+    const current = appendCodexFinalTurnChunk(
+      replayed.text,
+      {
+        text: '当前回复。',
+        messageUuid: 'new-msg',
+      },
+      replayed.lastMessageUuid,
+    );
+
+    expect(current).toEqual({
+      text: '当前回复。',
+      lastMessageUuid: 'new-msg',
+    });
+  });
+
+  test('continues accumulating chunks from the same Codex final message', () => {
+    const first = appendCodexFinalTurnChunk('', {
+      text: '当前',
+      messageUuid: 'msg-1',
+    });
+    const second = appendCodexFinalTurnChunk(
+      first.text,
+      {
+        text: '回复。',
+        messageUuid: 'msg-1',
+      },
+      first.lastMessageUuid,
+    );
+
+    expect(second).toEqual({
+      text: '当前回复。',
+      lastMessageUuid: 'msg-1',
     });
   });
 

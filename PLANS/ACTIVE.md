@@ -1581,6 +1581,47 @@ Risks / Notes / Handoff:
 - Implemented state fields `alert_keys` and `last_pushed_at`; stdout is emitted only when new alert keys appear or the last visible push is at least 30 minutes old.
 - Added script-level tests for first push, 10-minute silent no-alert runs, 30-minute heartbeat snapshots, new alerts, and persistent alert suppression.
 
+
+### Milestone 34
+
+Objective:
+- Prevent Codex ACP resumed-session replay chunks from being concatenated into the current `sdk_final` IM/Web final response.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `container/agent-runner/src/index.ts`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `tests/codex-session-runtime.test.ts`
+
+Validation:
+- `npm test -- --run tests/codex-session-runtime.test.ts`
+- `npm run typecheck`
+- `npm --prefix container/agent-runner run build`
+- `npx prettier --check PLANS/ACTIVE.md container/agent-runner/src/codex-session-runtime.ts container/agent-runner/src/index.ts tests/codex-session-runtime.test.ts`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/codex-session-runtime.test.ts`
+  - `npm run typecheck`
+  - `npm --prefix container/agent-runner run build`
+  - `npx prettier --check PLANS/ACTIVE.md container/agent-runner/src/codex-session-runtime.ts container/agent-runner/src/index.ts tests/codex-session-runtime.test.ts`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Kept bottom-layer Codex session restoration intact; only changed Cli Claw's final-response aggregation.
+- Added `appendCodexFinalTurnChunk()` so `sdk_final` keeps accumulating chunks from the same Codex message but replaces the final body when Codex switches `messageUuid`, preventing replayed older assistant messages from being concatenated into the current final response.
+- Streaming `text_delta` output remains unchanged.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1592,21 +1633,22 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 33
+- Milestone 34
 
 Current status:
-- done and applied; 10-minute task runs remain unchanged while visible pushes are gated by new alerts or 30-minute heartbeat snapshots
+- done; Codex final aggregation now drops older replayed message chunks by keeping only the latest assistant message body
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `scripts/stock-watch-feishu-20260427-0208.py`
-- `tests/stock-watch-feishu-20260427-0208.test.py`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `container/agent-runner/src/index.ts`
+- `tests/codex-session-runtime.test.ts`
 
 Last failure summary:
-- Resolved: script-level RED showed no `last_pushed_at` state and repeated stdout on 10-minute no-alert/persistent-alert runs.
+- Resolved: resumed Codex ACP sessions could replay assistant chunks from multiple historical message UUIDs and Cli Claw appended them into one `sdk_final`.
 
 Suspected cause:
-- Resolved: the script now persists active alert keys plus last visible push time and suppresses stdout when neither push condition is met.
+- Resolved: final-response aggregation reused the same cross-message append helper that intentionally preserved multiple assistant messages with blank-line boundaries.
 
 Next step:
-- Optional: commit and restart/apply the scheduled script if the running task reads a copied command rather than this workspace file directly.
+- Commit the fix and restart Cli Claw safely so the running runner uses the rebuilt artifact.

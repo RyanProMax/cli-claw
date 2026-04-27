@@ -59,7 +59,7 @@ import { PREDEFINED_AGENTS } from './agent-definitions.js';
 import { createMcpTools } from './mcp-tools.js';
 import { readCodexCliConfig } from './codex-config.js';
 import {
-  appendCodexTurnChunk,
+  appendCodexFinalTurnChunk,
   buildCodexAcpLaunchArgs,
   formatCodexRuntimeError,
   stripCodexRuntimeDiagnosticPrefix,
@@ -1666,7 +1666,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                 log('Suppressed Codex runtime diagnostic from assistant chunk');
               }
               if (!visibleChunkText) break;
-              const appended = appendCodexTurnChunk(
+              const appended = appendCodexFinalTurnChunk(
                 activeTurnText,
                 {
                   text: visibleChunkText,
