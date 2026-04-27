@@ -66,6 +66,7 @@ nohup.out
 
 # local
 .local/
+.cli-claw/
 PLANS/*
 !PLANS/ROADMAP.md
 !PLANS/_TEMPLATE.md
