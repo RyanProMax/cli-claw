@@ -1547,6 +1547,40 @@ Risks / Notes / Handoff:
 - Main workspace reset paths now delete all primary slots (`''` and `im:*`) while preserving conversation agent sessions; clear-history still deletes all sessions for the folder.
 - `docs/MEMORY.md` and `docs/RUNTIME.md` document the new source-slot boundary and preserve the distinction between true restart recovery history and ordinary fresh turns.
 
+### Milestone 33
+
+Objective:
+- Adjust the Feishu stock-watch script so the external 10-minute task can keep running, but visible output is emitted only for newly detected alerts or a 30-minute fixed heartbeat snapshot.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `scripts/stock-watch-feishu-20260427-0208.py`
+- `tests/stock-watch-feishu-20260427-0208.test.py`
+
+Validation:
+- `python3 tests/stock-watch-feishu-20260427-0208.test.py`
+- `git diff --check`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - RED confirmed: `python3 tests/stock-watch-feishu-20260427-0208.test.py` failed because the script had no `last_pushed_at` state and printed a full snapshot on every 10-minute no-alert/persistent-alert run.
+  - GREEN validation passed:
+    - `python3 tests/stock-watch-feishu-20260427-0208.test.py`
+    - `git diff --check`
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Preserve the existing external 10-minute trigger; the script should suppress stdout when neither condition is met so the scheduler sends nothing.
+- Treat a newly appearing alert key as “新增异动”; persistent alerts should not re-push every 10 minutes unless the 30-minute heartbeat is due.
+- A heartbeat push should match the current full snapshot style and should also be sent when there are no alerts.
+- Implemented state fields `alert_keys` and `last_pushed_at`; stdout is emitted only when new alert keys appear or the last visible push is at least 30 minutes old.
+- Added script-level tests for first push, 10-minute silent no-alert runs, 30-minute heartbeat snapshots, new alerts, and persistent alert suppression.
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` is the local active copy and the single source of truth during execution.
@@ -1558,33 +1592,21 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 32
+- Milestone 33
 
 Current status:
-- done and applied; fresh IM turns no longer IPC-inject into active Web runners and no longer reuse the Web primary runtime session
+- done and applied; 10-minute task runs remain unchanged while visible pushes are gated by new alerts or 30-minute heartbeat snapshots
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `docs/MEMORY.md`
-- `docs/RUNTIME.md`
-- `src/commands.ts`
-- `src/db.ts`
-- `src/group-queue.ts`
-- `src/index.ts`
-- `src/routes/groups.ts`
-- `src/workspace-runtime-reset.ts`
-- `tests/group-queue.test.ts`
-- `tests/im-command-utils.test.ts`
-- `tests/restart-recovery.test.ts`
+- `scripts/stock-watch-feishu-20260427-0208.py`
+- `tests/stock-watch-feishu-20260427-0208.test.py`
 
 Last failure summary:
-- Resolved: tests now cover direct Feishu JID, workspace-bound Feishu source on `web:main`, pending workspace-bound Feishu work followed by a Web message, session slot separation, and `/clear` primary slot cleanup.
+- Resolved: script-level RED showed no `last_pushed_at` state and repeated stdout on 10-minute no-alert/persistent-alert runs.
 
 Suspected cause:
-- Resolved: the old design optimized cross-channel continuity by sharing the folder runner/session. The unsafe defaults have been narrowed without deleting true restart recovery behavior.
+- Resolved: the script now persists active alert keys plus last visible push time and suppresses stdout when neither push condition is met.
 
 Next step:
-- Safe restart `restart-2026-04-26T14-14-01-621Z-556190ce` passed after commit `38e6ef4`; `/api/health` returned healthy for backend PID `48618`.
-- Post-restart process snapshot showed the current backend and current active runner group only; no older Cli Claw runner process group was observed.
-- Monitor a real Feishu first turn. Remaining RM-2026-04-25-04 follow-ups: restart first-turn, autopilot/no-op history, and Codex context-window auto-reset regression coverage.
+- Optional: commit and restart/apply the scheduled script if the running task reads a copied command rather than this workspace file directly.
