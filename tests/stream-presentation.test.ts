@@ -94,7 +94,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('feeds Codex commentary and latest answer into separate Feishu card panels', () => {
+  test('feeds Codex commentary but not presentation answerText during Feishu streaming', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -137,7 +137,46 @@ describe('stream presentation', () => {
       supportsReasoningEffort: true,
     });
     expect(session.appendCommentary).toHaveBeenCalledWith('先收集上下文');
-    expect(session.append).toHaveBeenCalledWith('最终结论');
+    expect(session.append).not.toHaveBeenCalled();
+  });
+
+  test('never streams stale Codex presentation answerText into Feishu cards', () => {
+    const session = {
+      setRuntimeIdentity: vi.fn(),
+      appendCommentary: vi.fn(),
+      append: vi.fn(),
+      appendThinking: vi.fn(),
+      setThinking: vi.fn(),
+      startTool: vi.fn(),
+      updateToolSummary: vi.fn(),
+      endTool: vi.fn(),
+      setSystemStatus: vi.fn(),
+      setHook: vi.fn(),
+      setTodos: vi.fn(),
+      pushRecentEvent: vi.fn(),
+    } as any;
+
+    feedStreamEventToCard(
+      session,
+      {
+        eventType: 'text_delta',
+        text: '当前增量',
+        messageUuid: 'msg-current',
+        runtimeIdentity: {
+          agentType: 'codex',
+          model: 'gpt-5.4',
+          reasoningEffort: 'high',
+          supportsReasoningEffort: true,
+        },
+      } as any,
+      {
+        answerText: '<messages>旧历史上下文</messages>\n当前增量',
+        commentaryText: '',
+        streamText: '<messages>旧历史上下文</messages>\n当前增量',
+      },
+    );
+
+    expect(session.append).not.toHaveBeenCalled();
   });
 
   test('syncs Codex commentary to Feishu cards at terminal state', () => {

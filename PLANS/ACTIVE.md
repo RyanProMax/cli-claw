@@ -1,3 +1,59 @@
+# Codex Streaming Presentation Leak Fix
+
+## Goal
+
+- Stop Codex Feishu streaming cards from rendering `presentationText.answerText`.
+- Keep final card body sourced only from terminal `visibleText`.
+
+## Done when
+
+- Codex `text_delta` streaming cannot append stale `answerText` to card body.
+- Regression test proves stale Codex presentation answer is not streamed.
+- Validation, review, commit, and deploy pass.
+
+## Milestones
+
+### Milestone 50
+
+Objective:
+- Fix the remaining process-state leak where Codex live card rendering used `presentationText.answerText` before final visibility filtering.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `src/index.ts`
+- `tests/stream-presentation.test.ts`
+
+Validation:
+- `npm test -- --run tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md src/index.ts tests/stream-presentation.test.ts`
+- `git diff --check`
+- `npm run build`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts`: passed, 4 files / 93 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md src/index.ts tests/stream-presentation.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `npm run build`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Root cause evidence: after restart, `presentationAnswerLen=50893` while final visible body was only 214 chars. Final output was filtered, but live Codex card rendering still used `presentationText.answerText`.
+  - Codex streaming card no longer appends `presentationText.answerText` on `text_delta`.
+  - Terminal final still completes card with `visibleText`.
+
+Risks / Notes / Handoff:
+- Runtime code changed; safe restart is required before validating the next Feishu turn.
+
+---
+
 # Shutdown Partial Reply Leak Fix
 
 ## Goal

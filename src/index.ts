@@ -323,9 +323,6 @@ export function feedStreamEventToCard(
           if (presentationText.commentaryText) {
             session.appendCommentary(presentationText.commentaryText);
           }
-          if (presentationText.answerText) {
-            session.append(presentationText.answerText);
-          }
           break;
         }
         const channel = classifyStreamPresentationTextChannel(
