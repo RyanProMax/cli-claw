@@ -14,6 +14,54 @@
 
 ## Milestones
 
+### Milestone 46
+
+Objective:
+- Remove the remaining cli-claw-owned historical prompt bodies from autopilot hidden prompts and interrupted-resume confirmation state, while preserving current-message batching and native runtime session continuity.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/ARCHITECTURE.md`
+- `docs/MEMORY.md`
+- `src/index.ts`
+- `src/task-scheduler.ts`
+- `tests/restart-recovery.test.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
+
+Validation:
+- `npm test -- --run tests/task-scheduler-host-cwd.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts tests/feishu-e2e.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/ARCHITECTURE.md docs/MEMORY.md docs/RUNTIME.md src/index.ts src/task-scheduler.ts src/reply-visibility.ts tests/task-scheduler-host-cwd.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts tests/feishu-e2e.test.ts`
+- `git diff --check`
+- `npm run build`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/task-scheduler-host-cwd.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts tests/feishu-e2e.test.ts`: passed, 4 files / 64 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/ARCHITECTURE.md docs/MEMORY.md docs/RUNTIME.md src/index.ts src/task-scheduler.ts src/reply-visibility.ts tests/task-scheduler-host-cwd.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts tests/feishu-e2e.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `npm run build`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: all changed files are in Milestone 46 allowed scope.
+  - Autopilot: no longer reads recent chat DB rows or injects `[WORKSPACE_CONTEXT]` into hidden prompts.
+  - Interrupted resume: pending confirmation state stores only metadata and never persists old/fresh user message bodies.
+  - Queue semantics: active pending messages remain the only cli-claw-supplied message batch, with contiguous same-source batching preserved.
+
+Risks / Notes / Handoff:
+- Remaining intentional context source: the agent runtime's native session transcript. Cli-claw should not duplicate it in prompts.
+- Codex Feishu streaming/card separation is a separate follow-up; this milestone covers the first three no-history-injection requirements.
+- Runtime code changed; safe restart is required for the running service to pick up the fix.
+
 ### Milestone 43
 
 Objective:
@@ -1880,7 +1928,7 @@ Review status:
   - History replay tightening: interrupted resume no longer replays stored old user messages; conversation-agent recovery requires a committed cursor instead of falling back to `EMPTY_CURSOR`.
 
 Risks / Notes / Handoff:
-- Subagent review still identified intentional context sources not removed here: active pending messages are still sent to active runners, runtime sessions still own their native transcript, and autopilot can explicitly include `[WORKSPACE_CONTEXT]`. Those are separate product contracts, not final-send/history-leak buffers.
+- Remaining intentional context sources after this milestone: active pending messages are still sent to active runners, and runtime sessions still own their native transcript. Autopilot no longer injects `[WORKSPACE_CONTEXT]`; pending interrupted confirmations no longer persist old message bodies.
 - Runtime code changed; safe restart is required for the running service to pick up the fix.
 
 

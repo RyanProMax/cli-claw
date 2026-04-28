@@ -91,7 +91,7 @@
   - Main workspace reset paths delete only the primary runtime slot while preserving conversation agent sessions.
   - Skill slash commands that return `assistant_prompt` are tagged as `assistant_prompt` messages and clear the workspace primary runtime session before execution, so command-generated tasks do not inherit stale runtime transcript context.
 - Next action:
-  - Interrupted resume no longer replays stored old user messages; conversation-agent recovery now requires a committed cursor and will not fall back to all virtual-chat history.
+  - Interrupted resume no longer replays or stores old user message bodies; conversation-agent recovery now requires a committed cursor and will not fall back to all virtual-chat history.
   - Remove any remaining cli-claw-owned historical prompt/replay/summary injection path; restart must send only pending user messages and rely on saved runtime session id for context.
   - Add real-flow E2E for restart first turn and interrupted pending recovery proving no DB history/recovery summary reaches agent input or user-visible output.
   - Monitor real Feishu/Web mixed-channel turns; expected behavior is ordered contiguous-source turns for ordinary messages, with assistant-prompt skill commands starting from a fresh runtime session.
@@ -102,7 +102,7 @@
 - Source: 2026-04-25 task-run logs; 2026-04-26 interrupted autopilot visible reply incident
 - Summary: 主动模式不能长期占用 Codex、制造过程性文本、消耗上下文或影响飞书回复；它需要更窄的 health-check contract、短超时和独立会话/模型策略。
 - Current state:
-  - Autopilot is a low-priority background task, skips busy workspace queues, backs off repeated failures, and suppresses preempted visible replies.
+  - Autopilot is a low-priority background task, skips busy workspace queues, backs off repeated failures, suppresses preempted visible replies, and no longer injects recent chat history into hidden prompts.
   - `docs/ARCHITECTURE.md` documents the current autopilot execution and preemption contract.
 - Next action:
   - Convert autopilot from general agent prompt into bounded health-check jobs that emit structured `no_op | action | risk`.

@@ -652,26 +652,6 @@ describe('restart recovery cursor handling', () => {
       interruptedAt: '2026-04-26T10:01:00.000Z',
       interruptedMessageId: 'old-interrupt',
       createdAt: '2026-04-26T10:05:00.000Z',
-      resumeMessages: [
-        {
-          id: 'old-user',
-          chat_jid: 'feishu:chat-1',
-          sender: 'ou_user',
-          sender_name: 'Ryan',
-          content: '继续任务',
-          timestamp: '2026-04-26T10:00:00.000Z',
-        },
-      ],
-      freshMessages: [
-        {
-          id: 'fresh-user',
-          chat_jid: 'feishu:chat-1',
-          sender: 'ou_user',
-          sender_name: 'Ryan',
-          content: '现在 ROADMAP 还有哪些任务',
-          timestamp: '2026-04-26T10:05:00.000Z',
-        },
-      ],
     };
 
     const decision = resolveInterruptedResumeDecision({
@@ -686,7 +666,12 @@ describe('restart recovery cursor handling', () => {
           timestamp: '2026-04-26T10:06:00.000Z',
         },
       ],
-      pendingConfirmation,
+      pendingConfirmation: {
+        chatJid: pendingConfirmation.chatJid,
+        interruptedAt: pendingConfirmation.interruptedAt,
+        interruptedMessageId: pendingConfirmation.interruptedMessageId,
+        createdAt: pendingConfirmation.createdAt,
+      },
     });
 
     expect(decision.action).toBe('continue_previous');
@@ -716,26 +701,6 @@ describe('restart recovery cursor handling', () => {
         interruptedAt: '2026-04-26T10:01:00.000Z',
         interruptedMessageId: 'old-interrupt',
         createdAt: '2026-04-26T10:05:00.000Z',
-        resumeMessages: [
-          {
-            id: 'old-user',
-            chat_jid: 'feishu:chat-1',
-            sender: 'ou_user',
-            sender_name: 'Ryan',
-            content: '继续任务',
-            timestamp: '2026-04-26T10:00:00.000Z',
-          },
-        ],
-        freshMessages: [
-          {
-            id: 'fresh-user',
-            chat_jid: 'feishu:chat-1',
-            sender: 'ou_user',
-            sender_name: 'Ryan',
-            content: '现在 ROADMAP 还有哪些任务',
-            timestamp: '2026-04-26T10:05:00.000Z',
-          },
-        ],
       },
     });
 
@@ -750,26 +715,6 @@ describe('restart recovery cursor handling', () => {
       interruptedAt: '2026-04-26T10:01:00.000Z',
       interruptedMessageId: 'old-interrupt',
       createdAt: '2026-04-26T10:05:00.000Z',
-      resumeMessages: [
-        {
-          id: 'old-user',
-          chat_jid: 'feishu:chat-1',
-          sender: 'ou_user',
-          sender_name: 'Ryan',
-          content: '继续任务',
-          timestamp: '2026-04-26T10:00:00.000Z',
-        },
-      ],
-      freshMessages: [
-        {
-          id: 'fresh-user',
-          chat_jid: 'feishu:chat-1',
-          sender: 'ou_user',
-          sender_name: 'Ryan',
-          content: '现在 ROADMAP 还有哪些任务',
-          timestamp: '2026-04-26T10:05:00.000Z',
-        },
-      ],
     };
 
     const decision = resolveInterruptedResumeDecision({
@@ -784,7 +729,12 @@ describe('restart recovery cursor handling', () => {
           timestamp: '2026-04-26T10:06:00.000Z',
         },
       ],
-      pendingConfirmation,
+      pendingConfirmation: {
+        chatJid: pendingConfirmation.chatJid,
+        interruptedAt: pendingConfirmation.interruptedAt,
+        interruptedMessageId: pendingConfirmation.interruptedMessageId,
+        createdAt: pendingConfirmation.createdAt,
+      },
     });
 
     expect(decision.action).toBe('use_fresh');

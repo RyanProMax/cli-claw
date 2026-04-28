@@ -214,6 +214,62 @@ describe('task scheduler host cwd forwarding', () => {
     );
   });
 
+  test('runs workspace autopilot without injecting recent chat history', async () => {
+    const task = buildTask({
+      id: 'autopilot:workspace:main',
+      context_mode: 'group',
+      schedule_type: 'interval',
+      schedule_value: '300000',
+      next_run: '2026-04-05T10:00:00.000Z',
+      prompt: 'check workspace health',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+
+    const db = await import('../src/db.js');
+    vi.mocked(db.getTaskById).mockReturnValue(task);
+    vi.mocked(db.getMessagesPage).mockReturnValue([
+      {
+        id: 'old-message',
+        chat_jid: 'web:source',
+        sender: 'user-1',
+        sender_name: 'Ryan',
+        content: 'old private context',
+        timestamp: '2026-04-05T09:59:00.000Z',
+        is_from_me: false,
+      } as never,
+    ]);
+    runHostAgentMock.mockResolvedValue({
+      status: 'success',
+      result: '当前没有值得执行的下一步，等待用户输入。',
+    });
+
+    await runWorkspaceAutopilotTask(
+      task,
+      {
+        registeredGroups: () => groups,
+        getSessions: () => ({}),
+        queue: {
+          closeStdin: vi.fn(),
+          enqueueTask: vi.fn(),
+          enqueueMessageCheck: vi.fn(),
+        },
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        storePromptMessage: vi.fn(),
+        assistantName: 'cli-claw',
+      } as never,
+      'web:source',
+      { manualRun: true },
+    );
+
+    const prompt = runHostAgentMock.mock.calls[0][1].prompt;
+    expect(prompt).toContain('check workspace health');
+    expect(prompt).not.toContain('[WORKSPACE_CONTEXT]');
+    expect(prompt).not.toContain('old private context');
+  });
+
   test('publishes substantive workspace autopilot results as scheduled task messages', async () => {
     const task = buildTask({
       id: 'autopilot:workspace:main',

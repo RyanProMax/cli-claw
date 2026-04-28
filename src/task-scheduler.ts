@@ -28,7 +28,6 @@ import {
   cleanupStaleRunningLogs,
   deleteGroupData,
   ensureChatExists,
-  getMessagesPage,
   getTaskRunLogs,
   getDueTasks,
   getTaskById,
@@ -344,34 +343,11 @@ function computeWorkspaceAutopilotErrorNextRun(
   return new Date(Date.now() + delayMs).toISOString();
 }
 
-function truncateAutopilotContextText(text: string): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  return normalized.length > 500
-    ? `${normalized.slice(0, 500)}...`
-    : normalized;
-}
-
-function buildWorkspaceAutopilotBackgroundPrompt(
-  task: ScheduledTask,
-  targetGroupJid: string,
-): string {
-  const recentMessages = getMessagesPage(targetGroupJid, undefined, 20)
-    .reverse()
-    .filter((message) => message.source_kind !== 'scheduled_task_prompt')
-    .map((message) => {
-      const sender = message.is_from_me ? 'assistant' : message.sender_name;
-      return `- ${message.timestamp} ${sender}: ${truncateAutopilotContextText(
-        message.content,
-      )}`;
-    });
-
+function buildWorkspaceAutopilotBackgroundPrompt(task: ScheduledTask): string {
   return [
     task.prompt,
     '',
-    '[WORKSPACE_CONTEXT]',
-    recentMessages.length > 0
-      ? recentMessages.join('\n')
-      : '当前没有可用的最近对话记录；如果无法确定下一步，请保持 no-op。',
+    'Cli Claw does not inject chat history into autopilot prompts. Use the runtime session and explicit tools if context is needed.',
   ].join('\n');
 }
 
@@ -1024,7 +1000,7 @@ export async function runWorkspaceAutopilotTask(
     const output = await runAgent(
       effectiveGroup,
       {
-        prompt: buildWorkspaceAutopilotBackgroundPrompt(task, targetGroupJid),
+        prompt: buildWorkspaceAutopilotBackgroundPrompt(task),
         sessionId: undefined,
         groupFolder: effectiveGroup.folder,
         chatJid: targetGroupJid,

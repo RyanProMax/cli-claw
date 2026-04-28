@@ -922,13 +922,10 @@ interface PendingInterruptedResumeConfirmation {
   interruptedAt: string;
   interruptedMessageId: string;
   createdAt: string;
-  resumeMessages: NewMessage[];
-  freshMessages: NewMessage[];
 }
 
 type InterruptedResumeDecisionAction =
   | 'none'
-  | 'ask'
   | 'wait_for_reply'
   | 'continue_previous'
   | 'use_fresh';
@@ -1613,17 +1610,6 @@ function stripInterruptedResumeDiscardPrefix(content: string): string | null {
   );
   if (stripped === trimmed) return null;
   return stripped.trim();
-}
-
-function buildInterruptedResumePrompt(
-  pending: PendingInterruptedResumeConfirmation,
-): string {
-  const interruptedTime = pending.interruptedAt || '上次';
-  return [
-    `检测到上次任务被中断（${interruptedTime}）。是否继续上次任务？`,
-    '',
-    '回复“继续上次”会继续旧任务；回复“忽略上次”会只处理你刚才这条新消息。也可以直接发送新的需求。',
-  ].join('\n');
 }
 
 function cloneMessageWithContent(
@@ -3161,22 +3147,15 @@ function normalizePendingInterruptedResumeConfirmation(
     typeof pending.chatJid !== 'string' ||
     typeof pending.interruptedAt !== 'string' ||
     typeof pending.interruptedMessageId !== 'string' ||
-    typeof pending.createdAt !== 'string' ||
-    !Array.isArray(pending.resumeMessages) ||
-    !Array.isArray(pending.freshMessages)
+    typeof pending.createdAt !== 'string'
   ) {
     return null;
   }
-  const resumeMessages = pending.resumeMessages.filter(isMessageSnapshot);
-  const freshMessages = pending.freshMessages.filter(isMessageSnapshot);
-  if (resumeMessages.length === 0 || freshMessages.length === 0) return null;
   return {
     chatJid: pending.chatJid,
     interruptedAt: pending.interruptedAt,
     interruptedMessageId: pending.interruptedMessageId,
     createdAt: pending.createdAt,
-    resumeMessages,
-    freshMessages,
   };
 }
 
@@ -3690,41 +3669,6 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     missedMessages,
     pendingConfirmation: pendingInterruptedResumeConfirmations[chatJid],
   });
-  if (interruptedResumeDecision.action === 'ask') {
-    if (
-      interruptedResumeDecision.pendingConfirmation &&
-      interruptedResumeDecision.promptText
-    ) {
-      pendingInterruptedResumeConfirmations[chatJid] =
-        interruptedResumeDecision.pendingConfirmation;
-      saveState();
-      try {
-        await sendMessage(chatJid, interruptedResumeDecision.promptText);
-      } catch (err) {
-        logger.error(
-          { chatJid, err },
-          'Failed to send interrupted resume confirmation prompt',
-        );
-        return false;
-      }
-      const latest = missedMessages[missedMessages.length - 1];
-      advanceCursors(chatJid, {
-        timestamp: latest.timestamp,
-        id: latest.id,
-      });
-      logger.info(
-        {
-          chatJid,
-          interruptedMessageId:
-            interruptedResumeDecision.pendingConfirmation.interruptedMessageId,
-          freshMessageCount:
-            interruptedResumeDecision.pendingConfirmation.freshMessages.length,
-        },
-        'Interrupted context gated behind user confirmation',
-      );
-      return true;
-    }
-  }
   if (interruptedResumeDecision.action === 'wait_for_reply') {
     const latest = missedMessages[missedMessages.length - 1];
     advanceCursors(chatJid, {

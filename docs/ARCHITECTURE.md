@@ -47,7 +47,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 ## 主动模式
 
 - 工作区主动模式由 `src/workspace-autopilot.ts` 管理任务 ID、prompt 与 quota pause/resume 状态，由 `src/task-scheduler.ts` 在到期时创建后台 run。
-- 主动模式不把 prompt 写入主聊天消息表；后台 run 会读取最近工作区上下文构造隐藏 prompt，只有产生实质进展、风险或阻塞时才通过 scheduled-task 消息发出摘要。
+- 主动模式不把 prompt 写入主聊天消息表，也不拼接最近聊天历史构造隐藏 prompt；上下文连续性只依赖底层 runtime/session 或显式工具。只有产生实质进展、风险或阻塞时才通过 scheduled-task 消息发出摘要。
 - `src/group-queue.ts` 把主动模式作为 low-priority background task 处理：真实用户/IM 消息优先；若后台 run 正在执行时收到用户消息，队列会请求后台 run 收尾并排队处理真实消息。
 - 被真实用户/IM 工作抢占的主动模式输出只保留在 task run log；不能再向 Web/IM 发布可见 `scheduled_task` 回复，避免用户刚发消息时看到上一轮后台任务过程文本。
 
