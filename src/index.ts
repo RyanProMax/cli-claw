@@ -1386,9 +1386,26 @@ export function resolveMessageProcessingCursor(
 ): MessageCursor {
   if (isRecovery) {
     const committed = lastCommittedCursorMap[chatJid];
-    if (committed) return committed;
+    return committed || EMPTY_CURSOR;
   }
   return lastAgentTimestampMap[chatJid] || EMPTY_CURSOR;
+}
+
+export function normalizeCommittedCursorsOnLoad(
+  _accepted: Record<string, MessageCursor>,
+  committed: Record<string, MessageCursor>,
+): Record<string, MessageCursor> {
+  return { ...committed };
+}
+
+export function resolveStartupRecoveryCursor(
+  chatJid: string,
+  cursors: {
+    accepted: Record<string, MessageCursor>;
+    committed: Record<string, MessageCursor>;
+  },
+): MessageCursor {
+  return cursors.committed[chatJid] || EMPTY_CURSOR;
 }
 
 export function dropMessagesAtOrBeforeLatestInterruptedPartial<
@@ -1528,7 +1545,16 @@ export function isRecoverableRestartPendingMessage(
 export function selectRecoverableRestartPendingMessages<
   T extends RestartPendingMessage,
 >(messages: readonly T[]): T[] {
-  return messages.filter(isRecoverableRestartPendingMessage);
+  let latestBoundaryIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (!isRecoverableRestartPendingMessage(messages[i])) {
+      latestBoundaryIndex = i;
+      break;
+    }
+  }
+  return messages
+    .slice(latestBoundaryIndex + 1)
+    .filter(isRecoverableRestartPendingMessage);
 }
 
 type InterruptedResumeMessage = NewMessage & {
@@ -2870,26 +2896,11 @@ function loadState(): void {
     }
   };
   lastAgentTimestamp = loadCursorMap('last_agent_timestamp');
-  lastCommittedCursor = loadCursorMap('last_committed_cursor');
+  lastCommittedCursor = normalizeCommittedCursorsOnLoad(
+    lastAgentTimestamp,
+    loadCursorMap('last_committed_cursor'),
+  );
   activeStreamingTurns = loadStreamingTurnMap('active_streaming_turns');
-  // Migration: fill in missing lastCommittedCursor entries from lastAgentTimestamp.
-  // The original migration only triggered when lastCommittedCursor was completely empty,
-  // missing the case where some keys exist but others don't (e.g. new IM groups).
-  {
-    let migrated = false;
-    for (const [jid, cursor] of Object.entries(lastAgentTimestamp)) {
-      if (!lastCommittedCursor[jid]) {
-        lastCommittedCursor[jid] = cursor;
-        migrated = true;
-      }
-    }
-    if (migrated) {
-      logger.info(
-        'Migrated missing lastCommittedCursor entries from lastAgentTimestamp',
-      );
-      saveState();
-    }
-  }
 
   sessions = getAllSessions();
   registeredGroups = getAllRegisteredGroups();
@@ -3012,6 +3023,10 @@ function loadState(): void {
     { groupCount: Object.keys(registeredGroups).length },
     'State loaded',
   );
+}
+
+export function loadRouterStateForTests(): void {
+  loadState();
 }
 
 function saveState(): void {
@@ -8263,12 +8278,10 @@ function recoverStuckPendingGroups(): void {
  */
 function recoverPendingMessages(): void {
   for (const [chatJid, group] of Object.entries(registeredGroups)) {
-    // No committed cursor → this group was never successfully processed.
-    // Skip recovery — the normal 2s message loop will pick up any pending messages.
-    // Using EMPTY_CURSOR here would match ALL historical messages and falsely
-    // trigger session clearing (the bug that caused context reset on restart).
-    const sinceCursor = lastCommittedCursor[chatJid];
-    if (!sinceCursor) continue;
+    const sinceCursor = resolveStartupRecoveryCursor(chatJid, {
+      accepted: lastAgentTimestamp,
+      committed: lastCommittedCursor,
+    });
 
     const pending = getMessagesSince(chatJid, sinceCursor);
     const recoverablePending = selectRecoverableRestartPendingMessages(pending);
@@ -8285,6 +8298,10 @@ function recoverPendingMessages(): void {
       queue.enqueueMessageCheck(chatJid);
     }
   }
+}
+
+export function recoverPendingMessagesForTests(): void {
+  recoverPendingMessages();
 }
 
 /**

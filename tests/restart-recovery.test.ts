@@ -383,6 +383,41 @@ describe('restart recovery cursor handling', () => {
     });
   });
 
+  test('does not migrate accepted IPC cursors into committed recovery cursors on load', async () => {
+    const { normalizeCommittedCursorsOnLoad } = await loadIndexModule();
+
+    expect(
+      normalizeCommittedCursorsOnLoad(
+        {
+          'feishu:chat-1': {
+            timestamp: '2026-04-28T09:05:00.000Z',
+            id: 'accepted-but-uncommitted',
+          },
+        },
+        {},
+      ),
+    ).toEqual({});
+  });
+
+  test('startup recovery includes accepted but uncommitted IPC messages', async () => {
+    const { resolveStartupRecoveryCursor } = await loadIndexModule();
+
+    expect(
+      resolveStartupRecoveryCursor('feishu:chat-1', {
+        accepted: {
+          'feishu:chat-1': {
+            timestamp: '2026-04-28T09:05:00.000Z',
+            id: 'accepted-but-uncommitted',
+          },
+        },
+        committed: {},
+      }),
+    ).toEqual({
+      timestamp: '',
+      id: '',
+    });
+  });
+
   test('blocks cursor commit when required routed IM delivery fails', async () => {
     const { shouldCommitCursorAfterRoutedImDelivery } = await loadIndexModule();
 
@@ -617,6 +652,32 @@ describe('restart recovery cursor handling', () => {
     ).toEqual(['user-1']);
   });
 
+  test('drops restart recovery history before the latest assistant boundary', async () => {
+    const { selectRecoverableRestartPendingMessages } = await loadIndexModule();
+    const pending = [
+      {
+        id: 'old-user',
+        sender: 'ou_old',
+        source_kind: null,
+      },
+      {
+        id: 'assistant-final',
+        sender: 'cli-claw-agent',
+        source_kind: 'sdk_final' as const,
+        is_from_me: true,
+      },
+      {
+        id: 'fresh-user',
+        sender: 'ou_fresh',
+        source_kind: null,
+      },
+    ];
+
+    expect(
+      selectRecoverableRestartPendingMessages(pending).map((m) => m.id),
+    ).toEqual(['fresh-user']);
+  });
+
   test('uses fresh messages instead of prompting with older interrupted context', async () => {
     const { resolveInterruptedResumeDecision } = await loadIndexModule();
     const interruptedBatch = [
@@ -776,6 +837,95 @@ describe('restart recovery cursor handling', () => {
     expect(prompt).not.toContain('旧任务历史上下文');
     expect(prompt).not.toContain('旧任务中断过程文本');
     expect(prompt).not.toContain('当前来源 B 的新问题');
+  });
+
+  test('startup recovery replays accepted but uncommitted IPC messages without old interrupted context', async () => {
+    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    const {
+      loadRouterStateForTests,
+      recoverPendingMessagesForTests,
+      processGroupMessages,
+    } = await loadIndexModule();
+    const db = await import('../src/db.ts');
+
+    db.initDatabase();
+    db.setRegisteredGroup('web:main', {
+      name: 'Main',
+      folder: 'main',
+      added_at: '2026-04-28T09:00:00.000Z',
+      executionMode: 'host',
+      is_home: true,
+      activation_mode: 'auto',
+    });
+    db.ensureChatExists('web:main');
+    db.storeMessageDirect(
+      'old-user',
+      'web:main',
+      'ou_old',
+      'Old',
+      '上一轮历史上下文',
+      '2026-04-28T09:00:00.000Z',
+      false,
+      { sourceJid: 'web:A' },
+    );
+    db.storeMessageDirect(
+      'old-interrupt',
+      'web:main',
+      'cli-claw-agent',
+      'Cli Claw',
+      '上一轮中断正文',
+      '2026-04-28T09:01:00.000Z',
+      true,
+      {
+        sourceJid: 'web:A',
+        meta: {
+          sourceKind: 'interrupt_partial',
+          finalizationReason: 'interrupted',
+        },
+      },
+    );
+    db.storeMessageDirect(
+      'accepted-current',
+      'web:main',
+      'ou_a',
+      'A',
+      '当前重启后必须处理的问题',
+      '2026-04-28T09:05:00.000Z',
+      false,
+      { sourceJid: 'web:A' },
+    );
+    db.setRouterState(
+      'last_agent_timestamp',
+      JSON.stringify({
+        'web:main': {
+          timestamp: '2026-04-28T09:05:00.000Z',
+          id: 'accepted-current',
+        },
+      }),
+    );
+    db.setRouterState('last_committed_cursor', JSON.stringify({}));
+
+    runnerMocks.runHostAgent.mockImplementation(
+      async (_group, _input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'success',
+          result: '只处理当前消息',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+        } as never);
+        return { status: 'success' };
+      },
+    );
+
+    loadRouterStateForTests();
+    recoverPendingMessagesForTests();
+    await expect(processGroupMessages('web:main')).resolves.toBe(true);
+
+    expect(runnerMocks.runHostAgent).toHaveBeenCalledOnce();
+    const prompt = runnerMocks.runHostAgent.mock.calls[0][1].prompt;
+    expect(prompt).toContain('当前重启后必须处理的问题');
+    expect(prompt).not.toContain('上一轮历史上下文');
+    expect(prompt).not.toContain('上一轮中断正文');
   });
 
   test('processes only the current leading source after interrupted context', async () => {

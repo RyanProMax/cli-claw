@@ -29,6 +29,8 @@
   - `/self-status` also marks source-launched services with source/build artifact mode so dist freshness is not presented as the live TypeScript backend freshness signal.
   - `/self-check` validates the backend-captured authoritative launch spec.
   - `docs/COMMAND.md` documents repo-local `bun src/cli.ts start` / `bun src/cli.ts restart` fallback for shells where `cli-claw` is not yet on PATH.
+  - `docs/COMMAND.md` now clarifies that `cli-claw restart` reads the running backend's saved authoritative restart state, writes a safe restart intent, and reports acceptance rather than directly killing or spawning from the caller shell.
+  - `README.md` now exposes the safe restart entrypoints: `cli-claw restart` for trusted external shells / Web operator contexts, and `/self-restart` for IM admin sessions.
   - Current LaunchAgent now runs `/Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start`.
   - Current backend state reports `source: cli_start`, `artifactMode: source`, PID `26433`, and `/api/health` healthy after the launchd migration.
   - `ops/install-launch-agent.sh` now retries `launchctl bootstrap` once after `bootout` before failing, covering the transient `Bootstrap failed: 5` observed during migration.

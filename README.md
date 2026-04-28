@@ -82,11 +82,30 @@ cli-claw start
 - 仓库服务、launcher 和发布包统一使用 `cli-claw` 这个名字。
 - 如需把 launcher 暴露到 PATH，可安装同名 npm 包 `cli-claw`；可执行命令保持为 `cli-claw <command>`。
 - `cli-claw start` 启动服务。
+- `cli-claw restart` 从外部 shell 请求一次安全自重启；它复用当前运行中 backend 保存的启动状态，不从调用方 shell 猜测启动命令。
 - `cli-claw help` / `-h` / `--help` 查看 launcher 帮助。
 - `cli-claw version` / `-v` / `--version` 查看已安装版本。
 - 应用自身资源从安装包根目录解析，不依赖你启动时的当前目录。
 - `cli-claw start` 会把“你启动命令时所在的目录”当作 host 工作区默认执行目录，并在缺失时物化到 `custom_cwd`。
 - 数据库存储、sessions、logs、downloads 和工作区元数据仍保留在 `~/.cli-claw`，不会迁到启动目录。
+
+### 安全重启
+
+从外部 shell 重启正在运行的服务：
+
+```bash
+cli-claw restart
+```
+
+在 IM 管理员会话中重启：
+
+```text
+/self-restart
+```
+
+这两条入口都会走同一套 safe intent / watchdog 流程：先复用当前 backend 保存的启动命令做 shadow self-check，通过后才替换服务；结果以 `~/.cli-claw/ops/restarts/*.json`、`/self-status` 或 IM 成功回执为准。不要把 `kill`、`pkill`、`launchctl bootout` 当作日常重启入口。
+
+如果还没有把 `cli-claw` 暴露到 PATH，在仓库目录可以临时使用 `bun src/cli.ts restart` 作为 repo-local fallback；长期运行仍推荐 `cli-claw start` / `cli-claw restart`。
 
 ### 从当前仓库启动（推荐）
 
@@ -131,6 +150,7 @@ member 用户注册后默认会创建容器模式的主工作区；admin 主工�
 cli-claw help
 cli-claw version
 cli-claw start
+cli-claw restart
 ```
 
 仓库开发命令：

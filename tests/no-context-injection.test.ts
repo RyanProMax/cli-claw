@@ -1,8 +1,9 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -39,6 +40,10 @@ function walkFiles(root: string): string[] {
 }
 
 describe('no cli-claw context injection', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   test('agent runner does not inject managed memory, heartbeat, or reply-policy wrappers', () => {
     const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
 
@@ -123,5 +128,70 @@ describe('no cli-claw context injection', () => {
     expect(messageIpcPath).toContain('resolveVisibleReplyParts');
     expect(messageIpcPath).not.toMatch(/sendImWithFailTracking\([^,]+,\s*data\.text/);
     expect(messageIpcPath).not.toMatch(/broadcastToOwnerIMChannels[\s\S]*data\.text/);
+  });
+
+  test('session settings MCP sync removes servers that are no longer configured', async () => {
+    vi.stubEnv('WEB_SESSION_SECRET', 'test-secret');
+    const { ensureSettingsJson } = (await import(
+      '../src/container-runner.js'
+    )) as unknown as {
+      ensureSettingsJson: (
+        settingsFile: string,
+        mcpServers?: Record<string, Record<string, unknown>>,
+      ) => void;
+    };
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'cli-claw-mcp-settings-'),
+    );
+    const settingsFile = path.join(tempDir, 'settings.json');
+    fs.writeFileSync(
+      settingsFile,
+      JSON.stringify(
+        {
+          env: { KEEP_ME: '1' },
+          mcpServers: {
+            staleMemory: { command: 'old-memory-server' },
+            keepButReplace: { command: 'old-safe-server' },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    ensureSettingsJson(settingsFile, {
+      keepButReplace: { command: 'new-safe-server', args: ['--fresh'] },
+    });
+
+    const synced = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    expect(synced.mcpServers).toEqual({
+      keepButReplace: { command: 'new-safe-server', args: ['--fresh'] },
+    });
+
+    ensureSettingsJson(settingsFile, {});
+
+    const cleared = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    expect(cleared).not.toHaveProperty('mcpServers');
+  });
+
+  test('agent runner filters context-like MCP servers by id and connection strings', () => {
+    const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
+    const start = runnerSource.indexOf('function isContextLikeMcpServer');
+    const end = runnerSource.indexOf('function loadUserMcpServers', start);
+    const filterSource = runnerSource.slice(start, end);
+
+    expect(filterSource).toContain('command');
+    expect(filterSource).toContain('url');
+    expect(filterSource).toContain('args');
+    expect(filterSource).toContain('env');
+  });
+
+  test('agent runner does not load MCP servers from workspace claude settings', () => {
+    const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
+
+    expect(runnerSource).not.toContain('loadWorkspaceMcpServers');
+    expect(runnerSource).not.toContain(
+      "path.join(WORKSPACE_GROUP, '.claude', 'settings.json')",
+    );
   });
 });

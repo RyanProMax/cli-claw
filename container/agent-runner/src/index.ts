@@ -1009,15 +1009,48 @@ function emitTurnInitEvent(
 }
 
 /** 从 settings.json 读取用户配置的 MCP servers（stdio/http/sse 类型） */
-const CONTEXT_MCP_NAME_PATTERN =
-  /(memory|recall|history|transcript|summary)/i;
+const CONTEXT_MCP_TEXT_PATTERN =
+  /memory|recall|history|transcript|summary|(?:^|[^a-z0-9])context(?:[^a-z0-9]|$)/i;
+
+function collectMcpTextFields(value: unknown, fields: string[]): void {
+  if (typeof value === 'string') {
+    fields.push(value);
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    fields.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectMcpTextFields(item, fields);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) {
+      fields.push(key);
+      collectMcpTextFields(item, fields);
+    }
+  }
+}
+
+function isContextLikeMcpServer(name: string, entry: unknown): boolean {
+  const fields = [name];
+  if (entry && typeof entry === 'object') {
+    const server = entry as Record<string, unknown>;
+    collectMcpTextFields(server.command, fields);
+    collectMcpTextFields(server.url, fields);
+    collectMcpTextFields(server.args, fields);
+    collectMcpTextFields(server.env, fields);
+  }
+  return fields.some((field) => CONTEXT_MCP_TEXT_PATTERN.test(field));
+}
 
 function filterContextMcpServers(
   servers: Record<string, unknown>,
 ): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(servers).filter(([name]) => {
-      const allowed = !CONTEXT_MCP_NAME_PATTERN.test(name);
+    Object.entries(servers).filter(([name, entry]) => {
+      const allowed = !isContextLikeMcpServer(name, entry);
       if (!allowed) log(`Blocked context-like MCP server: ${name}`);
       return allowed;
     }),
@@ -1042,26 +1075,11 @@ function loadUserMcpServers(): Record<string, unknown> {
   return {};
 }
 
-function loadWorkspaceMcpServers(): Record<string, unknown> {
-  const settingsFile = path.join(WORKSPACE_GROUP, '.claude', 'settings.json');
-  try {
-    if (fs.existsSync(settingsFile)) {
-      const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-      if (settings.mcpServers && typeof settings.mcpServers === 'object') {
-        return filterContextMcpServers(settings.mcpServers);
-      }
-    }
-  } catch {
-    /* ignore parse errors */
-  }
-  return {};
-}
-
 function buildAcpMcpServers(): McpServer[] {
-  const merged = {
-    ...loadUserMcpServers(),
-    ...loadWorkspaceMcpServers(),
-  } as Record<string, Record<string, unknown>>;
+  const merged = loadUserMcpServers() as Record<
+    string,
+    Record<string, unknown>
+  >;
   const servers: McpServer[] = [];
 
   for (const [name, entry] of Object.entries(merged)) {

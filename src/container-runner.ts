@@ -69,8 +69,54 @@ const REQUIRED_SETTINGS_ENV: Record<string, string> = {
   CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
 };
 
-/** Read existing settings.json, deep-merge required env keys and mcpServers, write only if changed */
-function ensureSettingsJson(
+const CONTEXT_MCP_TEXT_PATTERN =
+  /memory|recall|history|transcript|summary|(?:^|[^a-z0-9])context(?:[^a-z0-9]|$)/i;
+
+function collectMcpTextFields(value: unknown, fields: string[]): void {
+  if (typeof value === 'string') {
+    fields.push(value);
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    fields.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectMcpTextFields(item, fields);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) {
+      fields.push(key);
+      collectMcpTextFields(item, fields);
+    }
+  }
+}
+
+function isContextLikeMcpServer(
+  name: string,
+  server: Record<string, unknown>,
+): boolean {
+  const fields = [name];
+  collectMcpTextFields(server.command, fields);
+  collectMcpTextFields(server.url, fields);
+  collectMcpTextFields(server.args, fields);
+  collectMcpTextFields(server.env, fields);
+  return fields.some((field) => CONTEXT_MCP_TEXT_PATTERN.test(field));
+}
+
+function filterRuntimeMcpServers(
+  servers: Record<string, Record<string, unknown>>,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(servers).filter(
+      ([name, server]) => !isContextLikeMcpServer(name, server),
+    ),
+  );
+}
+
+/** Read existing settings.json, deep-merge required env keys and sync mcpServers, write only if changed */
+export function ensureSettingsJson(
   settingsFile: string,
   mcpServers?: Record<string, Record<string, unknown>>,
 ): void {
@@ -87,10 +133,13 @@ function ensureSettingsJson(
   const mergedEnv = { ...existingEnv, ...REQUIRED_SETTINGS_ENV };
   const merged: Record<string, unknown> = { ...existing, env: mergedEnv };
 
-  // Merge user-configured MCP servers into settings
-  if (mcpServers && Object.keys(mcpServers).length > 0) {
-    const existingMcp = (existing.mcpServers as Record<string, unknown>) || {};
-    merged.mcpServers = { ...existingMcp, ...mcpServers };
+  if (mcpServers) {
+    const syncedMcpServers = filterRuntimeMcpServers(mcpServers);
+    if (Object.keys(syncedMcpServers).length > 0) {
+      merged.mcpServers = syncedMcpServers;
+    } else {
+      delete merged.mcpServers;
+    }
   }
 
   const newContent = JSON.stringify(merged, null, 2) + '\n';
