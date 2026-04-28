@@ -1924,6 +1924,27 @@ export function getMessagesSince(
   }));
 }
 
+export function getLatestInterruptedPartialMessageSince(
+  chatJid: string,
+  cursor: MessageCursor,
+): (NewMessage & { is_from_me: boolean }) | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage, turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
+       FROM messages
+       WHERE chat_jid = ?
+         AND (timestamp > ? OR (timestamp = ? AND id > ?))
+         AND is_from_me = 1
+         AND (source_kind = 'interrupt_partial' OR finalization_reason = 'interrupted')
+       ORDER BY timestamp DESC, id DESC
+       LIMIT 1`,
+    )
+    .get(chatJid, cursor.timestamp, cursor.timestamp, cursor.id) as
+    | DbMessageRow
+    | undefined;
+  return row ? mapDbMessageRow(row) : undefined;
+}
+
 export function recordImMessageLifecycleEvent(
   input: RecordImMessageLifecycleEventInput,
 ): number {

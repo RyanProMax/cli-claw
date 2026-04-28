@@ -60,6 +60,7 @@ import {
   getRecentImMessageLifecycleEvents,
   getRecentImMessageLifecycleIssueEvents,
   getUserById,
+  getLatestInterruptedPartialMessageSince,
   getMessagesSince,
   getNewMessages,
   getRouterState,
@@ -1433,6 +1434,30 @@ export function resolveMessageProcessingCursor(
   return lastAgentTimestampMap[chatJid] || EMPTY_CURSOR;
 }
 
+export function dropMessagesAtOrBeforeLatestInterruptedPartial<
+  T extends NewMessage,
+>(chatJid: string, sinceCursor: MessageCursor, messages: T[]): T[] {
+  if (messages.length === 0) return messages;
+  const interrupted = getLatestInterruptedPartialMessageSince(
+    chatJid,
+    sinceCursor,
+  );
+  if (!interrupted) return messages;
+  const interruptedCursor = {
+    timestamp: interrupted.timestamp,
+    id: interrupted.id,
+  };
+  return messages.filter((message) =>
+    isCursorAfter(
+      {
+        timestamp: message.timestamp,
+        id: message.id,
+      },
+      interruptedCursor,
+    ),
+  );
+}
+
 export function shouldCommitCursorAfterRoutedImDelivery({
   requiresRoutedImDelivery,
   routedImDeliverySucceeded,
@@ -1565,7 +1590,8 @@ function isInterruptedPartialMessage(
   message: InterruptedResumeMessage,
 ): boolean {
   return (
-    message.source_kind === 'interrupt_partial' &&
+    (message.source_kind === 'interrupt_partial' ||
+      message.finalization_reason === 'interrupted') &&
     (message.is_from_me === true ||
       message.is_from_me === 1 ||
       message.sender === 'cli-claw-agent')
@@ -1696,7 +1722,10 @@ export function resolveInterruptedResumeDecision({
     return { action: 'none', messagesForAgent: [] };
   }
 
-  return { action: 'use_fresh', messagesForAgent: freshMessages };
+  return {
+    action: 'use_fresh',
+    messagesForAgent: selectLeadingSourceTurnMessages(freshMessages, chatJid),
+  };
 }
 
 export function isRestartRecoveryHistoryMessage(
@@ -3138,7 +3167,7 @@ function isMessageSnapshot(value: unknown): value is NewMessage {
   );
 }
 
-function normalizePendingInterruptedResumeConfirmation(
+export function normalizePendingInterruptedResumeConfirmation(
   value: unknown,
 ): PendingInterruptedResumeConfirmation | null {
   if (!value || typeof value !== 'object') return null;
@@ -3624,7 +3653,7 @@ export function selectLeadingSourceTurnMessages<T extends NewMessage>(
  * The container stays alive for idleTimeout after each result, allowing
  * rapid-fire messages to be piped in without spawning a new container.
  */
-async function processGroupMessages(chatJid: string): Promise<boolean> {
+export async function processGroupMessages(chatJid: string): Promise<boolean> {
   let group = registeredGroups[chatJid];
   if (!group) {
     // Group may have been created after loadState (e.g., during setup/registration)
@@ -3654,7 +3683,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     lastCommittedCursor,
     isRecovery,
   );
-  const rawMissedMessages = getMessagesSince(chatJid, sinceCursor);
+  const missedMessagesBeforeInterruptedDrop = getMessagesSince(
+    chatJid,
+    sinceCursor,
+  );
+  const rawMissedMessages = dropMessagesAtOrBeforeLatestInterruptedPartial(
+    chatJid,
+    sinceCursor,
+    missedMessagesBeforeInterruptedDrop,
+  );
+  const droppedInterruptedContextCount =
+    missedMessagesBeforeInterruptedDrop.length - rawMissedMessages.length;
   const missedMessages = isRecovery
     ? selectRecoverableRestartPendingMessages(rawMissedMessages)
     : rawMissedMessages;
@@ -3686,6 +3725,25 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       : selectLeadingSourceTurnMessages(missedMessages, chatJid);
   const hasDeferredSourceMessages =
     messagesForAgent.length < missedMessages.length;
+  if (interruptedResumeDecision.action !== 'none') {
+    logger.info(
+      {
+        chatJid,
+        action: interruptedResumeDecision.action,
+        pendingInterruptedMessageId:
+          pendingInterruptedResumeConfirmations[chatJid]
+            ?.interruptedMessageId ?? null,
+        forwardedMessageCount: messagesForAgent.length,
+        deferredMessageCount: Math.max(
+          missedMessages.length - messagesForAgent.length,
+          0,
+        ),
+        clearPendingConfirmation:
+          interruptedResumeDecision.clearPendingConfirmation === true,
+      },
+      'Interrupted resume decision applied',
+    );
+  }
 
   // Admin home is shared as web:main, so select runtime owner from the latest
   // active admin sender to avoid writing global memory into another admin's
@@ -3751,6 +3809,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       ignoredRecoveryMessageCount: isRecovery
         ? rawMissedMessages.length - missedMessages.length
         : 0,
+      droppedInterruptedContextCount,
       forwardedMessageCount: messagesForAgent.length,
       directImReply,
       imageCount: images.length,
@@ -7214,7 +7273,15 @@ async function processAgentConversation(
   const sinceCursor = isRecovery
     ? recoveryCursor!
     : lastAgentTimestamp[virtualChatJid] || EMPTY_CURSOR;
-  const missedMessages = getMessagesSince(virtualChatJid, sinceCursor);
+  const missedMessagesBeforeInterruptedDrop = getMessagesSince(
+    virtualChatJid,
+    sinceCursor,
+  );
+  const missedMessages = dropMessagesAtOrBeforeLatestInterruptedPartial(
+    virtualChatJid,
+    sinceCursor,
+    missedMessagesBeforeInterruptedDrop,
+  );
   if (missedMessages.length === 0) {
     if (isRecovery) agentRecoveryVirtualJids.delete(virtualChatJid);
     // Spawn agents are fire-and-forget: if no messages are found (race condition
@@ -7245,17 +7312,27 @@ async function processAgentConversation(
   updateAgentStatus(agentId, 'running');
   broadcastAgentStatus(chatJid, agentId, 'running', agent.name, agent.prompt);
 
-  const prompt = formatMessages(missedMessages, false);
-  const images = collectMessageImages(virtualChatJid, missedMessages);
+  const messagesForAgent = selectLeadingSourceTurnMessages(
+    missedMessages,
+    virtualChatJid,
+  );
+  const hasDeferredSourceMessages =
+    messagesForAgent.length < missedMessages.length;
+  const currentTurnSourceJid = resolveMessageSourceJid(
+    messagesForAgent[0]!,
+    virtualChatJid,
+  );
+
+  const prompt = formatMessages(messagesForAgent, false);
+  const images = collectMessageImages(virtualChatJid, messagesForAgent);
   const imagesForAgent = images.length > 0 ? images : undefined;
-  // For agent conversations, route reply to IM based on the most recent
-  // message's source.  Unlike the main conversation (#99), agent conversations
-  // are explicitly bound to IM groups, so the user expects replies to go back
-  // to the IM channel they last messaged from — even if older messages in
-  // the batch originated from the web (e.g. after a /clear).
+  // Agent conversation turns are cut at the first source boundary. Route the
+  // reply to the current turn's source so later pending sources wait for their
+  // own turn instead of being mixed into this runner input.
   let replySourceImJid: string | null = null;
   {
-    const lastSourceJid = missedMessages[missedMessages.length - 1]?.source_jid;
+    const lastSourceJid =
+      messagesForAgent[messagesForAgent.length - 1]?.source_jid;
     if (lastSourceJid && getChannelType(lastSourceJid) !== null) {
       replySourceImJid = lastSourceJid;
     }
@@ -7289,7 +7366,7 @@ async function processAgentConversation(
     // Also publish to activeImReplyRoutes so send_file/send_image IPC can route to IM.
     activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
   }
-  activeImLifecycleMessages.set(effectiveGroup.folder, missedMessages);
+  activeImLifecycleMessages.set(effectiveGroup.folder, messagesForAgent);
 
   // ── Feishu Streaming Card (conversation agent) ──
   // Unlike processGroupMessages which falls back to chatJid, conversation agents
@@ -7354,13 +7431,14 @@ async function processAgentConversation(
   let lastAgentReplyMsgId: string | undefined;
   let lastAgentReplyText: string | undefined;
   let savedAgentPartialReply = false;
-  const lastProcessed = missedMessages[missedMessages.length - 1];
+  const lastProcessed = messagesForAgent[messagesForAgent.length - 1]!;
   let activeTurnCursor: MessageCursor = {
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
   };
   let cursorLifecycleRecorded = false;
   let agentCursorCommitBlockedReason: string | null = null;
+  let queuedDeferredSourceMessages = false;
   const activeStreamingTurnKey = buildStreamingTurnStateKey(chatJid, agentId);
   const streamingSnapshotKey = resolveStreamingSnapshotKey(chatJid, agentId);
   const blockAgentCursorCommit = (reason: string): void => {
@@ -7381,7 +7459,7 @@ async function processAgentConversation(
     }
     if (!cursorLifecycleRecorded) {
       recordLifecycleForMessages({
-        messages: missedMessages,
+        messages: messagesForAgent,
         stage: 'cursor_committed',
         details: { agentId, cursor: activeTurnCursor },
       });
@@ -7390,6 +7468,17 @@ async function processAgentConversation(
     advanceCursors(virtualChatJid, activeTurnCursor);
     if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
+    }
+    if (hasDeferredSourceMessages && !queuedDeferredSourceMessages) {
+      queuedDeferredSourceMessages = true;
+      queue.closeStdin(virtualJid);
+      queue.enqueueTask(
+        virtualJid,
+        `agent-deferred:${agentId}:${activeTurnCursor.id}`,
+        async () => {
+          await processAgentConversation(chatJid, agentId);
+        },
+      );
     }
   };
   const isCurrentTurnCommitted = (): boolean => {
@@ -7468,7 +7557,7 @@ async function processAgentConversation(
         activeTurnCursor = normalizeCursor(streamEvent.messageCursor);
         if (!agentStreamStartedLifecycleRecorded) {
           recordStreamStartedLifecycleForMessages({
-            messages: missedMessages,
+            messages: messagesForAgent,
             streamEvent,
             details: {
               agentId,
@@ -7621,7 +7710,7 @@ async function processAgentConversation(
                 streamingCardHandledIm: streamingCardHandledIM,
                 text: interruptedText,
                 groupFolder: effectiveGroup.folder,
-                lifecycleMessages: missedMessages,
+                lifecycleMessages: messagesForAgent,
                 lifecycleDetails: {
                   agentId,
                   deliveryPoint: 'agent_status',
@@ -7774,7 +7863,7 @@ async function processAgentConversation(
           },
         );
         recordLifecycleForMessages({
-          messages: missedMessages,
+          messages: messagesForAgent,
           stage: 'finalized',
           details: {
             agentId,
@@ -7838,7 +7927,7 @@ async function processAgentConversation(
             }
             streamingCardHandledIM = true;
             recordLifecycleForMessages({
-              messages: missedMessages,
+              messages: messagesForAgent,
               stage: 'im_delivered',
               details: { agentId, delivery: 'streaming_card' },
             });
@@ -7885,7 +7974,7 @@ async function processAgentConversation(
             localImagePaths,
           );
           recordLifecycleForMessages({
-            messages: missedMessages,
+            messages: messagesForAgent,
             stage: 'im_delivered',
             status: imSent ? 'ok' : 'error',
             reason: imSent ? null : 'send_failed_after_retries',
@@ -7936,7 +8025,7 @@ async function processAgentConversation(
           if (g.reply_policy !== 'mirror') continue;
           if (getChannelType(imJid))
             sendImWithFailTracking(imJid, visibleText, localImagePaths, {
-              lifecycleMessages: missedMessages,
+              lifecycleMessages: messagesForAgent,
               lifecycleDetails: { agentId, delivery: 'mirror_message' },
             });
         }
@@ -7997,6 +8086,15 @@ async function processAgentConversation(
         sessionId: sessionId || null,
         isHome,
         isAdminHome,
+        messageCount: missedMessages.length,
+        forwardedMessageCount: messagesForAgent.length,
+        deferredMessageCount: Math.max(
+          missedMessages.length - messagesForAgent.length,
+          0,
+        ),
+        droppedInterruptedContextCount:
+          missedMessagesBeforeInterruptedDrop.length - missedMessages.length,
+        activeSourceJid: currentTurnSourceJid,
         ...runtimeBuildLogFields,
       },
       'Dispatching conversation agent run',
@@ -8005,7 +8103,7 @@ async function processAgentConversation(
     const onProcessCb = (proc: ChildProcess, identifier: string) => {
       const containerName = executionMode === 'container' ? identifier : null;
       recordLifecycleForMessages({
-        messages: missedMessages,
+        messages: messagesForAgent,
         stage: 'runner_started',
         details: { agentId, identifier, executionMode },
       });
@@ -8016,6 +8114,8 @@ async function processAgentConversation(
         effectiveGroup.folder,
         identifier,
         agentId,
+        undefined,
+        currentTurnSourceJid,
       );
     };
 
@@ -9172,7 +9272,11 @@ function buildOnAgentMessage(): (baseChatJid: string, agentId: string) => void {
 
     // Fetch pending messages
     const sinceCursor = lastAgentTimestamp[virtualChatJid] || EMPTY_CURSOR;
-    const missedMessages = getMessagesSince(virtualChatJid, sinceCursor);
+    const missedMessages = dropMessagesAtOrBeforeLatestInterruptedPartial(
+      virtualChatJid,
+      sinceCursor,
+      getMessagesSince(virtualChatJid, sinceCursor),
+    );
 
     // IM messages must force-restart the agent process so reply routing
     // (replySourceImJid) is recalculated from the latest batch.  This mirrors
@@ -9220,10 +9324,20 @@ function buildOnAgentMessage(): (baseChatJid: string, agentId: string) => void {
         },
         'Web-origin missed messages: attempting to pipe into running agent',
       );
+      const messagesForAgent =
+        missedMessages.length > 0
+          ? selectLeadingSourceTurnMessages(missedMessages, virtualChatJid)
+          : [];
       const formatted =
-        missedMessages.length > 0 ? formatMessages(missedMessages, false) : '';
-      const images = collectMessageImages(virtualChatJid, missedMessages);
+        missedMessages.length > 0
+          ? formatMessages(messagesForAgent, false)
+          : '';
+      const images = collectMessageImages(virtualChatJid, messagesForAgent);
       const imagesForAgent = images.length > 0 ? images : undefined;
+      const lastProcessed = messagesForAgent[messagesForAgent.length - 1];
+      const currentTurnSourceJid = messagesForAgent[0]
+        ? resolveMessageSourceJid(messagesForAgent[0], virtualChatJid)
+        : virtualChatJid;
 
       const sendResult = formatted
         ? queue.sendMessage(
@@ -9231,19 +9345,30 @@ function buildOnAgentMessage(): (baseChatJid: string, agentId: string) => void {
             formatted,
             imagesForAgent,
             undefined,
-            {
-              timestamp: missedMessages[missedMessages.length - 1]!.timestamp,
-              id: missedMessages[missedMessages.length - 1]!.id,
-            },
+            lastProcessed
+              ? {
+                  timestamp: lastProcessed.timestamp,
+                  id: lastProcessed.id,
+                }
+              : undefined,
+            currentTurnSourceJid,
           )
         : 'no_active';
-      if (sendResult === 'sent' && missedMessages.length > 0) {
-        const lastProcessed = missedMessages[missedMessages.length - 1];
+      if (sendResult === 'sent' && lastProcessed) {
         setLastAgentCursor(virtualChatJid, {
           timestamp: lastProcessed.timestamp,
           id: lastProcessed.id,
         });
         queue.markIpcInjectedMessage(virtualChatJid);
+        if (messagesForAgent.length < missedMessages.length) {
+          queue.enqueueTask(
+            virtualChatJid,
+            `agent-deferred:${agentId}:${lastProcessed.id}`,
+            async () => {
+              await processAgentConversation(homeChatJid, agentId);
+            },
+          );
+        }
       }
       if (sendResult === 'no_active') {
         const taskId = `agent-conv:${agentId}:${Date.now()}`;

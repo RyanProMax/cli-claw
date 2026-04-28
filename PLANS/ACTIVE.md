@@ -14,6 +14,52 @@
 
 ## Milestones
 
+### Milestone 47
+
+Objective:
+- Close review findings after Milestone 46: apply contiguous same-source turn selection to interrupted fresh-message recovery and conversation-agent inputs, strengthen regression coverage, and remove stale resume-contract docs.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/db.ts`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts tests/task-scheduler-host-cwd.test.ts tests/reply-visibility.test.ts tests/feishu-e2e.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md src/db.ts src/index.ts tests/restart-recovery.test.ts tests/task-scheduler-host-cwd.test.ts tests/reply-visibility.test.ts tests/feishu-e2e.test.ts`
+- `git diff --check`
+- `npm run build`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/restart-recovery.test.ts tests/task-scheduler-host-cwd.test.ts tests/reply-visibility.test.ts tests/feishu-e2e.test.ts`: passed, 4 files / 66 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md src/db.ts src/index.ts tests/restart-recovery.test.ts tests/task-scheduler-host-cwd.test.ts tests/reply-visibility.test.ts tests/feishu-e2e.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `npm run build`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: all changed files are in Milestone 47 allowed scope.
+  - Runtime inputs: main and conversation-agent paths now drop user pending rows at or before the latest interrupted partial before prompt construction, then apply leading contiguous-source turn selection.
+  - Tests: regression coverage now includes a DB-backed `processGroupMessages()` prompt capture proving old interrupted context and later source messages are excluded, legacy pending-state normalization, and autopilot no-history DB-read assertion.
+  - Docs: stale interrupted-resume replay wording is marked superseded and aligned with the metadata-only contract.
+
+Risks / Notes / Handoff:
+- Trigger: read-only subagent review found source-boundary bypasses in conversation-agent processing and interrupted fresh-message recovery, plus stale Milestone 25 wording that contradicted the metadata-only resume contract.
+- The intended invariant is now explicit for both main and conversation-agent turns: only the leading contiguous source batch enters the runner; later source batches remain pending for their own turn.
+- Runtime code changed; safe restart is required for the running service to pick up the fix.
+
 ### Milestone 46
 
 Objective:
@@ -1271,7 +1317,7 @@ Risks / Notes / Handoff:
 ### Milestone 25
 
 Objective:
-- Add an explicit interrupted-resume confirmation gate: when a new user/Feishu message arrives while an older interrupted turn would otherwise be replayed into the same agent prompt, Cli Claw must first ask whether to continue the interrupted task and must not consume the old interrupted context until the user explicitly confirms.
+- Superseded by Milestone 46: remove cli-claw-owned interrupted context replay. Pending interrupted confirmation state is metadata-only; a "continue" reply is sent as the current user message, and any continuity is handled by the runtime session.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
@@ -1298,15 +1344,15 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- User contract from 2026-04-26: if an incoming message detects residual interrupted context, the system should reply with a confirmation question instead of immediately carrying that context into the new turn; only after the user opts in should the previous interrupted context be consumed.
+- Superseded contract: cli-claw must not replay old interrupted context into a new turn. If residual interrupted context exists, only current pending user messages are sent to the runner.
 - Follow TDD: first add failing pure routing tests for ask / explicit continue / fresh-message-after-prompt behavior, then wire the smallest production change.
 - Keep this milestone scoped to interrupted residual context gating. Do not refactor general history compaction, Feishu card rendering, restart command policy, or runner transport behavior here.
 - TDD red observed before the helper existed: `npm test -- --run tests/restart-recovery.test.ts` failed because `resolveInterruptedResumeDecision` was not exported.
-- Implemented an interrupted-resume decision gate that:
+- Historical implementation note, superseded by Milestone 46:
   - Detects old user context followed by an assistant `interrupt_partial` and a newer user message.
-  - Sends a confirmation prompt and persists a pending old/new message snapshot instead of immediately starting a runner.
-  - Replays old context only after `继续上次` / equivalent explicit confirmation.
-  - Uses the fresh message after `忽略上次` or a new user request.
+  - Pending confirmation state now persists only interruption metadata, not old/new message snapshots.
+  - `继续上次` / equivalent confirmation is sent as the current user message only; cli-claw does not replay old context.
+  - Uses the current fresh message after `忽略上次` or a new user request.
   - Ignores the confirmation prompt itself while waiting for the user reply.
 - Pending confirmation state is persisted in `router_state` so a service restart between prompt and reply does not lose the decision boundary.
 - `docs/MEMORY.md` now documents that interrupted residual context is not auto-injected into runner prompts.

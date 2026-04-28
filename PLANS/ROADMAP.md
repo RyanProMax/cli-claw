@@ -83,10 +83,10 @@
 - Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息；连续性完全由底层 agent runtime session 提供，cli-claw 不维护、不总结、不拼接历史上下文，只保留消息数据库用于审计和溯源。
 - Current state:
   - Startup recovery ignores internal prompt/command/assistant/system rows.
-  - Interrupted residual context now requires explicit user confirmation before old context can be replayed.
+  - Interrupted residual context is not replayed by cli-claw; pending confirmation state stores metadata only, and any "continue" reply is sent as the current user message for the runtime session to interpret.
   - `docs/MEMORY.md` documents the current recovery and resume boundaries.
   - Milestone 38 replaces IM source runtime isolation with one primary runtime session per workspace.
-  - Primary turn selection now processes contiguous same-source pending messages in DB order; different sources wait for the next turn instead of being regrouped or mixed into the active source. Example: `A1/A2/B1/A3/B2/B3` becomes `A1+A2 -> A`, `B1 -> B`, `A3 -> A`, `B2+B3 -> B`.
+  - Primary and conversation-agent turn selection now process contiguous same-source pending messages in DB order; different sources wait for the next turn instead of being regrouped or mixed into the active source. Example: `A1/A2/B1/A3/B2/B3` becomes `A1+A2 -> A`, `B1 -> B`, `A3 -> A`, `B2+B3 -> B`.
   - Restart recovery resumes the saved runtime session and pending messages; it no longer clears the primary session or injects compact DB history.
   - Main workspace reset paths delete only the primary runtime slot while preserving conversation agent sessions.
   - Skill slash commands that return `assistant_prompt` are tagged as `assistant_prompt` messages and clear the workspace primary runtime session before execution, so command-generated tasks do not inherit stale runtime transcript context.

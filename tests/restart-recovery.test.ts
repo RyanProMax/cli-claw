@@ -5,6 +5,19 @@ import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const tempHomes: string[] = [];
+const runnerMocks = vi.hoisted(() => ({
+  runHostAgent: vi.fn(),
+  runContainerAgent: vi.fn(),
+  writeGroupsSnapshot: vi.fn(),
+  writeTasksSnapshot: vi.fn(),
+}));
+
+vi.mock('../src/container-runner.js', () => ({
+  runHostAgent: runnerMocks.runHostAgent,
+  runContainerAgent: runnerMocks.runContainerAgent,
+  writeGroupsSnapshot: runnerMocks.writeGroupsSnapshot,
+  writeTasksSnapshot: runnerMocks.writeTasksSnapshot,
+}));
 
 function createTempHome(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-recovery-'));
@@ -20,6 +33,7 @@ async function loadIndexModule() {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.clearAllMocks();
   vi.resetModules();
   for (const dir of tempHomes.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -627,10 +641,20 @@ describe('restart recovery cursor handling', () => {
       {
         id: 'fresh-user',
         chat_jid: 'feishu:chat-1',
+        source_jid: 'feishu:A',
         sender: 'ou_user',
         sender_name: 'Ryan',
         content: '现在 ROADMAP 还有哪些任务',
         timestamp: '2026-04-26T10:05:00.000Z',
+      },
+      {
+        id: 'other-source-user',
+        chat_jid: 'feishu:chat-1',
+        source_jid: 'feishu:B',
+        sender: 'ou_other',
+        sender_name: 'Other',
+        content: '另一个来源的消息',
+        timestamp: '2026-04-26T10:05:01.000Z',
       },
     ];
 
@@ -643,6 +667,91 @@ describe('restart recovery cursor handling', () => {
     expect(decision.messagesForAgent.map((m) => m.id)).toEqual(['fresh-user']);
     expect(decision.promptText).toBeUndefined();
     expect(decision.pendingConfirmation).toBeUndefined();
+  });
+
+  test('processes only the current leading source after interrupted context', async () => {
+    const { processGroupMessages } = await loadIndexModule();
+    const db = await import('../src/db.ts');
+
+    db.initDatabase();
+    db.setRegisteredGroup('web:main', {
+      name: 'Main',
+      folder: 'main',
+      added_at: '2026-04-28T08:00:00.000Z',
+      executionMode: 'host',
+      is_home: true,
+      activation_mode: 'auto',
+    });
+    db.ensureChatExists('web:main');
+    db.storeMessageDirect(
+      'old-user',
+      'web:main',
+      'ou_old',
+      'Old',
+      '旧任务历史上下文',
+      '2026-04-28T08:00:00.000Z',
+      false,
+      { sourceJid: 'web:A' },
+    );
+    db.storeMessageDirect(
+      'old-interrupt',
+      'web:main',
+      'cli-claw-agent',
+      'Cli Claw',
+      '旧任务中断过程文本',
+      '2026-04-28T08:01:00.000Z',
+      true,
+      {
+        sourceJid: 'web:A',
+        meta: {
+          sourceKind: 'interrupt_partial',
+          finalizationReason: 'interrupted',
+        },
+      },
+    );
+    db.storeMessageDirect(
+      'fresh-a',
+      'web:main',
+      'ou_a',
+      'A',
+      '当前来源 A 的新问题',
+      '2026-04-28T08:02:00.000Z',
+      false,
+      { sourceJid: 'web:A' },
+    );
+    db.storeMessageDirect(
+      'fresh-b',
+      'web:main',
+      'ou_b',
+      'B',
+      '当前来源 B 的新问题',
+      '2026-04-28T08:03:00.000Z',
+      false,
+      { sourceJid: 'web:B' },
+    );
+
+    runnerMocks.runHostAgent.mockImplementation(
+      async (_group, _input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'success',
+          result: '只回答当前来源 A',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+        } as never);
+        return { status: 'success' };
+      },
+    );
+
+    await expect(processGroupMessages('web:main')).resolves.toBe(true);
+
+    expect(runnerMocks.runHostAgent).toHaveBeenCalledOnce();
+    const prompt = runnerMocks.runHostAgent.mock.calls[0][1].prompt;
+    expect(prompt).toContain('当前来源 A 的新问题');
+    expect(prompt).not.toContain('旧任务历史上下文');
+    expect(prompt).not.toContain('旧任务中断过程文本');
+    expect(prompt).not.toContain('当前来源 B 的新问题');
+    expect(db.getRouterState('last_committed_cursor')).toContain('fresh-a');
+    expect(db.getRouterState('last_committed_cursor')).not.toContain('fresh-b');
   });
 
   test('does not replay stored interrupted context after an explicit continue reply', async () => {
@@ -679,6 +788,45 @@ describe('restart recovery cursor handling', () => {
       'resume-reply',
     ]);
     expect(decision.clearPendingConfirmation).toBe(true);
+  });
+
+  test('drops legacy pending resume message bodies during normalization', async () => {
+    const { normalizePendingInterruptedResumeConfirmation } =
+      await loadIndexModule();
+
+    expect(
+      normalizePendingInterruptedResumeConfirmation({
+        chatJid: 'feishu:chat-1',
+        interruptedAt: '2026-04-26T10:01:00.000Z',
+        interruptedMessageId: 'old-interrupt',
+        createdAt: '2026-04-26T10:05:00.000Z',
+        resumeMessages: [
+          {
+            id: 'old-user',
+            chat_jid: 'feishu:chat-1',
+            sender: 'ou_user',
+            sender_name: 'Ryan',
+            content: '旧消息正文不应继续持久化',
+            timestamp: '2026-04-26T10:00:00.000Z',
+          },
+        ],
+        freshMessages: [
+          {
+            id: 'fresh-user',
+            chat_jid: 'feishu:chat-1',
+            sender: 'ou_user',
+            sender_name: 'Ryan',
+            content: '新消息正文也不应进入 pending state',
+            timestamp: '2026-04-26T10:05:00.000Z',
+          },
+        ],
+      }),
+    ).toEqual({
+      chatJid: 'feishu:chat-1',
+      interruptedAt: '2026-04-26T10:01:00.000Z',
+      interruptedMessageId: 'old-interrupt',
+      createdAt: '2026-04-26T10:05:00.000Z',
+    });
   });
 
   test('does not feed the confirmation prompt itself back to the runner', async () => {

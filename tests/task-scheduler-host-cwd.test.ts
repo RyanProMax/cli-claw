@@ -266,6 +266,7 @@ describe('task scheduler host cwd forwarding', () => {
 
     const prompt = runHostAgentMock.mock.calls[0][1].prompt;
     expect(prompt).toContain('check workspace health');
+    expect(db.getMessagesPage).not.toHaveBeenCalled();
     expect(prompt).not.toContain('[WORKSPACE_CONTEXT]');
     expect(prompt).not.toContain('old private context');
   });
