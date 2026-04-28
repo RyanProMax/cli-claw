@@ -264,6 +264,122 @@ async function driveQueuedFeishuSuccessPath(_: {
   }
 }
 
+async function driveQueuedFeishuCodexStaticFinalPath(_: {
+  db: any;
+  connection: any;
+  chatJid: string;
+  messageId: string;
+  rawFinalText: string;
+  stalePresentationAnswer: string;
+}): Promise<void> {
+  const {
+    db,
+    connection,
+    chatJid,
+    messageId,
+    rawFinalText,
+    stalePresentationAnswer,
+  } = _;
+  const [
+    { GroupQueue },
+    { recordLifecycleForMessages },
+    { resolveVisibleReplyParts },
+  ] = await Promise.all([
+    import('../src/group-queue.ts'),
+    import('../src/im-message-lifecycle.ts'),
+    import('../src/reply-visibility.ts'),
+  ]);
+  const emptyCursor = { timestamp: '', id: '' };
+  const queue = new GroupQueue();
+
+  queue.setHostModeChecker(() => true);
+  queue.setSerializationKeyResolver((groupJid: string) => groupJid);
+
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const processed = new Promise<void>((resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(
+        new Error('Timed out waiting for Feishu Codex static final processing'),
+      );
+    }, 2000);
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      if (groupJid !== chatJid) return true;
+
+      try {
+        const messages = db.getMessagesSince(chatJid, emptyCursor);
+        expect(messages.map((message: any) => message.id)).toContain(messageId);
+
+        recordLifecycleForMessages({ messages, stage: 'queued' });
+        recordLifecycleForMessages({ messages, stage: 'runner_started' });
+
+        const visibleReply = resolveVisibleReplyParts(
+          rawFinalText,
+          { answerText: stalePresentationAnswer },
+          { agentType: 'codex' },
+        );
+        expect(visibleReply).toMatchObject({
+          visibleText: rawFinalText,
+          commentaryText: '',
+          droppedPresentationAnswer: true,
+        });
+
+        recordLifecycleForMessages({
+          messages,
+          stage: 'finalized',
+          details: { droppedPresentationAnswer: true },
+        });
+
+        await connection.sendMessage(
+          chatJid.replace(/^feishu:/, ''),
+          visibleReply.visibleText,
+        );
+
+        recordLifecycleForMessages({
+          messages,
+          stage: 'im_delivered',
+          details: { delivery: 'static_message' },
+        });
+
+        const storedMessage = messages.find(
+          (message: any) => message.id === messageId,
+        );
+        const cursor = {
+          timestamp: storedMessage.timestamp,
+          id: storedMessage.id,
+        };
+        db.setRouterState(
+          'last_committed_cursor',
+          JSON.stringify({ [chatJid]: cursor }),
+        );
+        recordLifecycleForMessages({
+          messages,
+          stage: 'cursor_committed',
+          details: { cursor },
+        });
+
+        resolve();
+        return true;
+      } catch (err) {
+        reject(err);
+        return true;
+      }
+    });
+  });
+
+  queue.enqueueMessageCheck(chatJid);
+
+  try {
+    await processed;
+    await vi.waitFor(() => {
+      expect(queue.getStatus().activeCount).toBe(0);
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    await queue.shutdown(0);
+  }
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetModules();
@@ -436,6 +552,88 @@ describe('Feishu in-process E2E harness', () => {
         id: messageId,
       },
     });
+  });
+
+  test('sends current Codex raw final to Feishu when presentation contains stale transcript', async () => {
+    const { db, notifier, feishu, restartGuard } = await loadFeishuE2EModules();
+    const connection = feishu.createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+    const chatJid = 'feishu:oc_codex_stale_presentation';
+    const messageId = 'om_codex_stale_presentation';
+    const rawFinalText = [
+      '我先查实际链路，不先猜。',
+      '',
+      '不符合流式输出预期，当前 Codex 飞书卡片被禁用。',
+    ].join('\n');
+    const stalePresentationAnswer = [
+      '我会按仓库协议先补读工程说明和当前计划，再定位 `stock-analysis-skill`。',
+      '旧 hkipo 过程。'.repeat(1000),
+      rawFinalText,
+    ].join('\n');
+
+    await connection.connect({
+      onReady: vi.fn(),
+      onCommand: vi.fn(),
+      onNewChat: vi.fn(),
+      resolveManagedCommandText: (_chatJid, text) =>
+        restartGuard.resolveManagedSelfRestartCommand(text),
+    });
+
+    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_codex_stale_presentation',
+        message_id: messageId,
+        create_time: '1777070338000',
+        message_type: 'text',
+        content: JSON.stringify({ text: '为什么又输出历史上下文' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_codex',
+        },
+      },
+    });
+
+    await expect(wakeup).resolves.toBe('woke');
+
+    await driveQueuedFeishuCodexStaticFinalPath({
+      db,
+      connection,
+      chatJid,
+      messageId,
+      rawFinalText,
+      stalePresentationAnswer,
+    });
+
+    const sentData = hoisted.createSpy.mock.calls.at(-1)?.[0].data ?? {};
+    const sentCard = JSON.parse(sentData.content);
+    const sentMarkdown = sentCard.body.elements[0].content;
+    expect(sentData.msg_type).toBe('interactive');
+    expect(sentMarkdown).toBe(rawFinalText);
+    expect(JSON.stringify(sentData)).not.toContain('stock-analysis-skill');
+    expect(JSON.stringify(sentData)).not.toContain('旧 hkipo 过程');
+
+    const lifecycle = db.getImMessageLifecycleEvents({
+      provider: 'feishu',
+      chatJid,
+      messageId,
+    });
+    expect(lifecycle.map((event: any) => event.stage)).toEqual([
+      'received',
+      'stored',
+      'notified',
+      'queued',
+      'runner_started',
+      'finalized',
+      'im_delivered',
+      'cursor_committed',
+    ]);
+    expect(JSON.stringify(lifecycle)).toContain('droppedPresentationAnswer');
   });
 
   test('routes explicit managed restart phrases without storing them as model messages', async () => {

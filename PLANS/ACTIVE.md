@@ -1754,24 +1754,64 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 42
+- Milestone 43
 
 Current status:
-- done; stale oversized presentation answerText is always dropped in favor of the current final raw output
+- done; Feishu in-process E2E now verifies stale Codex presentation output is not delivered
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/reply-visibility.ts`
-- `tests/reply-visibility.test.ts`
+- `tests/feishu-e2e.test.ts`
 
 Last failure summary:
-- 2026-04-28 06:46 Feishu sent a 31K old hkipo transcript even though the raw final output was the current short answer; Milestone 41 only rejected stale presentation when it lacked overlap with the current answer.
+- Milestone 42 fixed the output-boundary guard, but coverage was still mostly unit-level; user requested simulated Feishu input/output validation before final response.
 
 Suspected cause:
-- Codex presentation `answerText` can contain stale streamed transcript plus the current raw final text near the tail, so overlap-based trust is insufficient.
+- The prior validation did not exercise the Feishu send payload shape, so it could not prove the actual card body excludes stale transcript content.
 
 Next step:
-- Commit Milestone 42 and apply with the safe restart path.
+- Commit Milestone 43. Runtime restart is not required for this test-only milestone; Milestone 42 runtime fix was already built and restart-requested.
+
+
+### Milestone 43
+
+Objective:
+- Add an in-process Feishu E2E regression that receives a Feishu message, simulates a Codex final with stale presentation text, sends the static Feishu reply, and proves the delivered card contains only the current raw final output.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `tests/feishu-e2e.test.ts`
+
+Validation:
+- `npm test -- --run tests/feishu-e2e.test.ts tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md tests/feishu-e2e.test.ts`
+- `git diff --check`
+- `npm run build`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/feishu-e2e.test.ts tests/reply-visibility.test.ts`: passed, 2 files / 19 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md tests/feishu-e2e.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `npm run build`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: all changed files are in Milestone 43 allowed scope.
+  - Objective: the new E2E receives a Feishu message, simulates stale Codex presentation, sends a static Feishu card, and asserts delivered markdown equals the current raw final output.
+  - Payload guard: the test asserts delivered Feishu card data does not contain `stock-analysis-skill` or old hkipo text.
+
+Risks / Notes / Handoff:
+- Runtime behavior was changed in Milestone 42; this milestone adds Feishu-path regression coverage only.
+- Runtime restart is not required for Milestone 43.
 
 
 ### Milestone 42
