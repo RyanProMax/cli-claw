@@ -115,7 +115,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 
 对应关系：
 
-- 同一个 workspace 主对话共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 消息会合并成一轮；遇到不同来源即切到下一轮，按入库顺序继续处理，不跨来源重排。
+- 同一个 workspace 主对话共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 消息会合并成一轮；遇到不同来源即切到下一轮，按入库顺序继续处理，不跨来源重排。例如 `A1/A2/B1/A3/B2/B3` 必须切成 `A1+A2`、`B1`、`A3`、`B2+B3` 四轮。
 - Skill slash command 如果返回 `assistant_prompt`，该消息会标记为 `source_kind='assistant_prompt'`，执行前清理当前 workspace 主 runtime session，再作为新 turn 发送给底层 runtime，避免命令生成的研究任务继承上一轮聊天 transcript。
 - 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/Codex 对话上下文。
 - Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。活跃 runner 只接受与当前 turn 相同来源的 IPC 消息；不同来源消息排队并触发 drain，让当前 turn 完成后按顺序处理。

@@ -34,7 +34,8 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 - 普通服务模式下，startup pending-message recovery、conversation-agent recovery 和主消息循环必须等待 IM connection phase 完成后再启动，避免恢复消息早于飞书连接可用而丢投递。
 - 回复游标提交必须受 IM 投递结果约束：当某条 Feishu-origin turn 依赖 static IM delivery 且投递最终失败时，不能提交对应 inbound cursor；该 turn 应保持 retryable 或记录明确 dead-letter。
 - 飞书 streaming card 是 IM 可见进度面；answer 文本出现前的工具、hook、status、todo 等辅助进度也应创建/更新卡片，避免 Web 有流式进展而飞书静默。
-- graceful shutdown / self-restart 持久化的 interrupted partial 默认只写 DB，不直接发到 IM；若后续新用户消息前仍存在中断残留，必须先询问是否继续旧任务，不能自动把旧上下文混入新 prompt。
+- 消息调度允许连续同源 pending batch：若入库顺序为 `A1/A2/B1/A3/B2/B3`，应按 `A1+A2 -> A`、`B1 -> B`、`A3 -> A`、`B2+B3 -> B` 处理；pending batch 只包含尚未处理、未提交 cursor 的连续同源消息，不得捞取已处理历史、recovery summary 或旧 interrupted 内容补上下文。
+- graceful shutdown / self-restart 持久化的 interrupted partial 默认只写 DB，不直接发到 IM；若后续新用户消息前仍存在中断残留，只处理新的未提交用户消息，不能自动把旧上下文混入新 prompt。
 
 ## 工作区与会话身份
 
