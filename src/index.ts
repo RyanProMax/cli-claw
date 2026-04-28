@@ -5411,15 +5411,19 @@ export async function persistInterruptedStreamingReply(
   ) => Promise<string | undefined> = sendMessage,
   deliveryOptions: { sendToIM?: boolean } = {},
 ): Promise<string | undefined> {
+  if (finalizationReason === 'shutdown') {
+    logger.info(
+      { replyJid: entry.replyJid },
+      'Skipping shutdown partial reply body persistence',
+    );
+    return undefined;
+  }
   return deliverMessage(
     entry.replyJid,
     buildInterruptedReply(entry.partialText, undefined, entry.commentaryText),
     {
       sendToIM:
-        deliveryOptions.sendToIM ??
-        (finalizationReason === 'shutdown'
-          ? false
-          : getChannelType(entry.replyJid) !== null),
+        deliveryOptions.sendToIM ?? getChannelType(entry.replyJid) !== null,
       messageMeta: {
         sourceKind: 'interrupt_partial',
         finalizationReason,

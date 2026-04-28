@@ -1,3 +1,61 @@
+# Shutdown Partial Reply Leak Fix
+
+## Goal
+
+- Stop graceful shutdown / self-restart from persisting streaming partial bodies as assistant messages.
+- Prevent stale streaming buffers from becoming visible chat history or later prompt material.
+
+## Done when
+
+- Shutdown `persistInterruptedStreamingReply` does not call message delivery with partial body text.
+- Crash recovery can still persist interrupted partials for ungraceful exits.
+- Regression tests, typecheck, build, review, commit, and safe restart pass.
+
+## Milestones
+
+### Milestone 49
+
+Objective:
+- Fix the post-restart spam/root-cause path where a graceful shutdown saved an old streaming buffer as an `interrupt_partial` assistant message.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/MEMORY.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/feishu-e2e.test.ts tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md docs/MEMORY.md src/index.ts tests/restart-recovery.test.ts`
+- `git diff --check`
+- `npm run build`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/restart-recovery.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/feishu-e2e.test.ts tests/reply-visibility.test.ts`: passed, 5 files / 99 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md docs/MEMORY.md src/index.ts tests/restart-recovery.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `npm run build`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Root cause evidence: `messages.db` contained a shutdown `interrupt_partial` at `2026-04-28T10:17:16.449Z` whose body was the stale streaming buffer.
+  - Graceful shutdown/self-restart now skips partial body persistence entirely.
+  - Crash recovery remains able to persist interrupted partials after ungraceful exits.
+
+Risks / Notes / Handoff:
+- Runtime code changed; safe restart is required for the running service to pick up the shutdown leak fix.
+- Existing stale DB row from the previous bug should be removed from the local message database after code deploy if it remains visible in chat history.
+
+---
+
 # Feishu Current-Turn Streaming Cleanup
 
 ## Goal

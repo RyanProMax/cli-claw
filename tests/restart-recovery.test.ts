@@ -1021,61 +1021,43 @@ describe('restart recovery cursor handling', () => {
     );
   });
 
-  test('keeps graceful-shutdown partial replies DB-only instead of sending process text to IM', async () => {
-    const { buildInterruptedReply, persistInterruptedStreamingReply } =
-      await loadIndexModule();
+  test('skips graceful-shutdown partial reply body persistence', async () => {
+    const { persistInterruptedStreamingReply } = await loadIndexModule();
     const deliverMessage = vi.fn().mockResolvedValue('msg-1');
 
-    await persistInterruptedStreamingReply(
-      {
-        replyJid: 'feishu:chat-1',
-        partialText: 'partial from shutdown',
-      },
-      'shutdown',
-      deliverMessage,
-    );
-
-    expect(deliverMessage).toHaveBeenCalledWith(
-      'feishu:chat-1',
-      buildInterruptedReply('partial from shutdown'),
-      {
-        sendToIM: false,
-        messageMeta: {
-          sourceKind: 'interrupt_partial',
-          finalizationReason: 'shutdown',
+    await expect(
+      persistInterruptedStreamingReply(
+        {
+          replyJid: 'feishu:chat-1',
+          partialText: 'partial from shutdown',
         },
-      },
-    );
+        'shutdown',
+        deliverMessage,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(deliverMessage).not.toHaveBeenCalled();
   });
 
-  test('keeps shutdown partial persistence DB-only for web snapshot chats', async () => {
-    const { buildInterruptedReply, persistInterruptedStreamingReply } =
-      await loadIndexModule();
+  test('skips shutdown partial body persistence for web snapshot chats', async () => {
+    const { persistInterruptedStreamingReply } = await loadIndexModule();
     const deliverMessage = vi.fn().mockResolvedValue('msg-2');
 
-    await persistInterruptedStreamingReply(
-      {
-        replyJid: 'web:main',
-        partialText: 'partial for web only',
-      },
-      'shutdown',
-      deliverMessage,
-    );
-
-    expect(deliverMessage).toHaveBeenCalledWith(
-      'web:main',
-      buildInterruptedReply('partial for web only'),
-      {
-        sendToIM: false,
-        messageMeta: {
-          sourceKind: 'interrupt_partial',
-          finalizationReason: 'shutdown',
+    await expect(
+      persistInterruptedStreamingReply(
+        {
+          replyJid: 'web:main',
+          partialText: 'partial for web only',
         },
-      },
-    );
+        'shutdown',
+        deliverMessage,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(deliverMessage).not.toHaveBeenCalled();
   });
 
-  test('can suppress IM delivery for shutdown partials while still persisting the interrupted reply', async () => {
+  test('persists crash-recovered partial replies after ungraceful exits', async () => {
     const { buildInterruptedReply, persistInterruptedStreamingReply } =
       await loadIndexModule();
     const deliverMessage = vi.fn().mockResolvedValue('msg-3');
@@ -1083,26 +1065,25 @@ describe('restart recovery cursor handling', () => {
     await persistInterruptedStreamingReply(
       {
         replyJid: 'feishu:chat-1',
-        partialText: 'partial from intentional self-restart',
-        commentaryText: 'tool trace that should not hit IM',
+        partialText: 'partial from crash recovery',
+        commentaryText: 'tool trace that can be audited',
       },
-      'shutdown',
+      'crash_recovery',
       deliverMessage,
-      { sendToIM: false },
     );
 
     expect(deliverMessage).toHaveBeenCalledWith(
       'feishu:chat-1',
       buildInterruptedReply(
-        'partial from intentional self-restart',
+        'partial from crash recovery',
         undefined,
-        'tool trace that should not hit IM',
+        'tool trace that can be audited',
       ),
       {
-        sendToIM: false,
+        sendToIM: true,
         messageMeta: {
           sourceKind: 'interrupt_partial',
-          finalizationReason: 'shutdown',
+          finalizationReason: 'crash_recovery',
         },
       },
     );
