@@ -4530,6 +4530,22 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                 streamingPresentationText,
                 activeRuntimeIdentity,
               );
+              if (visibleReplyParts.droppedPresentationAnswer) {
+                logger.warn(
+                  {
+                    chatJid,
+                    group: group.name,
+                    rawTextLen: text.length,
+                    presentationAnswerLen:
+                      streamingPresentationText.answerText.length,
+                    presentationCommentaryLen:
+                      streamingPresentationText.commentaryText.length,
+                    runtimeIdentity: activeRuntimeIdentity,
+                    sourceKind: result.sourceKind || 'sdk_final',
+                  },
+                  'Dropped stale presentation answer for final visible reply',
+                );
+              }
               const visibleText = decorateTaskReplyText(
                 visibleReplyParts.visibleText,
                 result.sourceKind || 'sdk_final',
@@ -7759,6 +7775,22 @@ async function processAgentConversation(
           agentStreamingPresentationText,
           currentAgentRuntimeIdentity,
         );
+        if (visibleReplyParts.droppedPresentationAnswer) {
+          logger.warn(
+            {
+              virtualChatJid,
+              agentId,
+              rawTextLen: text.length,
+              presentationAnswerLen:
+                agentStreamingPresentationText.answerText.length,
+              presentationCommentaryLen:
+                agentStreamingPresentationText.commentaryText.length,
+              runtimeIdentity: currentAgentRuntimeIdentity,
+              sourceKind: output.sourceKind || 'sdk_final',
+            },
+            'Dropped stale agent presentation answer for final visible reply',
+          );
+        }
         const visibleText = decorateTaskReplyText(
           visibleReplyParts.visibleText,
           output.sourceKind || 'sdk_final',

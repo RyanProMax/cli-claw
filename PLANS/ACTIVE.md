@@ -1754,10 +1754,10 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 40
+- Milestone 41
 
 Current status:
-- done; final visible replies now strip or suppress detected internal context/transcript blocks before delivery
+- done; stale streaming presentation answerText can no longer override the current final raw output
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -1769,13 +1769,58 @@ Changed files:
 - `tests/reply-visibility.test.ts`
 
 Last failure summary:
-- Resolved: first Milestone 40 test run kept an internal summary bullet as visible正文; visible answer detection now ignores bullets immediately after an internal summary marker.
+- Resolved: RED test reproduced the 2026-04-28 06:04 incident where stale presentation `answerText` replaced a short final raw answer; fix now drops suspicious presentation answers and logs the event.
 
 Suspected cause:
 - Previous mitigations coupled channel routing with runtime session isolation and recovery history injection, causing Feishu/IM turns to lose continuity or receive stale context.
 
 Next step:
-- Commit Milestone 40 and apply with the safe restart path.
+- Commit Milestone 41 and apply with the safe restart path.
+
+
+### Milestone 41
+
+Objective:
+- Ensure final visible replies are derived from the current turn output when Codex streaming presentation text is stale or massively inconsistent, so an old streamed transcript cannot replace the new short final answer after restart.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `docs/MEMORY.md`
+- `src/index.ts`
+- `src/reply-visibility.ts`
+- `tests/reply-visibility.test.ts`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/RUNTIME.md docs/MEMORY.md src/index.ts src/reply-visibility.ts tests/reply-visibility.test.ts`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/reply-visibility.test.ts`: passed, 1 file / 11 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/RUNTIME.md docs/MEMORY.md src/index.ts src/reply-visibility.ts tests/reply-visibility.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: all changed files are in Milestone 41 allowed scope.
+  - Objective: final visible replies now reject a much larger unrelated Codex presentation `answerText` and use the current final raw output.
+  - Observability: main and agent finalization paths log raw/presentation lengths when stale presentation output is dropped.
+
+Risks / Notes / Handoff:
+- Evidence from `messages.db` and launchd logs: raw `Agent output` for 2026-04-28 06:04 was the correct restart answer, but the persisted/sent `sdk_final` used a 28K stale presentation `answerText` from session `019dcfe1-9845-7940-b16a-e3cf9b7429e2`.
+- Subagents were requested but both explorer runs failed due upstream stream disconnect; local DB and launchd evidence was sufficient to identify and fix the root cause.
+- Safe restart is required for the running service to pick up the fix.
 
 
 ### Milestone 40

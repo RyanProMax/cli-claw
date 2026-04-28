@@ -10,6 +10,7 @@ interface ReplyVisibilityRuntimeIdentity {
 export interface ResolvedVisibleReplyParts {
   visibleText: string;
   commentaryText: string;
+  droppedPresentationAnswer?: boolean;
 }
 
 const INTERNAL_CONTEXT_SUPPRESSED_REPLY =
@@ -92,6 +93,36 @@ function normalizeReplyText(value: string | null | undefined): string {
   return typeof value === 'string' ? value.replace(/\r\n?/g, '\n').trim() : '';
 }
 
+function hasMeaningfulOverlap(a: string, b: string): boolean {
+  const short = a.length <= b.length ? a : b;
+  const long = a.length <= b.length ? b : a;
+  const sample = short.slice(0, Math.min(short.length, 80)).trim();
+  if (sample.length >= 20 && long.includes(sample)) return true;
+
+  const tokens = sample.match(/[\p{Script=Han}A-Za-z0-9_]{2,}/gu) ?? [];
+  if (tokens.length === 0) return false;
+  const hits = tokens.filter((token) => long.includes(token)).length;
+  return hits / tokens.length >= 0.5;
+}
+
+function shouldTrustPresentationAnswer(
+  rawText: string,
+  answerText: string,
+): boolean {
+  if (!rawText || !answerText) return Boolean(answerText);
+  if (rawText === answerText) return true;
+
+  const rawLength = rawText.length;
+  const answerLength = answerText.length;
+  const suspiciousSizeMismatch =
+    answerLength > 2000 && answerLength > rawLength * 5;
+  if (suspiciousSizeMismatch && !hasMeaningfulOverlap(rawText, answerText)) {
+    return false;
+  }
+
+  return true;
+}
+
 function looksLikeProcessCommentaryPrefix(prefix: string): boolean {
   const normalized = prefix.trim();
   if (!normalized || normalized.length > 500) return false;
@@ -126,21 +157,35 @@ export function resolveVisibleReplyParts(
   runtimeIdentity?: ReplyVisibilityRuntimeIdentity | null,
 ): ResolvedVisibleReplyParts {
   const sanitizedRawText = sanitizeInternalContextLeak(rawText);
-  const commentaryText = normalizeReplyText(presentationText?.commentaryText);
+  const presentationCommentaryText = normalizeReplyText(
+    presentationText?.commentaryText,
+  );
   const shouldApplyCodexVisibility =
     runtimeIdentity?.agentType === 'codex' ||
-    (!runtimeIdentity?.agentType && Boolean(commentaryText));
+    (!runtimeIdentity?.agentType && Boolean(presentationCommentaryText));
 
   if (!shouldApplyCodexVisibility) {
-    return { visibleText: sanitizedRawText, commentaryText };
+    return {
+      visibleText: sanitizedRawText,
+      commentaryText: presentationCommentaryText,
+    };
   }
 
   const answerText = normalizeReplyText(presentationText?.answerText);
-  if (commentaryText && answerText) {
+  const normalizedRawText = normalizeReplyText(sanitizedRawText);
+  const trustPresentationAnswer = answerText
+    ? shouldTrustPresentationAnswer(normalizedRawText, answerText)
+    : false;
+  const droppedPresentationAnswer = Boolean(
+    answerText && !trustPresentationAnswer,
+  );
+  const commentaryText = droppedPresentationAnswer
+    ? ''
+    : presentationCommentaryText;
+  if (commentaryText && answerText && trustPresentationAnswer) {
     return { visibleText: answerText, commentaryText };
   }
 
-  const normalizedRawText = normalizeReplyText(sanitizedRawText);
   if (
     normalizedRawText &&
     commentaryText &&
@@ -159,11 +204,15 @@ export function resolveVisibleReplyParts(
   const inferred = splitLeadingCodexCommentary(sanitizedRawText);
   if (inferred) return inferred;
 
-  if (answerText) {
+  if (answerText && trustPresentationAnswer) {
     return { visibleText: answerText, commentaryText };
   }
 
-  return { visibleText: sanitizedRawText, commentaryText };
+  return {
+    visibleText: sanitizedRawText,
+    commentaryText,
+    droppedPresentationAnswer,
+  };
 }
 
 export function resolveVisibleReplyText(

@@ -38,6 +38,7 @@ Cli Claw 里有三类容易混淆的数据：
 - Skill slash command 生成的 `assistant_prompt` 不是常规续聊：入库时标记为 `assistant_prompt`，执行前会清理当前 workspace 主 runtime session，避免 `/hkipo` 等命令任务继承旧 runtime transcript。
 - 服务重启恢复只用于已入库但尚未提交 cursor 的待处理用户消息；该路径恢复原 runtime session 并发送待处理消息，不再把数据库最近历史拼成 `<system_context>` 注入 prompt。
 - 最终可见回复会经过 `reply-visibility` 边界过滤；如果底层 runtime 把 `<messages>`、`<reply-policy>`、`<system_context>` 或 restart recovery 摘要吐到最终正文，系统会先剥离可识别的内部上下文，无法安全剥离时改为短拦截提示。
+- 如果 Codex streaming presentation 的 `answerText` 与当前 final raw output 大幅不一致，且明显更像旧 turn 的长正文，`reply-visibility` 会丢弃 presentation answer，改用当前 final raw output，并写入 warn 日志。
 - restart recovery 只能服务于“已入库但尚未提交 cursor 的待处理用户消息”；`scheduled_task_prompt`、`user_command`、assistant、system 等内部行不能触发恢复 prompt 或被回放成用户输入。
 - 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 会先挂起旧任务快照并询问用户是否继续上次任务；只有用户明确回复继续时才会把旧中断上下文送入 runner，回复忽略或发送新需求时只处理新消息。
 

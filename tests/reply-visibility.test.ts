@@ -39,6 +39,46 @@ describe('resolveVisibleReplyText', () => {
     ).toBe('最终答案');
   });
 
+  test('uses current raw final when stale presentation answer is much larger and unrelated', () => {
+    const staleAnswer = [
+      '我会按仓库协议先补读工程说明和当前计划，再定位 `stock-analysis-skill`。',
+      '这里是旧任务的历史过程。'.repeat(400),
+    ].join('\n');
+    const rawText = [
+      '是我触发的安全重启。',
+      '',
+      '状态：重启已成功，status = `passed`。',
+    ].join('\n');
+
+    expect(
+      resolveVisibleReplyText(
+        rawText,
+        {
+          answerText: staleAnswer,
+          commentaryText: '',
+        },
+        { agentType: 'codex' },
+      ),
+    ).toBe(rawText);
+  });
+
+  test('reports dropped presentation answer for incident logging', () => {
+    const parts = resolveVisibleReplyParts(
+      '是我触发的安全重启。',
+      {
+        answerText: '旧任务输出。'.repeat(1000),
+        commentaryText: '旧过程说明',
+      },
+      { agentType: 'codex' },
+    );
+
+    expect(parts).toEqual({
+      visibleText: '是我触发的安全重启。',
+      commentaryText: '',
+      droppedPresentationAnswer: true,
+    });
+  });
+
   test('keeps the original text when the final payload is commentary-only', () => {
     expect(
       resolveVisibleReplyText(
