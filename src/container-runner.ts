@@ -5,7 +5,6 @@
 import { ChildProcess, exec, execFile, spawn } from 'child_process';
 import fs from 'fs';
 import { createRequire } from 'module';
-import os from 'os';
 import path from 'path';
 import {
   APP_ROOT,
@@ -397,32 +396,6 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: true,
   });
-
-  // External Claude runtime contract: keep ~/.claude/CLAUDE.md and rules/
-  // mounted into /workspace/ so the SDK's directory traversal (cwd → root)
-  // can still discover upstream Claude config files.
-  // Only for admin-created workspaces (ownerHomeFolder === 'main').
-  const isCreatorAdmin = ownerHomeFolder === 'main';
-  if (isCreatorAdmin) {
-    const hostClaudeDir = path.join(os.homedir(), '.claude');
-    const hostClaudeMd = path.join(hostClaudeDir, 'CLAUDE.md');
-    const hostRulesDir = path.join(hostClaudeDir, 'rules');
-
-    if (fs.existsSync(hostClaudeMd)) {
-      mounts.push({
-        hostPath: hostClaudeMd,
-        containerPath: '/workspace/CLAUDE.md',
-        readonly: true,
-      });
-    }
-    if (fs.existsSync(hostRulesDir)) {
-      mounts.push({
-        hostPath: hostRulesDir,
-        containerPath: '/workspace/.claude/rules',
-        readonly: true,
-      });
-    }
-  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {

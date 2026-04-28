@@ -171,7 +171,7 @@ tasksRoutes.post('/', authMiddleware, async (c) => {
     prompt: prompt || '',
     schedule_type,
     schedule_value,
-    context_mode: validation.data.context_mode || 'group',
+    context_mode: 'isolated',
     execution_type: execType,
     execution_mode: taskExecutionMode,
     script_command: script_command ?? null,
@@ -408,7 +408,6 @@ function buildParsePrompt(description: string): string {
   - cron 类型: cron 表达式（推荐 5 段：分 时 日 月 周，也支持 6 段含秒）
   - interval 类型: 毫秒数字符串（如 "3600000" 表示 1 小时）
   - once 类型: ISO 8601 日期时间字符串
-- "context_mode": "group" | "isolated" — runtime session 模式；"group" 只复用 runtime session，不注入聊天历史
 - "summary": string — 用一句话解释你的理解（中文）
 
 注意：
@@ -484,7 +483,7 @@ tasksRoutes.post('/ai', authMiddleware, async (c) => {
     prompt: description,
     schedule_type: 'cron',
     schedule_value: '0 0 * * *', // placeholder, will be updated after parsing
-    context_mode: 'group',
+    context_mode: 'isolated',
     execution_type: 'agent',
     execution_mode: taskExecutionMode,
     script_command: null,
@@ -504,7 +503,7 @@ tasksRoutes.post('/ai', authMiddleware, async (c) => {
   void (async () => {
     try {
       const parsePrompt = buildParsePrompt(description);
-      const model = process.env.RECALL_MODEL || undefined;
+      const model = process.env.SDK_QUERY_MODEL || undefined;
       const result = await sdkQuery(parsePrompt, { model, timeout: 60_000 });
 
       if (!result) {
@@ -605,7 +604,7 @@ tasksRoutes.post('/parse', authMiddleware, async (c) => {
   }
 
   try {
-    const model = process.env.RECALL_MODEL || undefined;
+    const model = process.env.SDK_QUERY_MODEL || undefined;
     const result = await sdkQuery(buildParsePrompt(description), {
       model,
       timeout: 30_000,

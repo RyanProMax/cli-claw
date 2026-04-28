@@ -374,7 +374,7 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
       'bug-report: invoking Claude SDK',
     );
 
-    const model = process.env.RECALL_MODEL || undefined;
+    const model = process.env.SDK_QUERY_MODEL || undefined;
     const result = await sdkQuery(prompt, { model, timeout: 60_000 });
 
     if (!result) {

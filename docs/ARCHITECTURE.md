@@ -24,7 +24,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 5. 队列启动宿主机进程或 Docker 容器，再由 `agent-runner` 根据工作区 runtime 配置选择 Claude Runtime 或 Codex Runtime。
 6. runner 产生文本、思考、工具调用和任务事件，经 stdout / IPC 回到主进程。
 7. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
-8. 任务调度、技能安装、记忆读写和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
+8. 任务调度、技能安装和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
 
 ## IM 消息可靠性
 
@@ -44,18 +44,11 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 - Workspace 主对话使用 `(folder, 空 agentId)`；Web 创建的 conversation agent 使用 `(folder, agentId)`，消息落到虚拟 JID `{workspaceJid}#agent:{agentId}`。
 - Runner 只是一次正在执行的底层 CLI 进程或容器，不是长期会话身份。
 
-## 主动模式
-
-- 工作区主动模式由 `src/workspace-autopilot.ts` 管理任务 ID、prompt 与 quota pause/resume 状态，由 `src/task-scheduler.ts` 在到期时创建后台 run。
-- 主动模式不把 prompt 写入主聊天消息表，也不拼接最近聊天历史构造隐藏 prompt；上下文连续性只依赖底层 runtime/session 或显式工具。只有产生实质进展、风险或阻塞时才通过 scheduled-task 消息发出摘要。
-- `src/group-queue.ts` 把主动模式作为 low-priority background task 处理：真实用户/IM 消息优先；若后台 run 正在执行时收到用户消息，队列会请求后台 run 收尾并排队处理真实消息。
-- 被真实用户/IM 工作抢占的主动模式输出只保留在 task run log；不能再向 Web/IM 发布可见 `scheduled_task` 回复，避免用户刚发消息时看到上一轮后台任务过程文本。
-
 ## 边界
 
 - `package root`、`launch cwd`、`~/.cli-claw` 数据目录是三条不同边界：前者负责资源定位，中者负责 host 默认执行目录，后者负责平台持久化。
 - 主进程拥有认证、权限、路由、持久化和多用户隔离。
-- 用户隔离优先：非 admin 只能访问自己的工作区、自己的用户级记忆和被授权共享的工作区。
+- 用户隔离优先：非 admin 只能访问自己的工作区和被授权共享的工作区。
 - `groups/{folder}` 是工作区内容边界；`registered_groups` 是入口边界，多个入口共享同一 `folder` 时不代表多个独立项目。
 - runner 拥有具体 CLI 会话、工具调用和流式事件生产。
 - 记忆机制与上下文保留见 `docs/MEMORY.md`。

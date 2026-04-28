@@ -17,7 +17,7 @@
 - 服务重启恢复只用于已入库但尚未提交 cursor 的待处理用户消息；该路径恢复原 runtime session 并发送待处理消息，不拼接 DB 最近历史或 `<system_context>`。
 - 优雅关停 / 自重启 / crash recovery 都不会把正在流式输出的 partial body 持久化成 assistant 正文或发送到 IM。
 - 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 不维护 pending resume 状态、不生成确认 prompt、不回放旧中断上下文；只把中断之后当前未提交的连续同源用户消息送入 runtime。
-- 主动模式/autopilot 不拼接最近聊天记录作为隐藏 prompt；它只发送任务自身 prompt。
+- 定时 agent 任务始终在独立任务 workspace/session 中运行；任务 prompt 不写回源工作区主对话。
 
 ## 增长与清理
 

@@ -51,9 +51,7 @@ export async function attachRuntimeUsageFooterMeta(
   };
 }
 
-export function shouldPauseAutopilotForUsage(
-  snapshot?: UsageProviderResult | null,
-): boolean {
+function isUsageLow(snapshot?: UsageProviderResult | null): boolean {
   if (!snapshot?.available) return false;
   const primaryRemaining = snapshot.primaryRemainingPct;
   const secondaryRemaining = snapshot.secondaryRemainingPct;
@@ -73,5 +71,5 @@ export function shouldShowRemainingUsageInFooter(
   snapshot?: UsageProviderResult | null,
 ): boolean {
   if (!snapshot?.available) return false;
-  return shouldPauseAutopilotForUsage(snapshot);
+  return isUsageLow(snapshot);
 }

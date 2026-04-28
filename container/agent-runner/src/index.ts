@@ -32,7 +32,6 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk';
 import { detectImageMimeTypeFromBase64Strict } from './image-detector.js';
-import { getChannelFromJid } from './channel-prefixes.js';
 import { spawn } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
@@ -253,7 +252,8 @@ const DEFAULT_ALLOWED_TOOLS = [
 
 const IMAGE_MAX_DIMENSION = 8000; // Anthropic API 限制
 
-// ── 系统提示词优化：安全守则（从独立 Markdown 文件加载，始终注入所有容器） ──
+// Static runtime safety rules. Conversation continuity comes only from the
+// underlying runtime session; Cli Claw must not append historical context.
 
 const SECURITY_RULES_PATH = path.join(
   path.dirname(new URL(import.meta.url).pathname),
@@ -262,37 +262,6 @@ const SECURITY_RULES_PATH = path.join(
   'security-rules.md',
 );
 const SECURITY_RULES = fs.readFileSync(SECURITY_RULES_PATH, 'utf-8');
-
-/** 按渠道生成格式指南（仅 IM 渠道需要，Web 前端原生支持 Markdown + Mermaid） */
-function buildChannelGuidelines(channel: string): string {
-  switch (channel) {
-    case 'feishu':
-      return [
-        '## 飞书消息格式',
-        '',
-        '当前消息来自飞书。飞书卡片支持的 Markdown：**加粗**、_斜体_、`行内代码`、代码块、标题、列表、链接。',
-        '用户同时可以在 Web 端查看你的回复，Web 端支持完整 Markdown + Mermaid 图表渲染，因此**不要因为来源是飞书就限制输出格式**。',
-        '可使用 `send_image` 和 `send_file` 工具直接发送文件到飞书。',
-      ].join('\n');
-    case 'telegram':
-      return [
-        '## Telegram 消息格式',
-        '',
-        '当前消息来自 Telegram。Markdown 自动转换为 Telegram HTML，长消息自动分片（3800 字符）。',
-        '用户同时可以在 Web 端查看你的回复，Web 端支持完整 Markdown + Mermaid 图表渲染，因此**不要因为来源是 Telegram 就限制输出格式**。',
-        '可使用 `send_image` 和 `send_file` 工具直接发送文件到 Telegram。',
-      ].join('\n');
-    case 'qq':
-      return [
-        '## QQ 消息格式',
-        '',
-        '当前消息来自 QQ。Markdown 自动转换为纯文本，长消息自动分片（5000 字符）。',
-        '用户同时可以在 Web 端查看你的回复，Web 端支持完整 Markdown + Mermaid 图表渲染，因此**不要因为来源是 QQ 就限制输出格式**。',
-      ].join('\n');
-    default:
-      return '';
-  }
-}
 
 /**
  * 规范化图片 MIME：
@@ -1040,6 +1009,21 @@ function emitTurnInitEvent(
 }
 
 /** 从 settings.json 读取用户配置的 MCP servers（stdio/http/sse 类型） */
+const CONTEXT_MCP_NAME_PATTERN =
+  /(memory|recall|history|transcript|summary)/i;
+
+function filterContextMcpServers(
+  servers: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(servers).filter(([name]) => {
+      const allowed = !CONTEXT_MCP_NAME_PATTERN.test(name);
+      if (!allowed) log(`Blocked context-like MCP server: ${name}`);
+      return allowed;
+    }),
+  );
+}
+
 function loadUserMcpServers(): Record<string, unknown> {
   const configDir =
     process.env.CLAUDE_CONFIG_DIR ||
@@ -1049,7 +1033,7 @@ function loadUserMcpServers(): Record<string, unknown> {
     if (fs.existsSync(settingsFile)) {
       const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
       if (settings.mcpServers && typeof settings.mcpServers === 'object') {
-        return settings.mcpServers;
+        return filterContextMcpServers(settings.mcpServers);
       }
     }
   } catch {
@@ -1064,7 +1048,7 @@ function loadWorkspaceMcpServers(): Record<string, unknown> {
     if (fs.existsSync(settingsFile)) {
       const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
       if (settings.mcpServers && typeof settings.mcpServers === 'object') {
-        return settings.mcpServers;
+        return filterContextMcpServers(settings.mcpServers);
       }
     }
   } catch {
@@ -1785,101 +1769,7 @@ async function runQuery(
 
   const processor = new StreamEventProcessor(emit, log);
 
-  // Build system prompt. Runtime continuity belongs to the native session; Cli Claw
-  // must not inject historical summaries or memory files into the prompt.
-  const outputGuidelines = [
-    '',
-    '## 输出格式',
-    '',
-    '### 图片引用',
-    '当你生成了图片文件并需要在回复中展示时，使用 Markdown 图片语法引用**相对路径**（相对于当前工作目录）：',
-    '`![描述](filename.png)`',
-    '',
-    '**禁止使用绝对路径**（如 `/workspace/group/filename.png`）。Web 界面会自动将相对路径解析为正确的文件下载地址。',
-    '',
-    '### 技术图表',
-    '需要输出技术图表（流程图、时序图、架构图、ER 图、类图、状态图、甘特图等）时，**使用 Mermaid 语法**，用 ```mermaid 代码块包裹。',
-    'Web 界面会自动将 Mermaid 代码渲染为可视化图表。',
-  ].join('\n');
-
-  const webFetchGuidelines = [
-    '',
-    '## 网页访问策略',
-    '',
-    '访问外部网页时优先使用 WebFetch（速度快）。',
-    '如果 WebFetch 失败（403、被拦截、内容为空或需要 JavaScript 渲染），',
-    '且 agent-browser 可用，立即改用 agent-browser 通过真实浏览器访问。不要反复重试 WebFetch。',
-  ].join('\n');
-
-  const backgroundTaskGuidelines = [
-    '',
-    '## 后台任务',
-    '',
-    '当用户要求执行耗时较长的批量任务（如批量文件处理、大规模数据操作等），',
-    '你应该使用 Task 工具并设置 `run_in_background: true`，让任务在后台运行。',
-    '这样用户无需等待，可以继续与你交流其他事项。',
-    '任务结束时你会自动收到通知，届时在对话中向用户汇报即可。',
-    '告知用户：「已为您在后台启动该任务，完成后我会第一时间反馈。现在有其他问题也可以随时问我。」',
-    '',
-    '### 任务通知处理（重要）',
-    '',
-    '当你收到多条后台任务的完成或失败通知时：',
-    '- **禁止逐条回复**。不要对每条通知都调用 `send_message`，这会导致 IM 群刷屏。',
-    '- **等待所有通知到齐后，汇总为一条消息回复用户**，例如：「N 个任务完成，M 个失败，失败原因：...」',
-    '- 对于已知的无害失败（如浏览器进程被回收、临时资源超时），**不需要通知用户**，静默忽略即可。',
-  ].join('\n');
-
-  // Interaction guidelines to prevent the agent from confusing MCP tool
-  // descriptions with user input, or proactively describing available tools.
-  const interactionGuidelines = [
-    '',
-    '## 交互原则',
-    '',
-    '**始终专注于用户当前的实际消息。**',
-    '',
-    '- 你可能拥有多种 MCP 工具（如外卖点餐、优惠券查询等），这些是你的辅助能力，**不是用户发送的内容**。',
-    '- **不要主动介绍、列举或描述你的可用工具**，除非用户明确询问「你能做什么」或「你有什么功能」。',
-    '- 当用户需要某个功能时，直接使用对应工具完成任务即可，无需事先解释工具的存在。',
-    '- 如果用户的消息很简短（如打招呼），简洁回应即可，不要用工具列表填充回复。',
-  ].join('\n');
-
-  // Conversation agents (sub-conversations with agentId) get special behavioral guidelines
-  // to prevent excessive send_message usage and duplicate responses.
-  const conversationAgentGuidelines = containerInput.agentId
-    ? [
-        '',
-        '## 子会话行为规则（最高优先级，覆盖其他冲突指令）',
-        '',
-        '你正在一个**子会话**中运行，不是主会话。以下规则覆盖全局记忆中的"响应行为准则"：',
-        '',
-        '1. **不要用 `send_message` 发送"收到"之类的确认消息** — 你的正常文本输出就是回复，不需要额外发消息',
-        '2. **每次回复只产生一条消息** — 把分析、结论、建议整合到一条回复中，不要拆成多条',
-        '3. **只在以下情况使用 `send_message`**：',
-        '   - 执行超过 2 分钟的长任务时，发送一次进度更新（不是确认收到）',
-        '   - 用户明确要求你"先回复一下"时',
-        '4. **你的正常文本输出会自动发送给用户**，不需要通过 `send_message` 转发',
-        '5. **回复语言使用简体中文**，除非用户用其他语言提问',
-      ].join('\n')
-    : '';
-
-  const channel = getChannelFromJid(containerInput.chatJid);
-  const channelGuidelines = buildChannelGuidelines(channel);
-
-  const systemPromptAppend = [
-    `<behavior>\n${interactionGuidelines}\n</behavior>`,
-    `<security>\n${SECURITY_RULES}\n</security>`,
-    `<output-format>\n${outputGuidelines}\n</output-format>`,
-    `<web-access>\n${webFetchGuidelines}\n</web-access>`,
-    `<background-tasks>\n${backgroundTaskGuidelines}\n</background-tasks>`,
-    channelGuidelines &&
-      `<channel-format>\n${channelGuidelines}\n</channel-format>`,
-
-    // Override: Sub-Agent 行为覆盖
-    conversationAgentGuidelines &&
-      `<agent-override>\n${conversationAgentGuidelines}\n</agent-override>`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const systemPromptAppend = `<security>\n${SECURITY_RULES}\n</security>`;
 
   if (shouldInterrupt()) {
     log('Interrupt sentinel detected before query start, skipping query');
@@ -1914,7 +1804,7 @@ async function runQuery(
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         agentProgressSummaries: true,
-        settingSources: ['project', 'user'],
+        settingSources: [],
         includePartialMessages: true,
         mcpServers: {
           ...loadUserMcpServers(), // 用户配置的 MCP（stdio/http/sse），SDK 原生支持

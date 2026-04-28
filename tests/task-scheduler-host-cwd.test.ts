@@ -46,7 +46,7 @@ vi.mock('../src/db.js', () => ({
 import {
   runScriptTask,
   runTask,
-  runWorkspaceAutopilotTask,
+  triggerTaskNow,
 } from '../src/task-scheduler.js';
 import type { RegisteredGroup, ScheduledTask } from '../src/types.js';
 
@@ -162,332 +162,43 @@ describe('task scheduler host cwd forwarding', () => {
     );
   });
 
-  test('runs workspace autopilot without storing its prompt as a user message', async () => {
+  test('runs former group-context agent tasks through isolated task workspaces instead of injecting prompts', async () => {
     const task = buildTask({
-      id: 'autopilot:workspace:main',
+      id: 'task-group-mode',
       context_mode: 'group',
-      schedule_type: 'interval',
-      schedule_value: '300000',
-      next_run: '2026-04-05T10:00:00.000Z',
+      execution_type: 'agent',
     });
     const groups = {
       'web:source': sourceGroup,
     } as Record<string, RegisteredGroup>;
     const storePromptMessage = vi.fn();
-    const sendMessage = vi.fn();
+    const enqueueMessageCheck = vi.fn();
+    const enqueueTask = vi.fn();
 
     const deps = {
       registeredGroups: () => groups,
       getSessions: () => ({}),
       queue: {
         closeStdin: vi.fn(),
-        enqueueTask: vi.fn(),
-        enqueueMessageCheck: vi.fn(),
+        enqueueTask,
+        enqueueMessageCheck,
       },
       onProcess: vi.fn(),
-      sendMessage,
+      sendMessage: vi.fn(),
       storePromptMessage,
       assistantName: 'cli-claw',
     };
 
     vi.mocked((await import('../src/db.js')).getTaskById).mockReturnValue(task);
-    runHostAgentMock.mockResolvedValue({
-      status: 'success',
-      result: '当前没有值得执行的下一步，等待用户输入。',
-    });
 
-    await runWorkspaceAutopilotTask(task, deps as never, 'web:source', {
-      manualRun: true,
-    });
-
+    expect(triggerTaskNow(task.id, deps as never)).toEqual({ success: true });
     expect(storePromptMessage).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(runHostAgentMock).toHaveBeenCalledOnce();
-    expect(runHostAgentMock.mock.calls[0][1]).toEqual(
-      expect.objectContaining({
-        isScheduledTask: false,
-      }),
+    expect(enqueueMessageCheck).not.toHaveBeenCalled();
+    expect(enqueueTask).toHaveBeenCalledWith(
+      'web:source#task:task-group-mode',
+      'task-group-mode',
+      expect.any(Function),
     );
   });
 
-  test('runs workspace autopilot without injecting recent chat history', async () => {
-    const task = buildTask({
-      id: 'autopilot:workspace:main',
-      context_mode: 'group',
-      schedule_type: 'interval',
-      schedule_value: '300000',
-      next_run: '2026-04-05T10:00:00.000Z',
-      prompt: 'check workspace health',
-    });
-    const groups = {
-      'web:source': sourceGroup,
-    } as Record<string, RegisteredGroup>;
-
-    const db = await import('../src/db.js');
-    vi.mocked(db.getTaskById).mockReturnValue(task);
-    vi.mocked(db.getMessagesPage).mockReturnValue([
-      {
-        id: 'old-message',
-        chat_jid: 'web:source',
-        sender: 'user-1',
-        sender_name: 'Ryan',
-        content: 'old private context',
-        timestamp: '2026-04-05T09:59:00.000Z',
-        is_from_me: false,
-      } as never,
-    ]);
-    runHostAgentMock.mockResolvedValue({
-      status: 'success',
-      result: '当前没有值得执行的下一步，等待用户输入。',
-    });
-
-    await runWorkspaceAutopilotTask(
-      task,
-      {
-        registeredGroups: () => groups,
-        getSessions: () => ({}),
-        queue: {
-          closeStdin: vi.fn(),
-          enqueueTask: vi.fn(),
-          enqueueMessageCheck: vi.fn(),
-        },
-        onProcess: vi.fn(),
-        sendMessage: vi.fn(),
-        storePromptMessage: vi.fn(),
-        assistantName: 'cli-claw',
-      } as never,
-      'web:source',
-      { manualRun: true },
-    );
-
-    const prompt = runHostAgentMock.mock.calls[0][1].prompt;
-    expect(prompt).toContain('check workspace health');
-    expect(db.getMessagesPage).not.toHaveBeenCalled();
-    expect(prompt).not.toContain('[WORKSPACE_CONTEXT]');
-    expect(prompt).not.toContain('old private context');
-  });
-
-  test('publishes substantive workspace autopilot results as scheduled task messages', async () => {
-    const task = buildTask({
-      id: 'autopilot:workspace:main',
-      context_mode: 'group',
-      schedule_type: 'interval',
-      schedule_value: '300000',
-      next_run: '2026-04-05T10:00:00.000Z',
-    });
-    const groups = {
-      'web:source': sourceGroup,
-    } as Record<string, RegisteredGroup>;
-    const sendMessage = vi.fn();
-
-    const deps = {
-      registeredGroups: () => groups,
-      getSessions: () => ({}),
-      queue: {
-        closeStdin: vi.fn(),
-        enqueueTask: vi.fn(),
-        enqueueMessageCheck: vi.fn(),
-      },
-      onProcess: vi.fn(),
-      sendMessage,
-      storePromptMessage: vi.fn(),
-      assistantName: 'cli-claw',
-    };
-
-    vi.mocked((await import('../src/db.js')).getTaskById).mockReturnValue(task);
-    runHostAgentMock.mockResolvedValue({
-      status: 'success',
-      result: '已完成主动检查：发现并修复了一个验证脚本入口问题。',
-    });
-
-    await runWorkspaceAutopilotTask(task, deps as never, 'web:source', {
-      manualRun: true,
-    });
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'web:source',
-      '已完成主动检查：发现并修复了一个验证脚本入口问题。',
-      { source: 'scheduled_task' },
-    );
-  });
-
-  test('publishes substantive workspace autopilot results through the normal workspace queue', async () => {
-    const task = buildTask({
-      id: 'autopilot:workspace:main',
-      context_mode: 'group',
-      schedule_type: 'interval',
-      schedule_value: '300000',
-      next_run: '2026-04-05T10:00:00.000Z',
-    });
-    const groups = {
-      'web:source': sourceGroup,
-    } as Record<string, RegisteredGroup>;
-    const sendMessage = vi.fn();
-
-    const deps = {
-      registeredGroups: () => groups,
-      getSessions: () => ({}),
-      queue: {
-        closeStdin: vi.fn(),
-        enqueueTask: vi.fn(),
-        enqueueMessageCheck: vi.fn(),
-      },
-      onProcess: vi.fn(),
-      sendMessage,
-      storePromptMessage: vi.fn(),
-      assistantName: 'cli-claw',
-    };
-
-    vi.mocked((await import('../src/db.js')).getTaskById).mockReturnValue(task);
-    runHostAgentMock.mockResolvedValue({
-      status: 'success',
-      result: '已完成主动检查：发现并修复了一个验证脚本入口问题。',
-    });
-
-    await runWorkspaceAutopilotTask(task, deps as never, 'web:source', {
-      manualRun: true,
-    });
-
-    expect(sendMessage).toHaveBeenCalledWith(
-      'web:source',
-      '已完成主动检查：发现并修复了一个验证脚本入口问题。',
-      { source: 'scheduled_task' },
-    );
-    expect(
-      vi.mocked((await import('../src/db.js')).updateTaskRunLog),
-    ).toHaveBeenCalledWith(
-      'run-log-1',
-      expect.objectContaining({
-        status: 'success',
-        result: '已完成主动检查：发现并修复了一个验证脚本入口问题。',
-      }),
-    );
-  });
-
-  test('backs off workspace autopilot after consecutive failed runs', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-04-05T10:30:00.000Z'));
-
-    const task = buildTask({
-      id: 'autopilot:workspace:main',
-      context_mode: 'group',
-      schedule_type: 'interval',
-      schedule_value: '300000',
-      next_run: '2026-04-05T10:00:00.000Z',
-    });
-    const groups = {
-      'web:source': sourceGroup,
-    } as Record<string, RegisteredGroup>;
-
-    const deps = {
-      registeredGroups: () => groups,
-      getSessions: () => ({}),
-      queue: {
-        closeStdin: vi.fn(),
-        enqueueTask: vi.fn(),
-        enqueueMessageCheck: vi.fn(),
-      },
-      onProcess: vi.fn(),
-      sendMessage: vi.fn(),
-      storePromptMessage: vi.fn(),
-      assistantName: 'cli-claw',
-    };
-
-    const db = await import('../src/db.js');
-    vi.mocked(db.getTaskById).mockReturnValue(task);
-    vi.mocked(db.getTaskRunLogs).mockReturnValue([
-      {
-        task_id: task.id,
-        run_at: '2026-04-05T10:00:00.000Z',
-        duration_ms: 1800000,
-        status: 'error',
-        result: null,
-        error: 'Host Agent timed out after 1800000ms',
-      },
-      {
-        task_id: task.id,
-        run_at: '2026-04-05T09:30:00.000Z',
-        duration_ms: 0,
-        status: 'error',
-        result: null,
-        error: 'Process crashed before completion',
-      },
-    ]);
-    runHostAgentMock.mockResolvedValue({
-      status: 'error',
-      result: null,
-      error: 'Host Agent timed out after 1800000ms',
-    });
-
-    try {
-      await runWorkspaceAutopilotTask(task, deps as never, 'web:source');
-
-      expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
-        task.id,
-        '2026-04-05T10:50:00.000Z',
-        'Error: Host Agent timed out after 1800000ms',
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test('uses the normal interval after a successful workspace autopilot run', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-04-05T10:30:00.000Z'));
-
-    const task = buildTask({
-      id: 'autopilot:workspace:main',
-      context_mode: 'group',
-      schedule_type: 'interval',
-      schedule_value: '300000',
-      next_run: '2026-04-05T10:00:00.000Z',
-    });
-    const groups = {
-      'web:source': sourceGroup,
-    } as Record<string, RegisteredGroup>;
-
-    const deps = {
-      registeredGroups: () => groups,
-      getSessions: () => ({}),
-      queue: {
-        closeStdin: vi.fn(),
-        enqueueTask: vi.fn(),
-        enqueueMessageCheck: vi.fn(),
-      },
-      onProcess: vi.fn(),
-      sendMessage: vi.fn(),
-      storePromptMessage: vi.fn(),
-      assistantName: 'cli-claw',
-    };
-
-    const db = await import('../src/db.js');
-    vi.mocked(db.getTaskById).mockReturnValue(task);
-    vi.mocked(db.getTaskRunLogs).mockReturnValue([
-      {
-        task_id: task.id,
-        run_at: '2026-04-05T10:00:00.000Z',
-        duration_ms: 1800000,
-        status: 'error',
-        result: null,
-        error: 'Host Agent timed out after 1800000ms',
-      },
-    ]);
-    runHostAgentMock.mockResolvedValue({
-      status: 'success',
-      result: '当前没有值得执行的下一步，等待用户输入。',
-    });
-
-    try {
-      await runWorkspaceAutopilotTask(task, deps as never, 'web:source');
-
-      expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
-        task.id,
-        '2026-04-05T10:30:00.000Z',
-        '当前没有值得执行的下一步，等待用户输入。',
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });

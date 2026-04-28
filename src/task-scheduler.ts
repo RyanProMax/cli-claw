@@ -10,10 +10,7 @@ import {
   SCHEDULER_POLL_INTERVAL,
   TIMEZONE,
 } from './config.js';
-import {
-  getClaudeProviderConfig,
-  getSystemSettings,
-} from './runtime-config.js';
+import { getSystemSettings } from './runtime-config.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -27,12 +24,10 @@ import {
   cleanupStaleRunningLogs,
   deleteGroupData,
   ensureChatExists,
-  getTaskRunLogs,
   getDueTasks,
   getTaskById,
   getUserById,
   getUserHomeGroup,
-  logTaskRun,
   logTaskRunStart,
   updateTaskRunLog,
   setRegisteredGroup,
@@ -46,20 +41,10 @@ import { logger } from './logger.js';
 import { resolveTaskOwner } from './task-utils.js';
 import { removeFlowArtifacts } from './file-manager.js';
 import { hasScriptCapacity, runScript } from './script-runner.js';
-import { getCodexRuntimeFallback } from './codex-config.js';
-import {
-  buildEffectiveGroupFromHomeSibling,
-  resolveEffectiveRuntimeIdentity,
-} from './group-runtime.js';
 import type { StreamEvent } from './stream-event.types.js';
 import { ExecutionMode, RegisteredGroup, ScheduledTask } from './types.js';
 import { checkBillingAccessFresh, isBillingEnabled } from './billing.js';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
-import {
-  isWorkspaceAutopilotTask,
-  reconcileWorkspaceAutopilotQuota,
-  shouldPublishWorkspaceAutopilotResult,
-} from './workspace-autopilot.js';
 
 /**
  * Resolve the actual group JID to send a task to.
@@ -106,35 +91,6 @@ function findHomeSiblingGroup(
   return Object.values(groups).find(
     (candidate) => candidate.folder === group.folder && candidate.is_home,
   );
-}
-
-function resolveTaskEffectiveRuntimeIdentity(
-  task: ScheduledTask,
-  deps: SchedulerDependencies,
-): ReturnType<typeof resolveEffectiveRuntimeIdentity> | null {
-  const groups = deps.registeredGroups();
-  const sourceGroup = resolveTaskSourceGroup(task, groups);
-  if (!sourceGroup) return null;
-  const homeSibling = findHomeSiblingGroup(sourceGroup, groups);
-  const effectiveGroup = homeSibling
-    ? buildEffectiveGroupFromHomeSibling(sourceGroup, homeSibling)
-    : sourceGroup;
-  const codexRuntimeFallback = getCodexRuntimeFallback();
-
-  return resolveEffectiveRuntimeIdentity(effectiveGroup, {
-    claudeProviderModel: getClaudeProviderConfig().anthropicModel,
-    codexCliModel: codexRuntimeFallback.model,
-    codexCliReasoningEffort: codexRuntimeFallback.reasoningEffort,
-  });
-}
-
-async function reconcileAutopilotTaskQuotaIfNeeded(
-  task: ScheduledTask,
-  deps: SchedulerDependencies,
-): Promise<'unchanged' | 'paused' | 'resumed'> {
-  if (!isWorkspaceAutopilotTask(task)) return 'unchanged';
-  const runtimeIdentity = resolveTaskEffectiveRuntimeIdentity(task, deps);
-  return reconcileWorkspaceAutopilotQuota(task, runtimeIdentity);
 }
 
 function resolveTaskExecutionMode(
@@ -263,13 +219,6 @@ export interface SchedulerDependencies {
     name: string,
     userId?: string,
   ) => void;
-  /** Store task prompt as a user-visible message in the workspace chat */
-  storePromptMessage?: (
-    chatJid: string,
-    senderId: string,
-    senderName: string,
-    text: string,
-  ) => void;
   assistantName: string;
 }
 
@@ -280,19 +229,7 @@ export interface RunTaskOptions {
   manualRun?: boolean;
 }
 
-interface RunWorkspaceAutopilotOptions {
-  manualRun?: boolean;
-  alreadyTracked?: boolean;
-}
-
-function shouldPublishWorkspaceAutopilotVisibleResult(
-  result: string | null,
-): boolean {
-  return shouldPublishWorkspaceAutopilotResult(result);
-}
-
 const runningTaskIds = new Set<string>();
-const WORKSPACE_AUTOPILOT_MAX_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
@@ -317,63 +254,6 @@ function computeNextRun(task: ScheduledTask): string | null {
   }
   // 'once' tasks have no next run
   return null;
-}
-
-function computeWorkspaceAutopilotErrorNextRun(
-  task: ScheduledTask,
-): string | null {
-  if (task.schedule_type !== 'interval') return computeNextRun(task);
-  const baseMs = Number(task.schedule_value);
-  if (!Number.isFinite(baseMs) || baseMs <= 0) return null;
-
-  const recentRuns = getTaskRunLogs(task.id, 10);
-  const previousFailures = recentRuns.findIndex(
-    (log) => log.status !== 'error',
-  );
-  const consecutivePreviousFailures =
-    previousFailures === -1 ? recentRuns.length : previousFailures;
-  const failureStreak = consecutivePreviousFailures + 1;
-  const multiplier = 2 ** Math.min(failureStreak - 1, 10);
-  const delayMs = Math.min(
-    baseMs * multiplier,
-    WORKSPACE_AUTOPILOT_MAX_BACKOFF_MS,
-  );
-  return new Date(Date.now() + delayMs).toISOString();
-}
-
-function buildWorkspaceAutopilotBackgroundPrompt(task: ScheduledTask): string {
-  return [
-    task.prompt,
-    '',
-    'Cli Claw does not inject chat history into autopilot prompts. Use the runtime session and explicit tools if context is needed.',
-  ].join('\n');
-}
-
-function getWorkspaceAutopilotSkipReason(
-  deps: SchedulerDependencies,
-  targetGroupJid: string,
-): string | null {
-  if (deps.queue.hasActiveOrPendingWork(targetGroupJid)) {
-    return 'skipped: workspace busy';
-  }
-  return null;
-}
-
-function skipWorkspaceAutopilotRun(
-  task: ScheduledTask,
-  reason: string,
-  manualRun: boolean,
-): void {
-  logTaskRun({
-    task_id: task.id,
-    run_at: new Date().toISOString(),
-    duration_ms: 0,
-    status: 'success',
-    result: reason,
-    error: null,
-  });
-  const nextRun = manualRun ? task.next_run : computeNextRun(task);
-  updateTaskAfterRun(task.id, nextRun, reason);
 }
 
 /**
@@ -500,20 +380,6 @@ export async function runTask(
       next_run: t.next_run,
     })),
   );
-
-  // Store task prompt as a user message in workspace chat so it's visible in conversation
-  if (deps.storePromptMessage) {
-    const owner = workspaceGroup.created_by
-      ? getUserById(workspaceGroup.created_by)
-      : null;
-    const senderName = owner?.display_name || owner?.username || '定时任务';
-    deps.storePromptMessage(
-      workspace.jid,
-      owner?.id || 'system',
-      senderName,
-      task.prompt,
-    );
-  }
 
   let result: string | null = null;
   let error: string | null = null;
@@ -853,254 +719,6 @@ export async function runScriptTask(
   updateTaskAfterRun(task.id, nextRun, resultSummary);
 }
 
-/**
- * Group context mode: inject task prompt as a regular message into the source workspace.
- * The message is processed by the existing message pipeline (IPC if running, new container if idle).
- */
-async function runGroupModeTask(
-  task: ScheduledTask,
-  deps: SchedulerDependencies,
-  targetGroupJid: string,
-  manualRun = false,
-): Promise<void> {
-  const startTime = Date.now();
-
-  try {
-    // Resolve task owner for sender attribution
-    const owner = task.created_by ? getUserById(task.created_by) : null;
-    const senderName = owner?.display_name || owner?.username || '定时任务';
-
-    if (!deps.storePromptMessage) {
-      throw new Error('storePromptMessage dependency not available');
-    }
-
-    // Store prompt as a user message in the source workspace chat
-    deps.storePromptMessage(
-      targetGroupJid,
-      owner?.id || 'system',
-      senderName,
-      task.prompt,
-    );
-
-    // Trigger normal message processing for the source workspace
-    deps.queue.enqueueMessageCheck(targetGroupJid);
-
-    logger.info(
-      { taskId: task.id, targetGroupJid, contextMode: 'group' },
-      'Group-mode task injected into source workspace',
-    );
-
-    logTaskRun({
-      task_id: task.id,
-      run_at: new Date().toISOString(),
-      duration_ms: Date.now() - startTime,
-      status: 'success',
-      result: '已注入到源工作区',
-      error: null,
-    });
-  } catch (err) {
-    const error = serializeErrorForOutput(err);
-    logger.error(
-      { taskId: task.id, error },
-      'Group-mode task injection failed',
-    );
-
-    logTaskRun({
-      task_id: task.id,
-      run_at: new Date().toISOString(),
-      duration_ms: Date.now() - startTime,
-      status: 'error',
-      result: null,
-      error,
-    });
-  }
-
-  // Update next_run (manualRun preserves original schedule)
-  const nextRun = manualRun ? task.next_run : computeNextRun(task);
-  const resultSummary = '已注入到源工作区';
-  updateTaskAfterRun(task.id, nextRun, resultSummary);
-}
-
-export async function runWorkspaceAutopilotTask(
-  staleTask: ScheduledTask,
-  deps: SchedulerDependencies,
-  targetGroupJid: string,
-  options: RunWorkspaceAutopilotOptions = {},
-): Promise<void> {
-  if (
-    !options.manualRun &&
-    !isTaskStillActive(staleTask.id, 'autopilot task')
-  ) {
-    runningTaskIds.delete(staleTask.id);
-    return;
-  }
-
-  const task = getTaskById(staleTask.id) ?? staleTask;
-  if (!isWorkspaceAutopilotTask(task)) {
-    runningTaskIds.delete(staleTask.id);
-    return;
-  }
-
-  if (!options.alreadyTracked) {
-    runningTaskIds.add(task.id);
-  }
-  const startTime = Date.now();
-  const runLogId = logTaskRunStart(task.id);
-
-  const groups = deps.registeredGroups();
-  const sourceGroup =
-    resolveTaskSourceGroup(task, groups) ?? groups[targetGroupJid];
-  if (!sourceGroup) {
-    updateTaskRunLog(runLogId, {
-      duration_ms: Date.now() - startTime,
-      status: 'error',
-      result: null,
-      error: `Target group not registered: ${targetGroupJid}`,
-    });
-    runningTaskIds.delete(task.id);
-    return;
-  }
-
-  const homeSibling = findHomeSiblingGroup(sourceGroup, groups);
-  const effectiveGroup = homeSibling
-    ? buildEffectiveGroupFromHomeSibling(sourceGroup, homeSibling)
-    : sourceGroup;
-  const executionMode = resolveTaskExecutionMode(task, deps);
-  const runAgent = executionMode === 'host' ? runHostAgent : runContainerAgent;
-  const sourceWorkspaceCwd = resolveEffectiveHostWorkspaceCwd(
-    sourceGroup,
-    homeSibling,
-  );
-  const ownerHomeFolder = effectiveGroup.created_by
-    ? getUserHomeGroup(effectiveGroup.created_by)?.folder ||
-      effectiveGroup.folder
-    : effectiveGroup.folder;
-  const runtimeIdentity = resolveTaskEffectiveRuntimeIdentity(task, deps);
-
-  writeTasksSnapshot(
-    effectiveGroup.folder,
-    !!effectiveGroup.is_home && effectiveGroup.folder === 'main',
-    getAllTasks().map((t) => ({
-      id: t.id,
-      groupFolder: t.group_folder,
-      prompt: t.prompt,
-      schedule_type: t.schedule_type,
-      schedule_value: t.schedule_value,
-      status: t.status,
-      next_run: t.next_run,
-    })),
-  );
-
-  let result: string | null = null;
-  let error: string | null = null;
-
-  try {
-    const output = await runAgent(
-      effectiveGroup,
-      {
-        prompt: buildWorkspaceAutopilotBackgroundPrompt(task),
-        sessionId: undefined,
-        groupFolder: effectiveGroup.folder,
-        chatJid: targetGroupJid,
-        agentType: effectiveGroup.agentType || 'claude',
-        model: runtimeIdentity?.model ?? null,
-        reasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
-        isMain: !!effectiveGroup.is_home && effectiveGroup.folder === 'main',
-        isHome: !!effectiveGroup.is_home,
-        isAdminHome:
-          !!effectiveGroup.is_home && effectiveGroup.folder === 'main',
-        isScheduledTask: false,
-        taskRunId: task.id,
-      },
-      (proc, identifier) =>
-        deps.onProcess(
-          targetGroupJid,
-          proc,
-          executionMode === 'container' ? identifier : null,
-          effectiveGroup.folder,
-          identifier,
-          task.id,
-        ),
-      async (streamedOutput: ContainerOutput) => {
-        if (streamedOutput.result) {
-          result = streamedOutput.result;
-        }
-        if (streamedOutput.status === 'error') {
-          error = streamedOutput.error || 'Unknown error';
-        }
-      },
-      ownerHomeFolder,
-      sourceWorkspaceCwd ? { executionCwd: sourceWorkspaceCwd } : undefined,
-    );
-
-    if (output.status === 'error') {
-      error = output.error || 'Unknown error';
-    }
-    if (output.result) {
-      result = output.result;
-    }
-
-    if (!error && shouldPublishWorkspaceAutopilotVisibleResult(result)) {
-      await deps.sendMessage(targetGroupJid, result!.trim(), {
-        source: 'scheduled_task',
-      });
-    }
-  } catch (err) {
-    error = serializeErrorForOutput(err);
-    logger.error({ taskId: task.id, error }, 'Workspace autopilot failed');
-  } finally {
-    const durationMs = Date.now() - startTime;
-    updateTaskRunLog(runLogId, {
-      duration_ms: durationMs,
-      status: error ? 'error' : 'success',
-      result: result
-        ? result.slice(0, 200)
-        : error
-          ? null
-          : 'No visible update',
-      error,
-    });
-    const nextRun = options.manualRun
-      ? task.next_run
-      : error
-        ? computeWorkspaceAutopilotErrorNextRun(task)
-        : computeNextRun(task);
-    updateTaskAfterRun(
-      task.id,
-      nextRun,
-      error
-        ? `Error: ${error}`
-        : result
-          ? result.slice(0, 200)
-          : 'No visible update',
-    );
-    runningTaskIds.delete(task.id);
-    deps.queue.closeStdin(targetGroupJid);
-  }
-}
-
-function enqueueWorkspaceAutopilotTask(
-  task: ScheduledTask,
-  deps: SchedulerDependencies,
-  targetGroupJid: string,
-  manualRun = false,
-): void {
-  runningTaskIds.add(task.id);
-  deps.queue.enqueueTask(
-    targetGroupJid,
-    task.id,
-    () =>
-      runWorkspaceAutopilotTask(task, deps, targetGroupJid, {
-        manualRun,
-        alreadyTracked: true,
-      }),
-    {
-      priority: 'background',
-      onSkip: () => runningTaskIds.delete(task.id),
-    },
-  );
-}
-
 let schedulerRunning = false;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 let lastCleanupTime = 0;
@@ -1174,22 +792,6 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         }
       }
 
-      for (const task of getAllTasks()) {
-        if (!isWorkspaceAutopilotTask(task) || task.status !== 'paused') {
-          continue;
-        }
-        const quotaResult = await reconcileAutopilotTaskQuotaIfNeeded(
-          task,
-          deps,
-        );
-        if (quotaResult === 'resumed') {
-          logger.info(
-            { taskId: task.id, groupFolder: task.group_folder },
-            'Workspace autopilot resumed after quota recovery',
-          );
-        }
-      }
-
       const dueTasks = getDueTasks();
       if (dueTasks.length > 0) {
         logger.info({ count: dueTasks.length }, 'Found due tasks');
@@ -1203,18 +805,6 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         }
 
         if (runningTaskIds.has(currentTask.id)) {
-          continue;
-        }
-
-        const quotaResult = await reconcileAutopilotTaskQuotaIfNeeded(
-          currentTask,
-          deps,
-        );
-        if (quotaResult === 'paused') {
-          logger.info(
-            { taskId: currentTask.id, groupFolder: currentTask.group_folder },
-            'Workspace autopilot paused because 5h remaining quota dropped below threshold',
-          );
           continue;
         }
 
@@ -1244,34 +834,9 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
               'Unhandled error in runScriptTask',
             );
           });
-        } else if (isWorkspaceAutopilotTask(currentTask)) {
-          const skipReason = getWorkspaceAutopilotSkipReason(
-            deps,
-            targetGroupJid,
-          );
-          if (skipReason) {
-            logger.info(
-              {
-                taskId: currentTask.id,
-                targetGroupJid,
-                reason: skipReason,
-              },
-              'Workspace autopilot skipped before enqueue',
-            );
-            skipWorkspaceAutopilotRun(currentTask, skipReason, false);
-            continue;
-          }
-          enqueueWorkspaceAutopilotTask(currentTask, deps, targetGroupJid);
-        } else if (currentTask.context_mode === 'group') {
-          // Group mode: inject prompt into source workspace as a regular message
-          runGroupModeTask(currentTask, deps, targetGroupJid).catch((err) => {
-            logger.error(
-              { taskId: currentTask.id, err },
-              'Unhandled error in runGroupModeTask',
-            );
-          });
         } else {
-          // Isolated mode (default): each agent task has a dedicated workspace
+          // Agent tasks always run in isolated task workspaces. Prompts are not
+          // injected into the source workspace conversation.
           const taskQueueJid = currentTask.workspace_jid
             ? `${currentTask.workspace_jid}#task:${currentTask.id}`
             : `${targetGroupJid}#task:${currentTask.id}`;
@@ -1319,12 +884,6 @@ export function triggerTaskNow(
       return { success: false, error: 'Script concurrency limit reached' };
     runScriptTask(task, deps, targetGroupJid, true).catch((err) =>
       logger.error({ taskId, err }, 'Manual script task failed'),
-    );
-  } else if (isWorkspaceAutopilotTask(task)) {
-    enqueueWorkspaceAutopilotTask(task, deps, targetGroupJid, true);
-  } else if (task.context_mode === 'group') {
-    runGroupModeTask(task, deps, targetGroupJid, true).catch((err) =>
-      logger.error({ taskId, err }, 'Manual group-mode task failed'),
     );
   } else {
     const opts: RunTaskOptions = { manualRun: true, taskRunId: task.id };

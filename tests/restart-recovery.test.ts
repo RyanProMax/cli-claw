@@ -562,7 +562,7 @@ describe('restart recovery cursor handling', () => {
 
     expect(
       isRecoverableRestartPendingMessage({
-        sender: 'autopilot',
+        sender: 'task-scheduler',
         source_kind: 'scheduled_task_prompt',
       }),
     ).toBe(false);
@@ -602,7 +602,7 @@ describe('restart recovery cursor handling', () => {
       },
       {
         id: 'task-1',
-        sender: 'autopilot',
+        sender: 'task-scheduler',
         source_kind: 'scheduled_task_prompt' as const,
       },
       {

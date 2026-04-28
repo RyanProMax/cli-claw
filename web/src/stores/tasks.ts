@@ -9,7 +9,7 @@ export interface ScheduledTask {
   prompt: string;
   schedule_type: 'cron' | 'interval' | 'once';
   schedule_value: string;
-  context_mode: 'group' | 'isolated';
+  context_mode: 'isolated';
   execution_type?: 'agent' | 'script';
   script_command?: string | null;
   next_run: string | null;

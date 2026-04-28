@@ -350,9 +350,8 @@ EXECUTION MODE:
 \u2022 "container" (default for non-admin): Task runs in a Docker container.
 Each agent task automatically gets its own dedicated workspace.
 
-CONTEXT MODE (agent mode only) - Choose based on task type:
-\u2022 "group": Task reuses the group's runtime session only. Cli Claw does not inject chat history into the prompt.
-\u2022 "isolated": Task runs in a fresh runtime session.
+CONTEXT:
+\u2022 Agent tasks always run in an isolated task workspace/session. Cli Claw does not inject the source conversation into scheduled tasks.
 
 MESSAGING BEHAVIOR - The task output is sent to the user or group.
 \u2022 Agent mode: output is sent via MCP tool or stdout. Use <internal> tags to suppress.
@@ -398,12 +397,6 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
           .optional()
           .describe(
             'Execution mode: host runs directly on the server, container runs in Docker isolation',
-          ),
-        context_mode: z
-          .enum(['group', 'isolated'])
-          .default('group')
-          .describe(
-            '(agent mode only) group=runs with persistent workspace context (recommended), isolated=fresh session each time',
           ),
         target_group_jid: z
           .string()
@@ -504,7 +497,7 @@ SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
           prompt: args.prompt || '',
           schedule_type: args.schedule_type,
           schedule_value: args.schedule_value,
-          context_mode: args.context_mode || 'isolated',
+          context_mode: 'isolated',
           execution_type: execType,
           targetJid,
           createdBy: ctx.groupFolder,
@@ -729,14 +722,14 @@ You can optionally specify execution_mode: "container" (default, isolated Docker
     ),
   ];
 
-  // Skill 安装/卸载仅限主容器（与 memory_* 工具一致）
+  // Skill 安装/卸载仅限主容器
   if (ctx.isHome) {
     tools.push(
       // --- install_skill ---
       tool(
         'install_skill',
         `Install a skill from the skills registry (skills.sh). The skill will be available in future conversations.
-Example packages: "anthropic/memory", "anthropic/think", "owner/repo", "owner/repo@skill-name".`,
+Example packages: "anthropic/think", "owner/repo", "owner/repo@skill-name".`,
         {
           package: z
             .string()
@@ -815,12 +808,12 @@ Example packages: "anthropic/memory", "anthropic/think", "owner/repo", "owner/re
       tool(
         'uninstall_skill',
         `Uninstall a user-level skill by its ID. Project-level skills cannot be uninstalled.
-Use the skills panel in the UI to find the skill ID (directory name, e.g. "memory", "think").`,
+Use the skills panel in the UI to find the skill ID (directory name, e.g. "think").`,
         {
           skill_id: z
             .string()
             .describe(
-              'The skill ID to uninstall (the directory name, e.g. "memory", "think")',
+              'The skill ID to uninstall (the directory name, e.g. "think")',
             ),
         },
         async (args) => {

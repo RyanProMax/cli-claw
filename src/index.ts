@@ -92,7 +92,6 @@ import {
   getSession,
   listAgentsByJid,
   getGroupsByOwner,
-  getMessagesPage,
   addGroupMember,
   cleanupOldDailyUsage,
   cleanupOldBillingAuditLog,
@@ -117,7 +116,6 @@ import {
 } from './feishu-streaming-card.js';
 import { resolveVisibleReplyParts } from './reply-visibility.js';
 import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
-import { appendActivePlanProgressFromFile } from './active-plan-progress.js';
 import {
   recordDeadLetteredLifecycleForPendingMessages,
   recordDirectImDeliveryLifecycleForMessages,
@@ -130,7 +128,6 @@ import {
   serializeAssistantTokenUsage,
 } from './streaming-runtime-meta.js';
 import {
-  formatContextMessages,
   formatImLifecycleStatus,
   formatSelfCheckResult,
   formatSelfRestartAccepted,
@@ -150,11 +147,6 @@ import {
 } from './runtime-command-handler.js';
 import { getAvailableRuntimeModelOptions } from './runtime-model-options.js';
 import { attachRuntimeUsageFooterMeta } from './runtime-usage.js';
-import {
-  disableWorkspaceAutopilot,
-  ensureWorkspaceAutopilotEnabled,
-  getWorkspaceAutopilotState,
-} from './workspace-autopilot.js';
 import {
   discoverSkillCommands,
   executeDiscoveredSkillCommandResult,
@@ -1046,7 +1038,7 @@ function findFileInSubdirs(
   return null;
 }
 
-/** Resolve the owner's home folder for memory mounting. Non-home groups read owner's home memory. */
+/** Resolve the owner's home folder for user-scoped runtime resources. */
 function resolveOwnerHomeFolder(group: RegisteredGroup): string {
   if (group.created_by) {
     return getUserHomeGroup(group.created_by)?.folder || group.folder;
@@ -1818,9 +1810,6 @@ async function handleCommand(
       return handleSelfCheckCommand(chatJid);
     case 'self-restart':
       return handleSelfRestartCommand(chatJid);
-    case 'recall':
-    case 'rc':
-      return handleRecallCommand(chatJid);
     case 'where':
       return handleWhereCommand(chatJid);
     case 'unbind':
@@ -1831,8 +1820,6 @@ async function handleCommand(
       return handleNewCommand(chatJid, rawArgs);
     case 'require_mention':
       return handleRequireMentionCommand(chatJid, rawArgs);
-    case 'autopilot':
-      return handleAutopilotCommand(chatJid, rawArgs);
     case 'sw':
     case 'spawn':
       return handleSpawnCommand(chatJid, rawArgs, chatJid);
@@ -2110,27 +2097,6 @@ function resolveStatusWorkspaceInfo(
   };
 }
 
-/**
- * Fetch recent messages and format a context summary.
- */
-function getConversationContext(
-  folder: string,
-  agentId: string | null,
-  count = 5,
-  maxLen = 80,
-): string {
-  const webJid = findWebJidForFolder(folder);
-  if (!webJid) return '';
-
-  const chatJidForMsg = agentId ? `${webJid}#agent:${agentId}` : webJid;
-  const messages = getMessagesPage(chatJidForMsg, undefined, count);
-
-  if (messages.length === 0) return '\n\n📭 该对话暂无消息记录';
-
-  const formatted = formatContextMessages(messages.reverse(), maxLen);
-  return formatted || '\n\n📭 该对话暂无消息记录';
-}
-
 function handleListCommand(chatJid: string): string {
   const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
   if (!group) return '当前 IM 未绑定工作区';
@@ -2212,7 +2178,6 @@ function handleStatusCommand(chatJid: string): string {
       ? getCodexUsageSnapshot()
       : null;
   const runtimeIdentity = runtimeTarget?.effectiveRuntimeIdentity ?? null;
-  const autopilotState = getWorkspaceAutopilotState(location.folder);
   logger.info(
     {
       chatJid,
@@ -2252,12 +2217,6 @@ function handleStatusCommand(chatJid: string): string {
     },
   );
 
-  const autopilotText =
-    autopilotState.state === 'active'
-      ? '已开启'
-      : autopilotState.state === 'paused_quota'
-        ? '已因额度不足暂停'
-        : '未开启';
   const lifecycleStatus = chatJid.startsWith('feishu:')
     ? `\n${formatImLifecycleStatus(
         getRecentImMessageLifecycleEvents({
@@ -2273,58 +2232,7 @@ function handleStatusCommand(chatJid: string): string {
       )}`
     : '';
 
-  return `${systemStatus}\n🤖 主动模式: ${autopilotText}${lifecycleStatus}`;
-}
-
-async function handleAutopilotCommand(
-  chatJid: string,
-  rawArgs: string,
-): Promise<string> {
-  const target = resolveRuntimeWorkspaceTarget(chatJid, {
-    getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
-    getSiblingJids: getJidsByFolder,
-    getAgent,
-  });
-  if (!target) return '未找到当前工作区';
-
-  const action = rawArgs.trim().toLowerCase() || 'status';
-  if (!['on', 'off', 'status'].includes(action)) {
-    return '用法：/autopilot on|off|status';
-  }
-
-  if (action === 'off') {
-    disableWorkspaceAutopilot(target.workspaceGroup.folder);
-    return '已关闭当前工作区主动模式';
-  }
-
-  if (action === 'on') {
-    const status = await ensureWorkspaceAutopilotEnabled({
-      workspaceJid: target.workspaceJid,
-      workspaceName: target.workspaceGroup.name,
-      groupFolder: target.workspaceGroup.folder,
-      createdBy:
-        target.workspaceGroup.created_by ??
-        target.runtimeOwnerGroup.created_by ??
-        target.sourceGroup.created_by ??
-        null,
-      executionMode: target.workspaceGroup.executionMode ?? null,
-      runtimeIdentity: target.effectiveRuntimeIdentity,
-    });
-
-    if (status.state === 'paused_quota') {
-      return '已开启当前工作区主动模式，但当前 5h < 20% 或 week < 10%，已自动暂停';
-    }
-    return '已开启当前工作区主动模式';
-  }
-
-  const status = getWorkspaceAutopilotState(target.workspaceGroup.folder);
-  if (status.state === 'active') {
-    return '当前工作区主动模式：已开启';
-  }
-  if (status.state === 'paused_quota') {
-    return '当前工作区主动模式：已因额度不足暂停';
-  }
-  return '当前工作区主动模式：未开启';
+  return `${systemStatus}${lifecycleStatus}`;
 }
 
 function isSelfIterationAdmin(chatJid: string): boolean {
@@ -2688,75 +2596,6 @@ function handleRequireMentionCommand(chatJid: string, rawArgs: string): string {
     return `当前 require_mention: ${current}\n\n用法:\n/require_mention true — 需要 @机器人\n/require_mention false — 全量响应`;
   }
   return '用法: /require_mention true|false';
-}
-
-const recallCooldowns = new Map<string, number>();
-
-async function handleRecallCommand(chatJid: string): Promise<string> {
-  logger.info({ chatJid }, '/recall command received');
-
-  const now = Date.now();
-  const lastRecall = recallCooldowns.get(chatJid) || 0;
-  if (now - lastRecall < 10000) {
-    return '⏳ 请稍后再试（冷却中）';
-  }
-  recallCooldowns.set(chatJid, now);
-
-  const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
-  if (!group) {
-    logger.warn({ chatJid }, '/recall: no registered group found');
-    return '当前 IM 未绑定工作区';
-  }
-
-  // Resolve binding target — use bound workspace/agent if present
-  let targetJid: string | undefined;
-  let targetFolder: string;
-  let targetAgentId: string | null = null;
-  let headerName: string;
-
-  if (group.target_agent_id) {
-    const agent = getAgent(group.target_agent_id);
-    const parent = agent
-      ? (registeredGroups[agent.chat_jid] ?? getRegisteredGroup(agent.chat_jid))
-      : null;
-    const workspaceName = parent?.name || parent?.folder || group.folder;
-    headerName = `${workspaceName} / ${agent?.name || group.target_agent_id}`;
-    targetFolder = parent?.folder || group.folder;
-    targetAgentId = group.target_agent_id;
-    targetJid = agent
-      ? `${agent.chat_jid}#agent:${group.target_agent_id}`
-      : undefined;
-  } else if (group.target_main_jid) {
-    const target =
-      registeredGroups[group.target_main_jid] ??
-      getRegisteredGroup(group.target_main_jid);
-    headerName = `${target?.name || group.target_main_jid} / 主对话`;
-    targetFolder = target?.folder || group.folder;
-    targetJid = group.target_main_jid;
-  } else {
-    headerName = `${findGroupNameByFolder(group.folder)} / 主对话`;
-    targetFolder = group.folder;
-    targetJid = findWebJidForFolder(group.folder) ?? undefined;
-  }
-
-  const header = `🧠 ${headerName}`;
-
-  if (!targetJid) {
-    logger.warn({ chatJid, targetFolder }, '/recall: no JID found for target');
-    return `${header}\n\n📭 该对话暂无消息记录`;
-  }
-
-  const messages = getMessagesPage(targetJid, undefined, 10);
-  logger.info(
-    { chatJid, targetJid, messageCount: messages.length },
-    '/recall: fetched messages',
-  );
-
-  if (messages.length === 0) return `${header}\n\n📭 该对话暂无消息记录`;
-
-  const context = getConversationContext(targetFolder, targetAgentId, 10, 200);
-  if (!context) return `${header}\n\n📭 该对话暂无消息记录`;
-  return header + context;
 }
 
 // ─── /sw & /spawn: parallel task spawning ────────────────────────
@@ -5088,12 +4927,6 @@ async function sendMessage(
   text: string,
   options: SendMessageOptions = {},
 ): Promise<string | undefined> {
-  const sourceKind = options.messageMeta?.sourceKind ?? null;
-  const decoratedText = appendActivePlanProgressFromFile(
-    text,
-    sourceKind,
-    resolveActivePlanPath(jid),
-  );
   const isIMChannel = getChannelType(jid) !== null;
   const sendToIM = options.sendToIM ?? isIMChannel;
   const messageMeta = await enrichOutboundMessageMeta(options.messageMeta);
@@ -5103,13 +4936,8 @@ async function sendMessage(
       try {
         const localImagePaths =
           options.localImagePaths ??
-          extractLocalImImagePaths(decoratedText, resolveEffectiveFolder(jid));
-        await imManager.sendMessage(
-          jid,
-          decoratedText,
-          localImagePaths,
-          messageMeta,
-        );
+          extractLocalImImagePaths(text, resolveEffectiveFolder(jid));
+        await imManager.sendMessage(jid, text, localImagePaths, messageMeta);
       } catch (err) {
         logger.error({ jid, err }, 'Failed to send message to IM channel');
         imDeliveryFailed = true;
@@ -5129,7 +4957,7 @@ async function sendMessage(
       jid,
       'cli-claw-agent',
       ASSISTANT_NAME,
-      decoratedText,
+      text,
       timestamp,
       true,
       {
@@ -5145,7 +4973,7 @@ async function sendMessage(
         chat_jid: jid,
         sender: 'cli-claw-agent',
         sender_name: ASSISTANT_NAME,
-        content: decoratedText,
+        content: text,
         timestamp,
         is_from_me: true,
         turn_id: messageMeta?.turnId ?? null,
@@ -5165,7 +4993,7 @@ async function sendMessage(
     // Safe because scheduled tasks never trigger typing indicators, so there's
     // no typing state to clear. The message is still delivered via new_message.
     if (!options.source) {
-      broadcastToWebClients(jid, decoratedText);
+      broadcastToWebClients(jid, text);
     }
     return persistedMsgId;
   } catch (err) {
@@ -5179,20 +5007,10 @@ async function sendMessage(
 
 function decorateTaskReplyText(
   text: string,
-  sourceKind?: MessageSourceKind | null,
-  chatJid?: string,
+  _sourceKind?: MessageSourceKind | null,
+  _chatJid?: string,
 ): string {
-  return appendActivePlanProgressFromFile(
-    text,
-    sourceKind ?? null,
-    chatJid ? resolveActivePlanPath(chatJid) : undefined,
-  );
-}
-
-function resolveActivePlanPath(chatJid: string): string | undefined {
-  const groupFolder = resolveEffectiveFolder(chatJid);
-  if (!groupFolder) return undefined;
-  return path.resolve(GROUPS_DIR, groupFolder, 'PLANS', 'ACTIVE.md');
+  return text;
 }
 
 async function enrichOutboundMessageMeta(
@@ -5782,9 +5600,20 @@ function startIpcWatcher(): void {
                 const effectiveChatJid = ipcAgentId
                   ? `${data.chatJid}#agent:${ipcAgentId}`
                   : data.chatJid;
+                const rawIpcText = String(data.text);
+                const visibleIpcText = resolveVisibleReplyParts(
+                  rawIpcText,
+                  undefined,
+                  {
+                    agentType:
+                      targetGroup?.agentType ??
+                      sourceGroupEntry?.agentType ??
+                      null,
+                  },
+                ).visibleText;
                 // Feishu card JSON: store extracted markdown for web, send raw JSON to IM
-                const cardText = extractFeishuCardText(data.text);
-                const webText = cardText || data.text;
+                const cardText = extractFeishuCardText(visibleIpcText);
+                const webText = cardText || visibleIpcText;
                 await sendMessage(effectiveChatJid, webText, {
                   messageMeta: {
                     sourceKind: 'sdk_send_message',
@@ -5802,10 +5631,14 @@ function startIpcWatcher(): void {
                     ipcImRoute !== data.chatJid
                   ) {
                     const localImages = extractLocalImImagePaths(
-                      data.text,
+                      visibleIpcText,
                       sourceGroup,
                     );
-                    sendImWithFailTracking(ipcImRoute, data.text, localImages);
+                    sendImWithFailTracking(
+                      ipcImRoute,
+                      visibleIpcText,
+                      localImages,
+                    );
                   }
 
                   // Scheduled task: broadcast to all connected IM channels of the owner
@@ -5814,7 +5647,7 @@ function startIpcWatcher(): void {
                       [data.chatJid, ipcImRoute].filter(Boolean) as string[],
                     );
                     const taskLocalImages = extractLocalImImagePaths(
-                      data.text,
+                      visibleIpcText,
                       sourceGroup,
                     );
                     // Resolve notify_channels from the task
@@ -5828,7 +5661,11 @@ function startIpcWatcher(): void {
                       ownerHomeFolderForIm,
                       alreadySent,
                       (jid) =>
-                        sendImWithFailTracking(jid, data.text, taskLocalImages),
+                        sendImWithFailTracking(
+                          jid,
+                          visibleIpcText,
+                          taskLocalImages,
+                        ),
                       taskNotifyChannels,
                     );
                   }
@@ -6197,7 +6034,6 @@ async function processTaskIpc(
     prompt?: string;
     schedule_type?: string;
     schedule_value?: string;
-    context_mode?: string;
     execution_type?: string;
     execution_mode?: string;
     script_command?: string;
@@ -6315,10 +6151,6 @@ async function processTaskIpc(
         }
 
         const taskId = crypto.randomUUID();
-        const contextMode =
-          data.context_mode === 'group' || data.context_mode === 'isolated'
-            ? data.context_mode
-            : 'isolated';
         const executionMode =
           data.execution_mode === 'host' && isAdminHome
             ? 'host'
@@ -6338,7 +6170,7 @@ async function processTaskIpc(
           prompt: data.prompt || '',
           schedule_type: scheduleType,
           schedule_value: data.schedule_value,
-          context_mode: contextMode,
+          context_mode: 'isolated',
           execution_type: execType,
           execution_mode: executionMode,
           script_command: data.script_command ?? null,
@@ -6349,7 +6181,7 @@ async function processTaskIpc(
           notify_channels: null,
         });
         logger.info(
-          { taskId, sourceGroup, targetFolder, contextMode, execType },
+          { taskId, sourceGroup, targetFolder, execType },
           'Task created via IPC',
         );
       }
@@ -10009,32 +9841,6 @@ export async function startCliClaw(
     sendMessage,
     broadcastStreamEvent,
     onWorkspaceCreated: broadcastGroupCreated,
-    storePromptMessage: (chatJid, senderId, senderName, text) => {
-      const msgId = crypto.randomUUID();
-      const now = new Date().toISOString();
-      ensureChatExists(chatJid);
-      storeMessageDirect(
-        msgId,
-        chatJid,
-        senderId,
-        senderName,
-        text,
-        now,
-        false,
-        {
-          meta: { sourceKind: 'scheduled_task_prompt' },
-        },
-      );
-      broadcastNewMessage(chatJid, {
-        id: msgId,
-        chat_jid: chatJid,
-        sender: senderId,
-        sender_name: senderName,
-        content: text,
-        timestamp: now,
-        is_from_me: false,
-      });
-    },
     assistantName: ASSISTANT_NAME,
   };
   startSchedulerLoop(schedulerDeps);

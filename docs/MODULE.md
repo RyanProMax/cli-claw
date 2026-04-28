@@ -24,10 +24,9 @@
 │   ├── self-restart-watchdog.ts    # 独立 watchdog CLI 入口
 │   ├── runtime-identity.ts         # 实际运行时 agent / model / effort 元数据
 │   ├── file-manager.ts             # 文件读写边界、系统路径保护、路径安全
-│   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区解析与 autopilot 后台 run
+│   ├── task-scheduler.ts           # 定时任务调度、执行日志与独立任务工作区解析
 │   ├── skill-command-dispatch.ts   # skill command 声明发现、冲突检查与 executor 执行
-│   ├── runtime-usage.ts            # 按 runtime 读取当前 usage snapshot，并派生 footer / autopilot quota 规则
-│   ├── workspace-autopilot.ts      # 工作区主动模式任务 ID、状态、prompt、no-op 识别与 quota-aware enable/pause/resume
+│   ├── runtime-usage.ts            # 按 runtime 读取当前 usage snapshot，并派生 footer 元数据
 │   ├── im-manager.ts               # per-user IM 连接池
 │   ├── feishu.ts                   # 飞书接入与消息适配
 │   ├── telegram.ts                 # Telegram 接入与消息适配

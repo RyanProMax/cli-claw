@@ -83,7 +83,7 @@ host 相关消费者统一使用同一份 effective cwd contract：
 
 这个 contract 会被 host runtime 执行、文件 API、工作区 `.claude/` 配置根目录、脚本任务和 agent 任务共同使用。
 
-`customCwd` 只影响 host 执行和文件访问根目录，不改变工作区 ownership，也不改变数据库、session 或记忆文件在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
+`customCwd` 只影响 host 执行和文件访问根目录，不改变工作区 ownership，也不改变数据库或 session 在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
 
 ## 运行时身份
 

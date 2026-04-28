@@ -19,43 +19,6 @@ export interface WorkspaceInfo {
   agents: AgentInfo[];
 }
 
-export interface MessageForContext {
-  sender: string;
-  sender_name: string;
-  content: string;
-  is_from_me: boolean;
-}
-
-// ─── Context Formatting ─────────────────────────────────────────
-
-/**
- * Format recent messages into a compact context summary.
- * Messages should be in chronological order (oldest first).
- *
- * @param messages  Array of messages (oldest first)
- * @param maxLen    Per-message truncation length
- * @returns         Formatted text block, or empty string if no displayable messages
- */
-export function formatContextMessages(
-  messages: MessageForContext[],
-  maxLen = 80,
-): string {
-  if (messages.length === 0) return '';
-
-  const lines: string[] = [];
-  for (const msg of messages) {
-    if (msg.sender === '__system__') continue;
-
-    const who = msg.is_from_me ? '🤖' : `👤${msg.sender_name || ''}`;
-    let text = msg.content || '';
-    if (text.length > maxLen) text = text.slice(0, maxLen) + '…';
-    text = text.replace(/\n/g, ' ');
-    lines.push(`  ${who}: ${text}`);
-  }
-
-  return lines.length > 0 ? '\n\n📋 最近消息:\n' + lines.join('\n') : '';
-}
-
 // ─── List Formatting ────────────────────────────────────────────
 
 /**
@@ -89,7 +52,7 @@ export function formatWorkspaceList(
   }
 
   lines.push('');
-  lines.push('💡 /sw <消息> 并行任务 · /recall 总结 · /clear 重置');
+  lines.push('💡 /sw <消息> 并行任务 · /clear 重置');
   return lines.join('\n');
 }
 

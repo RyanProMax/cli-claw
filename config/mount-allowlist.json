@@ -1,11 +1,16 @@
 {
   "allowedRoots": [
     {
-      "path": "~",
+      "path": "~/projects",
       "allowReadWrite": true,
-      "description": "Full home directory access"
+      "description": "Development projects"
     }
   ],
-  "blockedPatterns": [],
+  "blockedPatterns": [
+    ".cli-claw",
+    ".codex",
+    ".claude",
+    ".agents"
+  ],
   "nonMainReadOnly": true
 }

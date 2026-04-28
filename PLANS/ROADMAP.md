@@ -95,19 +95,6 @@
   - Keep real-flow E2E for restart first turn and interrupted pending recovery as a required regression gate proving no DB history/recovery summary reaches agent input or user-visible output.
   - Monitor real Feishu/Web mixed-channel turns; expected behavior is ordered contiguous-source turns for ordinary messages, with assistant-prompt skill commands starting from a fresh runtime session.
 
-### P1 RM-2026-04-25-05 Workspace Autopilot Resource Governance
-
-- Status: `proposed`
-- Source: 2026-04-25 task-run logs; 2026-04-26 interrupted autopilot visible reply incident
-- Summary: 主动模式不能长期占用 Codex、制造过程性文本、消耗上下文或影响飞书回复；它需要更窄的 health-check contract、短超时和独立会话/模型策略。
-- Current state:
-  - Autopilot is a low-priority background task, skips busy workspace queues, backs off repeated failures, suppresses preempted visible replies, and no longer injects recent chat history into hidden prompts.
-  - `docs/ARCHITECTURE.md` documents the current autopilot execution and preemption contract.
-- Next action:
-  - Convert autopilot from general agent prompt into bounded health-check jobs that emit structured `no_op | action | risk`.
-  - Use a dedicated runtime session or no-session mode so autopilot cannot pollute the main conversation/session.
-  - Add a visible `/autopilot status` reason trail: last run, skip reason, failure streak, next run, quota pause, and last published action.
-
 ### P1 RM-2026-04-25-06 Feishu Mention, Slash Command, And Binding UX
 
 - Status: `proposed`
@@ -139,7 +126,7 @@
 
 - Status: `proposed`
 - Source: 2026-04-25 cross-cutting reliability work
-- Summary: Web Monitor and IM `/self-status` should expose the same operator truth: launch mode, exact restart command, Feishu channel readiness, queue/dead-letter state, active runners, autopilot state, recent delivery failures and current runtime identity.
+- Summary: Web Monitor and IM `/self-status` should expose the same operator truth: launch mode, exact restart command, Feishu channel readiness, queue/dead-letter state, active runners, recent delivery failures and current runtime identity.
 - Current state:
   - `/status` and `/self-status` expose compact Feishu lifecycle issue summaries.
   - `/self-status` exposes restartability, launch source, exact command, build state, self-check result, and direct-backend warnings.

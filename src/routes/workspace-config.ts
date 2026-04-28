@@ -1,10 +1,9 @@
 /**
  * Workspace-level Skills and MCP Servers management routes.
  *
- * Operates on the workspace's `.claude/` directory (project-level config).
- * SDK reads both 'project' and 'user' settingSources, so these configs
- * take effect alongside global (user-level) configs without any changes
- * to agent-runner or container-runner.
+ * Operates on the workspace's `.claude/` directory for explicit skill/MCP
+ * management. Agent runner does not load project/user Claude settings as
+ * hidden prompt context.
  */
 
 import { Hono, type Context } from 'hono';

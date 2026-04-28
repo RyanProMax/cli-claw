@@ -86,7 +86,7 @@ cli-claw start
 - `cli-claw version` / `-v` / `--version` 查看已安装版本。
 - 应用自身资源从安装包根目录解析，不依赖你启动时的当前目录。
 - `cli-claw start` 会把“你启动命令时所在的目录”当作 host 工作区默认执行目录，并在缺失时物化到 `custom_cwd`。
-- 数据库存储、sessions、memory、logs、downloads 和工作区元数据仍保留在 `~/.cli-claw`，不会迁到启动目录。
+- 数据库存储、sessions、logs、downloads 和工作区元数据仍保留在 `~/.cli-claw`，不会迁到启动目录。
 
 ### 从当前仓库启动（推荐）
 

@@ -102,14 +102,6 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
-    name: 'recall',
-    aliases: ['rc'],
-    usage: '/recall',
-    description: '回顾当前工作区最近消息',
-    availableEntrypoints: ['im'],
-    availabilityByRuntime: 'all',
-  },
-  {
     name: 'where',
     usage: '/where',
     description: '查看当前聊天绑定位置',
@@ -141,13 +133,6 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'require_mention',
     usage: '/require_mention true|false',
     description: '控制群聊中是否必须 @机器人',
-    availableEntrypoints: ['im'],
-    availabilityByRuntime: 'all',
-  },
-  {
-    name: 'autopilot',
-    usage: '/autopilot on|off|status',
-    description: '控制当前工作区主动模式',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },

@@ -2059,7 +2059,7 @@ export function createTask(
     task.prompt,
     task.schedule_type,
     task.schedule_value,
-    task.context_mode || 'group',
+    'isolated',
     task.execution_type || 'agent',
     task.script_command ?? null,
     task.execution_mode ?? null,
@@ -2084,6 +2084,7 @@ function mapTaskRow(row: unknown): ScheduledTask {
     r.notify_channels = null;
   }
   // Normalize new nullable fields
+  r.context_mode = 'isolated';
   if (r.execution_mode === undefined) r.execution_mode = null;
   if (r.workspace_jid === undefined) r.workspace_jid = null;
   if (r.workspace_folder === undefined) r.workspace_folder = null;

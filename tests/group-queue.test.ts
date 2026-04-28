@@ -116,9 +116,9 @@ describe('GroupQueue shared-runner IPC recovery', () => {
 
     queue.enqueueTask(
       'web:main',
-      'autopilot:workspace:main',
+      'background:workspace:main',
       async () => {
-        calls.push('task:autopilot');
+        calls.push('task:background');
       },
       { priority: 'background' },
     );
@@ -130,7 +130,7 @@ describe('GroupQueue shared-runner IPC recovery', () => {
       expect(calls).toEqual([
         'messages:other:busy',
         'messages:web:main',
-        'task:autopilot',
+        'task:background',
       ]);
     });
   });
@@ -140,7 +140,7 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     const queue = new GroupQueue();
     const calls: string[] = [];
     const fakeProcess = { pid: 11225, killed: false } as any;
-    const taskId = 'autopilot:workspace:main';
+    const taskId = 'background:workspace:main';
     const closePath = path.join(
       DATA_DIR,
       'ipc',
@@ -170,13 +170,13 @@ describe('GroupQueue shared-runner IPC recovery', () => {
       'web:main',
       taskId,
       async () => {
-        calls.push('task:autopilot');
+        calls.push('task:background');
         queue.registerProcess(
           'web:main',
           fakeProcess,
           null,
           'main',
-          'autopilot-runner',
+          'background-runner',
           undefined,
           taskId,
         );
@@ -186,7 +186,7 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     );
 
     await vi.waitFor(() => {
-      expect(calls).toEqual(['task:autopilot']);
+      expect(calls).toEqual(['task:background']);
     });
 
     queue.enqueueMessageCheck('web:main');
@@ -197,7 +197,7 @@ describe('GroupQueue shared-runner IPC recovery', () => {
 
     releaseBackgroundRun();
     await vi.waitFor(() => {
-      expect(calls).toEqual(['task:autopilot', 'messages:web:main']);
+      expect(calls).toEqual(['task:background', 'messages:web:main']);
     });
   });
 
@@ -517,7 +517,7 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     expect(
       queue.sendMessage(
         'web:main',
-        'autopilot prompt from web',
+        'background prompt from web',
         undefined,
         undefined,
         {

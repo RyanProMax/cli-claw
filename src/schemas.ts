@@ -9,7 +9,6 @@ export const TaskPatchSchema = z.object({
   prompt: z.string().optional(),
   schedule_type: z.enum(['cron', 'interval', 'once']).optional(),
   schedule_value: z.string().optional(),
-  context_mode: z.enum(['group', 'isolated']).optional(),
   execution_type: z.enum(['agent', 'script']).optional(),
   execution_mode: z.enum(['host', 'container']).optional(),
   script_command: z.string().max(4096).nullable().optional(),
@@ -33,7 +32,6 @@ export const TaskCreateSchema = z
     prompt: z.string().optional().default(''),
     schedule_type: z.enum(['cron', 'interval', 'once']),
     schedule_value: z.string().min(1),
-    context_mode: z.enum(['group', 'isolated']).optional(),
     execution_type: z.enum(['agent', 'script']).optional(),
     execution_mode: z.enum(['host', 'container']).optional(),
     script_command: z.string().max(4096).optional(),
@@ -139,15 +137,6 @@ export const GroupCreateSchema = z.object({
 
 export const GroupMemberAddSchema = z.object({
   user_id: z.string().min(1),
-});
-
-export const MemoryFileSchema = z.object({
-  path: z.string().min(1),
-  content: z.string(),
-});
-
-export const MemoryGlobalSchema = z.object({
-  content: z.string(),
 });
 
 export const ClaudeConfigSchema = z.object({
@@ -572,39 +561,6 @@ export const RedeemCodeCreateSchema = z
 export const RedeemCodeSchema = z.object({
   code: z.string().min(1).max(64),
 });
-
-// Memory types
-export type MemoryType =
-  | 'global'
-  | 'heartbeat'
-  | 'session'
-  | 'date'
-  | 'conversation';
-
-export interface MemorySource {
-  path: string;
-  label: string;
-  type: MemoryType;
-  writable: boolean;
-  exists: boolean;
-  updatedAt: string | null;
-  size: number;
-  ownerName?: string;
-  folder?: string;
-}
-
-export interface MemoryFilePayload {
-  path: string;
-  content: string;
-  updatedAt: string | null;
-  size: number;
-  writable: boolean;
-}
-
-export interface MemorySearchHit extends MemorySource {
-  hits: number;
-  snippet: string;
-}
 
 // --- Bug Report schemas ---
 
