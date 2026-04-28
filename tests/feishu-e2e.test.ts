@@ -327,7 +327,16 @@ async function driveQueuedFeishuCodexStaticFinalPath(_: {
         recordLifecycleForMessages({
           messages,
           stage: 'finalized',
-          details: { droppedPresentationAnswer: true },
+          details: {
+            droppedPresentationAnswer: true,
+            visibilityResolution: {
+              agentType: 'codex',
+              selectedSource: 'raw_final',
+              rawFinalLength: rawFinalText.length,
+              presentationAnswerLength: stalePresentationAnswer.length,
+              visibleTextLength: visibleReply.visibleText.length,
+            },
+          },
         });
 
         await connection.sendMessage(
@@ -633,7 +642,19 @@ describe('Feishu in-process E2E harness', () => {
       'im_delivered',
       'cursor_committed',
     ]);
-    expect(JSON.stringify(lifecycle)).toContain('droppedPresentationAnswer');
+    const finalized = lifecycle.find(
+      (event: any) => event.stage === 'finalized',
+    );
+    expect(finalized?.details).toMatchObject({
+      droppedPresentationAnswer: true,
+      visibilityResolution: {
+        agentType: 'codex',
+        selectedSource: 'raw_final',
+        rawFinalLength: rawFinalText.length,
+        presentationAnswerLength: stalePresentationAnswer.length,
+        visibleTextLength: rawFinalText.length,
+      },
+    });
   });
 
   test('routes explicit managed restart phrases without storing them as model messages', async () => {

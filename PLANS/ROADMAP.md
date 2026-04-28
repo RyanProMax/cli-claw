@@ -67,12 +67,12 @@
   - Graceful shutdown partials and known Codex transport/model diagnostics are suppressed from user-visible正文.
   - Claude and Codex ACP turns now share the same minimal necessary reply-policy block; Codex prompts are wrapped with that policy while preserving the raw user message.
   - Final visible replies now pass through a `reply-visibility` internal-context guard that strips raw prompt XML wrappers and restart recovery summaries before Feishu/Web delivery.
-  - `reply-visibility` now drops stale Codex presentation `answerText` when it is much larger than the current final raw output, with warn logs for future incident tracing.
+  - `reply-visibility` now ignores Codex presentation `answerText` for final visible bodies; current runtime raw/final output is the only final-send source, with warn logs when presentation answer is present.
   - Feishu stale-output E2E proves delivered static card markdown equals current raw final and excludes stale hkipo/history content.
-  - `answerText` is now considered a transitional presentation buffer, not an authoritative final-send source.
+  - `answerText` is now a transitional presentation buffer, not an authoritative final-send source.
   - `send_message` visible-tool policy still needs hardening.
 - Next action:
-  - Remove final-send dependence on `presentationText.answerText`; final visible body should come from current runtime answer/raw final only, with per-turn buffers used only for live card rendering.
+  - Continue tightening per-turn streaming buffers so `answerText`-like state is scoped to live card rendering and destroyed after completion.
   - Tighten `shared/stream-presentation.ts`, `src/reply-visibility.ts`, `src/feishu-streaming-card.ts`, and `container/agent-runner/src/mcp-tools.ts` so process text cannot become Feishu main body by default.
   - Add per-channel concise reply budgets for Feishu final answers.
 
@@ -91,6 +91,7 @@
   - Main workspace reset paths delete only the primary runtime slot while preserving conversation agent sessions.
   - Skill slash commands that return `assistant_prompt` are tagged as `assistant_prompt` messages and clear the workspace primary runtime session before execution, so command-generated tasks do not inherit stale runtime transcript context.
 - Next action:
+  - Interrupted resume no longer replays stored old user messages; conversation-agent recovery now requires a committed cursor and will not fall back to all virtual-chat history.
   - Remove any remaining cli-claw-owned historical prompt/replay/summary injection path; restart must send only pending user messages and rely on saved runtime session id for context.
   - Add real-flow E2E for restart first turn and interrupted pending recovery proving no DB history/recovery summary reaches agent input or user-visible output.
   - Monitor real Feishu/Web mixed-channel turns; expected behavior is ordered contiguous-source turns for ordinary messages, with assistant-prompt skill commands starting from a fresh runtime session.

@@ -279,10 +279,7 @@ import {
   type StartupLaunchSpec,
 } from './startup-launch.js';
 import { getCodexRuntimeFallback } from './codex-config.js';
-import {
-  compactMessagesForAgent,
-  selectRecentTurnMessages,
-} from './context-compaction.js';
+import { compactMessagesForAgent } from './context-compaction.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const execFileAsync = promisify(execFile);
@@ -553,6 +550,13 @@ export function applyShutdownInterruptedStreamingCommittedCursor(
     committedCursors,
     recoveryEntry,
   );
+}
+
+export function resolveConversationAgentRecoveryCursor(
+  committedCursors: Readonly<Record<string, MessageCursor>>,
+  virtualChatJid: string,
+): MessageCursor | null {
+  return committedCursors[virtualChatJid] ?? null;
 }
 
 export function buildStreamingRecoveryEntries(
@@ -1655,7 +1659,7 @@ export function resolveInterruptedResumeDecision({
     if (isInterruptedResumeContinueReply(latestUserMessage.content)) {
       return {
         action: 'continue_previous',
-        messagesForAgent: pendingConfirmation.resumeMessages,
+        messagesForAgent: [latestUserMessage],
         clearPendingConfirmation: true,
       };
     }
@@ -1667,7 +1671,7 @@ export function resolveInterruptedResumeDecision({
       const messagesForAgent =
         discardSuffix.length > 0
           ? [cloneMessageWithContent(latestUserMessage, discardSuffix)]
-          : pendingConfirmation.freshMessages;
+          : [latestUserMessage];
       return {
         action: 'use_fresh',
         messagesForAgent,
@@ -1698,34 +1702,15 @@ export function resolveInterruptedResumeDecision({
     return { action: 'none', messagesForAgent: [] };
   }
 
-  const resumeCandidates = messages
-    .slice(0, interruptIndex)
-    .filter(isHumanUserMessage) as NewMessage[];
-  const resumeMessages = selectRecentTurnMessages(resumeCandidates);
   const freshMessages = messages
     .slice(interruptIndex + 1)
     .filter(isHumanUserMessage);
 
-  if (resumeMessages.length === 0 || freshMessages.length === 0) {
+  if (freshMessages.length === 0) {
     return { action: 'none', messagesForAgent: [] };
   }
 
-  const interrupted = messages[interruptIndex];
-  const pending: PendingInterruptedResumeConfirmation = {
-    chatJid,
-    interruptedAt: interrupted.timestamp,
-    interruptedMessageId: interrupted.id,
-    createdAt: new Date().toISOString(),
-    resumeMessages,
-    freshMessages,
-  };
-
-  return {
-    action: 'ask',
-    messagesForAgent: [],
-    promptText: buildInterruptedResumePrompt(pending),
-    pendingConfirmation: pending,
-  };
+  return { action: 'use_fresh', messagesForAgent: freshMessages };
 }
 
 export function isRestartRecoveryHistoryMessage(
@@ -4535,6 +4520,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                   {
                     chatJid,
                     group: group.name,
+                    turnId: result.turnId,
+                    sessionId: result.sessionId,
+                    sdkMessageUuid: result.sdkMessageUuid,
                     rawTextLen: text.length,
                     presentationAnswerLen:
                       streamingPresentationText.answerText.length,
@@ -4542,8 +4530,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
                       streamingPresentationText.commentaryText.length,
                     runtimeIdentity: activeRuntimeIdentity,
                     sourceKind: result.sourceKind || 'sdk_final',
+                    finalizationReason:
+                      result.finalizationReason || 'completed',
                   },
-                  'Dropped stale presentation answer for final visible reply',
+                  'Ignored presentation answer for final visible reply',
                 );
               }
               const visibleText = decorateTaskReplyText(
@@ -7263,8 +7253,22 @@ async function processAgentConversation(
   // lastAgentTimestamp may have advanced when IPC accepted a message that the
   // killed runner never completed.
   const isRecovery = agentRecoveryVirtualJids.has(virtualChatJid);
+  const recoveryCursor = isRecovery
+    ? resolveConversationAgentRecoveryCursor(
+        lastCommittedCursor,
+        virtualChatJid,
+      )
+    : null;
+  if (isRecovery && !recoveryCursor) {
+    agentRecoveryVirtualJids.delete(virtualChatJid);
+    logger.info(
+      { chatJid, agentId, virtualChatJid },
+      'processAgentConversation: skipping recovery without committed cursor',
+    );
+    return;
+  }
   const sinceCursor = isRecovery
-    ? lastCommittedCursor[virtualChatJid] || EMPTY_CURSOR
+    ? recoveryCursor!
     : lastAgentTimestamp[virtualChatJid] || EMPTY_CURSOR;
   const missedMessages = getMessagesSince(virtualChatJid, sinceCursor);
   if (missedMessages.length === 0) {
@@ -7780,6 +7784,9 @@ async function processAgentConversation(
             {
               virtualChatJid,
               agentId,
+              turnId: output.turnId,
+              sessionId: output.sessionId || currentAgentSessionId,
+              sdkMessageUuid: output.sdkMessageUuid,
               rawTextLen: text.length,
               presentationAnswerLen:
                 agentStreamingPresentationText.answerText.length,
@@ -7787,8 +7794,9 @@ async function processAgentConversation(
                 agentStreamingPresentationText.commentaryText.length,
               runtimeIdentity: currentAgentRuntimeIdentity,
               sourceKind: output.sourceKind || 'sdk_final',
+              finalizationReason: output.finalizationReason || 'completed',
             },
-            'Dropped stale agent presentation answer for final visible reply',
+            'Ignored agent presentation answer for final visible reply',
           );
         }
         const visibleText = decorateTaskReplyText(
@@ -8826,7 +8834,17 @@ function recoverConversationAgents(): void {
 
       // Check for pending messages on the virtual JID
       const virtualChatJid = `${chatJid}#agent:${agentId}`;
-      const sinceCursor = lastCommittedCursor[virtualChatJid] || EMPTY_CURSOR;
+      const sinceCursor = resolveConversationAgentRecoveryCursor(
+        lastCommittedCursor,
+        virtualChatJid,
+      );
+      if (!sinceCursor) {
+        logger.info(
+          { chatJid, agentId, virtualChatJid },
+          'Recovery: skipping conversation agent without committed cursor',
+        );
+        continue;
+      }
       const pending = getMessagesSince(virtualChatJid, sinceCursor);
 
       if (pending.length > 0) {

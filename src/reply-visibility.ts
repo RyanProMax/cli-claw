@@ -93,22 +93,6 @@ function normalizeReplyText(value: string | null | undefined): string {
   return typeof value === 'string' ? value.replace(/\r\n?/g, '\n').trim() : '';
 }
 
-function shouldTrustPresentationAnswer(
-  rawText: string,
-  answerText: string,
-): boolean {
-  if (!rawText || !answerText) return Boolean(answerText);
-  if (rawText === answerText) return true;
-
-  const rawLength = rawText.length;
-  const answerLength = answerText.length;
-  const suspiciousSizeMismatch =
-    answerLength > 2000 && answerLength > rawLength * 5;
-  if (suspiciousSizeMismatch) return false;
-
-  return true;
-}
-
 function looksLikeProcessCommentaryPrefix(prefix: string): boolean {
   const normalized = prefix.trim();
   if (!normalized || normalized.length > 500) return false;
@@ -159,18 +143,8 @@ export function resolveVisibleReplyParts(
 
   const answerText = normalizeReplyText(presentationText?.answerText);
   const normalizedRawText = normalizeReplyText(sanitizedRawText);
-  const trustPresentationAnswer = answerText
-    ? shouldTrustPresentationAnswer(normalizedRawText, answerText)
-    : false;
-  const droppedPresentationAnswer = Boolean(
-    answerText && !trustPresentationAnswer,
-  );
-  const commentaryText = droppedPresentationAnswer
-    ? ''
-    : presentationCommentaryText;
-  if (commentaryText && answerText && trustPresentationAnswer) {
-    return { visibleText: answerText, commentaryText };
-  }
+  const droppedPresentationAnswer = Boolean(answerText);
+  const commentaryText = presentationCommentaryText;
 
   if (
     normalizedRawText &&
@@ -189,10 +163,6 @@ export function resolveVisibleReplyParts(
 
   const inferred = splitLeadingCodexCommentary(sanitizedRawText);
   if (inferred) return inferred;
-
-  if (answerText && trustPresentationAnswer) {
-    return { visibleText: answerText, commentaryText };
-  }
 
   return {
     visibleText: sanitizedRawText,

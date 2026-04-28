@@ -201,6 +201,28 @@ describe('restart recovery cursor handling', () => {
     ]);
   });
 
+  test('does not recover conversation agent history when no committed cursor exists', async () => {
+    const { resolveConversationAgentRecoveryCursor } = await loadIndexModule();
+
+    expect(
+      resolveConversationAgentRecoveryCursor({}, 'web:main#agent:agent-1'),
+    ).toBeNull();
+    expect(
+      resolveConversationAgentRecoveryCursor(
+        {
+          'web:main#agent:agent-1': {
+            timestamp: '2026-04-28T07:00:00.000Z',
+            id: 'committed-message',
+          },
+        },
+        'web:main#agent:agent-1',
+      ),
+    ).toEqual({
+      timestamp: '2026-04-28T07:00:00.000Z',
+      id: 'committed-message',
+    });
+  });
+
   test('preserves the IM reply target when a shared runner uses a normalized web streaming key', async () => {
     const { buildStreamingRecoveryEntries } = await loadIndexModule();
 
@@ -581,7 +603,7 @@ describe('restart recovery cursor handling', () => {
     ).toEqual(['user-1']);
   });
 
-  test('asks for confirmation before consuming older interrupted context with a fresh message', async () => {
+  test('uses fresh messages instead of prompting with older interrupted context', async () => {
     const { resolveInterruptedResumeDecision } = await loadIndexModule();
     const interruptedBatch = [
       {
@@ -617,18 +639,13 @@ describe('restart recovery cursor handling', () => {
       missedMessages: interruptedBatch,
     });
 
-    expect(decision.action).toBe('ask');
-    expect(decision.messagesForAgent).toEqual([]);
-    expect(decision.promptText).toContain('检测到上次任务被中断');
-    expect(
-      decision.pendingConfirmation?.resumeMessages.map((m) => m.id),
-    ).toEqual(['old-user']);
-    expect(
-      decision.pendingConfirmation?.freshMessages.map((m) => m.id),
-    ).toEqual(['fresh-user']);
+    expect(decision.action).toBe('use_fresh');
+    expect(decision.messagesForAgent.map((m) => m.id)).toEqual(['fresh-user']);
+    expect(decision.promptText).toBeUndefined();
+    expect(decision.pendingConfirmation).toBeUndefined();
   });
 
-  test('replays interrupted context only after an explicit continue reply', async () => {
+  test('does not replay stored interrupted context after an explicit continue reply', async () => {
     const { resolveInterruptedResumeDecision } = await loadIndexModule();
     const pendingConfirmation = {
       chatJid: 'feishu:chat-1',
@@ -673,7 +690,9 @@ describe('restart recovery cursor handling', () => {
     });
 
     expect(decision.action).toBe('continue_previous');
-    expect(decision.messagesForAgent.map((m) => m.id)).toEqual(['old-user']);
+    expect(decision.messagesForAgent.map((m) => m.id)).toEqual([
+      'resume-reply',
+    ]);
     expect(decision.clearPendingConfirmation).toBe(true);
   });
 
@@ -769,7 +788,9 @@ describe('restart recovery cursor handling', () => {
     });
 
     expect(decision.action).toBe('use_fresh');
-    expect(decision.messagesForAgent.map((m) => m.id)).toEqual(['fresh-user']);
+    expect(decision.messagesForAgent.map((m) => m.id)).toEqual([
+      'discard-reply',
+    ]);
     expect(decision.clearPendingConfirmation).toBe(true);
   });
 

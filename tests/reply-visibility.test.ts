@@ -26,17 +26,17 @@ describe('resolveVisibleReplyText', () => {
     ).toBe(['## 01879 打新预研', '', '这是最终报告。'].join('\n'));
   });
 
-  test('prefers explicit answer text for Codex when available', () => {
+  test('uses current raw final for Codex even when explicit answer text is available', () => {
     expect(
       resolveVisibleReplyText(
-        'commentary + final',
+        '当前 raw final',
         {
           answerText: '最终答案',
           commentaryText: 'commentary',
         },
         { agentType: 'codex' },
       ),
-    ).toBe('最终答案');
+    ).toBe('当前 raw final');
   });
 
   test('uses current raw final when stale presentation answer is much larger and unrelated', () => {
@@ -62,11 +62,11 @@ describe('resolveVisibleReplyText', () => {
     ).toBe(rawText);
   });
 
-  test('reports dropped presentation answer for incident logging', () => {
+  test('reports ignored presentation answer for incident logging', () => {
     const parts = resolveVisibleReplyParts(
       '是我触发的安全重启。',
       {
-        answerText: '旧任务输出。'.repeat(1000),
+        answerText: '正常 presentation answer',
         commentaryText: '旧过程说明',
       },
       { agentType: 'codex' },
@@ -74,7 +74,7 @@ describe('resolveVisibleReplyText', () => {
 
     expect(parts).toEqual({
       visibleText: '是我触发的安全重启。',
-      commentaryText: '',
+      commentaryText: '旧过程说明',
       droppedPresentationAnswer: true,
     });
   });
@@ -126,6 +126,24 @@ describe('resolveVisibleReplyText', () => {
         { agentType: 'claude' },
       ),
     ).toBe('普通回复');
+  });
+
+  test('uses current raw final for Claude and never exposes stale answer text', () => {
+    const rawText = '当前 Claude final';
+    const staleAnswerText = '上一轮 stale answerText';
+
+    const parts = resolveVisibleReplyParts(
+      rawText,
+      {
+        answerText: staleAnswerText,
+        commentaryText: 'Claude commentary',
+      },
+      { agentType: 'claude' },
+    );
+
+    expect(parts.visibleText).toBe(rawText);
+    expect(parts.visibleText).not.toContain(staleAnswerText);
+    expect(parts.commentaryText).toBe('Claude commentary');
   });
 
   test('strips commentary-prefixed final text when runtime identity is unavailable but commentary state exists', () => {

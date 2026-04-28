@@ -1,3 +1,59 @@
+# Reply Visibility AnswerText Authority Fix
+
+## Goal
+
+- Ensure final visible replies for Codex/Claude are never overwritten by `presentationText.answerText`.
+- Preserve existing commentary separation and internal-context leak suppression.
+
+## Done when
+
+- `src/reply-visibility.ts` derives final `visibleText` from the current raw/final output, not `presentationText.answerText`.
+- `tests/reply-visibility.test.ts` proves a normal `answerText` cannot override raw final output.
+- `tests/reply-visibility.test.ts` proves stale `answerText` never enters `visibleText`.
+- Validation and review gate pass.
+
+## Milestones
+
+### Milestone 43
+
+Objective:
+- Remove `presentationText.answerText` as an authoritative source for final visible replies while keeping commentary splitting and internal leak guards intact.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `src/reply-visibility.ts`
+- `tests/reply-visibility.test.ts`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/reply-visibility.test.ts`: passed, 1 file / 13 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md src/reply-visibility.ts tests/reply-visibility.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: Milestone 43 code/test changes stayed within `src/reply-visibility.ts` and `tests/reply-visibility.test.ts`.
+  - Objective: `presentationText.answerText` is ignored for final visible output; raw/final text remains authoritative while commentary and internal-context guards remain active.
+  - Note: the working tree also contains concurrent Milestone 44 changes in `src/index.ts` and `tests/feishu-e2e.test.ts`; they were not modified or reviewed as part of Milestone 43.
+
+Risks / Notes / Handoff:
+- Keep this as an output-boundary fix only; do not change streaming presentation accumulation, runtime sessions, queueing, cursor commits, or IM delivery behavior.
+- `droppedPresentationAnswer` remains the compatibility signal for "ignored presentation answer" so existing logging/E2E consumers can continue to detect that an `answerText` was present but not used.
+
+---
+
 # Feishu Message Reliability Control Plane
 
 ## Goal
@@ -1754,23 +1810,78 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 44
+- Milestone 45
 
 Current status:
-- done; roadmap now requires real Feishu input/output E2E and correlatable logs for output-boundary fixes
+- done; final sends ignore presentation `answerText`, stale history replay risks were tightened, and real Feishu E2E/log evidence covers the path
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `src/reply-visibility.ts`
+- `tests/feishu-e2e.test.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/restart-recovery.test.ts`
 
 Last failure summary:
-- Previous stale-history fixes were too narrow because they relied on function-level checks before a real Feishu payload regression was added.
+- `answerText` remained in the final visible reply path as a conditional fallback, so future stale presentation state could still become user-visible if the heuristic missed it.
 
 Suspected cause:
-- Output-boundary bugs span inbound storage, queue, runtime finalization, presentation buffers, Feishu payload generation, lifecycle rows, and cursor commit; missing real-flow tests/logs made partial fixes look complete.
+- The final-send boundary was mixing two contracts: current runtime raw/final output and streaming presentation buffers. Presentation buffers are UI state, not authoritative final output.
 
 Next step:
-- Commit Milestone 44. Then implement the next runtime milestone: remove final-send dependence on `presentationText.answerText`.
+- Commit Milestone 45 and apply with safe restart.
+
+
+### Milestone 45
+
+Objective:
+- Make current runtime raw/final output the only final visible body source. `presentationText.answerText` must never override or fill final visible text; it remains only a live streaming-card buffer. Preserve commentary stripping, internal-context filtering, real Feishu E2E coverage, and structured logs for ignored presentation state.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `src/reply-visibility.ts`
+- `tests/feishu-e2e.test.ts`
+- `tests/reply-visibility.test.ts`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts tests/feishu-e2e.test.ts tests/restart-recovery.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/MEMORY.md docs/RUNTIME.md src/index.ts src/reply-visibility.ts tests/feishu-e2e.test.ts tests/reply-visibility.test.ts tests/restart-recovery.test.ts`
+- `git diff --check`
+- `npm run build`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/reply-visibility.test.ts tests/feishu-e2e.test.ts tests/restart-recovery.test.ts`: passed, 3 files / 56 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/MEMORY.md docs/RUNTIME.md src/index.ts src/reply-visibility.ts tests/feishu-e2e.test.ts tests/reply-visibility.test.ts tests/restart-recovery.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `npm run build`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: all changed files are in Milestone 45 allowed scope.
+  - Final-send boundary: `presentationText.answerText` can no longer override or fill final visible text.
+  - Real-flow E2E: Feishu inbound -> DB/notifier -> queue -> visibility resolution -> static card payload -> lifecycle/cursor path asserts delivered markdown equals current raw final and excludes stale history strings.
+  - History replay tightening: interrupted resume no longer replays stored old user messages; conversation-agent recovery requires a committed cursor instead of falling back to `EMPTY_CURSOR`.
+
+Risks / Notes / Handoff:
+- Subagent review still identified intentional context sources not removed here: active pending messages are still sent to active runners, runtime sessions still own their native transcript, and autopilot can explicitly include `[WORKSPACE_CONTEXT]`. Those are separate product contracts, not final-send/history-leak buffers.
+- Runtime code changed; safe restart is required for the running service to pick up the fix.
 
 
 ### Milestone 44
@@ -1828,6 +1939,8 @@ Status:
 
 Validation status:
 - passed
+  - RED confirmed for the strengthened assertion with `npm test -- --run tests/feishu-e2e.test.ts`: failed because the finalized lifecycle details only contained `droppedPresentationAnswer` and lacked `visibilityResolution` evidence.
+  - `npm test -- --run tests/feishu-e2e.test.ts`: passed, 1 file / 7 tests.
   - `npm test -- --run tests/feishu-e2e.test.ts tests/reply-visibility.test.ts`: passed, 2 files / 19 tests.
   - `npm run typecheck`: passed.
   - `npx prettier --check PLANS/ACTIVE.md tests/feishu-e2e.test.ts`: passed.
@@ -1839,11 +1952,12 @@ Review status:
 - passed
   - Scope: all changed files are in Milestone 43 allowed scope.
   - Objective: the new E2E receives a Feishu message, simulates stale Codex presentation, sends a static Feishu card, and asserts delivered markdown equals the current raw final output.
-  - Payload guard: the test asserts delivered Feishu card data does not contain `stock-analysis-skill` or old hkipo text.
+  - Payload guard: the test asserts delivered Feishu card data does not contain `stock-analysis-skill` or old hkipo text, and the finalized lifecycle details include `droppedPresentationAnswer` plus `visibilityResolution` lengths/source evidence.
 
 Risks / Notes / Handoff:
 - Runtime behavior was changed in Milestone 42; this milestone adds Feishu-path regression coverage only.
 - Runtime restart is not required for Milestone 43.
+- Concurrent worktree changes exist outside this E2E test scope in `PLANS/ROADMAP.md`, `docs/MEMORY.md`, `docs/RUNTIME.md`, `src/index.ts`, `src/reply-visibility.ts`, and `tests/reply-visibility.test.ts`; they were not reviewed as part of this test hardening.
 
 
 ### Milestone 42
