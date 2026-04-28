@@ -14,7 +14,7 @@ API_ROOT = Path("/Users/ryan/projects/stock-analysis-api")
 PYTHON = "/Users/ryan/projects/stock-analysis-api/.venv/bin/python"
 SYMBOLS = [
     "603228", "300033", "513110", "002983", "513180", "588320",
-    "300757", "002466", "512100", "159919", "161226", "159952",
+    "300757", "002466", "512100", "159919", "159952",
     "300827", "300014", "300274",
 ]
 STATE_DIR = Path.home() / ".cli-claw" / "stock-watch"
@@ -191,6 +191,8 @@ def ratio_to_pct(value) -> str:
 def quote_map(payload: dict) -> dict[str, dict]:
     result = {}
     for item in payload.get("items", []):
+        if item.get("status") != "ok" or not item.get("quote_data"):
+            continue
         symbol = item.get("requested_symbol") or item.get("info", {}).get("symbol")
         if not symbol:
             continue
@@ -253,10 +255,8 @@ def main() -> int:
     rows: list[tuple[bool, str]] = []
     current_alert_keys: set[str] = set()
     for symbol in SYMBOLS:
-        item = current.get(symbol, {})
-        if item.get("status") != "ok" or not item.get("quote_data"):
-            current_alert_keys.add(f"data:{symbol}:{item.get('error') or item.get('status')}")
-            rows.append((True, f"⚠️ {symbol} 数据异常：{item.get('error') or item.get('status')}"))
+        item = current.get(symbol)
+        if not item:
             continue
         quote = item["quote_data"]
         info = item.get("info") or {}
@@ -287,14 +287,6 @@ def main() -> int:
         else:
             rows.append((False, f"{symbol} {name} {price} {ratio_to_pct(cp)}"))
 
-    failed = payload.get("summary", {}).get("failed", 0)
-    prev_failed = 0
-    if previous:
-        prev_failed = sum(1 for item in previous.values() if item.get("status") != "ok")
-    if failed > prev_failed:
-        current_alert_keys.add(f"failed_increase:{prev_failed}->{failed}")
-        rows.append((True, f"⚠️ 数据源失败数增加：{prev_failed} -> {failed}"))
-
     should_emit = should_emit_push(
         previous_alert_keys=previous_alert_keys,
         current_alert_keys=current_alert_keys,
@@ -316,7 +308,7 @@ def main() -> int:
         return 0
 
     alert_count = sum(1 for is_alert, _ in rows if is_alert)
-    ok = payload.get("summary", {}).get("ok", 0)
+    ok = len(current)
     lines = [
         f"盯盘全量快照：成功 {ok}/{len(SYMBOLS)}，异动 {alert_count}",
         *[f"- {line}" for _, line in rows],
