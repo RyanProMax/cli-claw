@@ -49,7 +49,6 @@ describe('active plan progress', () => {
   test('only task-like assistant messages require active plan progress', () => {
     expect(shouldAppendActivePlanProgress('sdk_final')).toBe(true);
     expect(shouldAppendActivePlanProgress('interrupt_partial')).toBe(true);
-    expect(shouldAppendActivePlanProgress('auto_continue')).toBe(true);
     expect(shouldAppendActivePlanProgress('user_command')).toBe(false);
     expect(shouldAppendActivePlanProgress('scheduled_task_prompt')).toBe(false);
     expect(shouldAppendActivePlanProgress(null)).toBe(false);
@@ -62,6 +61,8 @@ describe('active plan progress', () => {
 
     expect(
       appendActivePlanProgressFromFile('Final answer', 'sdk_final', planPath),
-    ).toBe('Final answer\n\n进度: ✓ Milestone 1 · ✓ Milestone 2 · … Milestone 3');
+    ).toBe(
+      'Final answer\n\n进度: ✓ Milestone 1 · ✓ Milestone 2 · … Milestone 3',
+    );
   });
 });

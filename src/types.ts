@@ -138,12 +138,10 @@ export type MessageSourceKind =
   | 'sdk_send_message'
   | 'interrupt_partial'
   | 'overflow_partial'
-  | 'compact_partial'
   | 'user_command'
   | 'assistant_prompt'
   | 'scheduled_task_prompt'
-  | 'legacy'
-  | 'auto_continue';
+  | 'legacy';
 
 export type MessageFinalizationReason =
   | 'completed'

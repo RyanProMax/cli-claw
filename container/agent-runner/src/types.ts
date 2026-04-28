@@ -49,21 +49,8 @@ export interface ContainerOutput {
     | 'sdk_send_message'
     | 'interrupt_partial'
     | 'overflow_partial'
-    | 'compact_partial'
-    | 'legacy'
-    | 'auto_continue';
+    | 'legacy';
   finalizationReason?: 'completed' | 'interrupted' | 'error';
-}
-
-export interface SessionEntry {
-  sessionId: string;
-  fullPath: string;
-  summary: string;
-  firstPrompt: string;
-}
-
-export interface SessionsIndex {
-  entries: SessionEntry[];
 }
 
 export type ImageMediaType =
@@ -92,9 +79,4 @@ export interface SDKUserMessage {
   };
   parent_tool_use_id: null;
   session_id: string;
-}
-
-export interface ParsedMessage {
-  role: 'user' | 'assistant';
-  content: string;
 }

@@ -10,7 +10,6 @@ import {
   SCHEDULER_POLL_INTERVAL,
   TIMEZONE,
 } from './config.js';
-import { DailySummaryDeps, runDailySummaryIfNeeded } from './daily-summary.js';
 import {
   getClaudeProviderConfig,
   getSystemSettings,
@@ -272,7 +271,6 @@ export interface SchedulerDependencies {
     text: string,
   ) => void;
   assistantName: string;
-  dailySummaryDeps?: DailySummaryDeps;
 }
 
 export interface RunTaskOptions {
@@ -565,7 +563,7 @@ export async function runTask(
     const runAgent =
       executionMode === 'host' ? runHostAgent : runContainerAgent;
 
-    // Resolve owner's home folder for correct volume mounts (skills, memory, AGENTS.md)
+    // Resolve owner's home folder for user-scoped skill mounts.
     const ownerHomeFolder = workspaceGroup.created_by
       ? getUserHomeGroup(workspaceGroup.created_by)?.folder || workspace.folder
       : workspace.folder;
@@ -1173,15 +1171,6 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
           }
         } catch (err) {
           logger.error({ err }, 'Failed to cleanup old task run logs');
-        }
-      }
-
-      // Daily summary generation (runs at most once per hour, 2-3 AM)
-      if (deps.dailySummaryDeps) {
-        try {
-          runDailySummaryIfNeeded(deps.dailySummaryDeps);
-        } catch (err) {
-          logger.error({ err }, 'Daily summary check failed');
         }
       }
 

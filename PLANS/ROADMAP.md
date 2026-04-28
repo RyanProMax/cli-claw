@@ -65,11 +65,11 @@
 - Current state:
   - Shared stream presentation already has answer/commentary concepts and Feishu cards can render auxiliary progress.
   - Graceful shutdown partials and known Codex transport/model diagnostics are suppressed from user-visible正文.
-  - Claude and Codex ACP turns now share the same minimal necessary reply-policy block; Codex prompts are wrapped with that policy while preserving the raw user message.
+  - Cli Claw no longer injects a default reply-policy wrapper into Codex prompts; current user messages are passed through without Cli Claw-owned context wrapping.
   - Final visible replies now pass through a `reply-visibility` internal-context guard that strips raw prompt XML wrappers and restart recovery summaries before Feishu/Web delivery.
   - `reply-visibility` now ignores Codex presentation `answerText` for final visible bodies; current runtime raw/final output is the only final-send source, with warn logs when presentation answer is present.
   - Feishu stale-output E2E proves delivered static card markdown equals current raw final and excludes stale hkipo/history content.
-  - `answerText` is now a transitional presentation buffer, not an authoritative final-send source.
+  - `answerText` is now a transitional presentation buffer, not an authoritative final-send source; partial bodies from interrupt/overflow/compact/crash recovery are not sent as IM正文.
   - `send_message` visible-tool policy still needs hardening.
 - Next action:
   - Continue tightening per-turn streaming buffers so `answerText`-like state is scoped to live card rendering and destroyed after completion.
@@ -90,10 +90,9 @@
   - Restart recovery resumes the saved runtime session and pending messages; it no longer clears the primary session or injects compact DB history.
   - Main workspace reset paths delete only the primary runtime slot while preserving conversation agent sessions.
   - Skill slash commands that return `assistant_prompt` are tagged as `assistant_prompt` messages and clear the workspace primary runtime session before execution, so command-generated tasks do not inherit stale runtime transcript context.
+  - Cli Claw no longer exposes memory MCP tools, daily-summary generation, transcript archive files, memory API/UI, user-global memory mounts, or Codex reply-policy wrappers as context sources.
 - Next action:
-  - Interrupted resume no longer has cli-claw-owned pending confirmation state, replay prompts, or old message body storage; conversation-agent recovery now requires a committed cursor and will not fall back to all virtual-chat history.
-  - Remove any remaining cli-claw-owned historical prompt/replay/summary injection path; restart must send only pending user messages and rely on saved runtime session id for context.
-  - Add real-flow E2E for restart first turn and interrupted pending recovery proving no DB history/recovery summary reaches agent input or user-visible output.
+  - Keep real-flow E2E for restart first turn and interrupted pending recovery as a required regression gate proving no DB history/recovery summary reaches agent input or user-visible output.
   - Monitor real Feishu/Web mixed-channel turns; expected behavior is ordered contiguous-source turns for ordinary messages, with assistant-prompt skill commands starting from a fresh runtime session.
 
 ### P1 RM-2026-04-25-05 Workspace Autopilot Resource Governance

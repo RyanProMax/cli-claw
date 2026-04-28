@@ -19,7 +19,11 @@ export function shorten(input: string, maxLen = 180): string {
 export function redactSensitive(input: unknown, depth = 0): unknown {
   if (depth > 3) return '[truncated]';
   if (input == null) return input;
-  if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') {
+  if (
+    typeof input === 'string' ||
+    typeof input === 'number' ||
+    typeof input === 'boolean'
+  ) {
     return input;
   }
   if (Array.isArray(input)) {
@@ -29,7 +33,9 @@ export function redactSensitive(input: unknown, depth = 0): unknown {
     const obj = input as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
-      if (/(token|password|secret|api[_-]?key|authorization|cookie)/iu.test(k)) {
+      if (
+        /(token|password|secret|api[_-]?key|authorization|cookie)/iu.test(k)
+      ) {
         out[k] = '[REDACTED]';
       } else {
         out[k] = redactSensitive(v, depth + 1);
@@ -53,7 +59,15 @@ export function summarizeToolInput(input: unknown): string | undefined {
 
   if (typeof input === 'object') {
     const obj = input as Record<string, unknown>;
-    const keyCandidates = ['command', 'query', 'path', 'pattern', 'prompt', 'url', 'name'];
+    const keyCandidates = [
+      'command',
+      'query',
+      'path',
+      'pattern',
+      'prompt',
+      'url',
+      'name',
+    ];
     for (const key of keyCandidates) {
       const value = obj[key];
       if (typeof value === 'string' && value.trim()) {
@@ -77,7 +91,10 @@ export function summarizeToolInput(input: unknown): string | undefined {
  * Extract a skill name from Skill tool input.
  * Tries skillName, skill, name, command fields, then regex-matches leading slashes.
  */
-export function extractSkillName(toolName: unknown, input: unknown): string | undefined {
+export function extractSkillName(
+  toolName: unknown,
+  input: unknown,
+): string | undefined {
   if (toolName !== 'Skill') return undefined;
   if (!input || typeof input !== 'object') return undefined;
   const obj = input as Record<string, unknown>;
@@ -91,24 +108,4 @@ export function extractSkillName(toolName: unknown, input: unknown): string | un
   const matched = raw.match(/\/([A-Za-z0-9._-]+)/);
   if (matched && matched[1]) return matched[1];
   return raw.replace(/^\/+/, '').trim() || undefined;
-}
-
-/**
- * Sanitize a string for use as a filename.
- * Lowercases, replaces non-alphanumeric characters with hyphens, trims, and limits length.
- */
-export function sanitizeFilename(summary: string): string {
-  return summary
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
-}
-
-/**
- * Generate a fallback conversation archive filename based on current time.
- */
-export function generateFallbackName(): string {
-  const time = new Date();
-  return `conversation-${time.getHours().toString().padStart(2, '0')}${time.getMinutes().toString().padStart(2, '0')}`;
 }

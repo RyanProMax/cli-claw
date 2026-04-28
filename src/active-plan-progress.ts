@@ -13,8 +13,6 @@ const TASK_MESSAGE_SOURCE_KINDS = new Set<MessageSourceKind>([
   'sdk_send_message',
   'interrupt_partial',
   'overflow_partial',
-  'compact_partial',
-  'auto_continue',
 ]);
 
 function normalizeStatusMarker(status: string | null): string {

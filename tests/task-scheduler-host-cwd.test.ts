@@ -43,10 +43,6 @@ vi.mock('../src/db.js', () => ({
   updateTaskWorkspace: vi.fn(),
 }));
 
-vi.mock('../src/daily-summary.js', () => ({
-  runDailySummaryIfNeeded: vi.fn(),
-}));
-
 import {
   runScriptTask,
   runTask,

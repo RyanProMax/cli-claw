@@ -234,17 +234,7 @@ function buildVolumeMounts(
   const mounts: VolumeMount[] = [];
   const packageRoot = APP_ROOT;
   const launchCwd = LAUNCH_CWD;
-
-  // Per-user global memory directory:
-  // Each user gets their own user-global/{userId}/ mounted as /workspace/global
   const ownerId = requireWorkspaceOwner(group, 'container mounts');
-  const userGlobalDir = path.join(GROUPS_DIR, 'user-global', ownerId);
-  mkdirForContainer(userGlobalDir);
-  mounts.push({
-    hostPath: userGlobalDir,
-    containerPath: '/workspace/global',
-    readonly: !group.is_home,
-  });
 
   if (isAdminHome) {
     // Preserve the launch directory separately from packaged resources.
@@ -269,18 +259,6 @@ function buildVolumeMounts(
       readonly: false,
     });
   }
-
-  // Memory directory: home containers write their own; non-home containers read owner's home memory
-  const memoryFolder = group.is_home
-    ? group.folder
-    : ownerHomeFolder || group.folder;
-  const memoryDir = path.join(DATA_DIR, 'memory', memoryFolder);
-  mkdirForContainer(memoryDir);
-  mounts.push({
-    hostPath: memoryDir,
-    containerPath: '/workspace/memory',
-    readonly: !group.is_home,
-  });
 
   // Per-group Claude sessions directory (isolated from other groups)
   // Sub-agents get their own session dir under agents/{agentId}/.claude/
@@ -906,9 +884,6 @@ export async function runHostAgent(
   }
 
   fs.mkdirSync(path.join(storageGroupDir, 'logs'), { recursive: true });
-  fs.mkdirSync(path.join(DATA_DIR, 'memory', group.folder), {
-    recursive: true,
-  });
 
   // 2. 确保目录结构（宿主机模式下限制目录权限）
   // Sub-agents get their own IPC and session directories
@@ -1071,19 +1046,6 @@ export async function runHostAgent(
 
     // 路径映射
     hostEnv['CLI_CLAW_WORKSPACE_GROUP'] = groupDir;
-    // Per-user global memory
-    const ownerId = requireWorkspaceOwner(group, 'host runtime');
-    const userGlobalDir = path.join(GROUPS_DIR, 'user-global', ownerId);
-    fs.mkdirSync(userGlobalDir, { recursive: true });
-    hostEnv['CLI_CLAW_WORKSPACE_GLOBAL'] = userGlobalDir;
-    const memoryFolder = group.is_home
-      ? group.folder
-      : ownerHomeFolder || group.folder;
-    hostEnv['CLI_CLAW_WORKSPACE_MEMORY'] = path.join(
-      DATA_DIR,
-      'memory',
-      memoryFolder,
-    );
     hostEnv['CLI_CLAW_WORKSPACE_IPC'] = groupIpcDir;
     if (agentType === 'claude') {
       hostEnv['CLAUDE_CONFIG_DIR'] = groupSessionsDir;

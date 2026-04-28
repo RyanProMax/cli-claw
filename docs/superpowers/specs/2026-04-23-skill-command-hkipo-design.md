@@ -127,8 +127,8 @@ Examples:
 
 ## Feishu Rendering Fix
 
-- Keep using stream-time `answerText/commentaryText` separation as the canonical presentation contract
-- Ensure final IM/static-card delivery always resolves visible text from presentation state before sending completed content
+- Keep stream-time presentation state scoped to the active streaming card only
+- Ensure final IM/static-card delivery uses the current runtime raw/final output after visibility filtering, never `answerText`
 - Add final-card markdown normalization for plain prose / heading transitions so the completed card matches the tighter streaming feel
 
 ## Files

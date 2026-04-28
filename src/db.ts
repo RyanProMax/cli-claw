@@ -3,13 +3,8 @@ import Database from './sqlite-compat.js';
 import fs from 'fs';
 import path from 'path';
 
-import { resolveAppPath } from './app-root.js';
-import { STORE_DIR, GROUPS_DIR } from './config.js';
+import { STORE_DIR } from './config.js';
 import { logger } from './logger.js';
-import {
-  AGENT_MEMORY_TEMPLATE_FILENAME,
-  getAgentMemoryPath,
-} from './project-memory.js';
 import {
   AgentKind,
   AgentStatus,
@@ -2712,30 +2707,6 @@ export function ensureUserHomeGroup(
 
   // Ensure chat row exists
   ensureChatExists(jid);
-
-  // Create user-global memory directory and initialize AGENTS.md from template
-  const userGlobalDir = path.join(GROUPS_DIR, 'user-global', userId);
-  fs.mkdirSync(userGlobalDir, { recursive: true });
-  const userAgentMemory = getAgentMemoryPath(userGlobalDir);
-  if (!fs.existsSync(userAgentMemory)) {
-    const templatePath = resolveAppPath(
-      'config',
-      AGENT_MEMORY_TEMPLATE_FILENAME,
-    );
-    if (fs.existsSync(templatePath)) {
-      try {
-        fs.writeFileSync(
-          userAgentMemory,
-          fs.readFileSync(templatePath, 'utf-8'),
-          {
-            flag: 'wx',
-          },
-        );
-      } catch {
-        // EEXIST race or read error — ignore
-      }
-    }
-  }
 
   return jid;
 }

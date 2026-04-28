@@ -42,19 +42,19 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 
 ## 核心能力
 
-- 多用户工作区：每个用户拥有隔离的工作区、权限、运行时设置和长期记忆。
+- 多用户工作区：每个用户拥有隔离的工作区、权限、运行时设置和消息审计。
 - 多入口接入：通过 Web 与多种 IM 通道访问同一工作区，消息统一路由。
 - 多运行时执行：同一平台内支持 Claude Runtime 与 Codex Runtime。
 - 流式体验：思考、文本、工具调用、任务事件和结果实时回传。
-- 文件与任务：工作区文件管理、定时任务、记忆文件和 MCP 能力统一接入。
+- 文件与任务：工作区文件管理、定时任务和 MCP 能力统一接入。
 - 移动端 PWA：适配手机访问、查看执行状态和继续会话。
 
 ### 运行时概览
 
-| `agentType` | 底层运行时 | 支持执行模式 | 认证方式 |
-| --- | --- | --- | --- |
-| `claude` | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 设置向导配置 Claude Provider |
-| `codex` | Codex CLI + `codex-acp` | `host` | 宿主机执行 `codex login` |
+| `agentType` | 底层运行时                         | 支持执行模式         | 认证方式                         |
+| ----------- | ---------------------------------- | -------------------- | -------------------------------- |
+| `claude`    | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 设置向导配置 Claude Provider |
+| `codex`     | Codex CLI + `codex-acp`            | `host`               | 宿主机执行 `codex login`         |
 
 ## 快速开始
 

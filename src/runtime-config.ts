@@ -68,7 +68,6 @@ const DANGEROUS_ENV_VARS = new Set([
   'TMP',
   // cli-claw 内部路径映射
   'CLI_CLAW_WORKSPACE_GROUP',
-  'CLI_CLAW_WORKSPACE_GLOBAL',
   'CLI_CLAW_WORKSPACE_IPC',
   'CLAUDE_CONFIG_DIR',
 ]);

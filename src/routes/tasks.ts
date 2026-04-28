@@ -305,7 +305,7 @@ tasksRoutes.delete('/:id', authMiddleware, (c) => {
     if (wsGroup) {
       deleteGroupData(existing.workspace_jid, existing.workspace_folder);
     }
-    // Remove all flow artifacts (groups/, sessions/, ipc/, env/, memory/)
+    // Remove all flow artifacts (groups/, sessions/, ipc/, env/)
     removeFlowArtifacts(existing.workspace_folder);
     const deps = getWebDeps();
     if (deps) {
@@ -408,7 +408,7 @@ function buildParsePrompt(description: string): string {
   - cron 类型: cron 表达式（推荐 5 段：分 时 日 月 周，也支持 6 段含秒）
   - interval 类型: 毫秒数字符串（如 "3600000" 表示 1 小时）
   - once 类型: ISO 8601 日期时间字符串
-- "context_mode": "group" | "isolated" — 上下文模式（大多数情况推荐 "group"）
+- "context_mode": "group" | "isolated" — runtime session 模式；"group" 只复用 runtime session，不注入聊天历史
 - "summary": string — 用一句话解释你的理解（中文）
 
 注意：

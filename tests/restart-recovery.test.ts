@@ -999,26 +999,12 @@ describe('restart recovery cursor handling', () => {
     expect(buildInterruptedReply('')).toBe('*⚠️ 已中断*');
   });
 
-  test('renders interrupted Codex commentary in its own collapsible block', async () => {
+  test('does not include interrupted Codex commentary in visible partial replies', async () => {
     const { buildInterruptedReply } = await loadIndexModule();
 
     expect(
       buildInterruptedReply('', undefined, '先检查 ACP 事件\n\n再检查最终结果'),
-    ).toBe(
-      [
-        '<details>',
-        '<summary>💬 Commentary (已中断)</summary>',
-        '',
-        '先检查 ACP 事件',
-        '',
-        '再检查最终结果',
-        '',
-        '</details>',
-        '',
-        '---',
-        '*⚠️ 已中断*',
-      ].join('\n'),
-    );
+    ).toBe('*⚠️ 已中断*');
   });
 
   test('skips graceful-shutdown partial reply body persistence', async () => {
@@ -1057,35 +1043,22 @@ describe('restart recovery cursor handling', () => {
     expect(deliverMessage).not.toHaveBeenCalled();
   });
 
-  test('persists crash-recovered partial replies after ungraceful exits', async () => {
-    const { buildInterruptedReply, persistInterruptedStreamingReply } =
-      await loadIndexModule();
+  test('skips crash-recovered partial reply body persistence after ungraceful exits', async () => {
+    const { persistInterruptedStreamingReply } = await loadIndexModule();
     const deliverMessage = vi.fn().mockResolvedValue('msg-3');
 
-    await persistInterruptedStreamingReply(
-      {
-        replyJid: 'feishu:chat-1',
-        partialText: 'partial from crash recovery',
-        commentaryText: 'tool trace that can be audited',
-      },
-      'crash_recovery',
-      deliverMessage,
-    );
-
-    expect(deliverMessage).toHaveBeenCalledWith(
-      'feishu:chat-1',
-      buildInterruptedReply(
-        'partial from crash recovery',
-        undefined,
-        'tool trace that can be audited',
-      ),
-      {
-        sendToIM: true,
-        messageMeta: {
-          sourceKind: 'interrupt_partial',
-          finalizationReason: 'crash_recovery',
+    await expect(
+      persistInterruptedStreamingReply(
+        {
+          replyJid: 'feishu:chat-1',
+          partialText: 'partial from crash recovery',
+          commentaryText: 'tool trace that can be audited',
         },
-      },
-    );
+        'crash_recovery',
+        deliverMessage,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(deliverMessage).not.toHaveBeenCalled();
   });
 });

@@ -29,10 +29,6 @@ import {
 import { LAUNCH_CWD, resolveAppPath } from './app-root.js';
 import { interruptibleSleep } from './message-notifier.js';
 import {
-  AGENT_MEMORY_TEMPLATE_FILENAME,
-  getAgentMemoryPath,
-} from './project-memory.js';
-import {
   AvailableGroup,
   ContainerInput,
   ContainerOutput,
@@ -236,7 +232,6 @@ import {
 import { resolveTaskOwner } from './task-utils.js';
 import {
   ensureAgentDirectories,
-  isSystemMaintenanceNoise,
   stripAgentInternalTags,
   stripVirtualJidSuffix,
 } from './utils.js';
@@ -261,7 +256,6 @@ import {
   syncHostSkillsForUser,
 } from './routes/skills.js';
 import { verifyPairingCode } from './telegram-pairing.js';
-import { sdkQuery } from './sdk-query.js';
 import { executeSessionReset } from './commands.js';
 import { getCodexUsageSnapshot } from './usage-command.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
@@ -424,11 +418,10 @@ export function feedStreamEventToCard(
 
 export function syncTerminalPresentationTextToCard(
   session: StreamingCardController,
-  presentationText: StreamPresentationTextState,
+  _presentationText: StreamPresentationTextState,
   commentaryTextOverride?: string,
 ): void {
-  const commentaryText =
-    commentaryTextOverride ?? presentationText.commentaryText;
+  const commentaryText = commentaryTextOverride ?? '';
   if (commentaryText.trim()) {
     session.appendCommentary(commentaryText);
   }
@@ -1488,8 +1481,6 @@ function resolveInterruptedPartialImJid(
 async function sendInterruptedPartialToImIfNeeded({
   replyImJid,
   streamingCardHandledIm,
-  text,
-  groupFolder,
   lifecycleMessages,
   lifecycleDetails,
 }: {
@@ -1501,19 +1492,17 @@ async function sendInterruptedPartialToImIfNeeded({
   lifecycleDetails: Record<string, unknown>;
 }): Promise<boolean | null> {
   if (!replyImJid || streamingCardHandledIm) return null;
-  const localImagePaths = extractLocalImImagePaths(text, groupFolder);
-  const imSent = await sendImWithRetry(replyImJid, text, localImagePaths);
   recordLifecycleForMessages({
     messages: lifecycleMessages,
     stage: 'im_delivered',
-    status: imSent ? 'ok' : 'error',
-    reason: imSent ? null : 'send_failed_after_retries',
+    status: 'ok',
+    reason: 'partial_body_suppressed',
     details: {
       ...lifecycleDetails,
-      delivery: 'interrupt_partial',
+      delivery: 'interrupt_partial_suppressed',
     },
   });
-  return imSent;
+  return true;
 }
 
 const NON_RECOVERABLE_RESTART_SOURCE_KINDS: ReadonlySet<MessageSourceKind> =
@@ -2757,7 +2746,6 @@ async function handleRecallCommand(chatJid: string): Promise<string> {
     return `${header}\n\n📭 该对话暂无消息记录`;
   }
 
-  // Fetch recent messages for summarization
   const messages = getMessagesPage(targetJid, undefined, 10);
   logger.info(
     { chatJid, targetJid, messageCount: messages.length },
@@ -2766,50 +2754,9 @@ async function handleRecallCommand(chatJid: string): Promise<string> {
 
   if (messages.length === 0) return `${header}\n\n📭 该对话暂无消息记录`;
 
-  // Build chronological transcript
-  const transcript = messages
-    .reverse()
-    .map((msg) => {
-      const who = msg.is_from_me ? 'AI' : msg.sender_name || '用户';
-      const text = (msg.content || '').slice(0, 300);
-      return `${who}: ${text}`;
-    })
-    .join('\n');
-
-  logger.info(
-    { chatJid, transcriptLen: transcript.length },
-    '/recall: built transcript, calling Claude CLI',
-  );
-
-  // Try to summarize via Claude CLI
-  const summary = await summarizeWithClaude(transcript);
-  if (summary) {
-    logger.info(
-      { chatJid, summaryLen: summary.length },
-      '/recall: summary generated successfully',
-    );
-    return `${header}\n\n${summary}`;
-  }
-
-  logger.warn(
-    { chatJid },
-    '/recall: summary failed, falling back to raw messages',
-  );
-
-  // Fallback: raw context if CLI unavailable
   const context = getConversationContext(targetFolder, targetAgentId, 10, 200);
   if (!context) return `${header}\n\n📭 该对话暂无消息记录`;
   return header + context;
-}
-
-/**
- * Summarize a conversation transcript using Claude Agent SDK.
- * Uses the provider configured in the web settings page.
- */
-async function summarizeWithClaude(transcript: string): Promise<string | null> {
-  const prompt = `请用简洁的中文总结以下对话的要点和进展，重点说明讨论了什么、达成了什么结论、还有什么待办事项。不要逐条翻译，而是提炼核心信息。\n\n${transcript}`;
-  const model = process.env.RECALL_MODEL || undefined;
-  return sdkQuery(prompt, { model, timeout: 30_000 });
 }
 
 // ─── /sw & /spawn: parallel task spawning ────────────────────────
@@ -3222,49 +3169,6 @@ function loadState(): void {
     }
   }
 
-  // Initialize per-user global AGENTS.md from template for users missing it
-  const templatePath = path.resolve(
-    resolveAppPath('config', AGENT_MEMORY_TEMPLATE_FILENAME),
-  );
-  if (fs.existsSync(templatePath)) {
-    const template = fs.readFileSync(templatePath, 'utf-8');
-    const userGlobalBase = path.join(GROUPS_DIR, 'user-global');
-    // Ensure every active user has a user-global dir
-    try {
-      let page = 1;
-      const allUsers: Array<{ id: string }> = [];
-      while (true) {
-        const result = listUsers({ status: 'active', page, pageSize: 200 });
-        allUsers.push(...result.users);
-        if (allUsers.length >= result.total) break;
-        page++;
-      }
-      for (const u of allUsers) {
-        const userDir = path.join(userGlobalBase, u.id);
-        fs.mkdirSync(userDir, { recursive: true });
-        const userAgentMemory = getAgentMemoryPath(userDir);
-        if (!fs.existsSync(userAgentMemory)) {
-          try {
-            fs.writeFileSync(userAgentMemory, template, { flag: 'wx' });
-            logger.info(
-              { userId: u.id },
-              'Initialized user-global AGENTS.md from template',
-            );
-          } catch (err: unknown) {
-            if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
-              logger.warn(
-                { userId: u.id, err },
-                'Failed to initialize user-global AGENTS.md',
-              );
-            }
-          }
-        }
-      }
-    } catch (err) {
-      logger.warn({ err }, 'Failed to initialize user-global AGENTS.md files');
-    }
-  }
-
   logger.info(
     { groupCount: Object.keys(registeredGroups).length },
     'State loaded',
@@ -3537,8 +3441,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   // Admin home is shared as web:main, so select runtime owner from the latest
-  // active admin sender to avoid writing global memory into another admin's
-  // user-global directory.
+  // active admin sender before resolving runtime/session ownership.
   if (chatJid === 'web:main' && effectiveGroup.is_home) {
     for (let i = missedMessages.length - 1; i >= 0; i--) {
       const sender = missedMessages[i]?.sender;
@@ -4250,28 +4153,8 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 ? result.result
                 : JSON.stringify(result.result);
             let text = stripAgentInternalTags(raw);
-            if (
-              result.sourceKind === 'overflow_partial' ||
-              result.sourceKind === 'compact_partial'
-            ) {
+            if (result.sourceKind === 'overflow_partial') {
               text = buildOverflowPartialReply(text);
-            }
-            // auto_continue outputs that consist solely of system-maintenance
-            // acknowledgements (e.g. "OK", "已更新 AGENTS.md") are suppressed from
-            // IM delivery. These arise when the agent's session transcript contains
-            // memory-flush / AGENTS.md-update context from the compaction pipeline
-            // and the agent echoes it back in the resumption query. Substantive
-            // user-facing continuations (longer replies or actual task resumption)
-            // pass through normally. See issue #275.
-            if (
-              result.sourceKind === 'auto_continue' &&
-              isSystemMaintenanceNoise(text)
-            ) {
-              logger.info(
-                { group: group.name, textLen: text.length },
-                'auto_continue output suppressed (system maintenance noise)',
-              );
-              return;
             }
             logger.info(
               { group: group.name },
@@ -4363,13 +4246,12 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 }
               }
 
-              // ── Rebuild streaming card after compact_partial / overflow_partial ──
+              // ── Rebuild streaming card after overflow_partial ──
               // The completed card was consumed; create a new one so post-compaction
               // tool-call progress remains visible on Feishu (#223).
               if (
                 streamingCardHandledIM &&
-                (result.sourceKind === 'compact_partial' ||
-                  result.sourceKind === 'overflow_partial')
+                result.sourceKind === 'overflow_partial'
               ) {
                 unregisterStreamingSession(streamingSessionJid);
                 streamingPresentationText =
@@ -5360,39 +5242,15 @@ async function patchStreamingSessionFooterUsage(
 }
 
 export function buildInterruptedReply(
-  partialText: string,
-  thinkingText?: string,
-  commentaryText?: string,
+  _partialText?: string,
+  _thinkingText?: string,
+  _commentaryText?: string,
 ): string {
-  const trimmed = partialText.trimEnd();
-  const trimmedThinking = thinkingText?.trimEnd();
-  const trimmedCommentary = commentaryText?.trimEnd();
-  if (!trimmed && !trimmedThinking && !trimmedCommentary) {
-    return '*⚠️ 已中断*';
-  }
-  const parts: string[] = [];
-  if (trimmedThinking) {
-    parts.push(
-      `<details>\n<summary>💭 Reasoning (已中断)</summary>\n\n${trimmedThinking}\n\n</details>`,
-    );
-  }
-  if (trimmedCommentary) {
-    parts.push(
-      `<details>\n<summary>💬 Commentary (已中断)</summary>\n\n${trimmedCommentary}\n\n</details>`,
-    );
-  }
-  if (trimmed) {
-    parts.push(trimmed);
-  }
-  parts.push('---\n*⚠️ 已中断*');
-  return parts.join('\n\n');
+  return '*⚠️ 已中断*';
 }
 
-export function buildOverflowPartialReply(partialText: string): string {
-  const trimmed = partialText.trimEnd();
-  return trimmed
-    ? `${trimmed}\n\n---\n*⚠️ 上下文压缩中，稍后自动继续*`
-    : '*⚠️ 上下文压缩中，稍后自动继续*';
+export function buildOverflowPartialReply(_partialText?: string): string {
+  return '*⚠️ 上下文压缩中，请发送下一条消息继续*';
 }
 
 export async function persistInterruptedStreamingReply(
@@ -5401,32 +5259,18 @@ export async function persistInterruptedStreamingReply(
     'replyJid' | 'partialText' | 'commentaryText'
   >,
   finalizationReason: 'shutdown' | 'crash_recovery',
-  deliverMessage: (
+  _deliverMessage: (
     jid: string,
     text: string,
     options?: SendMessageOptions,
   ) => Promise<string | undefined> = sendMessage,
-  deliveryOptions: { sendToIM?: boolean } = {},
+  _deliveryOptions: { sendToIM?: boolean } = {},
 ): Promise<string | undefined> {
-  if (finalizationReason === 'shutdown') {
-    logger.info(
-      { replyJid: entry.replyJid },
-      'Skipping shutdown partial reply body persistence',
-    );
-    return undefined;
-  }
-  return deliverMessage(
-    entry.replyJid,
-    buildInterruptedReply(entry.partialText, undefined, entry.commentaryText),
-    {
-      sendToIM:
-        deliveryOptions.sendToIM ?? getChannelType(entry.replyJid) !== null,
-      messageMeta: {
-        sourceKind: 'interrupt_partial',
-        finalizationReason,
-      },
-    },
+  logger.info(
+    { replyJid: entry.replyJid, finalizationReason },
+    'Skipping partial reply body persistence',
   );
+  return undefined;
 }
 
 /**
@@ -7523,29 +7367,13 @@ async function processAgentConversation(
           ? output.result
           : JSON.stringify(output.result);
       let text = stripAgentInternalTags(raw);
-      if (
-        output.sourceKind === 'overflow_partial' ||
-        output.sourceKind === 'compact_partial'
-      ) {
+      if (output.sourceKind === 'overflow_partial') {
         // Spawn agents are fire-and-forget: context compression is an internal
         // detail. Don't append the "上下文压缩中" suffix — it confuses users
         // seeing the Feishu card suddenly change to a warning.
         if (agent.kind !== 'spawn') {
           text = buildOverflowPartialReply(text);
         }
-      }
-      // Suppress system-maintenance noise from auto_continue outputs (issue #275).
-      // Short acknowledgements ("OK", "已更新 AGENTS.md") that leak from the
-      // compaction pipeline are dropped; substantive continuations pass through.
-      if (
-        output.sourceKind === 'auto_continue' &&
-        isSystemMaintenanceNoise(text)
-      ) {
-        logger.info(
-          { chatJid, agentId, textLen: text.length },
-          'auto_continue output suppressed (system maintenance noise)',
-        );
-        return;
       }
       if (text) {
         const visibleReplyParts = resolveVisibleReplyParts(
@@ -7679,13 +7507,12 @@ async function processAgentConversation(
           }
         }
 
-        // ── Rebuild streaming card after compact_partial / overflow_partial ──
+        // ── Rebuild streaming card after overflow_partial ──
         // The completed card was consumed; create a new one so post-compaction
         // tool-call progress remains visible on Feishu (#223).
         if (
           streamingCardHandledIM &&
-          (output.sourceKind === 'compact_partial' ||
-            output.sourceKind === 'overflow_partial') &&
+          output.sourceKind === 'overflow_partial' &&
           streamingSessionJid
         ) {
           agentStreamingPresentationText =
@@ -7771,14 +7598,13 @@ async function processAgentConversation(
         resetIdleTimer();
 
         // Spawn agents are fire-and-forget: close after first reply to free process slot.
-        // Skip for overflow_partial/compact_partial — those are intermediate context
+        // Skip for overflow_partial — it is intermediate context
         // compression outputs, not the final result; closing now would kill the agent
         // before it finishes the actual task.
         if (
           agent.kind === 'spawn' &&
           text &&
-          output.sourceKind !== 'overflow_partial' &&
-          output.sourceKind !== 'compact_partial'
+          output.sourceKind !== 'overflow_partial'
         ) {
           logger.info(
             { agentId, chatJid },
@@ -10210,10 +10036,6 @@ export async function startCliClaw(
       });
     },
     assistantName: ASSISTANT_NAME,
-    dailySummaryDeps: {
-      logger,
-      dataDir: DATA_DIR,
-    },
   };
   startSchedulerLoop(schedulerDeps);
 

@@ -24,8 +24,7 @@
 │   ├── self-restart-watchdog.ts    # 独立 watchdog CLI 入口
 │   ├── runtime-identity.ts         # 实际运行时 agent / model / effort 元数据
 │   ├── file-manager.ts             # 文件读写边界、系统路径保护、路径安全
-│   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区上下文解析与 autopilot 后台 run
-│   ├── project-memory.ts           # 项目内部记忆文件名与路径 helper
+│   ├── task-scheduler.ts           # 定时任务调度、执行日志、工作区解析与 autopilot 后台 run
 │   ├── skill-command-dispatch.ts   # skill command 声明发现、冲突检查与 executor 执行
 │   ├── runtime-usage.ts            # 按 runtime 读取当前 usage snapshot，并派生 footer / autopilot quota 规则
 │   ├── workspace-autopilot.ts      # 工作区主动模式任务 ID、状态、prompt、no-op 识别与 quota-aware enable/pause/resume
@@ -43,7 +42,6 @@
 │       ├── auth.ts                 # 登录、注册、会话、用户资料
 │       ├── groups.ts               # 工作区 CRUD、消息、运行时设置、共享成员
 │       ├── files.ts                # 工作区文件管理
-│       ├── memory.ts               # AGENTS / 日期记忆 / 对话归档的读写与搜索
 │       ├── tasks.ts                # 定时任务与执行日志
 │       ├── config.ts               # Provider、IM、外观、系统设置
 │       ├── mcp-servers.ts          # 用户级 MCP Server 配置
@@ -61,7 +59,6 @@
 │   └── src/
 │       ├── pages/
 │       │   ├── ChatPage.tsx        # 主聊天页，串联消息、工作区、面板和 runtime 设置
-│       │   ├── MemoryPage.tsx      # 记忆文件浏览、搜索、编辑
 │       │   ├── SettingsPage.tsx    # 系统 / 用户设置入口
 │       │   ├── TasksPage.tsx       # 定时任务管理
 │       │   ├── SkillsPage.tsx      # 技能管理
@@ -95,7 +92,7 @@
 ├── container/
 │   └── agent-runner/
 │       └── src/
-│           ├── index.ts            # query 循环、流式事件、上下文压缩、memory flush
+│           ├── index.ts            # query 循环、流式事件、上下文压缩与 runtime 会话恢复
 │           ├── mcp-tools.ts        # 内置 MCP 工具定义
 │           ├── stream-processor.ts # StreamEvent 汇总与工具状态跟踪
 │           ├── agent-definitions.ts# 预定义子 Agent

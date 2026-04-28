@@ -418,12 +418,6 @@ function resetWorkspaceForGroup(folder: string): void {
   fs.mkdirSync(path.join(ipcDir, 'input'), { recursive: true });
   fs.mkdirSync(path.join(ipcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(ipcDir, 'tasks'), { recursive: true });
-
-  // 4. 清除日期记忆目录（~/.cli-claw/memory/{folder}/）
-  fs.rmSync(path.join(DATA_DIR, 'memory', folder), {
-    recursive: true,
-    force: true,
-  });
 }
 
 function toPublicContainerEnvForUser(

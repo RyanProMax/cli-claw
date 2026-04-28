@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-  compactMessagesForAgent,
-  selectRecentTurnMessages,
-} from '../src/context-compaction.ts';
+import { compactMessagesForAgent } from '../src/context-compaction.ts';
 
 function msg(id: string, content: string) {
   return {
@@ -35,48 +32,5 @@ describe('context compaction', () => {
     expect(compacted[0]?.content).toBe('c'.repeat(25) + '…');
     expect(compacted[2]?.content).toBe('e'.repeat(25) + '…');
     expect(messages[4]?.content).toBe('e'.repeat(80));
-  });
-
-  test('keeps only the newest contiguous pending turn after a long gap', () => {
-    const messages = [
-      {
-        ...msg('1', 'yesterday first'),
-        timestamp: '2026-04-11T00:00:00.000Z',
-      },
-      {
-        ...msg('2', 'yesterday second'),
-        timestamp: '2026-04-11T00:05:00.000Z',
-      },
-      {
-        ...msg('3', 'today first'),
-        timestamp: '2026-04-12T07:00:00.000Z',
-      },
-      {
-        ...msg('4', 'today second'),
-        timestamp: '2026-04-12T07:01:00.000Z',
-      },
-    ];
-
-    const selected = selectRecentTurnMessages(messages, {
-      maxInterMessageGapMs: 2 * 60 * 60 * 1000,
-    });
-
-    expect(selected.map((item) => item.id)).toEqual(['3', '4']);
-  });
-
-  test('keeps all pending messages when timestamps cannot prove a long gap', () => {
-    const messages = [
-      { ...msg('1', 'missing timestamp'), timestamp: undefined },
-      {
-        ...msg('2', 'latest message'),
-        timestamp: '2026-04-12T07:01:00.000Z',
-      },
-    ];
-
-    const selected = selectRecentTurnMessages(messages, {
-      maxInterMessageGapMs: 2 * 60 * 60 * 1000,
-    });
-
-    expect(selected.map((item) => item.id)).toEqual(['1', '2']);
   });
 });

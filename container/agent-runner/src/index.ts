@@ -45,15 +45,12 @@ import type {
   ContainerInput,
   ContainerOutput,
   ImageMediaType,
-  SessionsIndex,
   SDKUserMessage,
-  ParsedMessage,
   StreamEvent,
 } from './types.js';
 import type { StreamRuntimeIdentity } from './stream-event.types.js';
 export type { StreamEventType, StreamEvent } from './types.js';
 
-import { sanitizeFilename, generateFallbackName } from './utils.js';
 import { StreamEventProcessor } from './stream-processor.js';
 import { PREDEFINED_AGENTS } from './agent-definitions.js';
 import { createMcpTools } from './mcp-tools.js';
@@ -64,18 +61,9 @@ import {
   formatCodexRuntimeError,
   stripCodexRuntimeDiagnosticPrefix,
 } from './codex-session-runtime.js';
-import {
-  buildMinimalNecessaryReplyPolicyBlock,
-  wrapCodexPromptWithReplyPolicy,
-} from './reply-policy.js';
-
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
 const WORKSPACE_GROUP =
   process.env.CLI_CLAW_WORKSPACE_GROUP || '/workspace/group';
-const WORKSPACE_GLOBAL =
-  process.env.CLI_CLAW_WORKSPACE_GLOBAL || '/workspace/global';
-const WORKSPACE_MEMORY =
-  process.env.CLI_CLAW_WORKSPACE_MEMORY || '/workspace/memory';
 const WORKSPACE_IPC = process.env.CLI_CLAW_WORKSPACE_IPC || '/workspace/ipc';
 
 // 模型配置：支持别名（opus/sonnet/haiku）或完整模型 ID
@@ -95,8 +83,6 @@ const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_FALLBACK_POLL_MS = 5000; // 后备轮询间隔（仅防止 inotify 事件丢失）
 const CODEX_INTERRUPT_POLL_MS = 250;
 
-let needsMemoryFlush = false;
-let hadCompaction = false;
 // Module-level session ID so SIGTERM handler can emit it before exit.
 // Updated in main() whenever a query returns a new session.
 let latestSessionId: string | undefined;
@@ -265,43 +251,6 @@ const DEFAULT_ALLOWED_TOOLS = [
   'mcp__cli-claw__*',
 ];
 
-const MEMORY_FLUSH_ALLOWED_TOOLS = [
-  'mcp__cli-claw__memory_search',
-  'mcp__cli-claw__memory_get',
-  'mcp__cli-claw__memory_append',
-  'Read', // 读取全局 AGENTS.md 当前内容
-  'Edit', // 编辑全局 AGENTS.md（永久记忆）
-];
-
-// Memory flush 期间禁用的工具（disallowedTools 会从模型上下文中完全移除这些工具）
-// 注意：allowedTools 仅控制自动审批，不限制工具可见性；
-//       bypassPermissions 模式下所有工具都自动通过，所以必须用 disallowedTools 来限制
-const MEMORY_FLUSH_DISALLOWED_TOOLS = [
-  'Bash',
-  'Write',
-  'WebSearch',
-  'WebFetch',
-  'Glob',
-  'Grep',
-  'Task',
-  'TaskOutput',
-  'TaskStop',
-  'TeamCreate',
-  'TeamDelete',
-  'SendMessage',
-  'TodoWrite',
-  'ToolSearch',
-  'Skill',
-  'NotebookEdit',
-  'mcp__cli-claw__send_message',
-  'mcp__cli-claw__schedule_task',
-  'mcp__cli-claw__list_tasks',
-  'mcp__cli-claw__pause_task',
-  'mcp__cli-claw__resume_task',
-  'mcp__cli-claw__cancel_task',
-  'mcp__cli-claw__register_group',
-];
-
 const IMAGE_MAX_DIMENSION = 8000; // Anthropic API 限制
 
 // ── 系统提示词优化：安全守则（从独立 Markdown 文件加载，始终注入所有容器） ──
@@ -313,21 +262,6 @@ const SECURITY_RULES_PATH = path.join(
   'security-rules.md',
 );
 const SECURITY_RULES = fs.readFileSync(SECURITY_RULES_PATH, 'utf-8');
-
-// globalAgentMemory 截断保护：防止用户 AGENTS.md 过大导致系统提示词膨胀
-const GLOBAL_AGENT_MEMORY_MAX_CHARS = 8000;
-
-/** Head+Tail 截断：保留头 75% + 尾 25%，中间标记已截断 */
-function truncateWithHeadTail(content: string, maxChars: number): string {
-  if (content.length <= maxChars) return content;
-  const headSize = Math.floor(maxChars * 0.75);
-  const tailSize = Math.max(0, maxChars - headSize - 30);
-  return (
-    content.slice(0, headSize) +
-    '\n\n[...内容过长，已截断...]\n\n' +
-    content.slice(-tailSize)
-  );
-}
 
 /** 按渠道生成格式指南（仅 IM 渠道需要，Web 前端原生支持 Markdown + Mermaid） */
 function buildChannelGuidelines(channel: string): string {
@@ -691,35 +625,6 @@ function isUnrecoverableTranscriptError(msg: string): boolean {
   return isApiReject && (isImageSizeError || isMimeMismatch);
 }
 
-function getSessionSummary(
-  sessionId: string,
-  transcriptPath: string,
-): string | null {
-  const projectDir = path.dirname(transcriptPath);
-  const indexPath = path.join(projectDir, 'sessions-index.json');
-
-  if (!fs.existsSync(indexPath)) {
-    log(`Sessions index not found at ${indexPath}`);
-    return null;
-  }
-
-  try {
-    const index: SessionsIndex = JSON.parse(
-      fs.readFileSync(indexPath, 'utf-8'),
-    );
-    const entry = index.entries.find((e) => e.sessionId === sessionId);
-    if (entry?.summary) {
-      return entry.summary;
-    }
-  } catch (err) {
-    log(
-      `Failed to read sessions index: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  return null;
-}
-
 /**
  * Trim session JSONL file by removing all entries before the last compact_boundary.
  * After compaction, entries before the boundary are already summarized and no longer
@@ -793,27 +698,14 @@ function trimSessionJsonl(jsonlPath: string): void {
 }
 
 /**
- * Archive the full transcript to conversations/ before compaction.
- * Also flush any accumulated streaming text as a compact_partial message
- * so users don't lose the response that was being generated.
- * Finally, trim the JSONL file to remove already-compacted history.
+ * Trim the runtime JSONL file before compaction.
+ * Cli Claw does not archive transcript content outside the runtime session.
  */
-function createPreCompactHook(
-  isHome: boolean,
-  _isAdminHome: boolean,
-  deps: {
-    emit: (output: ContainerOutput) => void;
-    getFullText: () => string;
-    resetFullText: () => void;
-  },
-): HookCallback {
+function createPreCompactHook(): HookCallback {
   return async (input, _toolUseId, _context) => {
     const preCompact = input as PreCompactHookInput;
     const transcriptPath = preCompact.transcript_path;
-    const sessionId = preCompact.session_id;
-
-    // Skip sub-agent compactions — they'd archive the unchanged main transcript
-    // and set hadCompaction, triggering spurious auto-continue + memory flush (#321)
+    // Skip sub-agent compactions — they operate on the main transcript file.
     if (preCompact.agent_id) {
       log(
         `PreCompact: skipping sub-agent compact (agent_id=${preCompact.agent_id})`,
@@ -821,136 +713,15 @@ function createPreCompactHook(
       return {};
     }
 
-    // ── Flush accumulated streaming text as compact_partial ──
-    // This ensures users see the partial response even after compaction.
-    const partialText = deps.getFullText();
-    if (partialText.trim()) {
-      log(
-        `PreCompact: flushing ${partialText.length} chars as compact_partial`,
-      );
-      deps.emit({
-        status: 'success',
-        result: partialText,
-        sourceKind: 'compact_partial',
-        finalizationReason: 'completed',
-      });
-      deps.resetFullText();
-    }
-
     if (!transcriptPath || !fs.existsSync(transcriptPath)) {
-      log('No transcript found for archiving');
+      log('No transcript found for trimming');
       return {};
     }
 
-    try {
-      const content = fs.readFileSync(transcriptPath, 'utf-8');
-      const messages = parseTranscript(content);
-
-      if (messages.length === 0) {
-        log('No messages to archive');
-        return {};
-      }
-
-      const summary = getSessionSummary(sessionId, transcriptPath);
-      const name = summary ? sanitizeFilename(summary) : generateFallbackName();
-
-      const conversationsDir = path.join(WORKSPACE_GROUP, 'conversations');
-      fs.mkdirSync(conversationsDir, { recursive: true });
-
-      const date = new Date().toISOString().split('T')[0];
-      const filename = `${date}-${name}.md`;
-      const filePath = path.join(conversationsDir, filename);
-
-      const markdown = formatTranscriptMarkdown(messages, summary);
-      fs.writeFileSync(filePath, markdown);
-
-      log(`Archived conversation to ${filePath}`);
-    } catch (err) {
-      log(
-        `Failed to archive transcript: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-
-    // ── Trim session JSONL to prevent unbounded growth ──
-    // Remove entries before the last compact_boundary (already summarized).
-    // Must run AFTER archiving (archive needs full transcript).
     trimSessionJsonl(transcriptPath);
-
-    // Flag compaction so the query loop auto-continues instead of
-    // waiting for user input (non-blocking compaction #229).
-    hadCompaction = true;
-
-    // Flag memory flush for home containers (full memory write access)
-    if (isHome) {
-      needsMemoryFlush = true;
-      log('PreCompact: flagged memory flush for home container');
-    }
 
     return {};
   };
-}
-
-function parseTranscript(content: string): ParsedMessage[] {
-  const messages: ParsedMessage[] = [];
-
-  for (const line of content.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line);
-      if (entry.type === 'user' && entry.message?.content) {
-        const text =
-          typeof entry.message.content === 'string'
-            ? entry.message.content
-            : entry.message.content
-                .map((c: { text?: string }) => c.text || '')
-                .join('');
-        if (text) messages.push({ role: 'user', content: text });
-      } else if (entry.type === 'assistant' && entry.message?.content) {
-        const textParts = entry.message.content
-          .filter((c: { type: string }) => c.type === 'text')
-          .map((c: { text: string }) => c.text);
-        const text = textParts.join('');
-        if (text) messages.push({ role: 'assistant', content: text });
-      }
-    } catch {}
-  }
-
-  return messages;
-}
-
-function formatTranscriptMarkdown(
-  messages: ParsedMessage[],
-  title?: string | null,
-): string {
-  const now = new Date();
-  const formatDateTime = (d: Date) =>
-    d.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-
-  const lines: string[] = [];
-  lines.push(`# ${title || 'Conversation'}`);
-  lines.push('');
-  lines.push(`Archived: ${formatDateTime(now)}`);
-  lines.push('');
-  lines.push('---');
-  lines.push('');
-
-  for (const msg of messages) {
-    const sender = msg.role === 'user' ? 'User' : 'cli-claw';
-    const content =
-      msg.content.length > 2000
-        ? msg.content.slice(0, 2000) + '...'
-        : msg.content;
-    lines.push(`**${sender}**: ${content}`);
-    lines.push('');
-  }
-
-  return lines.join('\n');
 }
 
 /**
@@ -1266,76 +1037,6 @@ function emitTurnInitEvent(
       messageCursor,
     },
   });
-}
-
-function buildMemoryRecallPrompt(
-  isHome: boolean,
-  isAdminHome: boolean,
-): string {
-  if (isHome) {
-    // Home container (admin or member): full memory system with read/write access to user's global AGENTS.md
-    return [
-      '',
-      '## 记忆系统',
-      '',
-      '你拥有跨会话的持久记忆能力，请积极使用。',
-      '',
-      '### 回忆',
-      '在回答关于过去的工作、决策、日期、偏好或待办事项之前：',
-      '先用 `memory_search` 搜索，再用 `memory_get` 获取完整上下文。',
-      '',
-      '### 存储——两层记忆架构',
-      '',
-      '获知重要信息后**必须立即保存**，不要等到上下文压缩。',
-      '根据信息的**时效性**选择存储位置：',
-      '',
-      '#### 全局记忆（永久）→ 直接编辑 `/workspace/global/AGENTS.md`',
-      '',
-      '**优先使用全局记忆。** 适用于所有**跨会话仍然有用**的信息：',
-      '- 用户身份：姓名、生日、联系方式、地址、工作单位',
-      '- 长期偏好：沟通风格、称呼方式、喜好厌恶、技术栈偏好',
-      '- 身份配置：你的名字、角色设定、行为准则',
-      '- 常用项目与上下文：反复提到的仓库、服务、架构信息',
-      '- 用户明确要求「记住」的任何内容',
-      '',
-      '使用 `Read` 工具读取当前内容，再用 `Edit` 工具**原地更新对应字段**。',
-      '文件中标记「待记录」的字段发现信息后**必须立即填写**。',
-      '不要追加重复信息，保持文件简洁有序。',
-      '',
-      '#### 日期记忆（时效性）→ 调用 `memory_append`',
-      '',
-      '适用于**过一段时间会过时**的信息：',
-      '- 项目进展：今天做了什么、决定了什么、遇到了什么问题',
-      '- 临时技术决策：选型理由、架构方案、变更记录',
-      '- 待办与承诺：约定事项、截止日期、后续跟进',
-      '- 会议/讨论要点：关键结论、行动项',
-      '',
-      '`memory_append` 自动保存到独立的记忆目录（不在工作区内）。',
-      '',
-      '#### 判断标准',
-      '> **默认优先全局记忆。** 问自己：这条信息下次对话还可能用到吗？',
-      '> - 是 / 可能 → **全局记忆**（编辑 `/workspace/global/AGENTS.md`）',
-      '> - 明确只跟今天有关 → 日期记忆（`memory_append`）',
-      '> - 用户说「记住这个」→ **一定写全局记忆**',
-      '',
-      '系统也会在上下文压缩前提示你保存记忆。',
-    ].join('\n');
-  }
-  // Non-home group container: read-only access to home memory, use Claude auto memory
-  return [
-    '',
-    '## 记忆',
-    '',
-    '### 查询主工作区记忆',
-    '可使用 `memory_search` 和 `memory_get` 工具搜索主工作区的记忆（全局记忆和日期记忆）。',
-    '需要回忆过去的决策、偏好或项目上下文时使用这些工具。',
-    '',
-    '### 本地记忆',
-    '重要信息直接记录在当前工作区的 AGENTS.md 或其他文件中。',
-    'Claude 会自动维护你的会话记忆，无需额外操作。',
-    '',
-    '全局记忆（`/workspace/global/AGENTS.md`）为只读参考。',
-  ].join('\n');
 }
 
 /** 从 settings.json 读取用户配置的 MCP servers（stdio/http/sse 类型） */
@@ -1850,10 +1551,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       try {
         await connection.prompt({
           sessionId,
-          prompt: codexPromptBlocks(
-            wrapCodexPromptWithReplyPolicy(prompt),
-            promptImages,
-          ),
+          prompt: codexPromptBlocks(prompt, promptImages),
         });
       } finally {
         clearInterval(cancelWatcher);
@@ -1929,7 +1627,6 @@ async function runQuery(
   sessionId: string | undefined,
   mcpServerConfig: ReturnType<typeof createSdkMcpServer>,
   containerInput: ContainerInput,
-  memoryRecall: string,
   resumeAt?: string,
   emitOutput = true,
   allowedTools: string[] = DEFAULT_ALLOWED_TOOLS,
@@ -2054,7 +1751,7 @@ async function runQuery(
       ipcQueryWatcher.close();
       return;
     }
-    // Side-queries (emitOutput=false, e.g. memory flush / AGENTS.md update) must NOT
+    // Side-queries (emitOutput=false) must NOT
     // consume user IPC messages — those belong to the main query loop. Only sentinels
     // are checked above. Without this guard, a user message arriving during a side-query
     // gets silently consumed, leaving queryInFlight=true on the host forever (bug #259).
@@ -2088,22 +1785,8 @@ async function runQuery(
 
   const processor = new StreamEventProcessor(emit, log);
 
-  // Build system prompt: memory recall guidance + global AGENTS.md (for non-admin-home)
-  const { isHome, isAdminHome } = normalizeHomeFlags(containerInput);
-  const globalAgentMemoryPath = path.join(WORKSPACE_GLOBAL, 'AGENTS.md');
-
-  // Home containers: inject full global AGENTS.md for immediate context.
-  // Non-home containers: global AGENTS.md is accessible via filesystem (mounted readonly)
-  // but NOT injected into system prompt to avoid context pollution that causes
-  // the agent to "continue" unrelated previous work.
-  let globalAgentMemory = '';
-  if (isHome && fs.existsSync(globalAgentMemoryPath)) {
-    globalAgentMemory = fs.readFileSync(globalAgentMemoryPath, 'utf-8');
-    globalAgentMemory = truncateWithHeadTail(
-      globalAgentMemory,
-      GLOBAL_AGENT_MEMORY_MAX_CHARS,
-    );
-  }
+  // Build system prompt. Runtime continuity belongs to the native session; Cli Claw
+  // must not inject historical summaries or memory files into the prompt.
   const outputGuidelines = [
     '',
     '## 输出格式',
@@ -2127,34 +1810,6 @@ async function runQuery(
     '如果 WebFetch 失败（403、被拦截、内容为空或需要 JavaScript 渲染），',
     '且 agent-browser 可用，立即改用 agent-browser 通过真实浏览器访问。不要反复重试 WebFetch。',
   ].join('\n');
-
-  // Read HEARTBEAT.md (recent work summary) — only for home containers.
-  // Non-home containers are task-isolated and should not see unrelated work history,
-  // which can mislead the agent into "continuing" previous tasks instead of
-  // focusing on the user's current message.
-  let heartbeatContent = '';
-  if (isHome) {
-    const heartbeatPath = path.join(WORKSPACE_GLOBAL, 'HEARTBEAT.md');
-    if (fs.existsSync(heartbeatPath)) {
-      try {
-        const raw = fs.readFileSync(heartbeatPath, 'utf-8');
-        const truncated =
-          raw.length > 2048 ? raw.slice(0, 2048) + '\n\n[...截断]' : raw;
-        heartbeatContent = [
-          '',
-          '## 近期工作参考（仅供背景了解）',
-          '',
-          '> 以下是系统自动生成的近期工作摘要，仅供参考。',
-          '> **不要主动继续这些工作**，除非用户明确要求「继续」或主动提到相关话题。',
-          '> 请专注于用户当前的消息。',
-          '',
-          truncated,
-        ].join('\n');
-      } catch {
-        /* skip */
-      }
-    }
-  }
 
   const backgroundTaskGuidelines = [
     '',
@@ -2188,9 +1843,6 @@ async function runQuery(
     '- 如果用户的消息很简短（如打招呼），简洁回应即可，不要用工具列表填充回复。',
   ].join('\n');
 
-  const minimalNecessaryReplyPolicyBlock =
-    buildMinimalNecessaryReplyPolicyBlock();
-
   // Conversation agents (sub-conversations with agentId) get special behavioral guidelines
   // to prevent excessive send_message usage and duplicate responses.
   const conversationAgentGuidelines = containerInput.agentId
@@ -2214,20 +1866,8 @@ async function runQuery(
   const channelGuidelines = buildChannelGuidelines(channel);
 
   const systemPromptAppend = [
-    // L1: Identity — 用户身份与偏好（仅主容器注入）
-    globalAgentMemory &&
-      `<user-profile>\n${globalAgentMemory}\n</user-profile>`,
-
-    // L2: Behavior — 核心行为约束（始终注入所有容器）
     `<behavior>\n${interactionGuidelines}\n</behavior>`,
-    minimalNecessaryReplyPolicyBlock,
     `<security>\n${SECURITY_RULES}\n</security>`,
-
-    // L3: Context — 记忆系统与工作背景
-    `<memory-system>\n${memoryRecall}\n</memory-system>`,
-    heartbeatContent && `<recent-work>\n${heartbeatContent}\n</recent-work>`,
-
-    // L4: Reference — 输出格式与工具使用指南
     `<output-format>\n${outputGuidelines}\n</output-format>`,
     `<web-access>\n${webFetchGuidelines}\n</web-access>`,
     `<background-tasks>\n${backgroundTaskGuidelines}\n</background-tasks>`,
@@ -2240,13 +1880,6 @@ async function runQuery(
   ]
     .filter(Boolean)
     .join('\n');
-
-  // Home containers (admin & member) can access global and memory directories.
-  // Non-home containers only access memory directory; global AGENTS.md is NOT
-  // injected into systemPrompt but remains accessible via filesystem (readonly mount).
-  const extraDirs = isHome
-    ? [WORKSPACE_GLOBAL, WORKSPACE_MEMORY]
-    : [WORKSPACE_MEMORY];
 
   if (shouldInterrupt()) {
     log('Interrupt sentinel detected before query start, skipping query');
@@ -2268,7 +1901,6 @@ async function runQuery(
       options: {
         model: containerInput.model || CLAUDE_MODEL,
         cwd: WORKSPACE_GROUP,
-        additionalDirectories: extraDirs,
         resume: sessionId,
         resumeSessionAt: resumeAt,
         systemPrompt: {
@@ -2296,13 +1928,7 @@ async function runQuery(
           ],
           PreCompact: [
             {
-              hooks: [
-                createPreCompactHook(isHome, isAdminHome, {
-                  emit,
-                  getFullText: () => processor.getFullText(),
-                  resetFullText: () => processor.resetFullTextAccumulator(),
-                }),
-              ],
+              hooks: [createPreCompactHook()],
             },
           ],
         },
@@ -2506,13 +2132,12 @@ async function runQuery(
           log(
             `Context overflow detected in result: ${textResult.slice(0, 100)}`,
           );
-          // ── 发射已累积的部分回复，避免用户已看到的流式内容丢失 ──
           const partialText = processor.getFullText();
           if (partialText.trim()) {
-            log(`Emitting overflow_partial with ${partialText.length} chars`);
+            log(`Dropping overflow_partial body (${partialText.length} chars)`);
             emit({
               status: 'success',
-              result: partialText,
+              result: null,
               newSessionId,
               sourceKind: 'overflow_partial',
               finalizationReason: 'error',
@@ -2638,15 +2263,14 @@ async function runQuery(
     // 检测上下文溢出错误
     if (isContextOverflowError(errorMessage)) {
       log(`Context overflow detected: ${errorMessage}`);
-      // ── 发射已累积的部分回复，避免用户已看到的流式内容丢失 ──
       const partialText = processor.getFullText();
       if (partialText.trim()) {
         log(
-          `Emitting overflow_partial (catch) with ${partialText.length} chars`,
+          `Dropping overflow_partial body (catch, ${partialText.length} chars)`,
         );
         emit({
           status: 'success',
-          result: partialText,
+          result: null,
           newSessionId,
           sourceKind: 'overflow_partial',
           finalizationReason: 'error',
@@ -2798,8 +2422,6 @@ async function main(): Promise<void> {
     isScheduledTask: containerInput.isScheduledTask || false,
     workspaceIpc: WORKSPACE_IPC,
     workspaceGroup: WORKSPACE_GROUP,
-    workspaceGlobal: WORKSPACE_GLOBAL,
-    workspaceMemory: WORKSPACE_MEMORY,
   };
   const buildMcpServerConfig = () =>
     createSdkMcpServer({
@@ -2808,7 +2430,6 @@ async function main(): Promise<void> {
       tools: createMcpTools(mcpToolsConfig),
     });
   let mcpServerConfig = buildMcpServerConfig();
-  const memoryRecallPrompt = buildMemoryRecallPrompt(isHome, isAdminHome);
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
   // Clean up stale sentinels from previous container runs.
@@ -2854,8 +2475,6 @@ async function main(): Promise<void> {
   let resumeAt: string | undefined;
   let overflowRetryCount = 0;
   const MAX_OVERFLOW_RETRIES = 3;
-  let consecutiveCompactions = 0;
-  const MAX_CONSECUTIVE_COMPACTIONS = 3;
   try {
     while (true) {
       // 清理残留的 _interrupt sentinel（空闲期间写入的中断信号不应影响下一次 query）。
@@ -2883,7 +2502,6 @@ async function main(): Promise<void> {
         sessionId,
         mcpServerConfig,
         containerInput,
-        memoryRecallPrompt,
         resumeAt,
         true,
         DEFAULT_ALLOWED_TOOLS,
@@ -2906,7 +2524,6 @@ async function main(): Promise<void> {
         sessionId = undefined;
         latestSessionId = undefined;
         resumeAt = undefined;
-        consecutiveCompactions = 0;
         // Rebuild MCP server to avoid "Already connected to a transport" error
         mcpServerConfig = buildMcpServerConfig();
         continue;
@@ -2969,7 +2586,7 @@ async function main(): Promise<void> {
         break;
       }
 
-      // 中断后：跳过 memory flush 和 session update，等待下一条消息
+      // 中断后：跳过 session update，等待下一条消息
       if (queryResult.interruptedDuringQuery) {
         log('Query interrupted by user, waiting for next message');
         // 中断后清除 resumeAt：被中断的 assistant 消息可能未完整提交到 session 历史。
@@ -3000,7 +2617,6 @@ async function main(): Promise<void> {
           break;
         }
         clearInterruptRequested();
-        consecutiveCompactions = 0;
         prompt = nextMessage.text;
         promptImages = nextMessage.images;
         containerInput.turnId = generateTurnId();
@@ -3008,157 +2624,8 @@ async function main(): Promise<void> {
         continue;
       }
 
-      // Memory Flush: run an extra query to let agent save durable memories (home containers only)
-      // Skip flush when already in a compaction loop — context is too full for productive work.
-      if (needsMemoryFlush && isHome && consecutiveCompactions === 0) {
-        needsMemoryFlush = false;
-        log('Running memory flush query after compaction...');
-
-        const today = new Date().toISOString().split('T')[0];
-        const flushPrompt = [
-          '上下文压缩前记忆刷新。',
-          '**优先检查全局记忆**：先 Read /workspace/global/AGENTS.md，如果有「待记录」字段且你已获知对应信息（用户身份、偏好、常用项目等），用 Edit 工具立即填写。',
-          '用户明确要求记住的内容，以及下次对话仍可能用到的信息，也写入全局记忆。',
-          `然后使用 memory_append 将时效性记忆保存到 memory/${today}.md（今日进展、临时决策、待办等）。`,
-          '如需确认上下文，可先用 memory_search/memory_get 查阅。',
-          '如果没有值得保存的内容，回复一个字：OK。',
-        ].join(' ');
-
-        const flushResult = await runQuery(
-          flushPrompt,
-          sessionId,
-          mcpServerConfig,
-          containerInput,
-          memoryRecallPrompt,
-          resumeAt,
-          false,
-          MEMORY_FLUSH_ALLOWED_TOOLS,
-          MEMORY_FLUSH_DISALLOWED_TOOLS,
-        );
-        if (flushResult.newSessionId) {
-          sessionId = flushResult.newSessionId;
-          latestSessionId = sessionId;
-        }
-        if (flushResult.lastAssistantUuid)
-          resumeAt = flushResult.lastAssistantUuid;
-        log('Memory flush completed');
-
-        if (flushResult.closedDuringQuery) {
-          log('Close sentinel during memory flush, exiting');
-          writeOutput({ status: 'closed', result: null });
-          break;
-        }
-      }
-
       // Emit session update so host can track it
       writeOutput({ status: 'success', result: null, newSessionId: sessionId });
-
-      // ── Non-blocking compaction: auto-continue after context compaction ──
-      // Instead of waiting for user to send "继续", automatically start a
-      // new query so the agent resumes seamlessly where it left off.
-      // The query is tagged with sourceKind='auto_continue' so the host
-      // process can suppress system-maintenance noise (memory flush "OK",
-      // AGENTS.md update acks, etc.) that leaked into the agent's session
-      // transcript — the host will only forward substantive user-facing
-      // content to IM, preventing the bug described in issue #275.
-      //
-      // Guard: if compaction keeps firing repeatedly (e.g. system prompt alone
-      // nearly fills the context window), stop auto-continuing to avoid an
-      // infinite loop that burns API tokens without producing useful work.
-      if (hadCompaction) {
-        hadCompaction = false;
-        consecutiveCompactions++;
-        if (consecutiveCompactions <= MAX_CONSECUTIVE_COMPACTIONS) {
-          log(
-            `Auto-continuing after compaction (${consecutiveCompactions}/${MAX_CONSECUTIVE_COMPACTIONS})`,
-          );
-          const autoContinuePrompt = [
-            '继续。',
-            '注意：刚刚发生了上下文压缩，系统已自动执行了记忆刷新和 AGENTS.md 更新（这些是内部维护操作）。',
-            '请**只关注与用户的实际对话**，从压缩前的最后一个对话话题自然衔接。',
-            '如果压缩前你正在进行方案设计、讨论或等待用户确认，请简要回顾当前状态和待确认事项。',
-            '如果压缩前已经在执行中，则继续执行。',
-            '**重要**：不要提及、确认或重复任何系统维护相关的内容（如 "OK"、"已更新 AGENTS.md"、"记忆已刷新" 等），',
-            '这些内部状态对用户不可见。如果你的回复中确实包含此类内容，请用 <internal>...</internal> 标签包裹。',
-          ].join('');
-          containerInput.turnId = generateTurnId();
-          const autoContResult = await runQuery(
-            autoContinuePrompt,
-            sessionId,
-            mcpServerConfig,
-            containerInput,
-            memoryRecallPrompt,
-            resumeAt,
-            true,
-            DEFAULT_ALLOWED_TOOLS,
-            undefined,
-            undefined,
-            'auto_continue',
-          );
-          if (autoContResult.newSessionId) {
-            sessionId = autoContResult.newSessionId;
-            latestSessionId = sessionId;
-          }
-          if (autoContResult.lastAssistantUuid) {
-            resumeAt = autoContResult.lastAssistantUuid;
-          }
-          if (autoContResult.closedDuringQuery) {
-            log('Close sentinel during auto-continue, exiting');
-            writeOutput({ status: 'closed', result: null });
-            break;
-          }
-          // Handle abnormal states from auto-continue runQuery (these were
-          // previously handled by the main loop's `continue` re-entry; now that
-          // auto-continue is a standalone call we must check them explicitly).
-          if (autoContResult.sessionResumeFailed) {
-            log(
-              'WARN: Session resume failed during auto-continue, clearing session',
-            );
-            sessionId = undefined;
-            latestSessionId = undefined;
-            resumeAt = undefined;
-            mcpServerConfig = buildMcpServerConfig();
-            // Fall through to wait for next IPC message with a fresh session.
-          }
-          if (autoContResult.unrecoverableTranscriptError) {
-            log(
-              'WARN: Unrecoverable transcript error during auto-continue, signaling reset',
-            );
-            writeOutput({
-              status: 'error',
-              result: null,
-              error:
-                'unrecoverable_transcript: 会话历史中包含无法处理的数据，会话需要重置。',
-              newSessionId: sessionId,
-            });
-            process.exit(1);
-          }
-          if (autoContResult.contextOverflow) {
-            log(
-              'WARN: Context overflow during auto-continue, will be handled on next query',
-            );
-            // Don't retry here — the main loop's overflow-retry logic will
-            // kick in on the next user-initiated query.
-          }
-          if (autoContResult.interruptedDuringQuery) {
-            log('WARN: Auto-continue query was interrupted by user');
-            resumeAt = undefined;
-            try {
-              fs.unlinkSync(IPC_INPUT_INTERRUPT_SENTINEL);
-            } catch {
-              /* ignore */
-            }
-          }
-          // After auto-continue, fall through to wait for next IPC message.
-        } else {
-          log(
-            `Compaction loop detected (${consecutiveCompactions} consecutive), stopping auto-continue and waiting for user input`,
-          );
-          consecutiveCompactions = 0;
-        }
-      } else {
-        consecutiveCompactions = 0;
-      }
 
       log('Query ended, waiting for next IPC message...');
 

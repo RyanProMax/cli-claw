@@ -179,7 +179,7 @@ describe('stream presentation', () => {
     expect(session.append).not.toHaveBeenCalled();
   });
 
-  test('syncs Codex commentary to Feishu cards at terminal state', () => {
+  test('does not sync presentation commentary to terminal Feishu cards by default', () => {
     const session = {
       appendCommentary: vi.fn(),
     } as any;
@@ -189,6 +189,25 @@ describe('stream presentation', () => {
       commentaryText: '先收集上下文',
     });
 
-    expect(session.appendCommentary).toHaveBeenCalledWith('先收集上下文');
+    expect(session.appendCommentary).not.toHaveBeenCalled();
+  });
+
+  test('syncs explicit visible commentary to terminal Feishu cards', () => {
+    const session = {
+      appendCommentary: vi.fn(),
+    } as any;
+
+    syncTerminalPresentationTextToCard(
+      session,
+      {
+        answerText: '最终结论',
+        commentaryText: '旧过程',
+      },
+      '当前终态 commentary',
+    );
+
+    expect(session.appendCommentary).toHaveBeenCalledWith(
+      '当前终态 commentary',
+    );
   });
 });

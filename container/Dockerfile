@@ -138,7 +138,7 @@ COPY shared/ /shared/
 RUN npm run build
 
 # Create workspace directories
-RUN mkdir -p /workspace/group /workspace/global /workspace/memory /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
+RUN mkdir -p /workspace/group /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
 
 # Copy entrypoint script (runs as root, drops to node user via runuser)
 COPY container/entrypoint.sh /app/entrypoint.sh

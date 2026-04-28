@@ -1,58 +1,32 @@
 # MEMORY
 
-> 本文负责：Cli Claw 的记忆层级、触发时机、存储路径、读取方式和增长边界。工作区 / conversation 身份见 `docs/ARCHITECTURE.md`；运行时 session 与 host cwd 见 `docs/RUNTIME.md`。
+> 本文负责：Cli Claw 的消息数据库、runtime session 和上下文边界。工作区 / conversation 身份见 `docs/ARCHITECTURE.md`；运行时 session 与 host cwd 见 `docs/RUNTIME.md`。
 
 ## 心智模型
 
-Cli Claw 里有三类容易混淆的数据：
-
-- Runtime 上下文：Claude / Codex 自己的会话上下文。Cli Claw 只保存 runtime session id，并能重置或续用它；具体 transcript 由底层 runtime 维护。
-- 聊天历史：Web / IM 消息存入 `~/.cli-claw/db/messages.db`，用于产品侧展示、恢复和摘要，不等同于长期记忆。
-- 长期记忆：落盘的 `AGENTS.md`、日期记忆、每日摘要和对话归档，供 agent 主动查询或在系统提示中注入。
-
-## 长期记忆布局
-
-- 用户全局记忆：`~/.cli-claw/groups/user-global/{userId}/AGENTS.md`
-  保存跨工作区仍有用的信息，例如用户身份、长期偏好、常用项目和用户明确要求“记住”的内容。
-- 工作区记忆：`~/.cli-claw/groups/{folder}/AGENTS.md`
-  保存该工作区自己的背景、约定和长期项目上下文。
-- 日期记忆：`~/.cli-claw/memory/{folder}/YYYY-MM-DD.md`
-  由 `memory_append` 追加当天/短期信息，例如进展、临时决策、待办和会议要点；它不是当天完整聊天记录，也不是 SQLite。
-- 每日摘要：`~/.cli-claw/groups/user-global/{userId}/daily-summary/YYYY-MM-DD.md` 与 `HEARTBEAT.md`
-  scheduler 在本地时间 2:00-3:00 之间基于昨日消息生成摘要，并把最近几天压缩进 `HEARTBEAT.md` 供主工作区参考。
-- 对话归档：`~/.cli-claw/groups/{folder}/conversations/`
-  Claude runner 在 PreCompact hook 触发上下文压缩前，把完整 transcript 归档为 markdown；当前 Codex 路径没有同等的 Cli Claw `conversations/` 归档。
-
-## 写入触发
-
-- 主工作区 agent 获知长期有用信息时，应立即更新用户全局 `AGENTS.md`；只对当天/短期有用的信息写入日期记忆。
-- 非主工作区应把项目长期信息写入当前工作区 `AGENTS.md`；用户全局记忆作为只读参考。
-- Claude 上下文压缩前会自动归档 transcript、裁剪 Claude session JSONL，并触发一次 memory flush，让 agent 把值得保留的信息写入长期记忆。
-- Web/API 的 memory 页面可以手动读写允许范围内的记忆文件；`HEARTBEAT.md` 和 `conversations/` 归档只读。
+- Runtime 上下文由 Claude / Codex 自己维护。Cli Claw 只保存 runtime session id，并在需要时 reset / resume。
+- 消息数据库 `~/.cli-claw/db/messages.db` 是产品侧展示、队列 cursor、恢复待处理消息和审计溯源的唯一历史记录。
+- Cli Claw 不维护长期记忆层，不生成每日摘要，不归档 transcript，不暴露 `memory_*` 工具，也不把历史消息、摘要、文件或旧 partial body 注入 agent prompt。
 
 ## 读取与注入
 
-- 主工作区会把用户全局 `AGENTS.md` 和截断后的 `HEARTBEAT.md` 注入系统提示。
-- 其他工作区可通过 `memory_search` / `memory_get` 查找全局、工作区、日期记忆和对话归档。
-- 常规对话只把当前待处理 turn 发送给 runner；更早内容依赖 runtime session 自己续用。同一个 workspace 主对话的 Web / IM channel 共用同一份主 runtime session，channel 只决定消息来源和回复路由。当前待处理 turn 可以包含连续同源且未提交 cursor 的 pending batch，例如 `A1/A2/B1/A3/B2/B3` 会切成 `A1+A2`、`B1`、`A3`、`B2+B3`；这不是历史上下文注入。
-- Skill slash command 生成的 `assistant_prompt` 不是常规续聊：入库时标记为 `assistant_prompt`，执行前会清理当前 workspace 主 runtime session，避免 `/hkipo` 等命令任务继承旧 runtime transcript。
-- 服务重启恢复只用于已入库但尚未提交 cursor 的待处理用户消息；该路径恢复原 runtime session 并发送待处理消息，不再把数据库最近历史拼成 `<system_context>` 注入 prompt。
-- 优雅关停 / 自重启不会把正在流式输出的 partial body 持久化成 assistant 正文；只清理 streaming buffer 并推进必要的 cursor，避免旧 streaming buffer 变成可见聊天历史或后续 prompt 材料。非优雅退出后的 crash recovery 才允许恢复 interrupted partial。
-- 最终可见回复会经过 `reply-visibility` 边界过滤；如果底层 runtime 把 `<messages>`、`<reply-policy>`、`<system_context>` 或 restart recovery 摘要吐到最终正文，系统会先剥离可识别的内部上下文，无法安全剥离时改为短拦截提示。
-- 最终发送路径不从 Codex streaming presentation 的 `answerText` 取正文；`answerText` 只允许作为当前流式卡片渲染的过渡 buffer。用户可见最终正文以当前 turn 的 runtime raw/final output 为准，并在忽略 presentation answer 时写入 warn 日志。
-- restart recovery 只能服务于“已入库但尚未提交 cursor 的待处理用户消息”；`scheduled_task_prompt`、`user_command`、assistant、system 等内部行不能触发恢复 prompt 或被回放成用户输入。
-- 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 不维护 pending resume 状态、不生成确认 prompt、不回放旧中断上下文；只把中断之后当前未提交的连续同源用户消息送入 runtime。用户回复“继续上次”也只是普通当前消息，是否能续上完全由底层 runtime session 自己决定。
-- 主动模式/autopilot 不拼接最近聊天记录作为隐藏 prompt；它只发送任务自身 prompt，必要上下文由 runtime session 或显式工具承担。
+- 常规对话只把当前待处理 turn 发送给 runner；更早内容依赖 runtime session 自己续用。
+- 同一个 workspace 主对话的 Web / IM channel 共用同一份主 runtime session；channel 只决定消息来源和回复路由。
+- 当前待处理 turn 可以包含连续同源且未提交 cursor 的 pending batch，例如 `A1/A2/B1/A3/B2/B3` 会切成 `A1+A2`、`B1`、`A3`、`B2+B3`；这不是历史上下文注入。
+- Skill slash command 生成的 `assistant_prompt` 会标记为独立来源，执行前清理当前 workspace 主 runtime session，避免命令任务继承上一轮 runtime transcript。
+- 服务重启恢复只用于已入库但尚未提交 cursor 的待处理用户消息；该路径恢复原 runtime session 并发送待处理消息，不拼接 DB 最近历史或 `<system_context>`。
+- 优雅关停 / 自重启 / crash recovery 都不会把正在流式输出的 partial body 持久化成 assistant 正文或发送到 IM。
+- 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 不维护 pending resume 状态、不生成确认 prompt、不回放旧中断上下文；只把中断之后当前未提交的连续同源用户消息送入 runtime。
+- 主动模式/autopilot 不拼接最近聊天记录作为隐藏 prompt；它只发送任务自身 prompt。
 
 ## 增长与清理
 
 - `messages.db` 没有按天自动清理；会随聊天增长。清除历史、删除工作区或删除 conversation agent 会删除对应消息；SQLite 文件体积需要 `VACUUM` 才会真正回收。
 - Runtime transcript 不统一落在 `~/.cli-claw/sessions`：Claude 使用 `~/.cli-claw/sessions/{folder}/.claude/`，Codex 使用自己的 `~/.codex/sessions/**/*.jsonl`。Cli Claw 的 `sessions` 表只保存当前 session id。
-- 日期记忆按追加写入，单次 append 有大小上限，单个记忆文件约 500KB 上限；搜索会跳过过大的记忆文件。
-- `/clear` 或 reset session 只清 runtime 上下文，不删除聊天历史或长期记忆；主对话 reset 会清该 workspace 的主会话 slot，但保留 conversation agent 自己的 session；clear-history 会清聊天历史、session 和该工作区运行时 artifacts。
+- `/clear` 或 reset session 只清 runtime 上下文，不删除聊天历史；主对话 reset 会清该 workspace 的主会话 slot，但保留 conversation agent 自己的 session；clear-history 会清聊天历史、session 和该工作区运行时 artifacts。
 
 ## 边界
 
-- `.claude/`、`~/.codex/` 下的 settings / skills / config / native sessions 是外部 runtime 状态，不是 Cli Claw 项目长期记忆。
-- `.agents/*.md` 是仓库执行协议角色定义，`~/.agents/agents/*.md` 是用户级 Agent 定义；二者都不是用户或工作区记忆。
-- 修改记忆布局、写入触发、查询范围或保留策略时，必须同步更新本文、`AGENTS.md` 和相关 owner 文档。
+- `.claude/`、`~/.codex/` 下的 settings / skills / config / native sessions 是外部 runtime 状态，不是 Cli Claw 维护的历史上下文。
+- `.agents/*.md` 是仓库执行协议角色定义，`~/.agents/agents/*.md` 是用户级 Agent 定义；二者都不是 Cli Claw 消息历史注入来源。
+- 任何新增“读取历史并拼入 prompt / 工具描述 / 隐藏任务 / 可见正文”的能力，都必须先更新本文和对应 owner 文档，并补真实消息链路回归测试。

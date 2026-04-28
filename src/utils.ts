@@ -18,36 +18,6 @@ export function stripAgentInternalTags(text: string): string {
 }
 
 /**
- * Detect whether an agent output is system-maintenance noise that should
- * be suppressed from IM delivery when sourceKind is 'auto_continue'.
- *
- * These are short acknowledgements that the agent generates when its session
- * transcript contains memory-flush / AGENTS.md-update context from the
- * compaction pipeline (issue #275). Substantive user-facing continuations
- * (task resumption, actual replies) are NOT noise and must pass through.
- *
- * Heuristic: text is "noise" if it is short (<= 30 chars) AND matches a
- * known system-acknowledgement pattern after normalisation.
- */
-const NOISE_PATTERNS = [
-  /^ok[.。!！]?$/,
-  /^好的[.。!！]?$/,
-  /^已更新/,
-  /^已完成/,
-  /^已刷新/,
-  /^记忆已/,
-  /^agents\.md\s*已/,
-  /^memory\s*(flush|updated)/i,
-];
-
-export function isSystemMaintenanceNoise(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized) return true;
-  if (normalized.length > 30) return false;
-  return NOISE_PATTERNS.some((p) => p.test(normalized));
-}
-
-/**
  * Strip virtual JID suffixes (#task:xxx, #agent:xxx) to get the base JID.
  */
 export function stripVirtualJidSuffix(jid: string): string {

@@ -320,7 +320,7 @@ function calculateDirSize(dirPath: string, depth = 0): number {
   return total;
 }
 
-/** Remove all runtime artifacts for a group folder (workspace, sessions, ipc, env, memory). */
+/** Remove all runtime artifacts for a group folder (workspace, sessions, ipc, env). */
 export function removeFlowArtifacts(folder: string): void {
   fs.rmSync(path.join(GROUPS_DIR, folder), { recursive: true, force: true });
   fs.rmSync(path.join(DATA_DIR, 'sessions', folder), {
@@ -332,10 +332,6 @@ export function removeFlowArtifacts(folder: string): void {
     force: true,
   });
   fs.rmSync(path.join(DATA_DIR, 'env', folder), {
-    recursive: true,
-    force: true,
-  });
-  fs.rmSync(path.join(DATA_DIR, 'memory', folder), {
     recursive: true,
     force: true,
   });
