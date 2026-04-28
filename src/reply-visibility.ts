@@ -12,6 +12,82 @@ export interface ResolvedVisibleReplyParts {
   commentaryText: string;
 }
 
+const INTERNAL_CONTEXT_SUPPRESSED_REPLY =
+  '内部上下文已拦截。请重新发送当前请求。';
+
+const INTERNAL_XML_BLOCK_PATTERNS: RegExp[] = [
+  /<reply-policy>[\s\S]*?<\/reply-policy>\s*/gi,
+  /<messages>[\s\S]*?<\/messages>\s*/gi,
+  /<user-message>[\s\S]*?<\/user-message>\s*/gi,
+  /<system_context>[\s\S]*?<\/system_context>\s*/gi,
+  /<environment_context>[\s\S]*?<\/environment_context>\s*/gi,
+];
+
+const INTERNAL_CONTEXT_MARKERS: RegExp[] = [
+  /<message\s+sender=/i,
+  /Knowledge cutoff:/i,
+  /Current date:/i,
+  /Need continue from interrupted state/i,
+  /Important current conclusion:/i,
+  /Relevant code just inspected:/i,
+  /Potential fix direction:/i,
+  /Final response should/i,
+  /Current user asks:/i,
+  /The user(?:'s)? latest question:/i,
+];
+
+function containsInternalContextMarker(value: string): boolean {
+  return INTERNAL_CONTEXT_MARKERS.some((pattern) => pattern.test(value));
+}
+
+function looksLikeInternalSummaryLine(line: string): boolean {
+  const normalized = line.trim();
+  return /^(Need continue from|Important current conclusion|Relevant code just inspected|Potential fix direction|Current user asks|The user(?:'s)? latest question|Final response should|Need not run|No code changes yet|Current uncommitted status)/i.test(
+    normalized,
+  );
+}
+
+function looksLikeVisibleAnswerStart(
+  line: string,
+  afterInternalSummary = false,
+): boolean {
+  const normalized = line.trim();
+  if (!normalized) return false;
+  if (looksLikeInternalSummaryLine(normalized)) return false;
+  if (afterInternalSummary && /^[-*]\s+/.test(normalized)) return false;
+  return /^(#{1,6}\s+\S|\*\*[^*]+\*\*|[-*]\s+|\d+\.\s+|[\u4e00-\u9fffA-Za-z0-9].*[：:])/.test(
+    normalized,
+  );
+}
+
+function stripLeadingInternalSummary(value: string): string {
+  const lines = value.split('\n');
+  const firstContentIndex = lines.findIndex((line) => line.trim());
+  if (firstContentIndex < 0) return value;
+  if (!looksLikeInternalSummaryLine(lines[firstContentIndex]!)) return value;
+
+  const answerStartIndex = lines.findIndex(
+    (line, index) =>
+      index > firstContentIndex && looksLikeVisibleAnswerStart(line, true),
+  );
+  if (answerStartIndex < 0) return '';
+  return lines.slice(answerStartIndex).join('\n').trim();
+}
+
+function sanitizeInternalContextLeak(value: string): string {
+  let sanitized = value;
+  for (const pattern of INTERNAL_XML_BLOCK_PATTERNS) {
+    sanitized = sanitized.replace(pattern, '');
+  }
+  sanitized = stripLeadingInternalSummary(sanitized).trim();
+
+  if (!containsInternalContextMarker(value)) return sanitized || value;
+  if (!sanitized || containsInternalContextMarker(sanitized)) {
+    return INTERNAL_CONTEXT_SUPPRESSED_REPLY;
+  }
+  return sanitized;
+}
+
 function normalizeReplyText(value: string | null | undefined): string {
   return typeof value === 'string' ? value.replace(/\r\n?/g, '\n').trim() : '';
 }
@@ -49,13 +125,14 @@ export function resolveVisibleReplyParts(
   presentationText?: ReplyVisibilityPresentationText,
   runtimeIdentity?: ReplyVisibilityRuntimeIdentity | null,
 ): ResolvedVisibleReplyParts {
+  const sanitizedRawText = sanitizeInternalContextLeak(rawText);
   const commentaryText = normalizeReplyText(presentationText?.commentaryText);
   const shouldApplyCodexVisibility =
     runtimeIdentity?.agentType === 'codex' ||
     (!runtimeIdentity?.agentType && Boolean(commentaryText));
 
   if (!shouldApplyCodexVisibility) {
-    return { visibleText: rawText, commentaryText };
+    return { visibleText: sanitizedRawText, commentaryText };
   }
 
   const answerText = normalizeReplyText(presentationText?.answerText);
@@ -63,7 +140,7 @@ export function resolveVisibleReplyParts(
     return { visibleText: answerText, commentaryText };
   }
 
-  const normalizedRawText = normalizeReplyText(rawText);
+  const normalizedRawText = normalizeReplyText(sanitizedRawText);
   if (
     normalizedRawText &&
     commentaryText &&
@@ -79,14 +156,14 @@ export function resolveVisibleReplyParts(
     }
   }
 
-  const inferred = splitLeadingCodexCommentary(rawText);
+  const inferred = splitLeadingCodexCommentary(sanitizedRawText);
   if (inferred) return inferred;
 
   if (answerText) {
     return { visibleText: answerText, commentaryText };
   }
 
-  return { visibleText: rawText, commentaryText };
+  return { visibleText: sanitizedRawText, commentaryText };
 }
 
 export function resolveVisibleReplyText(

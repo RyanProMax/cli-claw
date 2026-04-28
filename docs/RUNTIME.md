@@ -119,6 +119,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 - Skill slash command 如果返回 `assistant_prompt`，该消息会标记为 `source_kind='assistant_prompt'`，执行前清理当前 workspace 主 runtime session，再作为新 turn 发送给底层 runtime，避免命令生成的研究任务继承上一轮聊天 transcript。
 - 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/Codex 对话上下文。
 - Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。活跃 runner 只接受与当前 turn 相同来源的 IPC 消息；不同来源消息排队并触发 drain，让当前 turn 完成后按顺序处理。
+- 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 Codex commentary、原始 prompt XML 包装和 restart recovery 摘要从主正文剥离，避免 runtime transcript 细节直接发给用户。
 - 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
 
 当前限制：

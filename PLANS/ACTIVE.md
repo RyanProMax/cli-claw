@@ -1754,10 +1754,10 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 39
+- Milestone 40
 
 Current status:
-- done; command-generated assistant prompts are tagged and executed after clearing the workspace primary runtime session
+- done; final visible replies now strip or suppress detected internal context/transcript blocks before delivery
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -1765,25 +1765,60 @@ Changed files:
 - `docs/COMMAND.md`
 - `docs/MEMORY.md`
 - `docs/RUNTIME.md`
-- `src/db.ts`
-- `src/feishu.ts`
-- `src/im-slash-command.ts`
-- `src/index.ts`
-- `src/telegram.ts`
-- `src/types.ts`
-- `src/web.ts`
-- `tests/feishu-connection.test.ts`
-- `tests/im-slash-command.test.ts`
-- `tests/restart-recovery.test.ts`
+- `src/reply-visibility.ts`
+- `tests/reply-visibility.test.ts`
 
 Last failure summary:
-- None in Milestone 39.
+- Resolved: first Milestone 40 test run kept an internal summary bullet as visible正文; visible answer detection now ignores bullets immediately after an internal summary marker.
 
 Suspected cause:
 - Previous mitigations coupled channel routing with runtime session isolation and recovery history injection, causing Feishu/IM turns to lose continuity or receive stale context.
 
 Next step:
-- Commit Milestone 39, then apply with the safe restart path.
+- Commit Milestone 40 and apply with the safe restart path.
+
+
+### Milestone 40
+
+Objective:
+- Prevent internal context blocks, transcript summaries, raw prompt wrappers, or recovery notes from appearing in user-visible final replies while preserving normal answers and existing commentary separation.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `docs/MEMORY.md`
+- `src/reply-visibility.ts`
+- `tests/reply-visibility.test.ts`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/RUNTIME.md docs/MEMORY.md src/reply-visibility.ts tests/reply-visibility.test.ts`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/reply-visibility.test.ts`: passed, 1 file / 9 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/RUNTIME.md docs/MEMORY.md src/reply-visibility.ts tests/reply-visibility.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: all changed files are in Milestone 40 allowed scope.
+  - Objective: raw prompt XML wrappers and restart/internal summary leaks are stripped or suppressed at `reply-visibility` before final delivery.
+  - Docs: memory, runtime, and roadmap describe the output-boundary guard.
+
+Risks / Notes / Handoff:
+- This is an output-boundary guard. It does not change runtime session continuity for ordinary chat; it only prevents detected internal context text from becoming visible final正文.
+- Safe restart is required for the running service to pick up the fix.
 
 
 ### Milestone 39

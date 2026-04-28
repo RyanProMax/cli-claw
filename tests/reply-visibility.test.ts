@@ -83,8 +83,57 @@ describe('resolveVisibleReplyText', () => {
       resolveVisibleReplyParts(rawText, {}, { agentType: 'codex' }),
     ).toEqual({
       visibleText: '# 港股 IPO 池跟踪\n\n正文',
-      commentaryText:
-        '我按 `stock-analysis-skill` 先联网核验当前 IPO 池。',
+      commentaryText: '我按 `stock-analysis-skill` 先联网核验当前 IPO 池。',
     });
+  });
+
+  test('removes raw prompt wrapper blocks before sending visible text', () => {
+    const rawText = [
+      '<reply-policy>',
+      '最小必要回复策略',
+      '</reply-policy>',
+      '',
+      '<messages>',
+      '<message sender="user">旧消息</message>',
+      '</messages>',
+      '',
+      '**结论**',
+      '已经按当前请求处理。',
+    ].join('\n');
+
+    expect(resolveVisibleReplyText(rawText, {}, { agentType: 'codex' })).toBe(
+      ['**结论**', '已经按当前请求处理。'].join('\n'),
+    );
+  });
+
+  test('suppresses leaked internal context when no clean visible answer remains', () => {
+    expect(
+      resolveVisibleReplyText(
+        [
+          'Important current conclusion:',
+          '- Runtime session is reused.',
+          'Relevant code just inspected:',
+          '- src/index.ts',
+        ].join('\n'),
+        {},
+        { agentType: 'codex' },
+      ),
+    ).toBe('内部上下文已拦截。请重新发送当前请求。');
+  });
+
+  test('keeps clean answer after leaked restart recovery summary', () => {
+    expect(
+      resolveVisibleReplyText(
+        [
+          'Need continue from interrupted state. No code changes yet.',
+          '- Previous turn inspected queue state.',
+          '',
+          '**结论**',
+          '盯盘任务不会主动吞掉用户消息。',
+        ].join('\n'),
+        {},
+        { agentType: 'codex' },
+      ),
+    ).toBe(['**结论**', '盯盘任务不会主动吞掉用户消息。'].join('\n'));
   });
 });
