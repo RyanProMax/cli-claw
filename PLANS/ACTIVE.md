@@ -1754,28 +1754,66 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 41
+- Milestone 42
 
 Current status:
-- done; stale streaming presentation answerText can no longer override the current final raw output
+- done; stale oversized presentation answerText is always dropped in favor of the current final raw output
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `docs/COMMAND.md`
-- `docs/MEMORY.md`
-- `docs/RUNTIME.md`
 - `src/reply-visibility.ts`
 - `tests/reply-visibility.test.ts`
 
 Last failure summary:
-- Resolved: RED test reproduced the 2026-04-28 06:04 incident where stale presentation `answerText` replaced a short final raw answer; fix now drops suspicious presentation answers and logs the event.
+- 2026-04-28 06:46 Feishu sent a 31K old hkipo transcript even though the raw final output was the current short answer; Milestone 41 only rejected stale presentation when it lacked overlap with the current answer.
 
 Suspected cause:
-- Previous mitigations coupled channel routing with runtime session isolation and recovery history injection, causing Feishu/IM turns to lose continuity or receive stale context.
+- Codex presentation `answerText` can contain stale streamed transcript plus the current raw final text near the tail, so overlap-based trust is insufficient.
 
 Next step:
-- Commit Milestone 41 and apply with the safe restart path.
+- Commit Milestone 42 and apply with the safe restart path.
+
+
+### Milestone 42
+
+Objective:
+- Drop Codex presentation `answerText` whenever it is massively larger than the current final raw output, even if it contains the current answer later, so stale transcripts cannot be delivered to Feishu.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `src/reply-visibility.ts`
+- `tests/reply-visibility.test.ts`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md src/reply-visibility.ts tests/reply-visibility.test.ts`
+- `git diff --check`
+- `npm run build`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/reply-visibility.test.ts`: passed, 1 file / 12 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md src/reply-visibility.ts tests/reply-visibility.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `npm run build`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: all changed files are in Milestone 42 allowed scope.
+  - Objective: suspiciously oversized Codex presentation answers are rejected without overlap-based exceptions.
+  - Regression: covers the 2026-04-28 06:46 Feishu incident where stale hkipo text contained the current answer near the tail.
+
+Risks / Notes / Handoff:
+- This is an output-boundary guard only. It does not change runtime session selection, queueing, cursor commits, or IM delivery semantics.
+- Safe restart is required for the running service to pick up the fix.
 
 
 ### Milestone 41

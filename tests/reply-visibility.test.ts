@@ -79,6 +79,31 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
+  test('drops stale presentation even when it contains the current answer near the end', () => {
+    const rawText = [
+      '我先查实际链路，不先猜。',
+      '',
+      '不符合流式输出预期，当前 Codex 飞书卡片被禁用。',
+    ].join('\n');
+    const staleAnswer = [
+      '我会按仓库协议先补读工程说明和当前计划，再定位 `stock-analysis-skill`。',
+      '旧 hkipo 过程。'.repeat(1000),
+      rawText,
+    ].join('\n');
+
+    expect(
+      resolveVisibleReplyParts(
+        rawText,
+        { answerText: staleAnswer },
+        { agentType: 'codex' },
+      ),
+    ).toEqual({
+      visibleText: rawText,
+      commentaryText: '',
+      droppedPresentationAnswer: true,
+    });
+  });
+
   test('keeps the original text when the final payload is commentary-only', () => {
     expect(
       resolveVisibleReplyText(
