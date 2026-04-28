@@ -21,6 +21,7 @@ import { detectImageMimeType } from './image-detector.js';
 import { resolveImSlashCommandReply } from './im-slash-command.js';
 import { downloadAndDecryptMedia } from './wechat-crypto.js';
 import { markdownToPlainText, splitTextChunks } from './im-utils.js';
+import type { MessageSourceKind } from './types.js';
 
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -518,6 +519,7 @@ export function createWeChatConnection(
 
       // Handle slash commands
       const slashMatch = content.match(/^\/(\S+)(?:\s+(.*))?$/i);
+      let sourceKind: MessageSourceKind | null = null;
       if (slashMatch && opts.onCommand) {
         const cmdBody = (
           slashMatch[1] + (slashMatch[2] ? ' ' + slashMatch[2] : '')
@@ -540,6 +542,7 @@ export function createWeChatConnection(
             return;
           }
           content = reply.content;
+          sourceKind = reply.sourceKind ?? null;
         } catch (err) {
           logger.error({ jid, err }, 'WeChat slash command failed');
           const ct = contextTokenCache.get(fromUserId);
@@ -631,6 +634,7 @@ export function createWeChatConnection(
         {
           attachments: attachmentsJson,
           sourceJid: jid,
+          meta: sourceKind ? { sourceKind } : undefined,
         },
       );
 
@@ -646,6 +650,7 @@ export function createWeChatConnection(
           timestamp,
           attachments: attachmentsJson,
           is_from_me: false,
+          ...(sourceKind ? { source_kind: sourceKind } : {}),
         },
         agentRouting?.agentId ?? undefined,
       );

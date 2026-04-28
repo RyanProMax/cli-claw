@@ -28,6 +28,7 @@ import { saveDownloadedFile, MAX_FILE_SIZE } from './im-downloader.js';
 import { detectImageMimeType } from './image-detector.js';
 import { resolveImSlashCommandReply } from './im-slash-command.js';
 import { markdownToPlainText, splitTextChunks } from './im-utils.js';
+import type { MessageSourceKind } from './types.js';
 
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -1413,6 +1414,7 @@ export function createDingTalkConnection(
 
       // Handle slash commands
       const slashMatch = content.match(/^\/(\S+)(?:\s+(.*))?$/i);
+      let sourceKind: MessageSourceKind | null = null;
       if (slashMatch && opts.onCommand) {
         const cmdBody = (
           slashMatch[1] + (slashMatch[2] ? ' ' + slashMatch[2] : '')
@@ -1435,6 +1437,7 @@ export function createDingTalkConnection(
             return;
           }
           content = reply.content;
+          sourceKind = reply.sourceKind ?? null;
         } catch (err) {
           logger.error({ jid, err }, 'DingTalk slash command failed');
           return;
@@ -1459,7 +1462,11 @@ export function createDingTalkConnection(
         content,
         timestamp,
         false,
-        { attachments: attachmentsJson, sourceJid: jid },
+        {
+          attachments: attachmentsJson,
+          sourceJid: jid,
+          meta: sourceKind ? { sourceKind } : undefined,
+        },
       );
 
       broadcastNewMessage(
@@ -1474,6 +1481,7 @@ export function createDingTalkConnection(
           timestamp,
           attachments: attachmentsJson,
           is_from_me: false,
+          ...(sourceKind ? { source_kind: sourceKind } : {}),
         },
         agentRouting?.agentId ?? undefined,
       );
