@@ -1754,23 +1754,55 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 43
+- Milestone 44
 
 Current status:
-- done; Feishu in-process E2E now verifies stale Codex presentation output is not delivered
+- done; roadmap now requires real Feishu input/output E2E and correlatable logs for output-boundary fixes
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `tests/feishu-e2e.test.ts`
+- `PLANS/ROADMAP.md`
 
 Last failure summary:
-- Milestone 42 fixed the output-boundary guard, but coverage was still mostly unit-level; user requested simulated Feishu input/output validation before final response.
+- Previous stale-history fixes were too narrow because they relied on function-level checks before a real Feishu payload regression was added.
 
 Suspected cause:
-- The prior validation did not exercise the Feishu send payload shape, so it could not prove the actual card body excludes stale transcript content.
+- Output-boundary bugs span inbound storage, queue, runtime finalization, presentation buffers, Feishu payload generation, lifecycle rows, and cursor commit; missing real-flow tests/logs made partial fixes look complete.
 
 Next step:
-- Commit Milestone 43. Runtime restart is not required for this test-only milestone; Milestone 42 runtime fix was already built and restart-requested.
+- Commit Milestone 44. Then implement the next runtime milestone: remove final-send dependence on `presentationText.answerText`.
+
+
+### Milestone 44
+
+Objective:
+- Record the updated engineering requirement: Feishu visibility/recovery fixes must be validated through real message input/output E2E flows and must emit enough structured logs to trace one message across every output-affecting boundary.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+
+Validation:
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md`
+- `git diff --check`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md`: passed.
+  - `git diff --check`: passed.
+
+Review status:
+- passed
+  - Scope: only active plan and roadmap changed.
+  - Objective: roadmap now requires true Feishu input/output E2E gates and correlatable message-chain logs before future output-boundary fixes are considered complete.
+
+Risks / Notes / Handoff:
+- This milestone records the requirement only. Runtime behavior was not changed.
+- Next implementation should remove final-send dependence on `presentationText.answerText` and add the matching real-flow E2E/log assertions.
 
 
 ### Milestone 43

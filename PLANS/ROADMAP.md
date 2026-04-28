@@ -40,7 +40,7 @@
 
 - Status: `monitoring`
 - Source: 2026-04-25 user request item `1`; 2026-04-26 Feishu incidents
-- Summary: 飞书消息链路已经具备 lifecycle、delivery-gated cursor、startup recovery、runner residue cleanup、streaming-card progress、shutdown partial suppression 和 interrupted-resume confirmation gate；下一步只保留真实流量观察和更完整 E2E 覆盖。
+- Summary: 飞书消息链路必须以真实消息输入/输出流程作为回归基线，覆盖 inbound SDK event、DB、queue、runner output、Feishu payload、cursor 和 lifecycle；类似“正文混入历史上下文”的问题不能只靠函数级测试或人工查日志定位。
 - Durable contract:
   - Message reliability and visibility contracts live in `docs/ARCHITECTURE.md`.
   - Restart/recovery context boundaries live in `docs/MEMORY.md`.
@@ -50,23 +50,29 @@
   - Post-restart process check showed one backend and current runner group only; no historical orphan runner group was visible.
   - Feishu E2E harness exists for inbound SDK event handling, lifecycle DB writes, notifier wakeup, duplicate/stale/mention cases, and managed restart phrase handling.
   - Feishu E2E success-path coverage now drives a real inbound SDK event through real `GroupQueue`, a deterministic fake runner, real `StreamingCardController` card create/update, lifecycle evidence from `queued` through `cursor_committed`, and persisted cursor state.
+  - Feishu stale-output regression now simulates a real inbound message, stale Codex presentation state, final visibility resolution, static Feishu card send, lifecycle rows, and asserts the delivered card payload contains only the current raw final answer.
+  - Message-chain diagnostics must include correlatable `chatJid`, inbound `messageId`, `turnId`, `runId`/session id where available, `sourceKind`, runtime identity, final raw length, presentation buffer lengths, delivery type, and cursor commit decision at the boundaries that can affect visible output.
 - Next action:
-  - Monitor the next real Feishu turn that has interrupted residue; expected behavior is a confirmation prompt, not automatic stale-context replay.
-  - Add retry/failure E2E cases only for concrete remaining gaps found in real incidents or lifecycle evidence.
+  - Promote real-flow E2E to the required gate for any Feishu message visibility, restart recovery, streaming card, cursor, or output-boundary change.
+  - Add negative E2E cases for stale presentation buffer, restart first turn, pending-message recovery, and mixed source turns before changing those paths again.
+  - Add/review structured logs at every output-affecting boundary so a single `messageId` can reconstruct inbound -> queued -> runner -> visible text resolution -> Feishu payload -> cursor commit without manual guessing.
 
 ### P1 RM-2026-04-25-03 Feishu Answer/Commentary Presentation Contract
 
 - Status: `proposed`
 - Source: 2026-04-25 user request items `3` and `4`; visible Feishu/Web process-text incidents
-- Summary: 飞书主正文只展示最终答案；commentary、工具过程、内部诊断、主动模式收敛检查和长日志必须进入独立折叠区、Web 调试区或 run log，默认不能挤占正文。
+- Summary: 飞书主正文只展示当前 turn 的 runtime answer；reasoning/commentary、工具过程、内部诊断、主动模式收敛检查和长日志必须进入独立折叠区、Web 调试区或 run log，默认不能挤占正文；final send 不应依赖跨 turn presentation `answerText`。
 - Current state:
   - Shared stream presentation already has answer/commentary concepts and Feishu cards can render auxiliary progress.
   - Graceful shutdown partials and known Codex transport/model diagnostics are suppressed from user-visible正文.
   - Claude and Codex ACP turns now share the same minimal necessary reply-policy block; Codex prompts are wrapped with that policy while preserving the raw user message.
   - Final visible replies now pass through a `reply-visibility` internal-context guard that strips raw prompt XML wrappers and restart recovery summaries before Feishu/Web delivery.
-  - `reply-visibility` now drops stale Codex presentation `answerText` when it is much larger than and unrelated to the current final raw output, with warn logs for future incident tracing.
+  - `reply-visibility` now drops stale Codex presentation `answerText` when it is much larger than the current final raw output, with warn logs for future incident tracing.
+  - Feishu stale-output E2E proves delivered static card markdown equals current raw final and excludes stale hkipo/history content.
+  - `answerText` is now considered a transitional presentation buffer, not an authoritative final-send source.
   - `send_message` visible-tool policy still needs hardening.
 - Next action:
+  - Remove final-send dependence on `presentationText.answerText`; final visible body should come from current runtime answer/raw final only, with per-turn buffers used only for live card rendering.
   - Tighten `shared/stream-presentation.ts`, `src/reply-visibility.ts`, `src/feishu-streaming-card.ts`, and `container/agent-runner/src/mcp-tools.ts` so process text cannot become Feishu main body by default.
   - Add per-channel concise reply budgets for Feishu final answers.
 
@@ -74,7 +80,7 @@
 
 - Status: `monitoring`
 - Source: 2026-04-25 user request item `5`; restart recovery and resume-gate incidents
-- Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息，除非用户显式要求恢复上下文；连续性由同一 workspace 主 runtime session 提供，不能靠 recovery context 自动拼接历史。
+- Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息；连续性完全由底层 agent runtime session 提供，cli-claw 不维护、不总结、不拼接历史上下文，只保留消息数据库用于审计和溯源。
 - Current state:
   - Startup recovery ignores internal prompt/command/assistant/system rows.
   - Interrupted residual context now requires explicit user confirmation before old context can be replayed.
@@ -85,8 +91,9 @@
   - Main workspace reset paths delete only the primary runtime slot while preserving conversation agent sessions.
   - Skill slash commands that return `assistant_prompt` are tagged as `assistant_prompt` messages and clear the workspace primary runtime session before execution, so command-generated tasks do not inherit stale runtime transcript context.
 - Next action:
-  - Monitor real Feishu/Web mixed-channel turns after applying Milestone 39; expected behavior is ordered contiguous-source turns for ordinary messages, with assistant-prompt skill commands starting from a fresh runtime session.
-  - Add remaining regression tests for Codex context-window auto-reset only if real traffic shows recurrence.
+  - Remove any remaining cli-claw-owned historical prompt/replay/summary injection path; restart must send only pending user messages and rely on saved runtime session id for context.
+  - Add real-flow E2E for restart first turn and interrupted pending recovery proving no DB history/recovery summary reaches agent input or user-visible output.
+  - Monitor real Feishu/Web mixed-channel turns; expected behavior is ordered contiguous-source turns for ordinary messages, with assistant-prompt skill commands starting from a fresh runtime session.
 
 ### P1 RM-2026-04-25-05 Workspace Autopilot Resource Governance
 
