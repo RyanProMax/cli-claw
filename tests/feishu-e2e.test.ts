@@ -33,6 +33,10 @@ const hoisted = vi.hoisted(() => {
     createdCards,
     updatedCards,
     streamedContents,
+    runHostAgent: vi.fn(),
+    runContainerAgent: vi.fn(),
+    writeGroupsSnapshot: vi.fn(),
+    writeTasksSnapshot: vi.fn(),
     wsStartSpy: vi.fn().mockResolvedValue(undefined),
     wsCloseSpy: vi.fn().mockResolvedValue(undefined),
   };
@@ -120,7 +124,25 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
 });
 
 vi.mock('../src/web.js', () => ({
+  startWebServer: vi.fn(),
+  broadcastToWebClients: vi.fn(),
   broadcastNewMessage: vi.fn(),
+  broadcastTyping: vi.fn(),
+  broadcastStreamEvent: vi.fn(),
+  broadcastAgentStatus: vi.fn(),
+  broadcastGroupCreated: vi.fn(),
+  broadcastBillingUpdate: vi.fn(),
+  shutdownTerminals: vi.fn(),
+  shutdownWebServer: vi.fn(),
+  getActiveStreamingTexts: vi.fn(() => new Map()),
+  clearStreamingSnapshot: vi.fn(),
+}));
+
+vi.mock('../src/container-runner.js', () => ({
+  runHostAgent: hoisted.runHostAgent,
+  runContainerAgent: hoisted.runContainerAgent,
+  writeGroupsSnapshot: hoisted.writeGroupsSnapshot,
+  writeTasksSnapshot: hoisted.writeTasksSnapshot,
 }));
 
 const tempHomes: string[] = [];
@@ -142,6 +164,27 @@ async function loadFeishuE2EModules() {
   ]);
   db.initDatabase();
   return { db, notifier, feishu, restartGuard };
+}
+
+async function loadFeishuProcessGroupModules() {
+  const home = createTempHome();
+  vi.stubEnv('HOME', home);
+  const [db, notifier, imManagerModule, restartGuard, indexModule] =
+    await Promise.all([
+      import('../src/db.ts'),
+      import('../src/message-notifier.ts'),
+      import('../src/im-manager.ts'),
+      import('../shared/service-restart-guard.ts'),
+      import('../src/index.ts'),
+    ]);
+  db.initDatabase();
+  return {
+    db,
+    notifier,
+    imManager: imManagerModule.imManager,
+    restartGuard,
+    processGroupMessages: indexModule.processGroupMessages,
+  };
 }
 
 async function driveQueuedFeishuSuccessPath(_: {
@@ -403,6 +446,10 @@ afterEach(() => {
   hoisted.createdCards.length = 0;
   hoisted.updatedCards.length = 0;
   hoisted.streamedContents.length = 0;
+  hoisted.runHostAgent.mockReset();
+  hoisted.runContainerAgent.mockReset();
+  hoisted.writeGroupsSnapshot.mockReset();
+  hoisted.writeTasksSnapshot.mockReset();
   Object.keys(hoisted.handlers).forEach((key) => delete hoisted.handlers[key]);
   for (const dir of tempHomes.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -561,6 +608,201 @@ describe('Feishu in-process E2E harness', () => {
         id: messageId,
       },
     });
+  });
+
+  test('processes a Feishu turn through processGroupMessages, streaming card finalization, final reply persistence, and cursor commit without leaked context', async () => {
+    const {
+      db,
+      notifier,
+      imManager,
+      restartGuard,
+      processGroupMessages,
+    } = await loadFeishuProcessGroupModules();
+    const chatId = 'oc_process_group_output';
+    const chatJid = `feishu:${chatId}`;
+    const userId = 'user-feishu-process-group';
+    const messageId = 'om_process_group_output';
+    const finalText = '当前结论：真实飞书输出链路已同步。';
+    const forbiddenSnippets = [
+      '旧 history',
+      'PLANS/ACTIVE.md',
+      'handoff',
+      '历史 ACTIVE 计划',
+    ];
+
+    db.setRegisteredGroup(chatJid, {
+      name: 'Feishu Process Group',
+      folder: 'feishu-process-group',
+      added_at: '2026-04-28T09:00:00.000Z',
+      executionMode: 'host',
+      agentType: 'codex',
+      activation_mode: 'auto',
+      created_by: userId,
+    });
+    db.ensureChatExists(chatJid);
+    db.storeMessageDirect(
+      'old-history',
+      chatJid,
+      'ou_old',
+      'Old User',
+      '旧 history：不要把 PLANS/ACTIVE.md 或 handoff 带进下一轮。',
+      '2026-04-20T09:00:00.000Z',
+      false,
+      { sourceJid: chatJid },
+    );
+    db.storeMessageDirect(
+      'old-interrupt',
+      chatJid,
+      'cli-claw-agent',
+      'Cli Claw',
+      '历史 ACTIVE 计划和 handoff 残留',
+      '2026-04-20T09:01:00.000Z',
+      true,
+      {
+        sourceJid: chatJid,
+        meta: {
+          sourceKind: 'interrupt_partial',
+          finalizationReason: 'interrupted',
+        },
+      },
+    );
+
+    await imManager.connectUserFeishu(
+      userId,
+      { appId: 'app-id', appSecret: 'app-secret' },
+      vi.fn(),
+      {
+        resolveManagedCommandText: (_chatJid, text) =>
+          restartGuard.resolveManagedSelfRestartCommand(text),
+      },
+    );
+
+    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: chatId,
+        message_id: messageId,
+        create_time: '1777070340000',
+        message_type: 'text',
+        content: JSON.stringify({ text: '请只处理这条飞书消息' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_process_group',
+        },
+      },
+    });
+    await expect(wakeup).resolves.toBe('woke');
+
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'gpt-5.1',
+      reasoningEffort: 'high',
+      supportsReasoningEffort: true,
+    };
+    hoisted.runHostAgent.mockImplementation(
+      async (_group, input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'init',
+            turnId: messageId,
+            sessionId: 'sess-feishu-process-group',
+            messageCursor: input.messageCursor,
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'thinking_delta',
+            text: '检查当前请求',
+            turnId: messageId,
+            sessionId: 'sess-feishu-process-group',
+            runtimeIdentity,
+          },
+        });
+        await vi.waitFor(() => {
+          expect(hoisted.cardCreateSpy).toHaveBeenCalledTimes(1);
+        });
+        await onOutput?.({
+          status: 'success',
+          result: finalText,
+          newSessionId: 'sess-feishu-process-group',
+          runtimeIdentity,
+          turnId: messageId,
+          sessionId: 'sess-feishu-process-group',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+        });
+        return { status: 'success' };
+      },
+    );
+
+    await expect(processGroupMessages(chatJid)).resolves.toBe(true);
+
+    expect(hoisted.runHostAgent).toHaveBeenCalledOnce();
+    const prompt = hoisted.runHostAgent.mock.calls[0][1].prompt;
+    expect(prompt).toContain('请只处理这条飞书消息');
+    for (const snippet of forbiddenSnippets) {
+      expect(prompt).not.toContain(snippet);
+    }
+
+    await vi.waitFor(() => {
+      expect(JSON.stringify(hoisted.updatedCards.at(-1))).toContain(finalText);
+    });
+    const finalCardJson = JSON.stringify(hoisted.updatedCards.at(-1));
+    expect(finalCardJson).toContain(finalText);
+    for (const snippet of forbiddenSnippets) {
+      expect(finalCardJson).not.toContain(snippet);
+    }
+
+    const inboundMessages = db.getMessagesSince(chatJid, {
+      timestamp: '',
+      id: '',
+    });
+    const chatMessages = db.getMessagesPage(chatJid, undefined, 10);
+    const assistantMessages = chatMessages.filter(
+      (message: any) => message.sender === 'cli-claw-agent',
+    );
+    const finalAssistantMessage = assistantMessages[0];
+    expect(finalAssistantMessage?.content).toBe(finalText);
+    for (const snippet of forbiddenSnippets) {
+      expect(finalAssistantMessage?.content).not.toContain(snippet);
+    }
+
+    const currentUserMessage = inboundMessages.find(
+      (message: any) => message.id === messageId,
+    );
+    expect(
+      JSON.parse(db.getRouterState('last_committed_cursor') ?? '{}'),
+    ).toEqual({
+      [chatJid]: {
+        timestamp: currentUserMessage?.timestamp,
+        id: messageId,
+      },
+    });
+
+    const lifecycle = db.getImMessageLifecycleEvents({
+      provider: 'feishu',
+      chatJid,
+      messageId,
+    });
+    expect(lifecycle.map((event: any) => event.stage)).toEqual([
+      'received',
+      'stored',
+      'notified',
+      'stream_started',
+      'finalized',
+      'im_delivered',
+      'cursor_committed',
+    ]);
+    expect(lifecycle.every((event: any) => event.status === 'ok')).toBe(true);
   });
 
   test('sends current Codex raw final to Feishu when presentation contains stale transcript', async () => {

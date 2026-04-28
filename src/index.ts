@@ -4034,6 +4034,22 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 result.sourceKind || 'sdk_final',
                 chatJid,
               );
+              recordLifecycleForMessages({
+                messages: messagesForAgent,
+                stage: 'finalized',
+                details: {
+                  sourceKind: result.sourceKind || 'sdk_final',
+                  finalizationReason: result.finalizationReason || 'completed',
+                  visibilityResolution: {
+                    agentType: activeRuntimeIdentity?.agentType ?? null,
+                    selectedSource: 'raw_final',
+                    rawFinalLength: text.length,
+                    presentationAnswerLength:
+                      streamingPresentationText.answerText.length,
+                    visibleTextLength: visibleReplyParts.visibleText.length,
+                  },
+                },
+              });
               const localImagePaths = extractLocalImImagePaths(
                 visibleText,
                 effectiveGroup.folder,
@@ -4065,6 +4081,15 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                     await activeStreamingSession.complete(visibleText);
                   }
                   streamingCardHandledIM = true;
+                  recordLifecycleForMessages({
+                    messages: messagesForAgent,
+                    stage: 'im_delivered',
+                    details: {
+                      delivery: 'streaming_card',
+                      targetJid: streamingSessionJid,
+                      messageId: activeStreamingSession.currentMessageId,
+                    },
+                  });
                   // Streaming card replaced the normal sendMessage path,
                   // so clear the ack reaction that would normally be cleared in sendMessage.
                   imManager.clearAckReaction(chatJid);
@@ -4131,8 +4156,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   ? undefined // no turnId → fresh INSERT, no UPSERT dedup
                   : effectiveTurnId;
 
+              const directImSendRequested = directImReply && !skipImSend;
               lastReplyMsgId = await sendMessage(chatJid, visibleText, {
-                sendToIM: directImReply && !skipImSend,
+                sendToIM: directImSendRequested,
                 localImagePaths,
                 messageMeta: {
                   turnId: turnIdForDb,
@@ -4143,6 +4169,13 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   runtimeIdentity: activeRuntimeIdentity,
                 },
               });
+              if (directImSendRequested) {
+                recordLifecycleForMessages({
+                  messages: messagesForAgent,
+                  stage: 'im_delivered',
+                  details: { delivery: 'static_message', targetJid: chatJid },
+                });
+              }
               lastSavedTurnId = effectiveTurnId;
 
               // For routed IM (web JID with IM source), only send the FIRST
@@ -4205,7 +4238,13 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               // Persist cursor as soon as a visible reply is emitted.
               // Long-lived runners may stay alive for idleTimeout, and waiting
               // until process exit would cause duplicate replay after restart.
-              commitCursor();
+              if (commitCursor()) {
+                recordLifecycleForMessages({
+                  messages: messagesForAgent,
+                  stage: 'cursor_committed',
+                  details: { cursor: activeTurnCursor },
+                });
+              }
             }
             // Only reset idle timer on actual results, not session-update markers (result: null)
             resetIdleTimer();
