@@ -81,8 +81,9 @@
   - Primary turn selection now processes contiguous same-source pending messages in DB order; different sources wait for the next turn instead of being regrouped or mixed into the active source.
   - Restart recovery resumes the saved runtime session and pending messages; it no longer clears the primary session or injects compact DB history.
   - Main workspace reset paths delete only the primary runtime slot while preserving conversation agent sessions.
+  - Skill slash commands that return `assistant_prompt` are tagged as `assistant_prompt` messages and clear the workspace primary runtime session before execution, so command-generated tasks do not inherit stale runtime transcript context.
 - Next action:
-  - Monitor real Feishu/Web mixed-channel turns after applying Milestone 38; expected behavior is ordered contiguous-source turns using one shared runtime session.
+  - Monitor real Feishu/Web mixed-channel turns after applying Milestone 39; expected behavior is ordered contiguous-source turns for ordinary messages, with assistant-prompt skill commands starting from a fresh runtime session.
   - Add remaining regression tests for Codex context-window auto-reset only if real traffic shows recurrence.
 
 ### P1 RM-2026-04-25-05 Workspace Autopilot Resource Governance

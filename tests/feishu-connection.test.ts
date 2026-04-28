@@ -416,6 +416,59 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     });
   });
 
+  test('marks slash-command assistant prompt rewrites as isolated assistant prompts', async () => {
+    hoisted.resolveImSlashCommandReplySpy.mockResolvedValueOnce({
+      kind: 'rewrite_message',
+      content: '请分析当前港股 IPO 池',
+      sourceKind: 'assistant_prompt',
+    });
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCommand: async () => null,
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_command_chat',
+        message_id: 'msg-hkipo',
+        create_time: Date.now().toString(),
+        message_type: 'text',
+        content: JSON.stringify({ text: '/hkipo' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    expect(storeMessageDirect).toHaveBeenCalledWith(
+      'msg-hkipo',
+      'feishu:oc_command_chat',
+      'user-open-id',
+      'user-open-id',
+      '请分析当前港股 IPO 池',
+      expect.any(String),
+      false,
+      {
+        attachments: undefined,
+        sourceJid: 'feishu:oc_command_chat',
+        meta: { sourceKind: 'assistant_prompt' },
+      },
+    );
+    expect(broadcastNewMessage).toHaveBeenCalledWith(
+      'feishu:oc_command_chat',
+      expect.objectContaining({ source_kind: 'assistant_prompt' }),
+      undefined,
+    );
+  });
+
   test('routes explicit managed restart phrases through the command handler before normal message storage', async () => {
     const onCommand = vi.fn().mockResolvedValue('自重启受理成功');
     const resolveManagedCommandText = vi.fn().mockReturnValue('self-restart');

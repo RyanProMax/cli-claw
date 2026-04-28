@@ -3610,6 +3610,12 @@ export function resolvePrimaryRuntimeSessionId({
   return sessionCache[folder] || loadSession(folder);
 }
 
+export function shouldResetPrimaryRuntimeForTurn(
+  messages: Pick<NewMessage, 'source_kind'>[],
+): boolean {
+  return messages.some((message) => message.source_kind === 'assistant_prompt');
+}
+
 function rememberPrimaryRuntimeSession(
   folder: string,
   sessionId: string,
@@ -3796,6 +3802,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     messagesForAgent[0]!,
     chatJid,
   );
+
+  const resetPrimaryRuntimeForTurn =
+    shouldResetPrimaryRuntimeForTurn(messagesForAgent);
+  if (resetPrimaryRuntimeForTurn) {
+    clearPrimaryRuntimeSession(effectiveGroup.folder);
+  }
 
   const shared = isGroupShared(group.folder);
   let prompt = formatMessages(messagesForAgent, shared);

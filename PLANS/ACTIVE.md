@@ -1754,34 +1754,88 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 38
+- Milestone 39
 
 Current status:
-- done; destructive refactor makes workspace primary conversations use one runtime session across Web/IM channels, processes contiguous same-source batches in order, and removes restart recovery history injection
+- done; command-generated assistant prompts are tagged and executed after clearing the workspace primary runtime session
 
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
 - `docs/MEMORY.md`
 - `docs/RUNTIME.md`
-- `src/context-compaction.ts`
 - `src/db.ts`
-- `src/group-queue.ts`
+- `src/feishu.ts`
+- `src/im-slash-command.ts`
 - `src/index.ts`
-- `src/task-scheduler.ts`
-- `tests/context-compaction.test.ts`
-- `tests/group-queue.test.ts`
+- `src/telegram.ts`
+- `src/types.ts`
+- `src/web.ts`
+- `tests/feishu-connection.test.ts`
+- `tests/im-slash-command.test.ts`
 - `tests/restart-recovery.test.ts`
-- `tests/task-scheduler-host-cwd.test.ts`
 
 Last failure summary:
-- Resolved: full `npm test -- --run` initially failed because `getRecentImMessageLifecycleIssueEvents()` only returned `error` rows, while lifecycle/self-status tests and real Feishu restart evidence treat `skipped` as a non-ok issue. Query now returns all `status != 'ok'`.
+- None in Milestone 39.
 
 Suspected cause:
 - Previous mitigations coupled channel routing with runtime session isolation and recovery history injection, causing Feishu/IM turns to lose continuity or receive stale context.
 
 Next step:
-- Commit Milestone 38; do not restart the live service because the user has active work running.
+- Commit Milestone 39, then apply with the safe restart path.
+
+
+### Milestone 39
+
+Objective:
+- Prevent skill slash commands that rewrite into assistant prompts, such as `/hkipo`, from reusing the existing primary runtime transcript while preserving normal Web/IM continuity for ordinary user messages.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `docs/MEMORY.md`
+- `docs/COMMAND.md`
+- `src/types.ts`
+- `src/db.ts`
+- `src/im-slash-command.ts`
+- `src/feishu.ts`
+- `src/telegram.ts`
+- `src/web.ts`
+- `src/index.ts`
+- `tests/im-slash-command.test.ts`
+- `tests/feishu-connection.test.ts`
+- `tests/restart-recovery.test.ts`
+
+Validation:
+- `npm test -- --run tests/im-slash-command.test.ts tests/feishu-connection.test.ts tests/restart-recovery.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/RUNTIME.md docs/MEMORY.md docs/COMMAND.md src/types.ts src/db.ts src/im-slash-command.ts src/feishu.ts src/telegram.ts src/web.ts src/index.ts tests/im-slash-command.test.ts tests/feishu-connection.test.ts tests/restart-recovery.test.ts`
+- `git diff --check`
+- `./scripts/review.sh`
+- Manual review against `RUNBOOKS/Review.md`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/im-slash-command.test.ts tests/feishu-connection.test.ts tests/restart-recovery.test.ts`: passed, 3 files / 61 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/RUNTIME.md docs/MEMORY.md docs/COMMAND.md src/types.ts src/db.ts src/im-slash-command.ts src/feishu.ts src/telegram.ts src/web.ts src/index.ts tests/im-slash-command.test.ts tests/feishu-connection.test.ts tests/restart-recovery.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed
+  - Scope: all changed files are in Milestone 39 allowed scope.
+  - Objective: `assistant_prompt` rewrite messages are tagged at IM/Web ingestion and trigger primary runtime reset before dispatch.
+  - Docs: runtime, memory, command, and roadmap contracts are aligned.
+
+Risks / Notes / Handoff:
+- Root cause is not restart DB history injection; Milestone 38 removed that path. The remaining leak is primary runtime session reuse for command-generated assistant prompts.
+- Safe restart is required for the running service to pick up the fix.
 
 
 ### Milestone 38

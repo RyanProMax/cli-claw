@@ -155,7 +155,7 @@ function getNewMessagesStmt(jidCount: number): any {
   if (!s) {
     const placeholders = Array(jidCount).fill('?').join(',');
     s = db.prepare(
-      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, attachments
+      `SELECT id, chat_jid, source_jid, runtime_identity, sender, sender_name, content, timestamp, attachments, source_kind
        FROM messages
        WHERE (timestamp > ? OR (timestamp = ? AND id > ?))
          AND chat_jid IN (${placeholders})

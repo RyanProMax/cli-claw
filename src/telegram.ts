@@ -15,6 +15,7 @@ import {
 } from './im-downloader.js';
 import { detectImageMimeType } from './image-detector.js';
 import { resolveImSlashCommandReply } from './im-slash-command.js';
+import type { MessageSourceKind } from './types.js';
 // ─── TelegramConnection Interface ──────────────────────────────
 
 export interface TelegramConnectionConfig {
@@ -500,6 +501,7 @@ export function createTelegramConnection(
           const tgSlashMatch = text
             .trim()
             .match(/^\/(\S+?)(?:@\S+)?(?:\s+(.*))?$/i);
+          let sourceKind: MessageSourceKind | null = null;
           if (tgSlashMatch && opts.onCommand) {
             const cmdBody = (
               tgSlashMatch[1] + (tgSlashMatch[2] ? ' ' + tgSlashMatch[2] : '')
@@ -519,6 +521,7 @@ export function createTelegramConnection(
                 return;
               }
               text = reply.content;
+              sourceKind = reply.sourceKind ?? null;
             } catch (err) {
               logger.error(
                 { jid, cmd: tgSlashMatch[1], err },
@@ -560,7 +563,10 @@ export function createTelegramConnection(
             text,
             timestamp,
             false,
-            { sourceJid: jid },
+            {
+              sourceJid: jid,
+              meta: sourceKind ? { sourceKind } : undefined,
+            },
           );
 
           // 广播到 Web 客户端
@@ -575,6 +581,7 @@ export function createTelegramConnection(
               content: text,
               timestamp,
               is_from_me: false,
+              ...(sourceKind ? { source_kind: sourceKind } : {}),
             },
             agentRouting?.agentId ?? undefined,
           );

@@ -2,6 +2,7 @@ import {
   formatUnknownRuntimeCommandReply,
   parseSlashCommandCandidate,
 } from './runtime-command-registry.js';
+import type { MessageSourceKind } from './types.js';
 
 export type IMCommandHandler = (
   chatJid: string,
@@ -13,6 +14,7 @@ const IM_SLASH_REWRITE_PREFIX = '__CLI_CLAW_REWRITE__\n';
 export interface ResolvedImSlashCommand {
   kind: 'reply' | 'rewrite_message';
   content: string;
+  sourceKind?: MessageSourceKind;
 }
 
 export function encodeImSlashRewriteMessage(message: string): string {
@@ -35,7 +37,11 @@ export async function resolveImSlashCommandReply(
   if (reply !== null) {
     const rewritten = decodeImSlashRewriteMessage(reply);
     if (rewritten) {
-      return { kind: 'rewrite_message', content: rewritten };
+      return {
+        kind: 'rewrite_message',
+        content: rewritten,
+        sourceKind: 'assistant_prompt',
+      };
     }
     return { kind: 'reply', content: reply };
   }

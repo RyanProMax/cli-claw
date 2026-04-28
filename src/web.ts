@@ -77,6 +77,7 @@ import {
 import { isSessionExpired } from './auth.js';
 import type {
   NewMessage,
+  MessageSourceKind,
   RuntimeIdentity,
   WsMessageOut,
   WsMessageIn,
@@ -255,7 +256,7 @@ function persistImmediateMessage(options: {
   content: string;
   isFromMe: boolean;
   attachments?: string;
-  sourceKind?: 'user_command';
+  sourceKind?: MessageSourceKind;
 }): { messageId: string; timestamp: string } {
   const messageId = crypto.randomUUID();
   const timestamp = new Date().toISOString();
@@ -301,7 +302,11 @@ async function handleWebSlashCommand(options: {
   attachments?: Array<{ type: 'image'; data: string; mimeType?: string }>;
 }): Promise<
   | { handled: false }
-  | { handled: false; rewrittenContent: string }
+  | {
+      handled: false;
+      rewrittenContent: string;
+      rewrittenSourceKind: MessageSourceKind;
+    }
   | {
       handled: true;
       messageId: string;
@@ -371,7 +376,11 @@ async function handleWebSlashCommand(options: {
       target,
     });
     if (skillResult?.kind === 'assistant_prompt') {
-      return { handled: false, rewrittenContent: skillResult.prompt };
+      return {
+        handled: false,
+        rewrittenContent: skillResult.prompt,
+        rewrittenSourceKind: 'assistant_prompt',
+      };
     }
     const { messageId, timestamp } = persistCommand();
     persistReply(
@@ -601,6 +610,10 @@ async function handleWebUserMessage(
     'rewrittenContent' in commandResult && commandResult.rewrittenContent
       ? commandResult.rewrittenContent
       : content;
+  const sourceKind =
+    'rewrittenSourceKind' in commandResult
+      ? commandResult.rewrittenSourceKind
+      : null;
 
   ensureChatExists(chatJid);
 
@@ -626,7 +639,10 @@ async function handleWebUserMessage(
     contentForProcessing,
     timestamp,
     false,
-    { attachments: attachmentsStr },
+    {
+      attachments: attachmentsStr,
+      meta: sourceKind ? { sourceKind } : undefined,
+    },
   );
 
   broadcastNewMessage(chatJid, {
@@ -638,6 +654,7 @@ async function handleWebUserMessage(
     timestamp,
     is_from_me: false,
     attachments: attachmentsStr,
+    ...(sourceKind ? { source_kind: sourceKind } : {}),
   });
 
   if (group.created_by) {

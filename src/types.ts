@@ -140,6 +140,7 @@ export type MessageSourceKind =
   | 'overflow_partial'
   | 'compact_partial'
   | 'user_command'
+  | 'assistant_prompt'
   | 'scheduled_task_prompt'
   | 'legacy'
   | 'auto_continue';

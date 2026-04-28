@@ -36,7 +36,7 @@ import {
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
 } from './runtime-command-registry.js';
-import type { RuntimeIdentity } from './types.js';
+import type { MessageSourceKind, RuntimeIdentity } from './types.js';
 
 type FeishuLifecycleEventInput = Omit<
   Parameters<typeof recordImMessageLifecycleEvent>[0],
@@ -1216,6 +1216,7 @@ export function createFeishuConnection(
     // 需要先 strip 掉开头的 @mention 前缀再匹配
     const textForSlash = text?.trim().replace(/^@\S+\s+/, '') ?? '';
     const slashMatch = textForSlash.match(/^\/(\S+)(.*)$/);
+    let sourceKind: MessageSourceKind | null = null;
     if (slashMatch && onCommand) {
       const cmdBody = (slashMatch[1] + slashMatch[2]).trim();
       logger.info(
@@ -1253,6 +1254,7 @@ export function createFeishuConnection(
           return;
         }
         text = reply.content;
+        sourceKind = reply.sourceKind ?? null;
       } catch (err) {
         logger.error(
           { chatJid, cmd: slashMatch[1], err },
@@ -1364,7 +1366,11 @@ export function createFeishuConnection(
       text,
       timestamp,
       false,
-      { attachments: attachmentsJson, sourceJid: chatJid },
+      {
+        attachments: attachmentsJson,
+        sourceJid: chatJid,
+        meta: sourceKind ? { sourceKind } : undefined,
+      },
     );
     recordLifecycleEvent({
       chatJid: targetJid,
@@ -1390,6 +1396,7 @@ export function createFeishuConnection(
         content: text,
         timestamp,
         attachments: attachmentsJson,
+        ...(sourceKind ? { source_kind: sourceKind } : {}),
       },
       targetAgentId ?? undefined,
     );

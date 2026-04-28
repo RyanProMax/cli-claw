@@ -56,6 +56,20 @@ describe('restart recovery cursor handling', () => {
     expect(loadSession).toHaveBeenCalledWith('main');
   });
 
+  test('resets the primary runtime session for command-generated assistant prompts', async () => {
+    const { shouldResetPrimaryRuntimeForTurn } = await loadIndexModule();
+
+    expect(
+      shouldResetPrimaryRuntimeForTurn([{ source_kind: 'assistant_prompt' }]),
+    ).toBe(true);
+    expect(
+      shouldResetPrimaryRuntimeForTurn([
+        { source_kind: null },
+        { source_kind: 'scheduled_task_prompt' },
+      ]),
+    ).toBe(false);
+  });
+
   test('selects only the leading contiguous source batch for a primary turn', async () => {
     const { selectLeadingSourceTurnMessages } = await loadIndexModule();
     const messages = [

@@ -60,7 +60,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 skill command 的执行结果有两类：
 
 - 直接回复一段最终 markdown
-- 把 slash command 改写成一段由 skill 生成的普通用户消息，再继续进入 Agent 主流程
+- 把 slash command 改写成一段由 skill 生成的 `assistant_prompt` 消息，再继续进入 Agent 主流程；这类消息会开启新的主 runtime session，避免命令任务继承上一轮聊天 transcript
 
 因此，并不是所有 slash command 都会在本地层终止；skill command 可以选择把命令解析结果继续交给 Agent。
 
@@ -172,7 +172,7 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 可用命
 如果在 Web 输入框输入了已知但当前入口不可用的命令（例如 `/bind`），系统会直接返回明确提示，而不会把它当普通消息交给 Agent。
 当输入 `/model` 或 `/effort` 时，输入框上方会展示对应选项；点击后由前端发送实际切换命令。
 
-如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容。
+如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容，并以新的主 runtime session 执行。
 
 ## 运行时相关命令
 

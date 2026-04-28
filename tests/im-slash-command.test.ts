@@ -45,6 +45,7 @@ describe('IM slash command reply policy', () => {
     ).resolves.toEqual({
       kind: 'rewrite_message',
       content: '请分析当前港股 IPO 池',
+      sourceKind: 'assistant_prompt',
     });
   });
 });
