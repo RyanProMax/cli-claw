@@ -366,6 +366,55 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('renders Codex thinking, commentary, body, and live duration footer in streaming cards', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.setRuntimeIdentity({
+      agentType: 'codex',
+      model: 'gpt-5.4',
+      reasoningEffort: 'high',
+      supportsReasoningEffort: true,
+    });
+    (controller as any).startTime = Date.now() - 2_500;
+
+    controller.appendThinking('分析输入');
+    controller.appendCommentary('工具检查');
+    controller.append('最终正文');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await (controller as any).patchCard('streaming');
+
+    const lastCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const elements = lastCard?.body?.elements ?? [];
+    const panelTitles = elements
+      .filter((element: any) => element?.tag === 'collapsible_panel')
+      .map((element: any) => element?.header?.title?.content);
+    const mainMarkdown = elements.find(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+    const statusNote = (controller as any).buildStreamingStatusNote();
+
+    expect(panelTitles).toContain('💭 Thinking');
+    expect(panelTitles).toContain('💬 Commentary...');
+    expect(JSON.stringify(elements)).toContain('分析输入');
+    expect(JSON.stringify(elements)).toContain('工具检查');
+    expect(mainMarkdown?.content).toBe('最终正文');
+    expect(statusNote).toContain('⏳ 生成中...');
+    expect(statusNote).toContain('Codex');
+    expect(statusNote).toContain('gpt-5.4');
+
+    controller.dispose();
+  });
+
   test('renders active steps above commentary in streaming auxiliary panels', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({

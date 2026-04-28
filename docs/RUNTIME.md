@@ -120,7 +120,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 - 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/Codex 对话上下文。
 - Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。活跃 runner 只接受与当前 turn 相同来源的 IPC 消息；不同来源消息排队并触发 drain，让当前 turn 完成后按顺序处理。
 - 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 Codex commentary、原始 prompt XML 包装和 restart recovery 摘要从主正文剥离，避免 runtime transcript 细节直接发给用户。
-- 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只能作为当前流式卡片渲染的过渡 buffer，旧 turn 的 streaming answer 不能覆盖新 turn 的最终回复。
+- 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只能作为当前流式卡片渲染的过渡 buffer，旧 turn 的 streaming answer 不能覆盖新 turn 的最终回复。Feishu streaming card 对 Claude/Codex 均启用：thinking、commentary 和正文分别渲染到独立区域，footer 必须带运行时身份和当前处理耗时。
 - 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
 
 当前限制：

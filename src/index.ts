@@ -320,9 +320,11 @@ export function feedStreamEventToCard(
     case 'text_delta':
       if (se.text) {
         if (se.runtimeIdentity?.agentType === 'codex') {
-          const streamingBodyText = presentationText.answerText;
-          if (streamingBodyText) {
-            session.append(streamingBodyText);
+          if (presentationText.commentaryText) {
+            session.appendCommentary(presentationText.commentaryText);
+          }
+          if (presentationText.answerText) {
+            session.append(presentationText.answerText);
           }
           break;
         }
@@ -433,12 +435,6 @@ export function syncTerminalPresentationTextToCard(
   if (commentaryText.trim()) {
     session.appendCommentary(commentaryText);
   }
-}
-
-function shouldForwardRuntimeToFeishuStreamingCard(
-  runtimeIdentity?: StreamRuntimeIdentity | null,
-): boolean {
-  return runtimeIdentity?.agentType !== 'codex';
 }
 
 export interface StreamingTurnBoundaryState {
@@ -918,33 +914,12 @@ const IM_SEND_FAIL_THRESHOLD = 3;
 const recoveryGroups = new Set<string>();
 const agentRecoveryVirtualJids = new Set<string>();
 
-interface PendingInterruptedResumeConfirmation {
-  chatJid: string;
-  interruptedAt: string;
-  interruptedMessageId: string;
-  createdAt: string;
-}
-
-type InterruptedResumeDecisionAction =
-  | 'none'
-  | 'wait_for_reply'
-  | 'continue_previous'
-  | 'use_fresh';
+type InterruptedResumeDecisionAction = 'none' | 'use_current';
 
 interface InterruptedResumeDecision {
   action: InterruptedResumeDecisionAction;
   messagesForAgent: NewMessage[];
-  promptText?: string;
-  pendingConfirmation?: PendingInterruptedResumeConfirmation;
-  clearPendingConfirmation?: boolean;
 }
-
-const pendingInterruptedResumeConfirmations: Record<
-  string,
-  PendingInterruptedResumeConfirmation
-> = {};
-const PENDING_INTERRUPTED_RESUME_CONFIRMATIONS_STATE_KEY =
-  'pending_interrupted_resume_confirmations';
 
 // Track consecutive IM health check failures per JID for safe auto-unbind
 const imHealthCheckFailCounts = new Map<string, number>();
@@ -1605,99 +1580,14 @@ function findLastHumanUserIndex(messages: InterruptedResumeMessage[]): number {
   return -1;
 }
 
-function normalizeResumeReplyText(content: string): string {
-  return content
-    .trim()
-    .replace(/[。.!！?？\s]+$/g, '')
-    .toLowerCase();
-}
-
-function isInterruptedResumeContinueReply(content: string): boolean {
-  const normalized = normalizeResumeReplyText(content);
-  return [
-    '继续',
-    '继续上次',
-    '继续上次任务',
-    '继续之前',
-    '继续之前任务',
-    '继续任务',
-    '是',
-    '确认',
-    'yes',
-    'y',
-  ].includes(normalized);
-}
-
-function stripInterruptedResumeDiscardPrefix(content: string): string | null {
-  const trimmed = content.trim();
-  const stripped = trimmed.replace(
-    /^(忽略上次|忽略旧任务|不继续|不用继续|不要继续|丢弃上次|放弃上次|否|no|n)([\s,，。.:：-]+)?/i,
-    '',
-  );
-  if (stripped === trimmed) return null;
-  return stripped.trim();
-}
-
-function cloneMessageWithContent(
-  message: NewMessage,
-  content: string,
-): NewMessage {
-  return {
-    ...message,
-    content,
-  };
-}
-
 export function resolveInterruptedResumeDecision({
   chatJid,
   missedMessages,
-  pendingConfirmation,
 }: {
   chatJid: string;
   missedMessages: NewMessage[];
-  pendingConfirmation?: PendingInterruptedResumeConfirmation;
 }): InterruptedResumeDecision {
   const messages = missedMessages as InterruptedResumeMessage[];
-  if (pendingConfirmation) {
-    const latestUserIndex = findLastHumanUserIndex(messages);
-    if (latestUserIndex < 0) {
-      return {
-        action: 'wait_for_reply',
-        messagesForAgent: [],
-      };
-    }
-
-    const latestUserMessage = messages[latestUserIndex];
-    if (isInterruptedResumeContinueReply(latestUserMessage.content)) {
-      return {
-        action: 'continue_previous',
-        messagesForAgent: [latestUserMessage],
-        clearPendingConfirmation: true,
-      };
-    }
-
-    const discardSuffix = stripInterruptedResumeDiscardPrefix(
-      latestUserMessage.content,
-    );
-    if (discardSuffix !== null) {
-      const messagesForAgent =
-        discardSuffix.length > 0
-          ? [cloneMessageWithContent(latestUserMessage, discardSuffix)]
-          : [latestUserMessage];
-      return {
-        action: 'use_fresh',
-        messagesForAgent,
-        clearPendingConfirmation: true,
-      };
-    }
-
-    return {
-      action: 'use_fresh',
-      messagesForAgent: [latestUserMessage],
-      clearPendingConfirmation: true,
-    };
-  }
-
   const latestUserIndex = findLastHumanUserIndex(messages);
   if (latestUserIndex < 0) {
     return { action: 'none', messagesForAgent: [] };
@@ -1714,27 +1604,18 @@ export function resolveInterruptedResumeDecision({
     return { action: 'none', messagesForAgent: [] };
   }
 
-  const freshMessages = messages
+  const currentMessages = messages
     .slice(interruptIndex + 1)
     .filter(isHumanUserMessage);
 
-  if (freshMessages.length === 0) {
+  if (currentMessages.length === 0) {
     return { action: 'none', messagesForAgent: [] };
   }
 
   return {
-    action: 'use_fresh',
-    messagesForAgent: selectLeadingSourceTurnMessages(freshMessages, chatJid),
+    action: 'use_current',
+    messagesForAgent: selectLeadingSourceTurnMessages(currentMessages, chatJid),
   };
-}
-
-export function isRestartRecoveryHistoryMessage(
-  message: Pick<NewMessage, 'sender' | 'source_kind'>,
-): boolean {
-  if (message.sender === '__system__' || message.sender === 'system') {
-    return false;
-  }
-  return !hasNonRecoverableRestartSourceKind(message);
 }
 
 function sendSystemMessage(jid: string, type: string, detail: string): void {
@@ -3154,49 +3035,6 @@ interface SendMessageOptions {
   messageMeta?: OutboundMessageMeta;
 }
 
-function isMessageSnapshot(value: unknown): value is NewMessage {
-  if (!value || typeof value !== 'object') return false;
-  const message = value as Partial<NewMessage>;
-  return (
-    typeof message.id === 'string' &&
-    typeof message.chat_jid === 'string' &&
-    typeof message.sender === 'string' &&
-    typeof message.sender_name === 'string' &&
-    typeof message.content === 'string' &&
-    typeof message.timestamp === 'string'
-  );
-}
-
-export function normalizePendingInterruptedResumeConfirmation(
-  value: unknown,
-): PendingInterruptedResumeConfirmation | null {
-  if (!value || typeof value !== 'object') return null;
-  const pending = value as Partial<PendingInterruptedResumeConfirmation>;
-  if (
-    typeof pending.chatJid !== 'string' ||
-    typeof pending.interruptedAt !== 'string' ||
-    typeof pending.interruptedMessageId !== 'string' ||
-    typeof pending.createdAt !== 'string'
-  ) {
-    return null;
-  }
-  return {
-    chatJid: pending.chatJid,
-    interruptedAt: pending.interruptedAt,
-    interruptedMessageId: pending.interruptedMessageId,
-    createdAt: pending.createdAt,
-  };
-}
-
-function replacePendingInterruptedResumeConfirmations(
-  next: Record<string, PendingInterruptedResumeConfirmation>,
-): void {
-  for (const key of Object.keys(pendingInterruptedResumeConfirmations)) {
-    delete pendingInterruptedResumeConfirmations[key];
-  }
-  Object.assign(pendingInterruptedResumeConfirmations, next);
-}
-
 function loadState(): void {
   // Load from SQLite
   const persistedTimestamp = getRouterState('last_timestamp') || '';
@@ -3251,29 +3089,6 @@ function loadState(): void {
   lastAgentTimestamp = loadCursorMap('last_agent_timestamp');
   lastCommittedCursor = loadCursorMap('last_committed_cursor');
   activeStreamingTurns = loadStreamingTurnMap('active_streaming_turns');
-  {
-    const raw = getRouterState(
-      PENDING_INTERRUPTED_RESUME_CONFIRMATIONS_STATE_KEY,
-    );
-    try {
-      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      const normalized: Record<string, PendingInterruptedResumeConfirmation> =
-        {};
-      for (const [jid, value] of Object.entries(parsed)) {
-        const pending = normalizePendingInterruptedResumeConfirmation(value);
-        if (pending && pending.chatJid === jid) {
-          normalized[jid] = pending;
-        }
-      }
-      replacePendingInterruptedResumeConfirmations(normalized);
-    } catch {
-      logger.warn(
-        `Corrupted ${PENDING_INTERRUPTED_RESUME_CONFIRMATIONS_STATE_KEY} in DB, resetting`,
-      );
-      replacePendingInterruptedResumeConfirmations({});
-    }
-  }
-
   // Migration: fill in missing lastCommittedCursor entries from lastAgentTimestamp.
   // The original migration only triggered when lastCommittedCursor was completely empty,
   // missing the case where some keys exist but others don't (e.g. new IM groups).
@@ -3467,10 +3282,6 @@ function saveState(): void {
   setRouterState(
     'active_streaming_turns',
     JSON.stringify(activeStreamingTurns),
-  );
-  setRouterState(
-    PENDING_INTERRUPTED_RESUME_CONFIRMATIONS_STATE_KEY,
-    JSON.stringify(pendingInterruptedResumeConfirmations),
   );
 }
 
@@ -3706,21 +3517,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
   const interruptedResumeDecision = resolveInterruptedResumeDecision({
     chatJid,
     missedMessages,
-    pendingConfirmation: pendingInterruptedResumeConfirmations[chatJid],
   });
-  if (interruptedResumeDecision.action === 'wait_for_reply') {
-    const latest = missedMessages[missedMessages.length - 1];
-    advanceCursors(chatJid, {
-      timestamp: latest.timestamp,
-      id: latest.id,
-    });
-    return true;
-  }
-  let clearInterruptedResumeOnCommit =
-    interruptedResumeDecision.clearPendingConfirmation === true;
   const messagesForAgent =
-    interruptedResumeDecision.action === 'continue_previous' ||
-    interruptedResumeDecision.action === 'use_fresh'
+    interruptedResumeDecision.action === 'use_current'
       ? interruptedResumeDecision.messagesForAgent
       : selectLeadingSourceTurnMessages(missedMessages, chatJid);
   const hasDeferredSourceMessages =
@@ -3730,16 +3529,11 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       {
         chatJid,
         action: interruptedResumeDecision.action,
-        pendingInterruptedMessageId:
-          pendingInterruptedResumeConfirmations[chatJid]
-            ?.interruptedMessageId ?? null,
         forwardedMessageCount: messagesForAgent.length,
         deferredMessageCount: Math.max(
           missedMessages.length - messagesForAgent.length,
           0,
         ),
-        clearPendingConfirmation:
-          interruptedResumeDecision.clearPendingConfirmation === true,
       },
       'Interrupted resume decision applied',
     );
@@ -3964,10 +3758,6 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       );
       return false;
     }
-    if (clearInterruptedResumeOnCommit) {
-      delete pendingInterruptedResumeConfirmations[chatJid];
-      clearInterruptedResumeOnCommit = false;
-    }
     advanceCursors(chatJid, activeTurnCursor);
     if (clearActiveStreamingTurns([activeStreamingTurnKey])) {
       saveState();
@@ -4119,15 +3909,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             // ── Feed stream events into Feishu streaming card ──
             // IPC 注入的新 query 开始时，旧卡片已 complete()/abort()，
             // 需要为新 query 重建流式卡片并重置会话级状态。
-            if (
-              !shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
-            ) {
-              if (streamingSession) {
-                streamingSession.dispose();
-                unregisterStreamingSession(streamingSessionJid);
-                streamingSession = undefined;
-              }
-            } else if (streamingSession && !streamingSession.isActive()) {
+            if (streamingSession && !streamingSession.isActive()) {
               unregisterStreamingSession(streamingSessionJid);
               streamingSession = undefined;
               if (ensureStreamingSessionAvailable()) {
@@ -4137,10 +3919,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 );
               }
             }
-            const activeStreamingSession =
-              shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
-                ? ensureStreamingSessionAvailable()
-                : undefined;
+            const activeStreamingSession = ensureStreamingSessionAvailable();
             if (activeStreamingSession) {
               feedStreamEventToCard(
                 activeStreamingSession,
@@ -4170,11 +3949,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 const interruptedText = buildInterruptedReply(
                   streamingPresentationText.answerText,
                   streamingAccumulatedThinking,
-                  shouldForwardRuntimeToFeishuStreamingCard(
-                    activeRuntimeIdentity,
-                  )
-                    ? streamingPresentationText.commentaryText
-                    : '',
+                  streamingPresentationText.commentaryText,
                 );
                 try {
                   let streamingCardHandledIM = false;
@@ -4189,11 +3964,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                     syncTerminalPresentationTextToCard(
                       activeStreamingSession,
                       streamingPresentationText,
-                      shouldForwardRuntimeToFeishuStreamingCard(
-                        activeRuntimeIdentity,
-                      )
-                        ? undefined
-                        : '',
+                      undefined,
                     );
                     streamingCardHandledIM = await activeStreamingSession
                       .abort('已中断')
@@ -4567,11 +4338,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   syncTerminalPresentationTextToCard(
                     activeStreamingSession,
                     streamingPresentationText,
-                    shouldForwardRuntimeToFeishuStreamingCard(
-                      activeRuntimeIdentity,
-                    )
-                      ? visibleReplyParts.commentaryText
-                      : '',
+                    visibleReplyParts.commentaryText,
                   );
                   if (result.finalizationReason === 'error') {
                     await activeStreamingSession.fail(visibleText);
@@ -4759,9 +4526,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
         syncTerminalPresentationTextToCard(
           activeStreamingSession,
           streamingPresentationText,
-          shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
-            ? undefined
-            : '',
+          undefined,
         );
         if (hadError || !output || output.status === 'error') {
           streamingCardHandledInterruptedPartial = await activeStreamingSession
@@ -4789,7 +4554,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             provisionalUsage,
           ).catch(() => {});
           streamingCardHandledInterruptedPartial = await activeStreamingSession
-            .completeWithCurrentText()
+            .abort('未收到最终正文')
             .then(() => true)
             .catch(() => {
               activeStreamingSession.dispose();
@@ -4814,9 +4579,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       const interruptedText = buildInterruptedReply(
         streamingPresentationText.answerText,
         streamingAccumulatedThinking,
-        shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
-          ? streamingPresentationText.commentaryText
-          : '',
+        streamingPresentationText.commentaryText,
       );
       try {
         lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
@@ -4872,9 +4635,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
         const partialReply = buildInterruptedReply(
           streamingPresentationText.answerText,
           streamingAccumulatedThinking,
-          shouldForwardRuntimeToFeishuStreamingCard(activeRuntimeIdentity)
-            ? streamingPresentationText.commentaryText
-            : '',
+          streamingPresentationText.commentaryText,
         );
         lastReplyMsgId = await sendMessage(chatJid, partialReply, {
           sendToIM: false,
@@ -7584,20 +7345,7 @@ async function processAgentConversation(
 
       // ── Feed stream events into Feishu streaming card ──
       const activeAgentStreamingSession =
-        shouldForwardRuntimeToFeishuStreamingCard(currentAgentRuntimeIdentity)
-          ? ensureAgentStreamingSessionAvailable()
-          : undefined;
-      if (
-        !shouldForwardRuntimeToFeishuStreamingCard(
-          currentAgentRuntimeIdentity,
-        ) &&
-        agentStreamingSession
-      ) {
-        agentStreamingSession.dispose();
-        if (streamingSessionJid)
-          unregisterStreamingSession(streamingSessionJid);
-        agentStreamingSession = undefined;
-      }
+        ensureAgentStreamingSessionAvailable();
       if (activeAgentStreamingSession) {
         feedStreamEventToCard(
           activeAgentStreamingSession,
@@ -7620,11 +7368,7 @@ async function processAgentConversation(
             buildInterruptedReply(
               agentStreamingPresentationText.answerText,
               agentStreamingThinking,
-              shouldForwardRuntimeToFeishuStreamingCard(
-                currentAgentRuntimeIdentity,
-              )
-                ? agentStreamingPresentationText.commentaryText
-                : '',
+              agentStreamingPresentationText.commentaryText,
             ),
             'interrupt_partial',
             virtualChatJid,
@@ -7642,11 +7386,7 @@ async function processAgentConversation(
               syncTerminalPresentationTextToCard(
                 activeAgentStreamingSession,
                 agentStreamingPresentationText,
-                shouldForwardRuntimeToFeishuStreamingCard(
-                  currentAgentRuntimeIdentity,
-                )
-                  ? undefined
-                  : '',
+                undefined,
               );
               streamingCardHandledIM = await activeAgentStreamingSession
                 .abort('已中断')
@@ -7914,11 +7654,7 @@ async function processAgentConversation(
             syncTerminalPresentationTextToCard(
               activeAgentStreamingSession,
               agentStreamingPresentationText,
-              shouldForwardRuntimeToFeishuStreamingCard(
-                currentAgentRuntimeIdentity,
-              )
-                ? visibleReplyParts.commentaryText
-                : '',
+              visibleReplyParts.commentaryText,
             );
             if (output.finalizationReason === 'error') {
               await activeAgentStreamingSession.fail(visibleText);
@@ -8253,9 +7989,7 @@ async function processAgentConversation(
         syncTerminalPresentationTextToCard(
           activeAgentStreamingSession,
           agentStreamingPresentationText,
-          shouldForwardRuntimeToFeishuStreamingCard(currentAgentRuntimeIdentity)
-            ? undefined
-            : '',
+          undefined,
         );
         if (hadError) {
           agentStreamingCardHandledInterruptedPartial =
@@ -8288,7 +8022,7 @@ async function processAgentConversation(
           ).catch(() => {});
           agentStreamingCardHandledInterruptedPartial =
             await activeAgentStreamingSession
-              .completeWithCurrentText()
+              .abort('未收到最终正文')
               .then(() => true)
               .catch(() => {
                 activeAgentStreamingSession.dispose();
@@ -8310,9 +8044,7 @@ async function processAgentConversation(
         buildInterruptedReply(
           agentStreamingPresentationText.answerText,
           agentStreamingThinking,
-          shouldForwardRuntimeToFeishuStreamingCard(currentAgentRuntimeIdentity)
-            ? agentStreamingPresentationText.commentaryText
-            : '',
+          agentStreamingPresentationText.commentaryText,
         ),
         'interrupt_partial',
         virtualChatJid,
@@ -8409,11 +8141,7 @@ async function processAgentConversation(
           buildInterruptedReply(
             agentStreamingPresentationText.answerText,
             agentStreamingThinking,
-            shouldForwardRuntimeToFeishuStreamingCard(
-              currentAgentRuntimeIdentity,
-            )
-              ? agentStreamingPresentationText.commentaryText
-              : '',
+            agentStreamingPresentationText.commentaryText,
           ),
           'interrupt_partial',
           virtualChatJid,
@@ -8691,17 +8419,35 @@ async function startMessageLoop(): Promise<void> {
             }
           }
 
-          // Pull all messages since lastAgentTimestamp to preserve full context.
-          const allPending = getMessagesSince(
+          const pendingMessages = getMessagesSince(
             chatJid,
             lastAgentTimestamp[chatJid] || EMPTY_CURSOR,
           );
+          const activeRunnerCursor =
+            lastAgentTimestamp[chatJid] || EMPTY_CURSOR;
+          const filteredPending =
+            dropMessagesAtOrBeforeLatestInterruptedPartial(
+              chatJid,
+              activeRunnerCursor,
+              pendingMessages.length > 0 ? pendingMessages : groupMessages,
+            );
           const messagesToSend =
-            allPending.length > 0 ? allPending : groupMessages;
+            selectRecoverableRestartPendingMessages(filteredPending);
           const leadingSourceMessages = selectLeadingSourceTurnMessages(
             messagesToSend,
             chatJid,
           );
+          if (leadingSourceMessages.length === 0) {
+            logger.info(
+              {
+                chatJid,
+                pendingCount: pendingMessages.length,
+                fallbackCount: groupMessages.length,
+              },
+              'No current user messages available for active runner injection',
+            );
+            continue;
+          }
 
           // Home and non-home groups now share the same IPC injection path.
           // Reply routing is dynamically updated via activeRouteUpdaters when

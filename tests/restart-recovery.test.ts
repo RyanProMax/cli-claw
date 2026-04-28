@@ -663,10 +663,119 @@ describe('restart recovery cursor handling', () => {
       missedMessages: interruptedBatch,
     });
 
-    expect(decision.action).toBe('use_fresh');
+    expect(decision.action).toBe('use_current');
     expect(decision.messagesForAgent.map((m) => m.id)).toEqual(['fresh-user']);
-    expect(decision.promptText).toBeUndefined();
-    expect(decision.pendingConfirmation).toBeUndefined();
+  });
+
+  test('startup recovery prompt includes only current pending user messages', async () => {
+    const { processGroupMessages } = await loadIndexModule();
+    const db = await import('../src/db.ts');
+
+    db.initDatabase();
+    db.setRegisteredGroup('web:main', {
+      name: 'Main',
+      folder: 'main',
+      added_at: '2026-04-28T08:00:00.000Z',
+      executionMode: 'host',
+      is_home: true,
+      activation_mode: 'auto',
+    });
+    db.ensureChatExists('web:main');
+    db.storeMessageDirect(
+      'committed',
+      'web:main',
+      'ou_old',
+      'Old',
+      '已提交的旧消息',
+      '2026-04-28T08:00:00.000Z',
+      false,
+      { sourceJid: 'web:A' },
+    );
+    db.storeMessageDirect(
+      'old-user',
+      'web:main',
+      'ou_old',
+      'Old',
+      '旧任务历史上下文',
+      '2026-04-28T08:01:00.000Z',
+      false,
+      { sourceJid: 'web:A' },
+    );
+    db.storeMessageDirect(
+      'old-interrupt',
+      'web:main',
+      'cli-claw-agent',
+      'Cli Claw',
+      '旧任务中断过程文本',
+      '2026-04-28T08:02:00.000Z',
+      true,
+      {
+        meta: {
+          sourceKind: 'interrupt_partial',
+          finalizationReason: 'interrupted',
+        },
+      },
+    );
+    db.storeMessageDirect(
+      'current-a',
+      'web:main',
+      'ou_a',
+      'A',
+      '当前来源 A 的新问题',
+      '2026-04-28T08:03:00.000Z',
+      false,
+      { sourceJid: 'web:A' },
+    );
+    db.storeMessageDirect(
+      'current-b',
+      'web:main',
+      'ou_b',
+      'B',
+      '当前来源 B 的新问题',
+      '2026-04-28T08:04:00.000Z',
+      false,
+      { sourceJid: 'web:B' },
+    );
+    db.setRouterState(
+      'last_committed_cursor',
+      JSON.stringify({
+        'web:main': {
+          timestamp: '2026-04-28T08:00:00.000Z',
+          id: 'committed',
+        },
+      }),
+    );
+    db.setRouterState(
+      'last_agent_timestamp',
+      JSON.stringify({
+        'web:main': {
+          timestamp: '2026-04-28T08:00:00.000Z',
+          id: 'committed',
+        },
+      }),
+    );
+
+    runnerMocks.runHostAgent.mockImplementation(
+      async (_group, _input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'success',
+          result: '只回答当前来源 A',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+        } as never);
+        return { status: 'success' };
+      },
+    );
+
+    await expect(processGroupMessages('web:main')).resolves.toBe(true);
+
+    expect(runnerMocks.runHostAgent).toHaveBeenCalledOnce();
+    const prompt = runnerMocks.runHostAgent.mock.calls[0][1].prompt;
+    expect(prompt).toContain('当前来源 A 的新问题');
+    expect(prompt).not.toContain('已提交的旧消息');
+    expect(prompt).not.toContain('旧任务历史上下文');
+    expect(prompt).not.toContain('旧任务中断过程文本');
+    expect(prompt).not.toContain('当前来源 B 的新问题');
   });
 
   test('processes only the current leading source after interrupted context', async () => {
@@ -754,142 +863,64 @@ describe('restart recovery cursor handling', () => {
     expect(db.getRouterState('last_committed_cursor')).not.toContain('fresh-b');
   });
 
-  test('does not replay stored interrupted context after an explicit continue reply', async () => {
+  test('uses only current user messages after an interrupted partial', async () => {
     const { resolveInterruptedResumeDecision } = await loadIndexModule();
-    const pendingConfirmation = {
-      chatJid: 'feishu:chat-1',
-      interruptedAt: '2026-04-26T10:01:00.000Z',
-      interruptedMessageId: 'old-interrupt',
-      createdAt: '2026-04-26T10:05:00.000Z',
-    };
 
     const decision = resolveInterruptedResumeDecision({
       chatJid: 'feishu:chat-1',
       missedMessages: [
         {
-          id: 'resume-reply',
+          id: 'old-user',
           chat_jid: 'feishu:chat-1',
           sender: 'ou_user',
           sender_name: 'Ryan',
-          content: '继续上次',
-          timestamp: '2026-04-26T10:06:00.000Z',
+          content: '旧任务历史上下文',
+          timestamp: '2026-04-26T10:00:00.000Z',
         },
-      ],
-      pendingConfirmation: {
-        chatJid: pendingConfirmation.chatJid,
-        interruptedAt: pendingConfirmation.interruptedAt,
-        interruptedMessageId: pendingConfirmation.interruptedMessageId,
-        createdAt: pendingConfirmation.createdAt,
-      },
-    });
-
-    expect(decision.action).toBe('continue_previous');
-    expect(decision.messagesForAgent.map((m) => m.id)).toEqual([
-      'resume-reply',
-    ]);
-    expect(decision.clearPendingConfirmation).toBe(true);
-  });
-
-  test('drops legacy pending resume message bodies during normalization', async () => {
-    const { normalizePendingInterruptedResumeConfirmation } =
-      await loadIndexModule();
-
-    expect(
-      normalizePendingInterruptedResumeConfirmation({
-        chatJid: 'feishu:chat-1',
-        interruptedAt: '2026-04-26T10:01:00.000Z',
-        interruptedMessageId: 'old-interrupt',
-        createdAt: '2026-04-26T10:05:00.000Z',
-        resumeMessages: [
-          {
-            id: 'old-user',
-            chat_jid: 'feishu:chat-1',
-            sender: 'ou_user',
-            sender_name: 'Ryan',
-            content: '旧消息正文不应继续持久化',
-            timestamp: '2026-04-26T10:00:00.000Z',
-          },
-        ],
-        freshMessages: [
-          {
-            id: 'fresh-user',
-            chat_jid: 'feishu:chat-1',
-            sender: 'ou_user',
-            sender_name: 'Ryan',
-            content: '新消息正文也不应进入 pending state',
-            timestamp: '2026-04-26T10:05:00.000Z',
-          },
-        ],
-      }),
-    ).toEqual({
-      chatJid: 'feishu:chat-1',
-      interruptedAt: '2026-04-26T10:01:00.000Z',
-      interruptedMessageId: 'old-interrupt',
-      createdAt: '2026-04-26T10:05:00.000Z',
-    });
-  });
-
-  test('does not feed the confirmation prompt itself back to the runner', async () => {
-    const { resolveInterruptedResumeDecision } = await loadIndexModule();
-
-    const decision = resolveInterruptedResumeDecision({
-      chatJid: 'feishu:chat-1',
-      missedMessages: [
         {
-          id: 'resume-prompt',
+          id: 'old-interrupt',
           chat_jid: 'feishu:chat-1',
           sender: 'cli-claw-agent',
           sender_name: 'Cli Claw',
-          content: '检测到上次任务被中断。是否继续上次任务？',
-          timestamp: '2026-04-26T10:05:01.000Z',
+          content: '旧任务中断过程文本',
+          timestamp: '2026-04-26T10:01:00.000Z',
+          source_kind: 'interrupt_partial',
         },
-      ],
-      pendingConfirmation: {
-        chatJid: 'feishu:chat-1',
-        interruptedAt: '2026-04-26T10:01:00.000Z',
-        interruptedMessageId: 'old-interrupt',
-        createdAt: '2026-04-26T10:05:00.000Z',
-      },
-    });
-
-    expect(decision.action).toBe('wait_for_reply');
-    expect(decision.messagesForAgent).toEqual([]);
-  });
-
-  test('uses the fresh message when interrupted context is explicitly ignored', async () => {
-    const { resolveInterruptedResumeDecision } = await loadIndexModule();
-    const pendingConfirmation = {
-      chatJid: 'feishu:chat-1',
-      interruptedAt: '2026-04-26T10:01:00.000Z',
-      interruptedMessageId: 'old-interrupt',
-      createdAt: '2026-04-26T10:05:00.000Z',
-    };
-
-    const decision = resolveInterruptedResumeDecision({
-      chatJid: 'feishu:chat-1',
-      missedMessages: [
         {
-          id: 'discard-reply',
+          id: 'current-a1',
           chat_jid: 'feishu:chat-1',
-          sender: 'ou_user',
-          sender_name: 'Ryan',
-          content: '忽略上次',
-          timestamp: '2026-04-26T10:06:00.000Z',
+          sender: 'ou_a',
+          sender_name: 'A',
+          content: '当前来源 A 的第一条',
+          timestamp: '2026-04-26T10:02:00.000Z',
+          source_jid: 'feishu:A',
+        },
+        {
+          id: 'current-a2',
+          chat_jid: 'feishu:chat-1',
+          sender: 'ou_a',
+          sender_name: 'A',
+          content: '当前来源 A 的第二条',
+          timestamp: '2026-04-26T10:03:00.000Z',
+          source_jid: 'feishu:A',
+        },
+        {
+          id: 'current-b1',
+          chat_jid: 'feishu:chat-1',
+          sender: 'ou_b',
+          sender_name: 'B',
+          content: '当前来源 B 的第一条',
+          timestamp: '2026-04-26T10:04:00.000Z',
+          source_jid: 'feishu:B',
         },
       ],
-      pendingConfirmation: {
-        chatJid: pendingConfirmation.chatJid,
-        interruptedAt: pendingConfirmation.interruptedAt,
-        interruptedMessageId: pendingConfirmation.interruptedMessageId,
-        createdAt: pendingConfirmation.createdAt,
-      },
     });
 
-    expect(decision.action).toBe('use_fresh');
+    expect(decision.action).toBe('use_current');
     expect(decision.messagesForAgent.map((m) => m.id)).toEqual([
-      'discard-reply',
+      'current-a1',
+      'current-a2',
     ]);
-    expect(decision.clearPendingConfirmation).toBe(true);
   });
 
   test('selects Feishu startup backfill chats from the user workspace even when the Feishu row owner is missing or stale', async () => {
@@ -960,35 +991,6 @@ describe('restart recovery cursor handling', () => {
         imConnectionPhaseComplete: true,
       }),
     ).toBe(false);
-  });
-
-  test('keeps recovery history free of internal control rows', async () => {
-    const { isRestartRecoveryHistoryMessage } = await loadIndexModule();
-
-    expect(
-      isRestartRecoveryHistoryMessage({
-        sender: 'admin',
-        source_kind: 'user_command',
-      }),
-    ).toBe(false);
-    expect(
-      isRestartRecoveryHistoryMessage({
-        sender: 'autopilot',
-        source_kind: 'scheduled_task_prompt',
-      }),
-    ).toBe(false);
-    expect(
-      isRestartRecoveryHistoryMessage({
-        sender: '__system__',
-        source_kind: null,
-      }),
-    ).toBe(false);
-    expect(
-      isRestartRecoveryHistoryMessage({
-        sender: 'cli-claw-agent',
-        source_kind: 'sdk_final',
-      }),
-    ).toBe(true);
   });
 
   test('builds a placeholder interrupted reply when a turn was active but produced no text', async () => {

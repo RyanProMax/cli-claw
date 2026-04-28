@@ -94,7 +94,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('feeds only latest Codex answer text during Feishu streaming', () => {
+  test('feeds Codex commentary and latest answer into separate Feishu card panels', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -136,11 +136,11 @@ describe('stream presentation', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     });
-    expect(session.appendCommentary).not.toHaveBeenCalled();
+    expect(session.appendCommentary).toHaveBeenCalledWith('先收集上下文');
     expect(session.append).toHaveBeenCalledWith('最终结论');
   });
 
-  test('syncs Codex commentary to Feishu cards only at terminal state', () => {
+  test('syncs Codex commentary to Feishu cards at terminal state', () => {
     const session = {
       appendCommentary: vi.fn(),
     } as any;

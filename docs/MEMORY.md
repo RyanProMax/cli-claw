@@ -40,7 +40,7 @@ Cli Claw 里有三类容易混淆的数据：
 - 最终可见回复会经过 `reply-visibility` 边界过滤；如果底层 runtime 把 `<messages>`、`<reply-policy>`、`<system_context>` 或 restart recovery 摘要吐到最终正文，系统会先剥离可识别的内部上下文，无法安全剥离时改为短拦截提示。
 - 最终发送路径不从 Codex streaming presentation 的 `answerText` 取正文；`answerText` 只允许作为当前流式卡片渲染的过渡 buffer。用户可见最终正文以当前 turn 的 runtime raw/final output 为准，并在忽略 presentation answer 时写入 warn 日志。
 - restart recovery 只能服务于“已入库但尚未提交 cursor 的待处理用户消息”；`scheduled_task_prompt`、`user_command`、assistant、system 等内部行不能触发恢复 prompt 或被回放成用户输入。
-- 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 不再回放旧中断上下文；只处理当前未提交的用户消息。旧 pending resume confirmation 只保留中断元信息，不保存旧消息正文；用户回复“继续上次”也只作为当前消息送入 runtime，由底层 runtime session 自己决定是否能续上。
+- 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 不维护 pending resume 状态、不生成确认 prompt、不回放旧中断上下文；只把中断之后当前未提交的连续同源用户消息送入 runtime。用户回复“继续上次”也只是普通当前消息，是否能续上完全由底层 runtime session 自己决定。
 - 主动模式/autopilot 不拼接最近聊天记录作为隐藏 prompt；它只发送任务自身 prompt，必要上下文由 runtime session 或显式工具承担。
 
 ## 增长与清理

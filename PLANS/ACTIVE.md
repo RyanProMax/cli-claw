@@ -1,3 +1,66 @@
+# Feishu Current-Turn Streaming Cleanup
+
+## Goal
+
+- Destructively remove cli-claw-owned pending interrupted resume compatibility state.
+- Enable Feishu streaming cards for Codex with separated thinking, commentary, body, and duration footer.
+- Keep final visible replies sourced only from current runtime raw/final output.
+
+## Done when
+
+- No pending interrupted resume compatibility symbols remain in code/tests/docs.
+- Codex stream events feed Feishu streaming cards and preserve separate thinking/commentary/body panels.
+- Streaming card footer includes runtime identity and processing duration.
+- Real-flow related tests, typecheck, build, review, commit, and safe restart pass.
+
+## Milestones
+
+### Milestone 48
+
+Objective:
+- Remove pending interrupted resume compatibility logic and enable Codex Feishu card streaming with thinking/commentary/body separation and duration footer.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `tests/restart-recovery.test.ts`
+- `tests/stream-presentation.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm test -- --run tests/restart-recovery.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/feishu-e2e.test.ts tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/MEMORY.md docs/RUNTIME.md src/index.ts tests/restart-recovery.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts`
+- `git diff --check`
+- `npm run build`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+  - `npm test -- --run tests/restart-recovery.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/feishu-e2e.test.ts tests/reply-visibility.test.ts`: passed, 5 files / 99 tests.
+  - `npm run typecheck`: passed.
+  - `npx prettier --check PLANS/ACTIVE.md PLANS/ROADMAP.md docs/MEMORY.md docs/RUNTIME.md src/index.ts tests/restart-recovery.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts`: passed.
+  - `git diff --check`: passed.
+  - `npm run build`: passed.
+  - `./scripts/review.sh`: passed.
+
+Review status:
+- passed after subagent blockers were fixed
+  - Removed `isRestartRecoveryHistoryMessage` and its recovery-history test.
+  - Active runner IPC injection now applies the same interrupted-context drop, recoverable-user filtering, and contiguous-source batching as the main path.
+  - Fallback card cleanup no longer completes a successful card with accumulated streaming `answerText` when no terminal final text arrived.
+
+Risks / Notes / Handoff:
+- Runtime code changed; safe restart is required for the running service to pick up Codex streaming cards and the stricter current-turn filtering.
+
+---
+
 # Reply Visibility AnswerText Authority Fix
 
 ## Goal
@@ -52,18 +115,18 @@ Review status:
 - passed
   - Scope: all changed files are in Milestone 47 allowed scope.
   - Runtime inputs: main and conversation-agent paths now drop user pending rows at or before the latest interrupted partial before prompt construction, then apply leading contiguous-source turn selection.
-  - Tests: regression coverage now includes a DB-backed `processGroupMessages()` prompt capture proving old interrupted context and later source messages are excluded, legacy pending-state normalization, and autopilot no-history DB-read assertion.
-  - Docs: stale interrupted-resume replay wording is marked superseded and aligned with the metadata-only contract.
+  - Tests: regression coverage now includes a DB-backed `processGroupMessages()` prompt capture proving old interrupted context and later source messages are excluded, plus autopilot no-history DB-read assertion.
+  - Docs: stale interrupted-resume replay wording is marked superseded and aligned with the no cli-claw pending-resume-state contract.
 
 Risks / Notes / Handoff:
-- Trigger: read-only subagent review found source-boundary bypasses in conversation-agent processing and interrupted fresh-message recovery, plus stale Milestone 25 wording that contradicted the metadata-only resume contract.
+- Trigger: read-only subagent review found source-boundary bypasses in conversation-agent processing and interrupted fresh-message recovery, plus stale Milestone 25 wording that contradicted the no cli-claw pending-resume-state contract.
 - The intended invariant is now explicit for both main and conversation-agent turns: only the leading contiguous source batch enters the runner; later source batches remain pending for their own turn.
 - Runtime code changed; safe restart is required for the running service to pick up the fix.
 
 ### Milestone 46
 
 Objective:
-- Remove the remaining cli-claw-owned historical prompt bodies from autopilot hidden prompts and interrupted-resume confirmation state, while preserving current-message batching and native runtime session continuity.
+- Remove the remaining cli-claw-owned historical prompt bodies from autopilot hidden prompts and interrupted resume handling, while preserving current-message batching and native runtime session continuity.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
@@ -100,7 +163,7 @@ Review status:
 - passed
   - Scope: all changed files are in Milestone 46 allowed scope.
   - Autopilot: no longer reads recent chat DB rows or injects `[WORKSPACE_CONTEXT]` into hidden prompts.
-  - Interrupted resume: pending confirmation state stores only metadata and never persists old/fresh user message bodies.
+  - Interrupted resume: superseded by Milestone 48; cli-claw keeps no pending resume confirmation state.
   - Queue semantics: active pending messages remain the only cli-claw-supplied message batch, with contiguous same-source batching preserved.
 
 Risks / Notes / Handoff:
@@ -1317,7 +1380,7 @@ Risks / Notes / Handoff:
 ### Milestone 25
 
 Objective:
-- Superseded by Milestone 46: remove cli-claw-owned interrupted context replay. Pending interrupted confirmation state is metadata-only; a "continue" reply is sent as the current user message, and any continuity is handled by the runtime session.
+- Superseded by Milestone 48: remove cli-claw-owned interrupted context replay and pending resume confirmation state. A "continue" reply is sent as the current user message, and any continuity is handled by the runtime session.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
@@ -1350,11 +1413,11 @@ Risks / Notes / Handoff:
 - TDD red observed before the helper existed: `npm test -- --run tests/restart-recovery.test.ts` failed because `resolveInterruptedResumeDecision` was not exported.
 - Historical implementation note, superseded by Milestone 46:
   - Detects old user context followed by an assistant `interrupt_partial` and a newer user message.
-  - Pending confirmation state now persists only interruption metadata, not old/new message snapshots.
+  - Superseded by Milestone 48: no pending resume confirmation state is persisted.
   - `继续上次` / equivalent confirmation is sent as the current user message only; cli-claw does not replay old context.
   - Uses the current fresh message after `忽略上次` or a new user request.
   - Ignores the confirmation prompt itself while waiting for the user reply.
-- Pending confirmation state is persisted in `router_state` so a service restart between prompt and reply does not lose the decision boundary.
+- Superseded by Milestone 48: no pending resume confirmation state is persisted in `router_state`; service restart relies on pending cursor rows plus runtime session continuity only.
 - `docs/MEMORY.md` now documents that interrupted residual context is not auto-injected into runner prompts.
 - Validation passed:
   - `npm test -- --run tests/restart-recovery.test.ts`
@@ -1695,7 +1758,7 @@ Risks / Notes / Handoff:
   - Web IPC is also deferred while queued messages are waiting for the same Web runner to drain.
 - Implemented primary runtime session slots: Web uses the default `(folder, '')` session; IM-origin primary turns use `(folder, im:<sourceJid>)`.
 - Main workspace reset paths now delete all primary slots (`''` and `im:*`) while preserving conversation agent sessions; clear-history still deletes all sessions for the folder.
-- `docs/MEMORY.md` and `docs/RUNTIME.md` document the new source-slot boundary and preserve the distinction between true restart recovery history and ordinary fresh turns.
+- `docs/MEMORY.md` and `docs/RUNTIME.md` document the source-slot boundary and current-turn-only restart recovery contract.
 
 ### Milestone 33
 
@@ -2283,10 +2346,10 @@ Validation status:
 Review status:
 - passed
   - Scope: updated to include `src/context-compaction.ts`; no unplanned files remain in the final diff.
-  - Objective: old IM runtime slots, recovery history injection, and pending-IM-sibling queue branches are removed; shared primary runtime session and source-ordered turn cutting are covered by tests.
+  - Objective: old IM runtime slots, historical prompt injection, and pending-IM-sibling queue branches are removed; shared primary runtime session and source-ordered turn cutting are covered by tests.
   - Docs: `docs/RUNTIME.md`, `docs/MEMORY.md`, and `PLANS/ROADMAP.md` describe the new contract.
 
 Risks / Notes / Handoff:
 - Do not restart the live service after this implementation; the user has active work running.
-- Destructive cleanup is intentional: remove old IM runtime-slot persistence rules, pending-IM-sibling prioritization, completed-IM fresh-runner guards, and restart recovery history injection rather than preserving compatibility branches.
+- Destructive cleanup is intentional: remove old IM runtime-slot persistence rules, pending-IM-sibling prioritization, completed-IM fresh-runner guards, and historical prompt injection rather than preserving compatibility branches.
 - Queue order contract: for pending source sequence `A1 A2 B1 A3 B2 B3`, process `A1+A2`, then `B1`, then `A3`, then `B2+B3`; do not regroup non-contiguous sources.
