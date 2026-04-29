@@ -94,7 +94,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('feeds Codex commentary but not presentation answerText during Feishu streaming', () => {
+  test('feeds Codex commentary and live answer text during Feishu streaming', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -137,7 +137,7 @@ describe('stream presentation', () => {
       supportsReasoningEffort: true,
     });
     expect(session.appendCommentary).toHaveBeenCalledWith('先收集上下文');
-    expect(session.append).not.toHaveBeenCalled();
+    expect(session.append).toHaveBeenCalledWith('最终结论');
   });
 
   test('never streams stale Codex presentation answerText into Feishu cards', () => {
@@ -173,6 +173,45 @@ describe('stream presentation', () => {
         answerText: '<messages>旧历史上下文</messages>\n当前增量',
         commentaryText: '',
         streamText: '<messages>旧历史上下文</messages>\n当前增量',
+      },
+    );
+
+    expect(session.append).not.toHaveBeenCalled();
+  });
+
+  test('does not stream a Codex process preamble as the live answer before an answer boundary appears', () => {
+    const session = {
+      setRuntimeIdentity: vi.fn(),
+      appendCommentary: vi.fn(),
+      append: vi.fn(),
+      appendThinking: vi.fn(),
+      setThinking: vi.fn(),
+      startTool: vi.fn(),
+      updateToolSummary: vi.fn(),
+      endTool: vi.fn(),
+      setSystemStatus: vi.fn(),
+      setHook: vi.fn(),
+      setTodos: vi.fn(),
+      pushRecentEvent: vi.fn(),
+    } as any;
+
+    feedStreamEventToCard(
+      session,
+      {
+        eventType: 'text_delta',
+        text: '我会先检查卡片实现',
+        messageUuid: 'msg-preamble',
+        runtimeIdentity: {
+          agentType: 'codex',
+          model: 'gpt-5.4',
+          reasoningEffort: 'high',
+          supportsReasoningEffort: true,
+        },
+      } as any,
+      {
+        answerText: '我会先检查卡片实现',
+        commentaryText: '',
+        streamText: '我会先检查卡片实现',
       },
     );
 

@@ -309,6 +309,14 @@ export function feedStreamEventToCard(
           if (presentationText.commentaryText) {
             session.appendCommentary(presentationText.commentaryText);
           }
+          if (
+            shouldStreamCodexAnswerText(
+              presentationText.answerText,
+              presentationText.commentaryText,
+            )
+          ) {
+            session.append(presentationText.answerText);
+          }
           break;
         }
         const channel = classifyStreamPresentationTextChannel(
@@ -408,6 +416,27 @@ export function feedStreamEventToCard(
   }
 }
 
+function shouldStreamCodexAnswerText(
+  text: string,
+  commentaryText = '',
+): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (!commentaryText.trim() && looksLikeCodexProcessPreamble(trimmed)) {
+    return false;
+  }
+  return !/(<\/?messages?>|<\/?conversation>|Current user asks:|The user(?:'s)? latest question:)/i.test(
+    trimmed,
+  );
+}
+
+function looksLikeCodexProcessPreamble(text: string): boolean {
+  if (text.length > 500) return false;
+  return /^(我(先|会|来|继续|正在|已经|把)|先|接下来|当前|正在|已|I(?:'ll| will| am|’ll)\b)/i.test(
+    text,
+  );
+}
+
 export function syncTerminalPresentationTextToCard(
   session: StreamingCardController,
   _presentationText: StreamPresentationTextState,
@@ -421,43 +450,83 @@ export function syncTerminalPresentationTextToCard(
 
 export interface StreamingTurnBoundaryState {
   turnId?: string;
+  messageCursorId?: string;
   presentationText: StreamPresentationTextState;
   thinkingText: string;
   interrupted: boolean;
 }
 
+function buildResetStreamingTurnBoundaryState(
+  turnId?: string,
+  messageCursorId?: string,
+): StreamingTurnBoundaryState {
+  return {
+    ...(turnId ? { turnId } : {}),
+    ...(messageCursorId ? { messageCursorId } : {}),
+    presentationText: createEmptyStreamPresentationTextState(),
+    thinkingText: '',
+    interrupted: false,
+  };
+}
+
 export function applyStreamingTurnBoundary(
   current: StreamingTurnBoundaryState,
-  event: Pick<StreamEvent, 'turnId'>,
+  event: Pick<StreamEvent, 'turnId' | 'messageCursor'>,
 ): { nextState: StreamingTurnBoundaryState; turnChanged: boolean } {
   const nextTurnId = event.turnId?.trim() || undefined;
-  if (!nextTurnId) {
+  const nextMessageCursorId = event.messageCursor?.id?.trim() || undefined;
+  if (!nextTurnId && !nextMessageCursorId) {
     return { nextState: current, turnChanged: false };
   }
 
-  if (!current.turnId) {
+  if (!current.turnId && !current.messageCursorId) {
     return {
       nextState: {
         ...current,
-        turnId: nextTurnId,
+        ...(nextTurnId ? { turnId: nextTurnId } : {}),
+        ...(nextMessageCursorId
+          ? { messageCursorId: nextMessageCursorId }
+          : {}),
       },
       turnChanged: false,
     };
   }
 
-  if (current.turnId === nextTurnId) {
-    return { nextState: current, turnChanged: false };
+  const turnChanged = Boolean(
+    nextTurnId && current.turnId && current.turnId !== nextTurnId,
+  );
+  const cursorChanged = Boolean(
+    nextMessageCursorId &&
+    current.messageCursorId &&
+    current.messageCursorId !== nextMessageCursorId,
+  );
+  if (!turnChanged && !cursorChanged) {
+    const nextState =
+      nextMessageCursorId && !current.messageCursorId
+        ? { ...current, messageCursorId: nextMessageCursorId }
+        : current;
+    if (nextTurnId && !nextState.turnId) {
+      return {
+        nextState: { ...nextState, turnId: nextTurnId },
+        turnChanged: false,
+      };
+    }
+    return { nextState, turnChanged: false };
   }
 
   return {
-    nextState: {
-      turnId: nextTurnId,
-      presentationText: createEmptyStreamPresentationTextState(),
-      thinkingText: '',
-      interrupted: false,
-    },
+    nextState: buildResetStreamingTurnBoundaryState(
+      nextTurnId,
+      nextMessageCursorId,
+    ),
     turnChanged: true,
   };
+}
+
+export function resetStreamingTurnBoundaryForNewInput(
+  _current?: StreamingTurnBoundaryState,
+): StreamingTurnBoundaryState {
+  return buildResetStreamingTurnBoundaryState();
 }
 
 let globalMessageCursor: MessageCursor = { timestamp: '', id: '' };
@@ -3426,6 +3495,24 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     });
     return streamingSession;
   };
+  const resetStreamingSessionForNewInput = (nextStreamingJid: string) => {
+    if (streamingSession) {
+      if (streamingSession.isActive()) {
+        void streamingSession.abort('新的回复已开始').catch(() => {});
+      } else {
+        streamingSession.dispose();
+      }
+      unregisterStreamingSession(streamingSessionJid);
+    }
+    streamingSessionJid = nextStreamingJid;
+    streamingSession = undefined;
+    const resetState = resetStreamingTurnBoundaryForNewInput();
+    streamingPresentationText = resetState.presentationText;
+    streamingAccumulatedThinking = resetState.thinkingText;
+    streamInterrupted = resetState.interrupted;
+    activeStreamingEventTurnId = resetState.turnId;
+    ensureStreamingSessionAvailable();
+  };
 
   // ── Dynamic reply route updater ──
   // Allows IPC-injected messages (from web.ts / IM polling) to update the
@@ -3446,7 +3533,10 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       // in the streaming session rebuild (which also fires on SDK Task
       // completion and would cause multi-result IM spam).
       sentReply = false;
-      if (newImJid === replySourceImJid) return; // no change
+      if (newImJid === replySourceImJid) {
+        resetStreamingSessionForNewInput(streamingSessionJid);
+        return;
+      }
       logger.debug(
         { chatJid, oldRoute: replySourceImJid, newRoute: newImJid },
         'Reply route updated via IPC injection',
@@ -3465,17 +3555,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       const newStreamingJid =
         replySourceImJid ??
         (directImReply ? `web:${effectiveGroup.folder}` : chatJid);
-      if (newStreamingJid !== streamingSessionJid) {
-        if (streamingSession) {
-          if (streamingSession.isActive()) streamingSession.dispose();
-          unregisterStreamingSession(streamingSessionJid);
-        }
-        streamingSessionJid = newStreamingJid;
-        streamingSession = undefined;
-        streamingPresentationText = createEmptyStreamPresentationTextState();
-        streamingAccumulatedThinking = '';
-        ensureStreamingSessionAvailable();
-      }
+      resetStreamingSessionForNewInput(newStreamingJid);
     },
   );
 

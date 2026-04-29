@@ -1987,7 +1987,6 @@ export class StreamingCardController {
     const prevState = this.state;
     this.settleAuxiliaryState({
       dropThinkingText: finalState === 'aborted',
-      dropToolCalls: finalState === 'completed',
     });
     this.accumulatedText = finalText;
     this.state = finalState;

@@ -1073,13 +1073,14 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('drops internal tool-step panels when completing with current text', async () => {
+  test('retains collapsed thinking and tool-step panels when completing with current text', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
       chatId: 'chat-test',
     });
 
+    controller.appendThinking('分析输入');
     controller.appendCommentary('先收集上下文');
     controller.startTool('tool-1', 'exec_command');
     controller.updateToolSummary('tool-1', 'git status --short');
@@ -1098,6 +1099,16 @@ describe('StreamingCardController footer caching', () => {
 
     const finalCard = updatedCards.at(-1) ?? createdCards.at(-1);
     const finalCardJson = JSON.stringify(finalCard);
+    const thinkingPanel = (finalCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💭 Thinking',
+    );
+    const stepsPanel = (finalCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '1 steps',
+    );
     const commentaryPanel = (finalCard?.body?.elements ?? []).find(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
@@ -1105,9 +1116,23 @@ describe('StreamingCardController footer caching', () => {
     );
 
     expect(finalCardJson).toContain('已处理');
-    expect(finalCardJson).not.toContain('steps');
-    expect(finalCardJson).not.toContain('git status --short');
-    expect(finalCardJson).not.toContain('exec_command');
+    expect(finalCardJson).toContain('git status --short');
+    expect(finalCardJson).toContain('exec_command');
+    expect(thinkingPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: false,
+      elements: [
+        {
+          tag: 'markdown',
+          content: '分析输入',
+          text_size: 'notation',
+        },
+      ],
+    });
+    expect(stepsPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: false,
+    });
     expect(commentaryPanel).toMatchObject({
       tag: 'collapsible_panel',
       expanded: false,
@@ -1264,7 +1289,7 @@ describe('StreamingCardController footer caching', () => {
 
     expect(markdownContents).toContain('*已完成*');
     expect(markdownContents).not.toContain('...');
-    expect(JSON.stringify(finalCard)).not.toContain('cli-claw restart');
+    expect(JSON.stringify(finalCard)).toContain('cli-claw restart');
     expect(commentaryPanel).toMatchObject({
       tag: 'collapsible_panel',
       expanded: false,
