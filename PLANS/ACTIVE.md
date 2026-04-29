@@ -1,43 +1,35 @@
-# Feishu Restart Card Residue Fix
+# Assistant Prompt Session Isolation Fix
 
 ## Goal
 
-- Find and fix the root cause of Feishu cards showing previous-turn content after self-restart.
-- Prove the fix with a regression that models restart residue before the first Feishu-origin turn.
-- Distinguish prompt/context injection from stale streaming card presentation state.
+- Stop skill-generated `assistant_prompt` turns such as `/hkipo` from becoming the primary runtime session for later normal Web/Feishu messages.
+- Prove the fix with a Feishu real-flow regression that models the observed replay: a previous stock-analysis skill final must not appear in the next ordinary Feishu card.
 
 ## Done when
 
-- Startup recovery discards stale streaming buffers and `active_streaming_turns` without persisting partial assistant text or committing the user cursor.
-- The first Feishu-origin message after restart creates/updates a fresh card whose prompt, card text, persisted reply, and committed cursor belong only to the current turn.
-- Regression tests fail on the old behavior and pass after the fix.
-- Validation, review, and commit pass; service restart is left manual because the user may have active work running.
+- `assistant_prompt` turns run in an isolated runtime session: they do not inherit the primary session and do not replace it when they finish.
+- A normal Feishu message after an `assistant_prompt` turn does not receive that skill task's session id.
+- The real Feishu card payload, persisted final reply, and prompt for the normal message contain only the current request.
+- Validation and review pass; service restart is left manual unless explicitly requested.
 
 ## Milestones
 
-### Milestone 54
+### Milestone 55
 
 Objective:
-- Fix Feishu first-message-after-restart card residue and cover it with a real-enough startup recovery regression.
+- Fix `assistant_prompt` runtime session pollution and cover the next-turn Feishu replay path.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
 - `docs/MEMORY.md`
 - `docs/RUNTIME.md`
-- `container/agent-runner/src/index.ts`
-- `src/group-queue.ts`
 - `src/index.ts`
-- `src/web.ts`
-- `tests/group-queue.test.ts`
-- `tests/restart-recovery.test.ts`
 - `tests/feishu-e2e.test.ts`
-- `tests/feishu-streaming-card.test.ts`
-- `tests/stream-presentation.test.ts`
-- `tests/streaming-turn-boundary.test.ts`
+- `tests/restart-recovery.test.ts`
 
 Validation:
-- `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/feishu-streaming-card.test.ts tests/streaming-turn-boundary.test.ts tests/stream-presentation.test.ts tests/reply-visibility.test.ts tests/group-queue.test.ts`
+- `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts`
 - `npm run typecheck`
 - `npm run build`
 - `git diff --check`
@@ -48,7 +40,8 @@ Status:
 
 Validation status:
 - passed 2026-04-29:
-  - `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/feishu-streaming-card.test.ts tests/streaming-turn-boundary.test.ts tests/stream-presentation.test.ts tests/reply-visibility.test.ts tests/group-queue.test.ts` (124 tests)
+  - RED: `npm test -- --run tests/feishu-e2e.test.ts -t "does not reuse assistant-prompt skill session"` failed before the fix because the next ordinary Feishu run received `sess-hkipo-skill`.
+  - `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts` (66 tests)
   - `npm run typecheck`
   - `npm run build`
   - `git diff --check`
@@ -56,12 +49,13 @@ Validation status:
 
 Review status:
 - passed:
-  - Subagent review confirmed no blocking stale-card or in-flight message loss issue after the fix.
-  - Follow-up test gaps from review were addressed: current cursor-less `text_delta`, plus restart residue seeded into real Feishu card payload assertions.
-  - Manual semantic review of queue/runtime/card boundaries completed after validation.
+  - Manual semantic review confirmed `assistant_prompt` turns are isolated and cannot persist their runtime session as the workspace primary session.
+  - The historical cleanup path only ignores a primary session when it matches the previous skill final's session id, so a valid pre-skill primary session is preserved.
+  - `assistant_prompt` also cuts pending batch boundaries, so it cannot merge with same-source ordinary Feishu/Web messages.
 
 Risks / Notes / Handoff:
-- The latest observed screenshot points to stale Feishu card/streaming presentation residue, not necessarily agent prompt DB-history injection.
-- Root cause: in-flight IPC could inject a new user message into the same runtime query while old stream events were still arriving, so Feishu routing/card state switched to the new message and then rendered old stream output.
-- Fix summary: new messages queue behind an active query; IPC is consumed only between queries; stream/card state is bounded by `messageCursor.id`; startup recovery discards stale streaming buffer/active-turn state without persisting partial output or advancing cursors.
-- No service restart performed in this milestone because the user previously asked not to auto-restart while tasks may be running.
+- Live evidence: `~/.cli-claw/streaming-buffer/d2ViOm1haW4.json` for the 2026-04-29 15:34 Feishu message begins with the 2026-04-29 15:14 `/hkipo` final, then appends the current "thinking answer" request handling.
+- DB evidence: `/hkipo` was stored as `source_kind='assistant_prompt'` at 2026-04-29T15:04:38.401Z; its final saved session `019dd9c5-6bfd-7ec2-ab24-64e6eebe31a6`; the next ordinary message reused that session.
+- Root cause: the previous fix correctly bounded stream/card events, but the skill command session itself polluted primary runtime continuity.
+- Fix summary: `assistant_prompt` runs with no primary session and does not persist its session; a later ordinary turn drops only a historically polluted skill session; docs now state the isolation contract.
+- No service restart performed because the user previously asked not to auto-restart while tasks may be running.

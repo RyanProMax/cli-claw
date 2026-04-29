@@ -1184,6 +1184,193 @@ describe('Feishu in-process E2E harness', () => {
     }
   });
 
+  test('does not reuse assistant-prompt skill session for the next ordinary Feishu message', async () => {
+    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    const {
+      db,
+      notifier,
+      imManager,
+      restartGuard,
+      processGroupMessages,
+      loadRouterStateForTests,
+    } = await loadFeishuProcessGroupModules();
+    const chatId = 'oc_skill_session_isolation';
+    const chatJid = `feishu:${chatId}`;
+    const userId = 'user-feishu-skill-session';
+    const skillMessageId = 'om_hkipo_skill_prompt';
+    const currentMessageId = 'om_check_streaming_current';
+    const skillCursor = {
+      timestamp: '2026-04-29T15:04:38.401Z',
+      id: skillMessageId,
+    };
+    const oldSkillFinal = [
+      '我会按 `stock-analysis-skill` 的港股 IPO 流程执行。',
+      '',
+      '**港股 IPO 池｜2026-04-29**',
+      '- 01609 天星医疗',
+    ].join('\n');
+    const currentFinal =
+      '当前结论：thinking_delta 和 text_delta 都能流式输出。';
+
+    db.setRegisteredGroup(chatJid, {
+      name: 'Feishu Skill Session Isolation',
+      folder: 'main',
+      added_at: '2026-04-29T15:00:00.000Z',
+      executionMode: 'host',
+      agentType: 'codex',
+      activation_mode: 'auto',
+      is_home: true,
+      created_by: userId,
+    });
+    db.ensureChatExists(chatJid);
+    db.storeMessageDirect(
+      skillMessageId,
+      chatJid,
+      'ou_skill',
+      'Skill User',
+      '今天是 2026-04-29。这是由 stock-analysis-skill 的 /hkipo 触发的港股 IPO 池研究任务。',
+      skillCursor.timestamp,
+      false,
+      {
+        sourceJid: chatJid,
+        meta: { sourceKind: 'assistant_prompt' },
+      },
+    );
+    db.storeMessageDirect(
+      'assistant-hkipo-final',
+      chatJid,
+      'cli-claw-agent',
+      'cli-claw',
+      oldSkillFinal,
+      '2026-04-29T15:14:12.617Z',
+      true,
+      {
+        sourceJid: chatJid,
+        meta: {
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+          sessionId: 'sess-hkipo-skill',
+        },
+      },
+    );
+    db.setSession('main', 'sess-hkipo-skill');
+    db.setRouterState(
+      'last_agent_timestamp',
+      JSON.stringify({ [chatJid]: skillCursor }),
+    );
+    db.setRouterState(
+      'last_committed_cursor',
+      JSON.stringify({ [chatJid]: skillCursor }),
+    );
+    loadRouterStateForTests();
+
+    await imManager.connectUserFeishu(
+      userId,
+      { appId: 'app-id', appSecret: 'app-secret' },
+      vi.fn(),
+      {
+        resolveManagedCommandText: (_chatJid, text) =>
+          restartGuard.resolveManagedSelfRestartCommand(text),
+      },
+    );
+
+    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: chatId,
+        message_id: currentMessageId,
+        create_time: '1777476886435',
+        message_type: 'text',
+        content: JSON.stringify({
+          text: '帮我检查下现在能不能流式输出 thinking answer',
+        }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_skill',
+        },
+      },
+    });
+    await expect(wakeup).resolves.toBe('woke');
+
+    hoisted.runHostAgent.mockImplementation(
+      async (_group, input, _onProcess, onOutput) => {
+        const leaked = input.sessionId === 'sess-hkipo-skill';
+        const resultText = leaked
+          ? `${oldSkillFinal}\n${currentFinal}`
+          : currentFinal;
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity: { agentType: 'codex' as const },
+          streamEvent: {
+            eventType: 'init',
+            turnId: currentMessageId,
+            sessionId: leaked ? 'sess-hkipo-skill' : 'sess-current-normal',
+            messageCursor: input.messageCursor,
+            runtimeIdentity: { agentType: 'codex' as const },
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity: { agentType: 'codex' as const },
+          streamEvent: {
+            eventType: 'text_delta',
+            text: resultText,
+            turnId: currentMessageId,
+            sessionId: leaked ? 'sess-hkipo-skill' : 'sess-current-normal',
+            runtimeIdentity: { agentType: 'codex' as const },
+          },
+        });
+        await onOutput?.({
+          status: 'success',
+          result: resultText,
+          newSessionId: 'sess-current-normal',
+          runtimeIdentity: { agentType: 'codex' as const },
+          turnId: currentMessageId,
+          sessionId: leaked ? 'sess-hkipo-skill' : 'sess-current-normal',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+        });
+        return { status: 'success' };
+      },
+    );
+
+    await expect(processGroupMessages(chatJid)).resolves.toBe(true);
+
+    expect(hoisted.runHostAgent).toHaveBeenCalledOnce();
+    expect(hoisted.runHostAgent.mock.calls[0][1].sessionId).toBeUndefined();
+
+    const sentInteractiveCards = hoisted.createSpy.mock.calls
+      .map((call) => call[0]?.data)
+      .filter((data) => data?.msg_type === 'interactive' && data?.content)
+      .map((data) => JSON.parse(data.content));
+    const allCardPayloads = [
+      ...hoisted.createdCards,
+      ...hoisted.updatedCards,
+      ...sentInteractiveCards,
+    ].map((card) => JSON.stringify(card));
+
+    expect(
+      allCardPayloads.some((payload) => payload.includes(currentFinal)),
+    ).toBe(true);
+    for (const payload of allCardPayloads) {
+      expect(payload).not.toContain('stock-analysis-skill');
+      expect(payload).not.toContain('港股 IPO');
+      expect(payload).not.toContain('01609 天星医疗');
+    }
+
+    const storedText = db
+      .getMessagesPage(chatJid, undefined, 20)
+      .map((message: any) => message.content)
+      .join('\n');
+    expect(storedText).toContain(currentFinal);
+    expect(storedText).not.toContain(`${oldSkillFinal}\n${currentFinal}`);
+    expect(db.getSession('main')).toBe('sess-current-normal');
+  });
+
   test('sends current Codex raw final to Feishu when presentation contains stale transcript', async () => {
     const { db, notifier, feishu, restartGuard } = await loadFeishuE2EModules();
     const connection = feishu.createFeishuConnection({

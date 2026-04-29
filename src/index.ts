@@ -65,6 +65,7 @@ import {
   deleteRegisteredGroup,
   getTaskById,
   getUserHomeGroup,
+  getMessagesPage,
   initDatabase,
   isGroupShared,
   listUsers,
@@ -3274,10 +3275,56 @@ export function resolvePrimaryRuntimeSessionId({
   return sessionCache[folder] || loadSession(folder);
 }
 
-export function shouldResetPrimaryRuntimeForTurn(
+export function shouldIsolatePrimaryRuntimeForTurn(
   messages: Pick<NewMessage, 'source_kind'>[],
 ): boolean {
   return messages.some((message) => message.source_kind === 'assistant_prompt');
+}
+
+export function shouldIgnoreAssistantPromptPrimarySession({
+  previousMessages,
+  primarySessionId,
+}: {
+  previousMessages: Array<
+    Pick<NewMessage, 'source_kind' | 'session_id'> & {
+      is_from_me?: boolean | number | null;
+    }
+  >;
+  primarySessionId?: string;
+}): boolean {
+  if (!primarySessionId) return false;
+  const previousUserIndex = previousMessages.findIndex(
+    (message) => !message.is_from_me,
+  );
+  if (previousUserIndex < 0) return false;
+  if (previousMessages[previousUserIndex]?.source_kind !== 'assistant_prompt') {
+    return false;
+  }
+  return previousMessages
+    .slice(0, previousUserIndex)
+    .some(
+      (message) =>
+        message.is_from_me && message.session_id === primarySessionId,
+    );
+}
+
+export function shouldIgnorePreviousAssistantPromptSession(
+  chatJid: string,
+  firstCurrentMessage: Pick<NewMessage, 'timestamp' | 'id'>,
+  primarySessionId?: string,
+): boolean {
+  const previousMessages = getMessagesPage(
+    chatJid,
+    {
+      timestamp: firstCurrentMessage.timestamp,
+      id: firstCurrentMessage.id,
+    },
+    100,
+  );
+  return shouldIgnoreAssistantPromptPrimarySession({
+    previousMessages,
+    primarySessionId,
+  });
 }
 
 function rememberPrimaryRuntimeSession(
@@ -3306,9 +3353,17 @@ export function selectLeadingSourceTurnMessages<T extends NewMessage>(
 ): T[] {
   if (messages.length <= 1) return messages.slice();
   const firstSource = resolveMessageSourceJid(messages[0], fallbackChatJid);
+  const firstIsAssistantPrompt = messages[0].source_kind === 'assistant_prompt';
   const selected: T[] = [];
   for (const message of messages) {
     if (resolveMessageSourceJid(message, fallbackChatJid) !== firstSource) {
+      break;
+    }
+    const messageIsAssistantPrompt = message.source_kind === 'assistant_prompt';
+    if (
+      selected.length > 0 &&
+      (firstIsAssistantPrompt || messageIsAssistantPrompt)
+    ) {
       break;
     }
     selected.push(message);
@@ -3443,10 +3498,30 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     chatJid,
   );
 
-  const resetPrimaryRuntimeForTurn =
-    shouldResetPrimaryRuntimeForTurn(messagesForAgent);
-  if (resetPrimaryRuntimeForTurn) {
-    clearPrimaryRuntimeSession(effectiveGroup.folder);
+  const isolatePrimaryRuntimeForTurn =
+    shouldIsolatePrimaryRuntimeForTurn(messagesForAgent);
+  const currentPrimarySessionId = resolvePrimaryRuntimeSessionId({
+    folder: effectiveGroup.folder,
+    sessions,
+    loadSession: getSession,
+  });
+  const ignorePreviousAssistantPromptSession =
+    !isolatePrimaryRuntimeForTurn &&
+    shouldIgnorePreviousAssistantPromptSession(
+      chatJid,
+      messagesForAgent[0]!,
+      currentPrimarySessionId,
+    );
+  if (isolatePrimaryRuntimeForTurn) {
+    logger.info(
+      { chatJid, folder: effectiveGroup.folder },
+      'Using isolated runtime session for assistant-prompt turn',
+    );
+  } else if (ignorePreviousAssistantPromptSession) {
+    logger.warn(
+      { chatJid, folder: effectiveGroup.folder },
+      'Ignoring assistant-prompt runtime session for next ordinary turn',
+    );
   }
 
   const shared = isGroupShared(group.folder);
@@ -4450,6 +4525,12 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       },
       imagesForAgent,
       currentTurnSourceJid,
+      {
+        usePrimarySession:
+          !isolatePrimaryRuntimeForTurn &&
+          !ignorePreviousAssistantPromptSession,
+        persistPrimarySession: !isolatePrimaryRuntimeForTurn,
+      },
     );
   } finally {
     await setTyping(chatJid, false);
@@ -4964,15 +5045,23 @@ async function runAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
   images?: Array<{ data: string; mimeType?: string }>,
   activeSourceJid?: string | null,
+  options: {
+    usePrimarySession?: boolean;
+    persistPrimarySession?: boolean;
+  } = {},
 ): Promise<{ status: 'success' | 'error' | 'closed'; error?: string }> {
   const isHome = !!group.is_home;
   // For the agent-runner: isMain means this is an admin home container (full privileges)
   const isAdminHome = isHome && group.folder === MAIN_GROUP_FOLDER;
-  const sessionId = resolvePrimaryRuntimeSessionId({
-    folder: group.folder,
-    sessions,
-    loadSession: getSession,
-  });
+  const usePrimarySession = options.usePrimarySession ?? true;
+  const persistPrimarySession = options.persistPrimarySession ?? true;
+  const sessionId = usePrimarySession
+    ? resolvePrimaryRuntimeSessionId({
+        folder: group.folder,
+        sessions,
+        loadSession: getSession,
+      })
+    : undefined;
 
   // Update tasks snapshot for container to read (filtered by group)
   const tasks = getAllTasks();
@@ -5013,7 +5102,11 @@ async function runAgent(
         }
         // 仅从成功的输出中更新 session ID；
         // error 输出可能携带 stale ID，会覆盖流式传递的有效 session
-        if (output.newSessionId && output.status !== 'error') {
+        if (
+          persistPrimarySession &&
+          output.newSessionId &&
+          output.status !== 'error'
+        ) {
           rememberPrimaryRuntimeSession(group.folder, output.newSessionId);
         }
         await onOutput(output);
@@ -5115,7 +5208,11 @@ async function runAgent(
 
     // 仅从成功的最终输出中更新 session ID；
     // error 状态的输出可能携带 stale ID，覆盖流式阶段已写入的有效 session
-    if (output.newSessionId && output.status !== 'error') {
+    if (
+      persistPrimarySession &&
+      output.newSessionId &&
+      output.status !== 'error'
+    ) {
       rememberPrimaryRuntimeSession(group.folder, output.newSessionId);
     }
 

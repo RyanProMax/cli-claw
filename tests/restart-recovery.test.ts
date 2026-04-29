@@ -186,17 +186,49 @@ describe('restart recovery cursor handling', () => {
     expect(loadSession).toHaveBeenCalledWith('main');
   });
 
-  test('resets the primary runtime session for command-generated assistant prompts', async () => {
-    const { shouldResetPrimaryRuntimeForTurn } = await loadIndexModule();
+  test('isolates command-generated assistant prompts from the primary runtime session', async () => {
+    const { shouldIsolatePrimaryRuntimeForTurn } = await loadIndexModule();
 
     expect(
-      shouldResetPrimaryRuntimeForTurn([{ source_kind: 'assistant_prompt' }]),
+      shouldIsolatePrimaryRuntimeForTurn([{ source_kind: 'assistant_prompt' }]),
     ).toBe(true);
     expect(
-      shouldResetPrimaryRuntimeForTurn([
+      shouldIsolatePrimaryRuntimeForTurn([
         { source_kind: null },
         { source_kind: 'scheduled_task_prompt' },
       ]),
+    ).toBe(false);
+  });
+
+  test('only ignores an assistant-prompt session when it actually polluted primary session state', async () => {
+    const { shouldIgnoreAssistantPromptPrimarySession } =
+      await loadIndexModule();
+    const previousMessages = [
+      {
+        id: 'skill-final',
+        is_from_me: true,
+        source_kind: 'sdk_final',
+        session_id: 'sess-skill',
+      },
+      {
+        id: 'skill-user',
+        is_from_me: false,
+        source_kind: 'assistant_prompt',
+        session_id: null,
+      },
+    ];
+
+    expect(
+      shouldIgnoreAssistantPromptPrimarySession({
+        previousMessages,
+        primarySessionId: 'sess-skill',
+      }),
+    ).toBe(true);
+    expect(
+      shouldIgnoreAssistantPromptPrimarySession({
+        previousMessages,
+        primarySessionId: 'sess-normal-before-skill',
+      }),
     ).toBe(false);
   });
 
@@ -220,6 +252,58 @@ describe('restart recovery cursor handling', () => {
     expect(
       selectLeadingSourceTurnMessages(messages, 'web:main').map((m) => m.id),
     ).toEqual(['a1', 'a2']);
+  });
+
+  test('keeps assistant-prompt skill rewrites as their own primary turn', async () => {
+    const { selectLeadingSourceTurnMessages } = await loadIndexModule();
+    const base = {
+      chat_jid: 'web:main',
+      source_jid: 'feishu:A',
+      sender: 'user',
+      sender_name: 'User',
+      timestamp: '2026-04-29T10:00:00.000Z',
+      is_from_me: false,
+    };
+
+    expect(
+      selectLeadingSourceTurnMessages(
+        [
+          {
+            ...base,
+            id: 'skill',
+            content: 'skill prompt',
+            source_kind: 'assistant_prompt',
+          },
+          {
+            ...base,
+            id: 'normal',
+            content: 'normal follow-up',
+            source_kind: null,
+          },
+        ] as any,
+        'web:main',
+      ).map((message: any) => message.id),
+    ).toEqual(['skill']);
+
+    expect(
+      selectLeadingSourceTurnMessages(
+        [
+          {
+            ...base,
+            id: 'normal',
+            content: 'normal question',
+            source_kind: null,
+          },
+          {
+            ...base,
+            id: 'skill',
+            content: 'skill prompt',
+            source_kind: 'assistant_prompt',
+          },
+        ] as any,
+        'web:main',
+      ).map((message: any) => message.id),
+    ).toEqual(['normal']);
   });
 
   test('creates a late-bound streaming session once the IM channel becomes available', async () => {

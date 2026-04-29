@@ -15,12 +15,12 @@ Cli Claw 的“命令”分成两层：
 
 以下命令由 `cli-claw` launcher 二进制直接处理：
 
-| 命令               | 别名                                 | 作用                                                                                                |
-| ------------------ | ------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为 host 工作区默认启动目录                                         |
-| `cli-claw restart` | -                                    | 读取当前服务保存的 restart 状态并请求一次安全自重启；适合从外部 shell 或 Web operator 环境触发       |
-| `cli-claw help`    | `cli-claw -h` / `cli-claw --help`    | 查看 launcher 帮助                                                                                  |
-| `cli-claw version` | `cli-claw -v` / `cli-claw --version` | 输出已安装版本                                                                                      |
+| 命令               | 别名                                 | 作用                                                                                           |
+| ------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为 host 工作区默认启动目录                                    |
+| `cli-claw restart` | -                                    | 读取当前服务保存的 restart 状态并请求一次安全自重启；适合从外部 shell 或 Web operator 环境触发 |
+| `cli-claw help`    | `cli-claw -h` / `cli-claw --help`    | 查看 launcher 帮助                                                                             |
+| `cli-claw version` | `cli-claw -v` / `cli-claw --version` | 输出已安装版本                                                                                 |
 
 说明：
 
@@ -62,7 +62,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 skill command 的执行结果有两类：
 
 - 直接回复一段最终 markdown
-- 把 slash command 改写成一段由 skill 生成的 `assistant_prompt` 消息，再继续进入 Agent 主流程；这类消息会开启新的主 runtime session，避免命令任务继承上一轮聊天 transcript
+- 把 slash command 改写成一段由 skill 生成的 `assistant_prompt` 消息，再继续进入 Agent 主流程；这类消息会使用隔离 runtime session，既不继承也不替换当前 workspace 的主 runtime session
 
 因此，并不是所有 slash command 都会在本地层终止；skill command 可以选择把命令解析结果继续交给 Agent。
 
@@ -99,7 +99,7 @@ skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发
 - executor 通过 stdin 接收 JSON payload，并通过 stdout 返回 JSON 结果。
 - 结果类型目前支持：
   - `final_markdown`：本地直接返回最终文本
-  - `assistant_prompt`：把命令改写成一段普通用户消息，再继续走 Agent 主流程
+  - `assistant_prompt`：把命令改写成一段独立用户消息，再用隔离 runtime session 继续走 Agent 主流程
 
 这层协议只负责“发现 + 执行 + 回填结果”，不承载任何业务特定语义。
 
@@ -169,7 +169,7 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 可用命
 如果在 Web 输入框输入了已知但当前入口不可用的命令（例如 `/bind`），系统会直接返回明确提示，而不会把它当普通消息交给 Agent。
 当输入 `/model` 或 `/effort` 时，输入框上方会展示对应选项；点击后由前端发送实际切换命令。
 
-如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容，并以新的主 runtime session 执行。
+如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容，并以隔离 runtime session 执行。该 session 不会写回 workspace 主会话；下一条普通消息继续使用原主会话，若历史版本已把上一轮 skill final 的 session 误写成主 session，则会先忽略它并建立新的普通主会话。
 
 ## 运行时相关命令
 
