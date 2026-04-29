@@ -69,6 +69,18 @@ export interface WebDeps {
   } | null>;
   clearImFailCounts?: (jid: string) => void;
   updateReplyRoute?: (folder: string, sourceJid: string | null) => void;
+  shouldBypassActiveRuntimeIpc?: (input: {
+    chatJid: string;
+    groupFolder: string;
+    messages: Array<Pick<NewMessage, 'id' | 'timestamp' | 'source_kind'>>;
+  }) => {
+    bypass: boolean;
+    reason?:
+      | 'assistant_prompt_turn'
+      | 'assistant_prompt_polluted_session'
+      | null;
+    ignoredSessionId?: string | null;
+  };
   triggerTaskRun?: (taskId: string) => { success: boolean; error?: string };
   handleSpawnCommand?: (
     chatJid: string,

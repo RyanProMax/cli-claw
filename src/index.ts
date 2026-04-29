@@ -3293,19 +3293,21 @@ export function shouldIgnoreAssistantPromptPrimarySession({
   primarySessionId?: string;
 }): boolean {
   if (!primarySessionId) return false;
-  const previousUserIndex = previousMessages.findIndex(
-    (message) => !message.is_from_me,
-  );
-  if (previousUserIndex < 0) return false;
-  if (previousMessages[previousUserIndex]?.source_kind !== 'assistant_prompt') {
-    return false;
+
+  for (let i = 0; i < previousMessages.length; i++) {
+    const message = previousMessages[i];
+    if (!message?.is_from_me || message.session_id !== primarySessionId) {
+      continue;
+    }
+
+    const triggeringUser = previousMessages
+      .slice(i + 1)
+      .find((candidate) => !candidate.is_from_me);
+    if (triggeringUser?.source_kind === 'assistant_prompt') {
+      return true;
+    }
   }
-  return previousMessages
-    .slice(0, previousUserIndex)
-    .some(
-      (message) =>
-        message.is_from_me && message.session_id === primarySessionId,
-    );
+  return false;
 }
 
 export function shouldIgnorePreviousAssistantPromptSession(
@@ -3319,12 +3321,64 @@ export function shouldIgnorePreviousAssistantPromptSession(
       timestamp: firstCurrentMessage.timestamp,
       id: firstCurrentMessage.id,
     },
-    100,
+    500,
   );
   return shouldIgnoreAssistantPromptPrimarySession({
     previousMessages,
     primarySessionId,
   });
+}
+
+export interface PrimaryRuntimeSessionPolicy {
+  currentPrimarySessionId?: string;
+  isolatePrimaryRuntimeForTurn: boolean;
+  ignorePreviousAssistantPromptSession: boolean;
+  usePrimarySession: boolean;
+  persistPrimarySession: boolean;
+  reason: 'assistant_prompt_turn' | 'assistant_prompt_polluted_session' | null;
+}
+
+export function resolvePrimaryRuntimeSessionPolicy({
+  chatJid,
+  folder,
+  messagesForAgent,
+  sessions: sessionCache,
+  loadSession,
+}: {
+  chatJid: string;
+  folder: string;
+  messagesForAgent: Array<Pick<NewMessage, 'source_kind' | 'timestamp' | 'id'>>;
+  sessions: Record<string, string | undefined>;
+  loadSession: (folder: string) => string | undefined;
+}): PrimaryRuntimeSessionPolicy {
+  const isolatePrimaryRuntimeForTurn =
+    shouldIsolatePrimaryRuntimeForTurn(messagesForAgent);
+  const currentPrimarySessionId = resolvePrimaryRuntimeSessionId({
+    folder,
+    sessions: sessionCache,
+    loadSession,
+  });
+  const ignorePreviousAssistantPromptSession =
+    !isolatePrimaryRuntimeForTurn &&
+    messagesForAgent.length > 0 &&
+    shouldIgnorePreviousAssistantPromptSession(
+      chatJid,
+      messagesForAgent[0]!,
+      currentPrimarySessionId,
+    );
+  return {
+    currentPrimarySessionId,
+    isolatePrimaryRuntimeForTurn,
+    ignorePreviousAssistantPromptSession,
+    usePrimarySession:
+      !isolatePrimaryRuntimeForTurn && !ignorePreviousAssistantPromptSession,
+    persistPrimarySession: !isolatePrimaryRuntimeForTurn,
+    reason: isolatePrimaryRuntimeForTurn
+      ? 'assistant_prompt_turn'
+      : ignorePreviousAssistantPromptSession
+        ? 'assistant_prompt_polluted_session'
+        : null,
+  };
 }
 
 function rememberPrimaryRuntimeSession(
@@ -3498,30 +3552,35 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     chatJid,
   );
 
-  const isolatePrimaryRuntimeForTurn =
-    shouldIsolatePrimaryRuntimeForTurn(messagesForAgent);
-  const currentPrimarySessionId = resolvePrimaryRuntimeSessionId({
+  const runtimeSessionPolicy = resolvePrimaryRuntimeSessionPolicy({
+    chatJid,
     folder: effectiveGroup.folder,
+    messagesForAgent,
     sessions,
     loadSession: getSession,
   });
-  const ignorePreviousAssistantPromptSession =
-    !isolatePrimaryRuntimeForTurn &&
-    shouldIgnorePreviousAssistantPromptSession(
-      chatJid,
-      messagesForAgent[0]!,
-      currentPrimarySessionId,
-    );
-  if (isolatePrimaryRuntimeForTurn) {
+  if (runtimeSessionPolicy.isolatePrimaryRuntimeForTurn) {
     logger.info(
-      { chatJid, folder: effectiveGroup.folder },
+      {
+        chatJid,
+        folder: effectiveGroup.folder,
+        reason: runtimeSessionPolicy.reason,
+        currentPrimarySessionId:
+          runtimeSessionPolicy.currentPrimarySessionId ?? null,
+      },
       'Using isolated runtime session for assistant-prompt turn',
     );
-  } else if (ignorePreviousAssistantPromptSession) {
+  } else if (runtimeSessionPolicy.ignorePreviousAssistantPromptSession) {
     logger.warn(
-      { chatJid, folder: effectiveGroup.folder },
-      'Ignoring assistant-prompt runtime session for next ordinary turn',
+      {
+        chatJid,
+        folder: effectiveGroup.folder,
+        reason: runtimeSessionPolicy.reason,
+        ignoredSessionId: runtimeSessionPolicy.currentPrimarySessionId ?? null,
+      },
+      'Clearing assistant-prompt polluted runtime session for ordinary turn',
     );
+    clearPrimaryRuntimeSession(effectiveGroup.folder);
   }
 
   const shared = isGroupShared(group.folder);
@@ -3756,12 +3815,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
   let output:
     | { status: 'success' | 'error' | 'closed'; error?: string }
     | undefined;
-  let activeSessionId =
-    resolvePrimaryRuntimeSessionId({
-      folder: effectiveGroup.folder,
-      sessions,
-      loadSession: getSession,
-    }) || undefined;
+  let activeSessionId = runtimeSessionPolicy.usePrimarySession
+    ? runtimeSessionPolicy.currentPrimarySessionId || undefined
+    : undefined;
   let activeRuntimeIdentity: RuntimeIdentity | null =
     resolveEffectiveRuntimeIdentity(effectiveGroup, {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
@@ -3825,6 +3881,32 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 'Suppressing cursor-less stream event after stale cursor',
               );
               return;
+            }
+            if (streamingSession) {
+              const streamText =
+                typeof streamEvent.text === 'string' ? streamEvent.text : '';
+              logger.debug(
+                {
+                  chatJid,
+                  eventType: streamEvent.eventType,
+                  turnId: streamEvent.turnId,
+                  sessionId: streamEvent.sessionId || activeSessionId || null,
+                  eventCursorId: eventCursorId || null,
+                  activeCursorId: activeTurnCursor.id || null,
+                  streamingSessionJid,
+                  sessionActive: streamingSession.isActive(),
+                  textLength: streamText.length,
+                  textPreview:
+                    streamText.length > 0
+                      ? streamText.slice(0, 160)
+                      : undefined,
+                  answerLength: streamingPresentationText.answerText.length,
+                  commentaryLength:
+                    streamingPresentationText.commentaryText.length,
+                  thinkingLength: streamingAccumulatedThinking.length,
+                },
+                'Feishu stream event before card feed',
+              );
             }
             const turnBoundary = applyStreamingTurnBoundary(
               {
@@ -3909,6 +3991,23 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             // IPC 注入的新 query 开始时，旧卡片已 complete()/abort()，
             // 需要为新 query 重建流式卡片并重置会话级状态。
             if (streamingSession && !streamingSession.isActive()) {
+              logger.warn(
+                {
+                  chatJid,
+                  eventType: streamEvent.eventType,
+                  turnId: streamEvent.turnId,
+                  sessionId: streamEvent.sessionId || activeSessionId || null,
+                  eventCursorId: eventCursorId || null,
+                  activeCursorId: activeTurnCursor.id || null,
+                  streamingSessionJid,
+                  previousAnswerLength:
+                    streamingPresentationText.answerText.length,
+                  previousCommentaryLength:
+                    streamingPresentationText.commentaryText.length,
+                  previousThinkingLength: streamingAccumulatedThinking.length,
+                },
+                'Rebuilding inactive Feishu streaming card before event feed',
+              );
               unregisterStreamingSession(streamingSessionJid);
               streamingSession = undefined;
               if (ensureStreamingSessionAvailable()) {
@@ -4526,10 +4625,8 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       imagesForAgent,
       currentTurnSourceJid,
       {
-        usePrimarySession:
-          !isolatePrimaryRuntimeForTurn &&
-          !ignorePreviousAssistantPromptSession,
-        persistPrimarySession: !isolatePrimaryRuntimeForTurn,
+        usePrimarySession: runtimeSessionPolicy.usePrimarySession,
+        persistPrimarySession: runtimeSessionPolicy.persistPrimarySession,
       },
     );
   } finally {
@@ -8470,6 +8567,42 @@ async function startMessageLoop(): Promise<void> {
             continue;
           }
 
+          const messageLoopRuntimePolicy = resolvePrimaryRuntimeSessionPolicy({
+            chatJid,
+            folder: group.folder,
+            messagesForAgent: leadingSourceMessages,
+            sessions,
+            loadSession: getSession,
+          });
+          if (!messageLoopRuntimePolicy.usePrimarySession) {
+            if (messageLoopRuntimePolicy.ignorePreviousAssistantPromptSession) {
+              clearPrimaryRuntimeSession(group.folder);
+            }
+            queue.enqueueMessageCheck(chatJid);
+            recordLifecycleForMessages({
+              messages: leadingSourceMessages,
+              stage: 'queued',
+              details: {
+                route: 'message_loop',
+                targetJid: chatJid,
+                bypassedIpc: true,
+                reason: messageLoopRuntimePolicy.reason,
+              },
+            });
+            logger.warn(
+              {
+                chatJid,
+                groupFolder: group.folder,
+                reason: messageLoopRuntimePolicy.reason,
+                ignoredSessionId:
+                  messageLoopRuntimePolicy.currentPrimarySessionId ?? null,
+                messageIds: leadingSourceMessages.map((message) => message.id),
+              },
+              'Bypassing active runner IPC for runtime session isolation',
+            );
+            continue;
+          }
+
           // Home and non-home groups now share the same IPC injection path.
           // Reply routing is dynamically updated via activeRouteUpdaters when
           // the message is successfully injected, so we no longer need to kill
@@ -9906,6 +10039,30 @@ export async function startCliClaw(
     },
     updateReplyRoute: (folder: string, sourceJid: string | null) => {
       activeRouteUpdaters.get(folder)?.(sourceJid);
+    },
+    shouldBypassActiveRuntimeIpc: ({ chatJid, groupFolder, messages }) => {
+      const policy = resolvePrimaryRuntimeSessionPolicy({
+        chatJid,
+        folder: groupFolder,
+        messagesForAgent: messages,
+        sessions,
+        loadSession: getSession,
+      });
+      if (!policy.usePrimarySession) {
+        if (policy.ignorePreviousAssistantPromptSession) {
+          clearPrimaryRuntimeSession(groupFolder);
+        }
+        return {
+          bypass: true,
+          reason: policy.reason,
+          ignoredSessionId: policy.currentPrimarySessionId ?? null,
+        };
+      }
+      return {
+        bypass: false,
+        reason: null,
+        ignoredSessionId: null,
+      };
     },
     handleSpawnCommand,
   });

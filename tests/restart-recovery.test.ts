@@ -232,6 +232,212 @@ describe('restart recovery cursor handling', () => {
     ).toBe(false);
   });
 
+  test('keeps ignoring a primary session after an assistant-prompt turn polluted later ordinary turns', async () => {
+    const { shouldIgnoreAssistantPromptPrimarySession } =
+      await loadIndexModule();
+    const previousMessages = [
+      {
+        id: 'normal-final',
+        is_from_me: true,
+        source_kind: 'sdk_final',
+        session_id: 'sess-polluted',
+      },
+      {
+        id: 'normal-user',
+        is_from_me: false,
+        source_kind: null,
+        session_id: null,
+      },
+      {
+        id: 'skill-final',
+        is_from_me: true,
+        source_kind: 'sdk_final',
+        session_id: 'sess-polluted',
+      },
+      {
+        id: 'skill-user',
+        is_from_me: false,
+        source_kind: 'assistant_prompt',
+        session_id: null,
+      },
+    ];
+
+    expect(
+      shouldIgnoreAssistantPromptPrimarySession({
+        previousMessages,
+        primarySessionId: 'sess-polluted',
+      }),
+    ).toBe(true);
+  });
+
+  test('marks assistant-prompt and polluted primary sessions as non-IPC-safe', async () => {
+    const { resolvePrimaryRuntimeSessionPolicy } = await loadIndexModule();
+    const { initDatabase, ensureChatExists, storeMessageDirect, setSession } =
+      await import('../src/db.ts');
+    const chatJid = 'feishu:policy-chat';
+    const skillCursor = '2026-04-29T15:04:38.401Z';
+
+    initDatabase();
+    ensureChatExists(chatJid);
+    storeMessageDirect(
+      'skill-user',
+      chatJid,
+      'user',
+      'User',
+      '/hkipo rewritten prompt',
+      skillCursor,
+      false,
+      { meta: { sourceKind: 'assistant_prompt' } },
+    );
+    storeMessageDirect(
+      'skill-final',
+      chatJid,
+      'cli-claw-agent',
+      'cli-claw',
+      'old stock-analysis answer',
+      '2026-04-29T15:14:12.617Z',
+      true,
+      { meta: { sourceKind: 'sdk_final', sessionId: 'sess-polluted' } },
+    );
+    storeMessageDirect(
+      'normal-user',
+      chatJid,
+      'user',
+      'User',
+      'ordinary follow-up',
+      '2026-04-29T15:34:46.435Z',
+      false,
+    );
+    storeMessageDirect(
+      'normal-final',
+      chatJid,
+      'cli-claw-agent',
+      'cli-claw',
+      'ordinary answer emitted from polluted session',
+      '2026-04-29T15:37:57.193Z',
+      true,
+      { meta: { sourceKind: 'sdk_final', sessionId: 'sess-polluted' } },
+    );
+    setSession('main', 'sess-polluted');
+
+    const policy = resolvePrimaryRuntimeSessionPolicy({
+      chatJid,
+      folder: 'main',
+      sessions: { main: 'sess-polluted' },
+      loadSession: () => 'sess-polluted',
+      messagesForAgent: [
+        {
+          id: 'current-user',
+          timestamp: '2026-04-29T16:02:32.212Z',
+          source_kind: null,
+        },
+      ],
+    });
+
+    expect(policy).toMatchObject({
+      currentPrimarySessionId: 'sess-polluted',
+      isolatePrimaryRuntimeForTurn: false,
+      ignorePreviousAssistantPromptSession: true,
+      usePrimarySession: false,
+      persistPrimarySession: true,
+      reason: 'assistant_prompt_polluted_session',
+    });
+  });
+
+  test('web messages from assistant-prompt polluted sessions bypass active runner IPC', async () => {
+    const { resolvePrimaryRuntimeSessionPolicy } = await loadIndexModule();
+    const { handleWebUserMessageForTests, setWebDepsForTests } =
+      await import('../src/web.ts');
+    const {
+      initDatabase,
+      ensureChatExists,
+      storeMessageDirect,
+      setRegisteredGroup,
+    } = await import('../src/db.ts');
+    const chatJid = 'web:main';
+    const group = {
+      name: 'Main',
+      folder: 'main',
+      added_at: '2026-04-29T15:00:00.000Z',
+      executionMode: 'host',
+      is_home: true,
+      activation_mode: 'auto',
+    } as const;
+    const sessions = { main: 'sess-polluted' };
+    const sendMessage = vi.fn(() => 'sent');
+    const enqueueMessageCheck = vi.fn();
+    const advanceAcceptedCursor = vi.fn();
+
+    initDatabase();
+    setRegisteredGroup(chatJid, group);
+    ensureChatExists(chatJid);
+    storeMessageDirect(
+      'skill-user',
+      chatJid,
+      'user',
+      'User',
+      '/hkipo rewritten prompt',
+      '2026-04-29T15:04:38.401Z',
+      false,
+      { meta: { sourceKind: 'assistant_prompt' } },
+    );
+    storeMessageDirect(
+      'skill-final',
+      chatJid,
+      'cli-claw-agent',
+      'cli-claw',
+      'old stock-analysis answer',
+      '2026-04-29T15:14:12.617Z',
+      true,
+      { meta: { sourceKind: 'sdk_final', sessionId: 'sess-polluted' } },
+    );
+
+    setWebDepsForTests({
+      queue: {
+        sendMessage,
+        enqueueMessageCheck,
+        markIpcInjectedMessage: vi.fn(),
+      },
+      getRegisteredGroups: () => ({ [chatJid]: group }),
+      getSessions: () => sessions,
+      processGroupMessages: vi.fn(),
+      ensureTerminalContainerStarted: vi.fn(),
+      formatMessages: (messages: any[]) =>
+        messages.map((message) => message.content).join('\n'),
+      getLastAgentTimestamp: () => ({}),
+      advanceAcceptedCursor,
+      setLastAgentTimestamp: vi.fn(),
+      advanceGlobalCursor: vi.fn(),
+      shouldBypassActiveRuntimeIpc: ({ chatJid, groupFolder, messages }) => {
+        const policy = resolvePrimaryRuntimeSessionPolicy({
+          chatJid,
+          folder: groupFolder,
+          messagesForAgent: messages,
+          sessions,
+          loadSession: () => sessions.main,
+        });
+        return {
+          bypass: !policy.usePrimarySession,
+          reason: policy.reason,
+          ignoredSessionId: policy.currentPrimarySessionId ?? null,
+        };
+      },
+    } as any);
+
+    const result = await handleWebUserMessageForTests(
+      chatJid,
+      '帮我检查下现在能不能流式输出 thinking answer',
+      undefined,
+      'user',
+      'User',
+    );
+
+    expect(result.ok).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(enqueueMessageCheck).toHaveBeenCalledWith(chatJid);
+    expect(advanceAcceptedCursor).not.toHaveBeenCalled();
+  });
+
   test('selects only the leading contiguous source batch for a primary turn', async () => {
     const { selectLeadingSourceTurnMessages } = await loadIndexModule();
     const messages = [

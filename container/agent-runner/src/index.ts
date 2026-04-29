@@ -1306,6 +1306,8 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
 
   let activeTurnText = '';
   let activeTurnMessageUuid: string | undefined;
+  let activeCodexTurnId = containerInput.turnId;
+  let activeCodexMessageCursor = containerInput.messageCursor;
   const connection = new ClientSideConnection(
     () => ({
       requestPermission: async (params) => {
@@ -1349,8 +1351,11 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       sessionUpdate: async (notification: SessionNotification) => {
         const update = notification.update as any;
         const baseEvent = {
-          turnId: containerInput.turnId,
+          turnId: activeCodexTurnId,
           sessionId: notification.sessionId,
+          ...(activeCodexMessageCursor
+            ? { messageCursor: activeCodexMessageCursor }
+            : {}),
           messageUuid:
             typeof update.messageId === 'string' ? update.messageId : undefined,
         };
@@ -1528,10 +1533,12 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       clearInterruptRequested();
       activeTurnText = '';
       activeTurnMessageUuid = undefined;
+      activeCodexTurnId = containerInput.turnId;
+      activeCodexMessageCursor = containerInput.messageCursor;
       emitTurnInitEvent(
         sessionId,
-        containerInput.turnId,
-        containerInput.messageCursor,
+        activeCodexTurnId,
+        activeCodexMessageCursor,
       );
       containerInput.messageCursor = undefined;
 
@@ -1574,8 +1581,11 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
           streamEvent: {
             eventType: 'status',
             statusText: 'interrupted',
-            turnId: containerInput.turnId,
+            turnId: activeCodexTurnId,
             sessionId,
+            ...(activeCodexMessageCursor
+              ? { messageCursor: activeCodexMessageCursor }
+              : {}),
           },
         });
         const nextMessage = await waitForIpcMessage();
@@ -1598,6 +1608,8 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
         status: 'success',
         result: activeTurnText || null,
         newSessionId: sessionId,
+        turnId: activeCodexTurnId,
+        sessionId,
       });
 
       const nextMessage = await waitForIpcMessage();

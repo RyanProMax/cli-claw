@@ -1,35 +1,44 @@
-# Assistant Prompt Session Isolation Fix
+# Feishu Card Residue Root Cause Trace
 
 ## Goal
 
-- Stop skill-generated `assistant_prompt` turns such as `/hkipo` from becoming the primary runtime session for later normal Web/Feishu messages.
-- Prove the fix with a Feishu real-flow regression that models the observed replay: a previous stock-analysis skill final must not appear in the next ordinary Feishu card.
+- Find the remaining root cause of Feishu cards showing old `/hkipo` stock-analysis content after a new ordinary Feishu message.
+- Add structured diagnostics at the failing boundaries so one Feishu `messageId` can be traced through DB, queue, runner stream events, card state, and final delivery.
+- Fix the root cause with a real-flow regression that fails on the observed stale-card behavior and passes after the fix.
 
 ## Done when
 
-- `assistant_prompt` turns run in an isolated runtime session: they do not inherit the primary session and do not replace it when they finish.
-- A normal Feishu message after an `assistant_prompt` turn does not receive that skill task's session id.
-- The real Feishu card payload, persisted final reply, and prompt for the normal message contain only the current request.
-- Validation and review pass; service restart is left manual unless explicitly requested.
+- Live evidence identifies whether the stale content is coming from runtime session reuse, stale streaming buffer/card state, stale SDK event routing, or Feishu delivery/update targeting.
+- Logs include enough compact fields to connect current user message id, source jid, turn id, session id, stream/card cursor, card message id, and visible text hash/preview.
+- Feishu card payload for a new ordinary message cannot include old stock-analysis snippets, even when stale streaming/card state exists before processing.
+- Validation, review, commit, safe restart, and residue check pass.
 
 ## Milestones
 
-### Milestone 55
+### Milestone 56
 
 Objective:
-- Fix `assistant_prompt` runtime session pollution and cover the next-turn Feishu replay path.
+- Trace and fix remaining Feishu stale-card residue after restart.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
+- `docs/ARCHITECTURE.md`
 - `docs/COMMAND.md`
 - `docs/MEMORY.md`
 - `docs/RUNTIME.md`
 - `src/index.ts`
+- `src/web.ts`
+- `src/web-context.ts`
+- `src/feishu-streaming-card.ts`
+- `src/stream-presentation.ts`
+- `src/feishu.ts`
 - `tests/feishu-e2e.test.ts`
+- `tests/feishu-streaming-card.test.ts`
 - `tests/restart-recovery.test.ts`
+- `tests/stream-presentation.test.ts`
 
 Validation:
-- `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts`
+- `npm test -- --run tests/feishu-e2e.test.ts tests/feishu-streaming-card.test.ts tests/restart-recovery.test.ts tests/stream-presentation.test.ts tests/reply-visibility.test.ts`
 - `npm run typecheck`
 - `npm run build`
 - `git diff --check`
@@ -39,23 +48,20 @@ Status:
 - done
 
 Validation status:
-- passed 2026-04-29:
-  - RED: `npm test -- --run tests/feishu-e2e.test.ts -t "does not reuse assistant-prompt skill session"` failed before the fix because the next ordinary Feishu run received `sess-hkipo-skill`.
-  - `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/reply-visibility.test.ts` (66 tests)
+- passed
+  - `npm test -- --run tests/feishu-e2e.test.ts tests/feishu-streaming-card.test.ts tests/restart-recovery.test.ts tests/stream-presentation.test.ts tests/reply-visibility.test.ts`
   - `npm run typecheck`
   - `npm run build`
   - `git diff --check`
   - `./scripts/review.sh`
 
 Review status:
-- passed:
-  - Manual semantic review confirmed `assistant_prompt` turns are isolated and cannot persist their runtime session as the workspace primary session.
-  - The historical cleanup path only ignores a primary session when it matches the previous skill final's session id, so a valid pre-skill primary session is preserved.
-  - `assistant_prompt` also cuts pending batch boundaries, so it cannot merge with same-source ordinary Feishu/Web messages.
+- passed
+  - Subagent review found Web active-runner IPC was still an uncovered pollution path.
+  - Fixed the Web IPC path and added a regression proving polluted primary sessions bypass active runner IPC.
 
 Risks / Notes / Handoff:
-- Live evidence: `~/.cli-claw/streaming-buffer/d2ViOm1haW4.json` for the 2026-04-29 15:34 Feishu message begins with the 2026-04-29 15:14 `/hkipo` final, then appends the current "thinking answer" request handling.
-- DB evidence: `/hkipo` was stored as `source_kind='assistant_prompt'` at 2026-04-29T15:04:38.401Z; its final saved session `019dd9c5-6bfd-7ec2-ab24-64e6eebe31a6`; the next ordinary message reused that session.
-- Root cause: the previous fix correctly bounded stream/card events, but the skill command session itself polluted primary runtime continuity.
-- Fix summary: `assistant_prompt` runs with no primary session and does not persist its session; a later ordinary turn drops only a historically polluted skill session; docs now state the isolation contract.
-- No service restart performed because the user previously asked not to auto-restart while tasks may be running.
+- User screenshot at 2026-04-29 ~12:02 shows a new Feishu message "那飞书卡片终态为什么没有 thinking" followed by a card whose tool trace/body still contains old stock-analysis `/hkipo` output.
+- Previous milestone isolated `assistant_prompt` runtime sessions and passed the synthetic next-turn session regression; therefore this round must prove the actual remaining source before changing code.
+- Root cause confirmed: a primary runtime session previously polluted by an `assistant_prompt` turn could remain selected for later ordinary turns after an intermediate ordinary reply. Feishu exposed the residue, but Web active-runner IPC could also inject messages into the polluted runtime. The fix clears/bypasses polluted primary runtime sessions across process, message-loop IPC, and Web IPC paths.
+- Added diagnostics at Feishu stream/card feed boundaries with turn id, session id, cursor id, active cursor id, and presentation lengths.

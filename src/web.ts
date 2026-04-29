@@ -688,20 +688,18 @@ async function handleWebUserMessage(
     }
   }
 
+  const messageForAgent: NewMessage = {
+    id: messageId,
+    chat_jid: chatJid,
+    sender: userId,
+    sender_name: displayName,
+    content: contentForProcessing,
+    timestamp,
+    attachments: attachmentsStr,
+    source_kind: sourceKind ?? null,
+  };
   const shared = !group.is_home && isGroupShared(group.folder);
-  const formatted = deps.formatMessages(
-    [
-      {
-        id: messageId,
-        chat_jid: chatJid,
-        sender: userId,
-        sender_name: displayName,
-        content: contentForProcessing,
-        timestamp,
-      },
-    ],
-    shared,
-  );
+  const formatted = deps.formatMessages([messageForAgent], shared);
 
   // IPC-inject the message into the running agent process.  For home groups,
   // the reply route is dynamically updated via activeRouteUpdaters so we no
@@ -709,21 +707,41 @@ async function handleWebUserMessage(
   let pipedToActive = false;
   const images = toAgentImages(normalizedAttachments);
   const updateRoute = deps.updateReplyRoute;
-  const sendResult = deps.queue.sendMessage(
+  const ipcDecision = deps.shouldBypassActiveRuntimeIpc?.({
     chatJid,
-    formatted,
-    images,
-    () => {
-      // IPC write succeeded — update reply route for home groups.
-      // Web messages have no IM source, so clear the IM route.
-      updateRoute?.(group.folder, null);
-    },
-    { timestamp, id: messageId },
-  );
-  if (sendResult === 'sent') {
-    pipedToActive = true;
-  } else {
+    groupFolder: group.folder,
+    messages: [messageForAgent],
+  });
+  if (ipcDecision?.bypass) {
     deps.queue.enqueueMessageCheck(chatJid);
+    logger.warn(
+      {
+        chatJid,
+        groupFolder: group.folder,
+        messageId,
+        sourceKind: sourceKind ?? null,
+        reason: ipcDecision.reason ?? null,
+        ignoredSessionId: ipcDecision.ignoredSessionId ?? null,
+      },
+      'Web active runner IPC bypassed for runtime session isolation',
+    );
+  } else {
+    const sendResult = deps.queue.sendMessage(
+      chatJid,
+      formatted,
+      images,
+      () => {
+        // IPC write succeeded — update reply route for home groups.
+        // Web messages have no IM source, so clear the IM route.
+        updateRoute?.(group.folder, null);
+      },
+      { timestamp, id: messageId },
+    );
+    if (sendResult === 'sent') {
+      pipedToActive = true;
+    } else {
+      deps.queue.enqueueMessageCheck(chatJid);
+    }
   }
 
   // Only advance per-group cursor when we piped directly into a running container.
@@ -2130,6 +2148,13 @@ export function startWebServer(webDeps: WebDeps): void {
 }
 
 // --- Exports ---
+
+export function setWebDepsForTests(webDeps: WebDeps): void {
+  deps = webDeps;
+  setWebDeps(webDeps);
+}
+
+export { handleWebUserMessage as handleWebUserMessageForTests };
 
 export function shutdownTerminals(): void {
   terminalManager.shutdown();

@@ -1184,7 +1184,7 @@ describe('Feishu in-process E2E harness', () => {
     }
   });
 
-  test('does not reuse assistant-prompt skill session for the next ordinary Feishu message', async () => {
+  test('does not reuse an assistant-prompt polluted session for later ordinary Feishu messages', async () => {
     vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
     const {
       db,
@@ -1198,10 +1198,15 @@ describe('Feishu in-process E2E harness', () => {
     const chatJid = `feishu:${chatId}`;
     const userId = 'user-feishu-skill-session';
     const skillMessageId = 'om_hkipo_skill_prompt';
+    const priorNormalMessageId = 'om_prior_normal_from_polluted_session';
     const currentMessageId = 'om_check_streaming_current';
     const skillCursor = {
       timestamp: '2026-04-29T15:04:38.401Z',
       id: skillMessageId,
+    };
+    const priorNormalCursor = {
+      timestamp: '2026-04-29T15:34:46.435Z',
+      id: priorNormalMessageId,
     };
     const oldSkillFinal = [
       '我会按 `stock-analysis-skill` 的港股 IPO 流程执行。',
@@ -1253,14 +1258,41 @@ describe('Feishu in-process E2E harness', () => {
         },
       },
     );
+    db.storeMessageDirect(
+      priorNormalMessageId,
+      chatJid,
+      'ou_skill',
+      'Skill User',
+      '帮我检查下现在能不能流式输出 thinking answer',
+      priorNormalCursor.timestamp,
+      false,
+      { sourceJid: chatJid },
+    );
+    db.storeMessageDirect(
+      'assistant-prior-normal-final',
+      chatJid,
+      'cli-claw-agent',
+      'cli-claw',
+      `${oldSkillFinal}\n${currentFinal}`,
+      '2026-04-29T15:37:57.193Z',
+      true,
+      {
+        sourceJid: chatJid,
+        meta: {
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+          sessionId: 'sess-hkipo-skill',
+        },
+      },
+    );
     db.setSession('main', 'sess-hkipo-skill');
     db.setRouterState(
       'last_agent_timestamp',
-      JSON.stringify({ [chatJid]: skillCursor }),
+      JSON.stringify({ [chatJid]: priorNormalCursor }),
     );
     db.setRouterState(
       'last_committed_cursor',
-      JSON.stringify({ [chatJid]: skillCursor }),
+      JSON.stringify({ [chatJid]: priorNormalCursor }),
     );
     loadRouterStateForTests();
 
@@ -1279,7 +1311,7 @@ describe('Feishu in-process E2E harness', () => {
       message: {
         chat_id: chatId,
         message_id: currentMessageId,
-        create_time: '1777476886435',
+        create_time: '1777478552212',
         message_type: 'text',
         content: JSON.stringify({
           text: '帮我检查下现在能不能流式输出 thinking answer',
@@ -1364,6 +1396,7 @@ describe('Feishu in-process E2E harness', () => {
 
     const storedText = db
       .getMessagesPage(chatJid, undefined, 20)
+      .filter((message: any) => message.session_id === 'sess-current-normal')
       .map((message: any) => message.content)
       .join('\n');
     expect(storedText).toContain(currentFinal);
