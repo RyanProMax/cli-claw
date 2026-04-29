@@ -541,6 +541,8 @@ export interface PersistedStreamingTurnState {
   replyJid: string;
   snapshotJid: string;
   cursor: MessageCursor;
+  turnId?: string;
+  messageCursorId?: string;
 }
 export interface StreamingRecoveryEntry extends PersistedStreamingTurnState {
   streamingKey: string;
@@ -551,6 +553,8 @@ export interface StreamingRecoveryEntry extends PersistedStreamingTurnState {
 export interface ActiveStreamingTextSnapshot {
   partialText: string;
   commentaryText: string;
+  turnId?: string;
+  messageCursorId?: string;
 }
 let activeStreamingTurns: Record<string, PersistedStreamingTurnState> = {};
 
@@ -588,16 +592,13 @@ export function applyActiveStreamingTurnCommittedCursor(
 
 export function applyShutdownInterruptedStreamingCommittedCursor(
   committedCursors: Record<string, MessageCursor>,
-  recoveryEntry: Pick<
+  _recoveryEntry: Pick<
     PersistedStreamingTurnState,
     'commitJid' | 'cursor' | 'replyJid'
   >,
   _options: { imDeliverySuppressed?: boolean } = {},
 ): Record<string, MessageCursor> {
-  return applyActiveStreamingTurnCommittedCursor(
-    committedCursors,
-    recoveryEntry,
-  );
+  return committedCursors;
 }
 
 export function resolveConversationAgentRecoveryCursor(
@@ -613,21 +614,35 @@ export function buildStreamingRecoveryEntries(
 ): StreamingRecoveryEntry[] {
   return Object.entries(streamingTurns)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([streamingKey, state]) => ({
-      streamingKey,
-      commitJid: state.commitJid,
-      replyJid: state.replyJid,
-      snapshotJid: state.snapshotJid,
-      cursor: state.cursor,
-      partialText:
-        activeTexts.get(state.snapshotJid)?.partialText.trim() ??
-        activeTexts.get(streamingKey)?.partialText.trim() ??
-        '',
-      commentaryText:
-        activeTexts.get(state.snapshotJid)?.commentaryText.trim() ??
-        activeTexts.get(streamingKey)?.commentaryText.trim() ??
-        '',
-    }));
+    .map(([streamingKey, state]) => {
+      const snapshotText = activeTexts.get(state.snapshotJid);
+      const keyedText = activeTexts.get(streamingKey);
+      const activeText = snapshotText ?? keyedText;
+      return {
+        streamingKey,
+        commitJid: state.commitJid,
+        replyJid: state.replyJid,
+        snapshotJid: state.snapshotJid,
+        cursor: state.cursor,
+        partialText:
+          snapshotText?.partialText.trim() ??
+          keyedText?.partialText.trim() ??
+          '',
+        commentaryText:
+          snapshotText?.commentaryText.trim() ??
+          keyedText?.commentaryText.trim() ??
+          '',
+        ...(state.turnId || activeText?.turnId
+          ? { turnId: state.turnId ?? activeText?.turnId }
+          : {}),
+        ...(state.messageCursorId || activeText?.messageCursorId
+          ? {
+              messageCursorId:
+                state.messageCursorId ?? activeText?.messageCursorId,
+            }
+          : {}),
+      };
+    });
 }
 
 export function ensureLateBoundStreamingSession<T>(
@@ -672,6 +687,9 @@ function normalizeStreamingTurnState(
   }
   const maybeReplyJid = (value as { replyJid?: unknown }).replyJid;
   const maybeSnapshotJid = (value as { snapshotJid?: unknown }).snapshotJid;
+  const maybeTurnId = (value as { turnId?: unknown }).turnId;
+  const maybeMessageCursorId = (value as { messageCursorId?: unknown })
+    .messageCursorId;
   return {
     commitJid: maybeCommitJid,
     replyJid:
@@ -683,6 +701,12 @@ function normalizeStreamingTurnState(
         ? maybeSnapshotJid
         : streamingKey,
     cursor: normalizeCursor((value as { cursor?: unknown }).cursor),
+    ...(typeof maybeTurnId === 'string' && maybeTurnId
+      ? { turnId: maybeTurnId }
+      : {}),
+    ...(typeof maybeMessageCursorId === 'string' && maybeMessageCursorId
+      ? { messageCursorId: maybeMessageCursorId }
+      : {}),
   };
 }
 
@@ -701,6 +725,7 @@ function setActiveStreamingTurn(
   cursor: MessageCursor,
   replyJid: string,
   snapshotJid: string,
+  metadata: { turnId?: string; messageCursorId?: string } = {},
 ): void {
   const current = activeStreamingTurns[streamingKey];
   if (
@@ -708,13 +733,24 @@ function setActiveStreamingTurn(
     current.commitJid === commitJid &&
     current.replyJid === replyJid &&
     current.snapshotJid === snapshotJid &&
+    current.turnId === metadata.turnId &&
+    current.messageCursorId === metadata.messageCursorId &&
     !isCursorAfter(cursor, current.cursor)
   ) {
     return;
   }
   activeStreamingTurns = {
     ...activeStreamingTurns,
-    [streamingKey]: { commitJid, replyJid, snapshotJid, cursor },
+    [streamingKey]: {
+      commitJid,
+      replyJid,
+      snapshotJid,
+      cursor,
+      ...(metadata.turnId ? { turnId: metadata.turnId } : {}),
+      ...(metadata.messageCursorId
+        ? { messageCursorId: metadata.messageCursorId }
+        : {}),
+    },
   };
   saveState();
 }
@@ -3479,7 +3515,11 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
   let streamingAccumulatedThinking = '';
   let streamInterrupted = false;
   let activeStreamingEventTurnId: string | undefined;
+  let activeStreamingMessageCursorId: string | undefined;
+  let suppressStreamEventsUntilCursorMatch = false;
   let streamStartedLifecycleRecorded = false;
+  let lifecycleMessagesForActiveTurn = messagesForAgent;
+  let activeLastProcessed = lastProcessed;
   if (streamingSession) {
     registerStreamingSession(streamingSessionJid, streamingSession);
     logger.debug({ chatJid }, 'Streaming card session created for Feishu');
@@ -3511,6 +3551,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     streamingAccumulatedThinking = resetState.thinkingText;
     streamInterrupted = resetState.interrupted;
     activeStreamingEventTurnId = resetState.turnId;
+    activeStreamingMessageCursorId = resetState.messageCursorId;
+    suppressStreamEventsUntilCursorMatch = false;
+    streamStartedLifecycleRecorded = false;
     ensureStreamingSessionAvailable();
   };
 
@@ -3523,6 +3566,12 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     (newSourceJid, lifecycleMessages) => {
       if (lifecycleMessages?.length) {
         activeImLifecycleMessages.set(effectiveGroup.folder, lifecycleMessages);
+        lifecycleMessagesForActiveTurn = lifecycleMessages;
+        activeLastProcessed = lifecycleMessages[lifecycleMessages.length - 1]!;
+        activeTurnCursor = {
+          timestamp: activeLastProcessed.timestamp,
+          id: activeLastProcessed.id,
+        };
       } else if (!newSourceJid || getChannelType(newSourceJid) === null) {
         activeImLifecycleMessages.delete(effectiveGroup.folder);
       }
@@ -3669,9 +3718,43 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                     ...result.streamEvent,
                     runtimeIdentity: activeRuntimeIdentity,
                   };
+            const eventCursorId = streamEvent.messageCursor?.id?.trim();
+            if (
+              eventCursorId &&
+              activeTurnCursor.id &&
+              eventCursorId !== activeTurnCursor.id
+            ) {
+              suppressStreamEventsUntilCursorMatch = true;
+              logger.warn(
+                {
+                  chatJid,
+                  eventCursorId,
+                  activeCursorId: activeTurnCursor.id,
+                  eventType: streamEvent.eventType,
+                  turnId: streamEvent.turnId,
+                },
+                'Suppressing stale stream event for previous message cursor',
+              );
+              return;
+            }
+            if (eventCursorId && eventCursorId === activeTurnCursor.id) {
+              suppressStreamEventsUntilCursorMatch = false;
+            } else if (suppressStreamEventsUntilCursorMatch) {
+              logger.warn(
+                {
+                  chatJid,
+                  eventType: streamEvent.eventType,
+                  turnId: streamEvent.turnId,
+                  activeCursorId: activeTurnCursor.id,
+                },
+                'Suppressing cursor-less stream event after stale cursor',
+              );
+              return;
+            }
             const turnBoundary = applyStreamingTurnBoundary(
               {
                 turnId: activeStreamingEventTurnId,
+                messageCursorId: activeStreamingMessageCursorId,
                 presentationText: streamingPresentationText,
                 thinkingText: streamingAccumulatedThinking,
                 interrupted: streamInterrupted,
@@ -3684,6 +3767,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               streamingAccumulatedThinking =
                 turnBoundary.nextState.thinkingText;
               streamInterrupted = turnBoundary.nextState.interrupted;
+              streamStartedLifecycleRecorded = false;
               if (streamingSession) {
                 if (streamingSession.isActive()) {
                   await streamingSession
@@ -3698,6 +3782,8 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               }
             }
             activeStreamingEventTurnId = turnBoundary.nextState.turnId;
+            activeStreamingMessageCursorId =
+              turnBoundary.nextState.messageCursorId;
             if (streamEvent.eventType === 'init' && streamEvent.messageCursor) {
               setActiveStreamingTurn(
                 activeStreamingTurnKey,
@@ -3705,11 +3791,15 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 normalizeCursor(streamEvent.messageCursor),
                 replySourceImJid ?? chatJid,
                 streamingSnapshotKey,
+                {
+                  turnId: streamEvent.turnId,
+                  messageCursorId: streamEvent.messageCursor.id,
+                },
               );
               activeTurnCursor = normalizeCursor(streamEvent.messageCursor);
               if (!streamStartedLifecycleRecorded) {
                 recordStreamStartedLifecycleForMessages({
-                  messages: messagesForAgent,
+                  messages: lifecycleMessagesForActiveTurn,
                   streamEvent,
                   details: {
                     route: replySourceImJid
@@ -3808,7 +3898,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
                     sendToIM: false,
                     messageMeta: {
-                      turnId: streamEvent.turnId || lastProcessed.id,
+                      turnId: streamEvent.turnId || activeLastProcessed.id,
                       sessionId: streamEvent.sessionId || activeSessionId,
                       sourceKind: 'interrupt_partial',
                       finalizationReason: 'interrupted',
@@ -3843,6 +3933,8 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                     createEmptyStreamPresentationTextState();
                   streamingAccumulatedThinking = '';
                   activeStreamingEventTurnId = undefined;
+                  activeStreamingMessageCursorId = undefined;
+                  suppressStreamEventsUntilCursorMatch = false;
                   commitCursor();
                 } catch (err) {
                   logger.warn(
@@ -4130,7 +4222,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 chatJid,
               );
               recordLifecycleForMessages({
-                messages: messagesForAgent,
+                messages: lifecycleMessagesForActiveTurn,
                 stage: 'finalized',
                 details: {
                   sourceKind: result.sourceKind || 'sdk_final',
@@ -4177,7 +4269,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   }
                   streamingCardHandledIM = true;
                   recordLifecycleForMessages({
-                    messages: messagesForAgent,
+                    messages: lifecycleMessagesForActiveTurn,
                     stage: 'im_delivered',
                     details: {
                       delivery: 'streaming_card',
@@ -4245,7 +4337,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               // result.turnId stays the same (set at container start).  If we already
               // saved a reply with this turnId, the INSERT OR REPLACE would overwrite
               // the previous reply.  Use a fresh ID to prevent that.
-              const effectiveTurnId = result.turnId || lastProcessed.id;
+              const effectiveTurnId = result.turnId || activeLastProcessed.id;
               const turnIdForDb =
                 sentReply && effectiveTurnId === lastSavedTurnId
                   ? undefined // no turnId → fresh INSERT, no UPSERT dedup
@@ -4266,7 +4358,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               });
               if (directImSendRequested) {
                 recordLifecycleForMessages({
-                  messages: messagesForAgent,
+                  messages: lifecycleMessagesForActiveTurn,
                   stage: 'im_delivered',
                   details: { delivery: 'static_message', targetJid: chatJid },
                 });
@@ -4285,7 +4377,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                     localImagePaths,
                   );
                   recordLifecycleForMessages({
-                    messages: messagesForAgent,
+                    messages: lifecycleMessagesForActiveTurn,
                     stage: 'im_delivered',
                     status: imSent ? 'ok' : 'error',
                     reason: imSent ? null : 'send_failed_after_retries',
@@ -4316,7 +4408,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 if (g.reply_policy !== 'mirror') continue;
                 if (getChannelType(imJid))
                   sendImWithFailTracking(imJid, visibleText, localImagePaths, {
-                    lifecycleMessages: messagesForAgent,
+                    lifecycleMessages: lifecycleMessagesForActiveTurn,
                     lifecycleDetails: { delivery: 'mirror_message' },
                   });
               }
@@ -4330,12 +4422,14 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 createEmptyStreamPresentationTextState();
               streamingAccumulatedThinking = '';
               activeStreamingEventTurnId = undefined;
+              activeStreamingMessageCursorId = undefined;
+              suppressStreamEventsUntilCursorMatch = false;
               // Persist cursor as soon as a visible reply is emitted.
               // Long-lived runners may stay alive for idleTimeout, and waiting
               // until process exit would cause duplicate replay after restart.
               if (commitCursor()) {
                 recordLifecycleForMessages({
-                  messages: messagesForAgent,
+                  messages: lifecycleMessagesForActiveTurn,
                   stage: 'cursor_committed',
                   details: { cursor: activeTurnCursor },
                 });
@@ -4437,7 +4531,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
         lastReplyMsgId = await sendMessage(chatJid, interruptedText, {
           sendToIM: false,
           messageMeta: {
-            turnId: lastProcessed.id,
+            turnId: activeLastProcessed.id,
             sessionId: activeSessionId,
             sourceKind: 'interrupt_partial',
             finalizationReason: 'interrupted',
@@ -4454,7 +4548,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             streamingCardHandledIm: streamingCardHandledInterruptedPartial,
             text: interruptedText,
             groupFolder: effectiveGroup.folder,
-            lifecycleMessages: messagesForAgent,
+            lifecycleMessages: lifecycleMessagesForActiveTurn,
             lifecycleDetails: { deliveryPoint: 'main_finally_interrupted' },
           });
         if (
@@ -4492,7 +4586,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
         lastReplyMsgId = await sendMessage(chatJid, partialReply, {
           sendToIM: false,
           messageMeta: {
-            turnId: lastProcessed.id,
+            turnId: activeLastProcessed.id,
             sessionId: activeSessionId,
             sourceKind: 'interrupt_partial',
             finalizationReason: 'error',
@@ -4509,7 +4603,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             streamingCardHandledIm: streamingCardHandledInterruptedPartial,
             text: partialReply,
             groupFolder: effectiveGroup.folder,
-            lifecycleMessages: messagesForAgent,
+            lifecycleMessages: lifecycleMessagesForActiveTurn,
             lifecycleDetails: { deliveryPoint: 'main_finally_error' },
           });
         if (
@@ -5226,8 +5320,9 @@ export async function persistInterruptedStreamingReply(
 }
 
 /**
- * Save any in-progress streaming responses to DB before shutdown.
- * Without this, partial bot responses are lost when the service restarts.
+ * Drop in-progress streaming responses before shutdown.
+ * Interrupted partial bodies are not final answers, so they must not be
+ * persisted, sent to IM, or used to advance committed recovery cursors.
  */
 async function saveInterruptedStreamingMessages(): Promise<void> {
   try {
@@ -5240,7 +5335,7 @@ async function saveInterruptedStreamingMessages(): Promise<void> {
 
     logger.info(
       { count: recoveryEntries.length },
-      'Saving interrupted streaming messages to DB',
+      'Discarding interrupted streaming messages before shutdown',
     );
 
     for (const entry of recoveryEntries) {
@@ -5288,7 +5383,7 @@ async function saveInterruptedStreamingMessages(): Promise<void> {
     logger.warn({ err }, 'Error saving interrupted streaming messages');
   }
 
-  // Clean up buffer files since we saved to DB (avoids duplicates on next startup)
+  // Clean up buffer files because interrupted partials are discarded.
   cleanStreamingBufferDir();
 }
 
@@ -5307,6 +5402,8 @@ interface StreamingBufferPayload {
   commitJid?: string;
   replyJid?: string;
   cursor?: MessageCursor;
+  turnId?: string;
+  messageCursorId?: string;
 }
 
 export function encodeJidForFilename(jid: string): string {
@@ -5351,6 +5448,8 @@ function flushStreamingBuffer(): void {
         commitJid: entry.commitJid,
         replyJid: entry.replyJid,
         cursor: entry.cursor,
+        turnId: entry.turnId,
+        messageCursorId: entry.messageCursorId,
       };
       fs.writeFileSync(tmpPath, JSON.stringify(payload));
       fs.renameSync(tmpPath, filePath);
@@ -5446,6 +5545,13 @@ function recoverStreamingBuffer(): void {
             cursor: normalizeCursor(payload.cursor),
             partialText,
             commentaryText,
+            ...(typeof payload.turnId === 'string' && payload.turnId
+              ? { turnId: payload.turnId }
+              : {}),
+            ...(typeof payload.messageCursorId === 'string' &&
+            payload.messageCursorId
+              ? { messageCursorId: payload.messageCursorId }
+              : {}),
           };
           recoveryEntries.set(streamingKey, entry);
           recoveryEntriesBySnapshotJid.set(snapshotJid, entry);
@@ -5474,55 +5580,24 @@ function recoverStreamingBuffer(): void {
 
     logger.info(
       { count: recoveryEntries.size },
-      'Recovering interrupted streaming messages from buffer state',
+      'Discarding interrupted streaming buffer state',
     );
 
     let stateChanged = false;
     for (const entry of recoveryEntries.values()) {
       try {
-        const interruptedText = buildInterruptedReply(
-          entry.partialText,
-          undefined,
-          entry.commentaryText,
-        );
-        const msgId = crypto.randomUUID();
-        const timestamp = new Date().toISOString();
-        ensureChatExists(entry.replyJid);
-        storeMessageDirect(
-          msgId,
-          entry.replyJid,
-          'cli-claw-agent',
-          ASSISTANT_NAME,
-          interruptedText,
-          timestamp,
-          true,
-          {
-            meta: {
-              sourceKind: 'interrupt_partial',
-              finalizationReason: 'crash_recovery',
-            },
-          },
-        );
-        const nextCommitted = applyActiveStreamingTurnCommittedCursor(
-          lastCommittedCursor,
-          entry,
-        );
-        if (nextCommitted !== lastCommittedCursor) {
-          lastCommittedCursor = nextCommitted;
-          stateChanged = true;
-        }
         logger.info(
           {
             streamingKey: entry.streamingKey,
             replyJid: entry.replyJid,
             textLen: entry.partialText.length + entry.commentaryText.length,
           },
-          'Recovered interrupted streaming message',
+          'Discarded interrupted streaming buffer entry',
         );
       } catch (err) {
         logger.warn(
           { err, entry },
-          'Error recovering interrupted streaming turn',
+          'Error discarding interrupted streaming turn',
         );
       }
     }
@@ -5540,6 +5615,10 @@ function recoverStreamingBuffer(): void {
   } catch (err) {
     logger.warn({ err }, 'Error recovering streaming buffer');
   }
+}
+
+export function recoverStreamingBufferForTests(): void {
+  recoverStreamingBuffer();
 }
 
 /** Remove all buffer files. */
@@ -6957,6 +7036,8 @@ async function processAgentConversation(
   let agentStreamingThinking = '';
   let agentStreamInterrupted = false;
   let agentStreamingEventTurnId: string | undefined;
+  let agentStreamingMessageCursorId: string | undefined;
+  let suppressAgentStreamEventsUntilCursorMatch = false;
   let agentStreamStartedLifecycleRecorded = false;
   if (agentStreamingSession && streamingSessionJid) {
     registerStreamingSession(streamingSessionJid, agentStreamingSession);
@@ -7088,9 +7169,45 @@ async function processAgentConversation(
               ...output.streamEvent,
               runtimeIdentity: currentAgentRuntimeIdentity,
             };
+      const eventCursorId = streamEvent.messageCursor?.id?.trim();
+      if (
+        eventCursorId &&
+        activeTurnCursor.id &&
+        eventCursorId !== activeTurnCursor.id
+      ) {
+        suppressAgentStreamEventsUntilCursorMatch = true;
+        logger.warn(
+          {
+            chatJid,
+            agentId,
+            eventCursorId,
+            activeCursorId: activeTurnCursor.id,
+            eventType: streamEvent.eventType,
+            turnId: streamEvent.turnId,
+          },
+          'Suppressing stale conversation-agent stream event for previous message cursor',
+        );
+        return;
+      }
+      if (eventCursorId && eventCursorId === activeTurnCursor.id) {
+        suppressAgentStreamEventsUntilCursorMatch = false;
+      } else if (suppressAgentStreamEventsUntilCursorMatch) {
+        logger.warn(
+          {
+            chatJid,
+            agentId,
+            eventType: streamEvent.eventType,
+            turnId: streamEvent.turnId,
+            activeCursorId: activeTurnCursor.id,
+          },
+          'Suppressing cursor-less conversation-agent stream event after stale cursor',
+        );
+        return;
+      }
       const turnBoundary = applyStreamingTurnBoundary(
         {
           turnId: agentStreamingEventTurnId,
+          messageCursorId: agentStreamingMessageCursorId,
           presentationText: agentStreamingPresentationText,
           thinkingText: agentStreamingThinking,
           interrupted: agentStreamInterrupted,
@@ -7102,6 +7219,7 @@ async function processAgentConversation(
           turnBoundary.nextState.presentationText;
         agentStreamingThinking = turnBoundary.nextState.thinkingText;
         agentStreamInterrupted = turnBoundary.nextState.interrupted;
+        agentStreamStartedLifecycleRecorded = false;
         if (streamingSessionJid) {
           if (agentStreamingSession) {
             if (agentStreamingSession.isActive()) {
@@ -7118,6 +7236,7 @@ async function processAgentConversation(
         }
       }
       agentStreamingEventTurnId = turnBoundary.nextState.turnId;
+      agentStreamingMessageCursorId = turnBoundary.nextState.messageCursorId;
       if (streamEvent.eventType === 'init' && streamEvent.messageCursor) {
         setActiveStreamingTurn(
           activeStreamingTurnKey,
@@ -7125,6 +7244,10 @@ async function processAgentConversation(
           normalizeCursor(streamEvent.messageCursor),
           virtualChatJid,
           streamingSnapshotKey,
+          {
+            turnId: streamEvent.turnId,
+            messageCursorId: streamEvent.messageCursor.id,
+          },
         );
         activeTurnCursor = normalizeCursor(streamEvent.messageCursor);
         if (!agentStreamStartedLifecycleRecorded) {
@@ -7279,6 +7402,8 @@ async function processAgentConversation(
             savedAgentPartialReply = true;
             commitCursor();
             agentStreamingEventTurnId = undefined;
+            agentStreamingMessageCursorId = undefined;
+            suppressAgentStreamEventsUntilCursorMatch = false;
           } catch (err) {
             logger.warn(
               { err, chatJid, agentId },
@@ -7485,6 +7610,8 @@ async function processAgentConversation(
             createEmptyStreamPresentationTextState();
           agentStreamingThinking = '';
           agentStreamingEventTurnId = undefined;
+          agentStreamingMessageCursorId = undefined;
+          suppressAgentStreamEventsUntilCursorMatch = false;
           unregisterStreamingSession(streamingSessionJid);
           agentStreamingSession = undefined;
           if (ensureAgentStreamingSessionAvailable()) {
@@ -7916,6 +8043,8 @@ async function processAgentConversation(
         savedAgentPartialReply = true;
         commitCursor();
         agentStreamingEventTurnId = undefined;
+        agentStreamingMessageCursorId = undefined;
+        suppressAgentStreamEventsUntilCursorMatch = false;
       } catch (err) {
         logger.warn(
           { err, chatJid, agentId },
@@ -8040,6 +8169,8 @@ async function processAgentConversation(
         savedAgentPartialReply = true;
         commitCursor();
         agentStreamingEventTurnId = undefined;
+        agentStreamingMessageCursorId = undefined;
+        suppressAgentStreamEventsUntilCursorMatch = false;
       } catch (err) {
         logger.warn(
           { err, chatJid, agentId },

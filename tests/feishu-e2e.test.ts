@@ -169,13 +169,14 @@ async function loadFeishuE2EModules() {
 async function loadFeishuProcessGroupModules() {
   const home = createTempHome();
   vi.stubEnv('HOME', home);
-  const [db, notifier, imManagerModule, restartGuard, indexModule] =
+  const [db, notifier, imManagerModule, restartGuard, indexModule, config] =
     await Promise.all([
       import('../src/db.ts'),
       import('../src/message-notifier.ts'),
       import('../src/im-manager.ts'),
       import('../shared/service-restart-guard.ts'),
       import('../src/index.ts'),
+      import('../src/config.ts'),
     ]);
   db.initDatabase();
   return {
@@ -184,6 +185,10 @@ async function loadFeishuProcessGroupModules() {
     imManager: imManagerModule.imManager,
     restartGuard,
     processGroupMessages: indexModule.processGroupMessages,
+    encodeJidForFilename: indexModule.encodeJidForFilename,
+    loadRouterStateForTests: indexModule.loadRouterStateForTests,
+    recoverStreamingBufferForTests: indexModule.recoverStreamingBufferForTests,
+    DATA_DIR: config.DATA_DIR,
   };
 }
 
@@ -611,13 +616,8 @@ describe('Feishu in-process E2E harness', () => {
   });
 
   test('processes a Feishu turn through processGroupMessages, streaming card finalization, final reply persistence, and cursor commit without leaked context', async () => {
-    const {
-      db,
-      notifier,
-      imManager,
-      restartGuard,
-      processGroupMessages,
-    } = await loadFeishuProcessGroupModules();
+    const { db, notifier, imManager, restartGuard, processGroupMessages } =
+      await loadFeishuProcessGroupModules();
     const chatId = 'oc_process_group_output';
     const chatJid = `feishu:${chatId}`;
     const userId = 'user-feishu-process-group';
@@ -803,6 +803,385 @@ describe('Feishu in-process E2E harness', () => {
       'cursor_committed',
     ]);
     expect(lifecycle.every((event: any) => event.status === 'ok')).toBe(true);
+  });
+
+  test('resets real Feishu streaming card payload when the message cursor changes even if the runner reuses a turn id', async () => {
+    const { db, notifier, imManager, restartGuard, processGroupMessages } =
+      await loadFeishuProcessGroupModules();
+    const chatId = 'oc_cursor_boundary_card';
+    const chatJid = `feishu:${chatId}`;
+    const userId = 'user-feishu-cursor-boundary';
+    const messageId = 'om_cursor_boundary_current';
+    const staleCursor = {
+      timestamp: '2026-04-28T06:00:00.000Z',
+      id: 'om_stale_hkipo',
+    };
+    const finalText = '当前请求：只清理 PLANS 文档，卡片只展示本轮结果。';
+    const forbiddenSnippets = [
+      'stock-analysis-skill',
+      'hkexnews',
+      '港股 IPO 旧任务',
+      '旧工具 trace',
+    ];
+
+    db.setRegisteredGroup(chatJid, {
+      name: 'Feishu Cursor Boundary',
+      folder: 'feishu-cursor-boundary',
+      added_at: '2026-04-29T09:00:00.000Z',
+      executionMode: 'host',
+      agentType: 'codex',
+      activation_mode: 'auto',
+      created_by: userId,
+    });
+    db.ensureChatExists(chatJid);
+
+    await imManager.connectUserFeishu(
+      userId,
+      { appId: 'app-id', appSecret: 'app-secret' },
+      vi.fn(),
+      {
+        resolveManagedCommandText: (_chatJid, text) =>
+          restartGuard.resolveManagedSelfRestartCommand(text),
+      },
+    );
+
+    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: chatId,
+        message_id: messageId,
+        create_time: '1777070345000',
+        message_type: 'text',
+        content: JSON.stringify({
+          text: '检查 PLANS/ACTIVE 和 ROADMAP，只保留未完成规划',
+        }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_cursor_boundary',
+        },
+      },
+    });
+    await expect(wakeup).resolves.toBe('woke');
+
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'gpt-5.5',
+      reasoningEffort: 'high',
+      supportsReasoningEffort: true,
+    };
+    hoisted.runHostAgent.mockImplementation(
+      async (_group, input, _onProcess, onOutput) => {
+        const reusedTurnId = 'turn-reused-after-restart';
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'init',
+            turnId: reusedTurnId,
+            sessionId: 'sess-cursor-boundary',
+            messageCursor: staleCursor,
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'tool_use_start',
+            turnId: reusedTurnId,
+            sessionId: 'sess-cursor-boundary',
+            toolUseId: 'tool-stale-hkipo',
+            toolName: 'stock-analysis-skill',
+            toolInputSummary: 'site:www1.hkexnews.hk 港股 IPO 旧工具 trace',
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'text_delta',
+            text: '港股 IPO 旧任务正文，不允许出现在当前卡片。',
+            turnId: reusedTurnId,
+            sessionId: 'sess-cursor-boundary',
+            messageCursor: staleCursor,
+            runtimeIdentity,
+          },
+        });
+
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'init',
+            turnId: reusedTurnId,
+            sessionId: 'sess-cursor-boundary',
+            messageCursor: input.messageCursor,
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'text_delta',
+            text: '正在处理当前 PLANS 清理请求。',
+            turnId: reusedTurnId,
+            sessionId: 'sess-cursor-boundary',
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'success',
+          result: finalText,
+          newSessionId: 'sess-cursor-boundary',
+          runtimeIdentity,
+          turnId: reusedTurnId,
+          sessionId: 'sess-cursor-boundary',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+        });
+        return { status: 'success' };
+      },
+    );
+
+    await expect(processGroupMessages(chatJid)).resolves.toBe(true);
+
+    const sentInteractiveCards = hoisted.createSpy.mock.calls
+      .map((call) => call[0]?.data)
+      .filter((data) => data?.msg_type === 'interactive' && data?.content)
+      .map((data) => JSON.parse(data.content));
+    const allCardPayloads = [
+      ...hoisted.createdCards,
+      ...hoisted.updatedCards,
+      ...sentInteractiveCards,
+    ].map((card) => JSON.stringify(card));
+
+    expect(allCardPayloads.some((payload) => payload.includes(finalText))).toBe(
+      true,
+    );
+    for (const snippet of forbiddenSnippets) {
+      for (const payload of allCardPayloads) {
+        expect(payload).not.toContain(snippet);
+      }
+    }
+
+    const assistantMessages = db
+      .getMessagesPage(chatJid, undefined, 10)
+      .filter((message: any) => message.sender === 'cli-claw-agent');
+    expect(assistantMessages[0]?.content).toBe(finalText);
+  });
+
+  test('discards restart streaming residue before the first real Feishu card payload', async () => {
+    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    const {
+      db,
+      notifier,
+      imManager,
+      restartGuard,
+      processGroupMessages,
+      encodeJidForFilename,
+      loadRouterStateForTests,
+      recoverStreamingBufferForTests,
+      DATA_DIR,
+    } = await loadFeishuProcessGroupModules();
+    const chatId = 'oc_restart_residue_card';
+    const chatJid = `feishu:${chatId}`;
+    const userId = 'user-feishu-restart-residue';
+    const messageId = 'om_restart_residue_current';
+    const staleCursor = {
+      timestamp: '2026-04-28T06:00:00.000Z',
+      id: 'om_restart_residue_old_hkipo',
+    };
+    const previousCursor = {
+      timestamp: '2026-04-28T05:59:00.000Z',
+      id: 'om_restart_residue_previous',
+    };
+    const finalText = '当前请求：PLANS 清理已完成，卡片不包含重启前残留。';
+    const forbiddenSnippets = [
+      'stock-analysis-skill',
+      'hkexnews',
+      '港股 IPO',
+      '旧工具 trace',
+    ];
+
+    db.setRegisteredGroup(chatJid, {
+      name: 'Feishu Restart Residue Card',
+      folder: 'feishu-restart-residue-card',
+      added_at: '2026-04-29T09:10:00.000Z',
+      executionMode: 'host',
+      agentType: 'codex',
+      activation_mode: 'auto',
+      created_by: userId,
+    });
+    db.ensureChatExists(chatJid);
+    db.setRouterState(
+      'last_committed_cursor',
+      JSON.stringify({ [chatJid]: previousCursor }),
+    );
+    db.setRouterState(
+      'active_streaming_turns',
+      JSON.stringify({
+        [chatJid]: {
+          commitJid: chatJid,
+          replyJid: chatJid,
+          snapshotJid: chatJid,
+          cursor: staleCursor,
+          turnId: 'turn-old-hkipo',
+          messageCursorId: staleCursor.id,
+        },
+      }),
+    );
+    const bufferDir = path.join(DATA_DIR, 'streaming-buffer');
+    fs.mkdirSync(bufferDir, { recursive: true });
+    const bufferPath = path.join(
+      bufferDir,
+      `${encodeJidForFilename(chatJid)}.json`,
+    );
+    fs.writeFileSync(
+      bufferPath,
+      JSON.stringify({
+        text: '港股 IPO 旧正文不允许恢复到首条飞书卡片',
+        commentaryText:
+          'stock-analysis-skill site:www1.hkexnews.hk 旧工具 trace',
+        streamingKey: chatJid,
+        snapshotJid: chatJid,
+        commitJid: chatJid,
+        replyJid: chatJid,
+        cursor: staleCursor,
+        turnId: 'turn-old-hkipo',
+        messageCursorId: staleCursor.id,
+      }),
+    );
+
+    loadRouterStateForTests();
+    recoverStreamingBufferForTests();
+    expect(fs.existsSync(bufferPath)).toBe(false);
+    expect(
+      JSON.parse(db.getRouterState('active_streaming_turns') || '{}'),
+    ).toEqual({});
+    expect(
+      JSON.parse(db.getRouterState('last_committed_cursor') || '{}'),
+    ).toEqual({ [chatJid]: previousCursor });
+
+    await imManager.connectUserFeishu(
+      userId,
+      { appId: 'app-id', appSecret: 'app-secret' },
+      vi.fn(),
+      {
+        resolveManagedCommandText: (_chatJid, text) =>
+          restartGuard.resolveManagedSelfRestartCommand(text),
+      },
+    );
+
+    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: chatId,
+        message_id: messageId,
+        create_time: '1777070350000',
+        message_type: 'text',
+        content: JSON.stringify({
+          text: '检查 cli-claw PLANS，只清理已完成内容',
+        }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_restart_residue',
+        },
+      },
+    });
+    await expect(wakeup).resolves.toBe('woke');
+
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'gpt-5.5',
+      reasoningEffort: 'high',
+      supportsReasoningEffort: true,
+    };
+    hoisted.runHostAgent.mockImplementation(
+      async (_group, input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'init',
+            turnId: 'turn-current-after-restart',
+            sessionId: 'sess-restart-residue',
+            messageCursor: input.messageCursor,
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'text_delta',
+            text: '当前 PLANS 清理请求处理中。',
+            turnId: 'turn-current-after-restart',
+            sessionId: 'sess-restart-residue',
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'success',
+          result: finalText,
+          newSessionId: 'sess-restart-residue',
+          runtimeIdentity,
+          turnId: 'turn-current-after-restart',
+          sessionId: 'sess-restart-residue',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+        });
+        return { status: 'success' };
+      },
+    );
+
+    await expect(processGroupMessages(chatJid)).resolves.toBe(true);
+
+    const prompt = hoisted.runHostAgent.mock.calls[0][1].prompt;
+    expect(prompt).toContain('检查 cli-claw PLANS');
+    for (const snippet of forbiddenSnippets) {
+      expect(prompt).not.toContain(snippet);
+    }
+
+    const sentInteractiveCards = hoisted.createSpy.mock.calls
+      .map((call) => call[0]?.data)
+      .filter((data) => data?.msg_type === 'interactive' && data?.content)
+      .map((data) => JSON.parse(data.content));
+    const allCardPayloads = [
+      ...hoisted.createdCards,
+      ...hoisted.updatedCards,
+      ...sentInteractiveCards,
+    ].map((card) => JSON.stringify(card));
+
+    expect(allCardPayloads.some((payload) => payload.includes(finalText))).toBe(
+      true,
+    );
+    for (const snippet of forbiddenSnippets) {
+      for (const payload of allCardPayloads) {
+        expect(payload).not.toContain(snippet);
+      }
+    }
+
+    const storedText = db
+      .getMessagesPage(chatJid, undefined, 20)
+      .map((message: any) => message.content)
+      .join('\n');
+    expect(storedText).toContain(finalText);
+    for (const snippet of forbiddenSnippets) {
+      expect(storedText).not.toContain(snippet);
+    }
   });
 
   test('sends current Codex raw final to Feishu when presentation contains stale transcript', async () => {

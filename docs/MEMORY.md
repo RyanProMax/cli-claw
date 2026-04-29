@@ -13,9 +13,10 @@
 - 常规对话只把当前待处理 turn 发送给 runner；更早内容依赖 runtime session 自己续用。
 - 同一个 workspace 主对话的 Web / IM channel 共用同一份主 runtime session；channel 只决定消息来源和回复路由。
 - 当前待处理 turn 可以包含连续同源且未提交 cursor 的 pending batch，例如 `A1/A2/B1/A3/B2/B3` 会切成 `A1+A2`、`B1`、`A3`、`B2+B3`；这不是历史上下文注入。
+- 正在执行的 runtime query 不接收新的用户消息；新消息排队到下一轮，避免当前 turn 的流式输出、工具步骤或卡片状态污染下一条消息。runner query 结束并进入 idle 等待后，同来源下一轮才可通过 IPC 复用同一 runtime session。
 - Skill slash command 生成的 `assistant_prompt` 会标记为独立来源，执行前清理当前 workspace 主 runtime session，避免命令任务继承上一轮 runtime transcript。
 - 服务重启恢复只用于已入库但尚未提交 cursor 的待处理用户消息；该路径恢复原 runtime session 并发送待处理消息，不拼接 DB 最近历史或 `<system_context>`。
-- 优雅关停 / 自重启 / crash recovery 都不会把正在流式输出的 partial body 持久化成 assistant 正文或发送到 IM。
+- 优雅关停 / 自重启 / crash recovery 都不会把正在流式输出的 partial body 持久化成 assistant 正文、发送到 IM，或提交对应用户消息 cursor；启动恢复只清理 `streaming-buffer` / `active_streaming_turns` 临时态，确保未完成用户消息仍按 pending 路径重放。
 - 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 不维护 pending resume 状态、不生成确认 prompt、不回放旧中断上下文；只把中断之后当前未提交的连续同源用户消息送入 runtime。
 - 定时 agent 任务始终在独立任务 workspace/session 中运行；任务 prompt 不写回源工作区主对话。
 

@@ -1692,6 +1692,7 @@ interface StreamingSnapshotEntry {
   todos?: Array<{ id: string; content: string; status: string }>;
   systemStatus: string | null;
   turnId?: string;
+  messageCursorId?: string;
   sessionId?: string;
   runtimeIdentity?: RuntimeIdentity | null;
   updatedAt: number;
@@ -1706,6 +1707,8 @@ const streamingFullTexts = new Map<
     commentaryText: string;
     lastTextMessageUuid?: string;
     lastCommentaryMessageUuid?: string;
+    turnId?: string;
+    messageCursorId?: string;
   }
 >();
 const MAX_SNAPSHOT_TEXT = 4000;
@@ -1732,9 +1735,19 @@ function updateStreamingSnapshot(
   event: StreamEvent,
 ): void {
   let snap = streamingSnapshots.get(normalizedJid);
+  const nextMessageCursorId = event.messageCursor?.id?.trim() || undefined;
 
-  // Reset on new turn
-  if (snap?.turnId && event.turnId && snap.turnId !== event.turnId) {
+  // Reset on new turn/cursor. Some runtimes can reuse turnId across queued IPC
+  // turns, so messageCursor.id is the stricter boundary when it is present.
+  const turnChanged = Boolean(
+    snap?.turnId && event.turnId && snap.turnId !== event.turnId,
+  );
+  const cursorChanged = Boolean(
+    snap?.messageCursorId &&
+    nextMessageCursorId &&
+    snap.messageCursorId !== nextMessageCursorId,
+  );
+  if (turnChanged || cursorChanged) {
     snap = undefined;
     streamingFullTexts.delete(normalizedJid);
   }
@@ -1748,6 +1761,7 @@ function updateStreamingSnapshot(
       recentEvents: [],
       systemStatus: null,
       turnId: event.turnId,
+      messageCursorId: nextMessageCursorId,
       sessionId: event.sessionId,
       updatedAt: Date.now(),
     };
@@ -1755,6 +1769,7 @@ function updateStreamingSnapshot(
 
   snap.updatedAt = Date.now();
   if (event.turnId) snap.turnId = event.turnId;
+  if (nextMessageCursorId) snap.messageCursorId = nextMessageCursorId;
   if (event.sessionId) snap.sessionId = event.sessionId;
   if (event.runtimeIdentity) snap.runtimeIdentity = event.runtimeIdentity;
 
@@ -1802,6 +1817,8 @@ function updateStreamingSnapshot(
           commentaryText: fullAppended.commentaryText,
           lastTextMessageUuid: fullAppended.lastAnswerMessageUuid,
           lastCommentaryMessageUuid: fullAppended.lastCommentaryMessageUuid,
+          turnId: snap.turnId,
+          messageCursorId: snap.messageCursorId,
         });
       }
       break;
@@ -1893,17 +1910,34 @@ export function clearStreamingSnapshot(chatJid: string): void {
  */
 export function getActiveStreamingTexts(): Map<
   string,
-  { partialText: string; commentaryText: string }
+  {
+    partialText: string;
+    commentaryText: string;
+    turnId?: string;
+    messageCursorId?: string;
+  }
 > {
   const result = new Map<
     string,
-    { partialText: string; commentaryText: string }
+    {
+      partialText: string;
+      commentaryText: string;
+      turnId?: string;
+      messageCursorId?: string;
+    }
   >();
   for (const [jid, fullText] of streamingFullTexts) {
     const partialText = fullText.partialText.trim();
     const commentaryText = fullText.commentaryText.trim();
     if (partialText || commentaryText) {
-      result.set(jid, { partialText, commentaryText });
+      result.set(jid, {
+        partialText,
+        commentaryText,
+        ...(fullText.turnId ? { turnId: fullText.turnId } : {}),
+        ...(fullText.messageCursorId
+          ? { messageCursorId: fullText.messageCursorId }
+          : {}),
+      });
     }
   }
   return result;

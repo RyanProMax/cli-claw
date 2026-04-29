@@ -1622,7 +1622,8 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
  * Run a single query and stream results via writeOutput.
  * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
  * allowing agent teams subagents to run to completion.
- * Also pipes IPC messages into the stream during the query.
+ * IPC user messages are consumed only between queries so stream output from one
+ * user turn cannot bleed into the next turn's card or channel route.
  */
 async function runQuery(
   prompt: string,
@@ -1753,29 +1754,9 @@ async function runQuery(
       ipcQueryWatcher.close();
       return;
     }
-    // Side-queries (emitOutput=false) must NOT
-    // consume user IPC messages — those belong to the main query loop. Only sentinels
-    // are checked above. Without this guard, a user message arriving during a side-query
-    // gets silently consumed, leaving queryInFlight=true on the host forever (bug #259).
-    if (!emitOutput) {
-      return; // No setTimeout needed — watcher will trigger next check on file change
-    }
-
-    const { messages } = drainIpcInput();
-    for (const msg of messages) {
-      log(
-        `Piping IPC message into active query (${msg.text.length} chars, ${msg.images?.length || 0} images)`,
-      );
-      const rejected = stream.push(msg.text, msg.images);
-      for (const reason of rejected) {
-        emit({
-          status: 'success',
-          result: `\u26a0\ufe0f ${reason}`,
-          newSessionId: undefined,
-        });
-      }
-    }
-    // No setTimeout needed — watcher will trigger next check on file change
+    // User IPC files are intentionally not drained during an active query.
+    // waitForIpcMessage() consumes them after this query finishes, preserving a
+    // hard turn boundary between card presentation states.
   };
 
   const ipcQueryWatcher = createIpcWatcher(() => {
@@ -2084,9 +2065,8 @@ async function runQuery(
           sourceKind: sourceKindOverride ?? 'sdk_final',
           finalizationReason: 'completed',
         });
-        // After emitting an sdk_final result, rotate turnId so that if
-        // another result is emitted within the same query (e.g. user sent
-        // a follow-up via IPC mid-query), it won't overwrite this one (#214).
+        // After emitting an sdk_final result, rotate turnId so that if the SDK
+        // emits another result within the same query, it won't overwrite this one.
         containerInput.turnId = generateTurnId();
 
         // Emit usage stream event with token counts and cost

@@ -11,12 +11,127 @@ const runnerMocks = vi.hoisted(() => ({
   writeGroupsSnapshot: vi.fn(),
   writeTasksSnapshot: vi.fn(),
 }));
+const imMocks = vi.hoisted(() => {
+  const sessions: Array<{
+    currentMessageId: string;
+    appended: string[];
+    commentary: string[];
+    thinking: string[];
+    finalText?: string;
+    abortReason?: string;
+    active: boolean;
+    isActive: () => boolean;
+    setRuntimeIdentity: (identity: unknown) => void;
+    append: (text: string) => void;
+    appendCommentary: (text: string) => void;
+    appendThinking: (text: string) => void;
+    setThinking: () => void;
+    startTool: (id: string, name: string) => void;
+    getToolInfo: (id: string) => { name: string } | undefined;
+    endTool: (id: string) => void;
+    pushRecentEvent: (text: string) => void;
+    updateToolSummary: (id: string, summary: string) => void;
+    setSystemStatus: (text: string) => void;
+    setHook: (hook: unknown) => void;
+    setTodos: (todos: unknown) => void;
+    patchUsageNote: (usage: unknown) => void;
+    complete: (text: string) => Promise<void>;
+    fail: (text: string) => Promise<void>;
+    abort: (reason?: string) => Promise<void>;
+    dispose: () => void;
+    getAllMessageIds: () => string[];
+  }> = [];
+  return {
+    sessions,
+    sendMessage: vi.fn().mockResolvedValue(undefined),
+    setTyping: vi.fn().mockResolvedValue(undefined),
+    clearAckReaction: vi.fn(),
+    isChannelAvailableForJid: vi.fn(() => true),
+    createStreamingSession: vi.fn(
+      (jid: string, onCardCreated?: (messageId: string) => void) => {
+        if (!jid.startsWith('feishu:')) return undefined;
+        const session = {
+          currentMessageId: `card-${sessions.length + 1}`,
+          appended: [] as string[],
+          commentary: [] as string[],
+          thinking: [] as string[],
+          active: true,
+          isActive() {
+            return this.active;
+          },
+          setRuntimeIdentity() {},
+          append(text: string) {
+            this.appended.push(text);
+          },
+          appendCommentary(text: string) {
+            this.commentary.push(text);
+          },
+          appendThinking(text: string) {
+            this.thinking.push(text);
+          },
+          setThinking() {},
+          startTool() {},
+          getToolInfo(_id: string) {
+            return undefined;
+          },
+          endTool() {},
+          pushRecentEvent() {},
+          updateToolSummary() {},
+          setSystemStatus() {},
+          setHook() {},
+          setTodos() {},
+          patchUsageNote() {},
+          async complete(text: string) {
+            this.finalText = text;
+            this.active = false;
+          },
+          async fail(text: string) {
+            this.finalText = text;
+            this.active = false;
+          },
+          async abort(reason?: string) {
+            this.abortReason = reason;
+            this.active = false;
+          },
+          dispose() {
+            this.active = false;
+          },
+          getAllMessageIds() {
+            return [this.currentMessageId];
+          },
+        };
+        sessions.push(session);
+        onCardCreated?.(session.currentMessageId);
+        return session;
+      },
+    ),
+  };
+});
 
 vi.mock('../src/container-runner.js', () => ({
   runHostAgent: runnerMocks.runHostAgent,
   runContainerAgent: runnerMocks.runContainerAgent,
   writeGroupsSnapshot: runnerMocks.writeGroupsSnapshot,
   writeTasksSnapshot: runnerMocks.writeTasksSnapshot,
+}));
+
+vi.mock('../src/im-manager.js', () => ({
+  imManager: {
+    sendMessage: imMocks.sendMessage,
+    setTyping: imMocks.setTyping,
+    clearAckReaction: imMocks.clearAckReaction,
+    createStreamingSession: imMocks.createStreamingSession,
+    isChannelAvailableForJid: imMocks.isChannelAvailableForJid,
+    getConnectedUserIds: vi.fn(() => []),
+    getConnectedChannelTypes: vi.fn(() => []),
+    isFeishuConnected: vi.fn(() => false),
+    isAnyFeishuConnected: vi.fn(() => false),
+    isAnyTelegramConnected: vi.fn(() => false),
+    isTelegramConnected: vi.fn(() => false),
+    isQQConnected: vi.fn(() => false),
+    isWeChatConnected: vi.fn(() => false),
+    isDingTalkConnected: vi.fn(() => false),
+  },
 }));
 
 function createTempHome(): string {
@@ -35,6 +150,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
   vi.resetModules();
+  imMocks.sessions.splice(0);
   for (const dir of tempHomes.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -326,7 +442,7 @@ describe('restart recovery cursor handling', () => {
     expect(next).toBe(committed);
   });
 
-  test('commits shutdown interrupted cursors so old turns do not batch with the next live message', async () => {
+  test('keeps shutdown interrupted cursors uncommitted so startup can replay pending turns', async () => {
     const { applyShutdownInterruptedStreamingCommittedCursor } =
       await loadIndexModule();
     const committed = {
@@ -349,12 +465,7 @@ describe('restart recovery cursor handling', () => {
       { imDeliverySuppressed: true },
     );
 
-    expect(next).toEqual({
-      'feishu:chat-1': {
-        timestamp: '2026-04-26T04:40:04.065Z',
-        id: 'om_x100b51ed3cf378a0b2df988b2f86630',
-      },
-    });
+    expect(next).toBe(committed);
   });
 
   test('uses the committed cursor when replaying a recovered chat after restart', async () => {
@@ -926,6 +1037,166 @@ describe('restart recovery cursor handling', () => {
     expect(prompt).toContain('当前重启后必须处理的问题');
     expect(prompt).not.toContain('上一轮历史上下文');
     expect(prompt).not.toContain('上一轮中断正文');
+  });
+
+  test('startup recovery discards stale streaming buffer before first Feishu-origin turn', async () => {
+    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    const {
+      encodeJidForFilename,
+      loadRouterStateForTests,
+      processGroupMessages,
+      recoverPendingMessagesForTests,
+      recoverStreamingBufferForTests,
+    } = await loadIndexModule();
+    const { DATA_DIR } = await import('../src/config.ts');
+    const db = await import('../src/db.ts');
+
+    const previousCursor = {
+      timestamp: '2026-04-29T06:10:03.249Z',
+      id: 'previous-message',
+    };
+    const currentCursor = {
+      timestamp: '2026-04-29T06:13:52.860Z',
+      id: 'current-feishu-message',
+    };
+
+    db.initDatabase();
+    db.setRegisteredGroup('web:main', {
+      name: 'Main',
+      folder: 'main',
+      added_at: '2026-04-29T06:00:00.000Z',
+      executionMode: 'host',
+      is_home: true,
+      activation_mode: 'auto',
+    });
+    db.setRegisteredGroup('feishu:oc_test', {
+      name: 'Feishu',
+      folder: 'main',
+      added_at: '2026-04-29T06:00:00.000Z',
+      executionMode: 'host',
+      activation_mode: 'auto',
+      target_main_jid: 'web:main',
+      reply_policy: 'source_only',
+    });
+    db.ensureChatExists('web:main');
+    db.storeMessageDirect(
+      'current-feishu-message',
+      'web:main',
+      'ou_user',
+      'User',
+      '检查 clic-claw PLANS/ 的 ACTIVE 和 ROADMAP',
+      currentCursor.timestamp,
+      false,
+      { sourceJid: 'feishu:oc_test' },
+    );
+    db.setRouterState(
+      'last_agent_timestamp',
+      JSON.stringify({ 'web:main': currentCursor }),
+    );
+    db.setRouterState(
+      'last_committed_cursor',
+      JSON.stringify({ 'web:main': previousCursor }),
+    );
+    db.setRouterState(
+      'active_streaming_turns',
+      JSON.stringify({
+        'web:main': {
+          commitJid: 'web:main',
+          replyJid: 'feishu:oc_test',
+          snapshotJid: 'web:main',
+          cursor: currentCursor,
+        },
+      }),
+    );
+
+    const bufferDir = path.join(DATA_DIR, 'streaming-buffer');
+    fs.mkdirSync(bufferDir, { recursive: true });
+    const bufferPath = path.join(
+      bufferDir,
+      `${encodeJidForFilename('web:main')}.json`,
+    );
+    fs.writeFileSync(
+      bufferPath,
+      JSON.stringify({
+        text: '港股 IPO 旧正文不允许恢复到首条消息',
+        commentaryText: 'site:www1.hkexnews.hk 旧工具 steps',
+        streamingKey: 'web:main',
+        snapshotJid: 'web:main',
+        commitJid: 'web:main',
+        replyJid: 'feishu:oc_test',
+        cursor: currentCursor,
+      }),
+    );
+
+    runnerMocks.runHostAgent.mockImplementation(
+      async (_group, _input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'stream',
+          streamEvent: {
+            eventType: 'init',
+            messageCursor: currentCursor,
+            runtimeIdentity: { agentType: 'codex' },
+          },
+        } as never);
+        await onOutput?.({
+          status: 'stream',
+          streamEvent: {
+            eventType: 'text_delta',
+            text: '当前 PLANS 分析中',
+            runtimeIdentity: { agentType: 'codex' },
+          },
+        } as never);
+        await onOutput?.({
+          status: 'success',
+          result: '当前 PLANS 清理结论',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+          runtimeIdentity: { agentType: 'codex' },
+        } as never);
+        return { status: 'success' };
+      },
+    );
+
+    loadRouterStateForTests();
+    recoverStreamingBufferForTests();
+
+    expect(fs.existsSync(bufferPath)).toBe(false);
+    expect(
+      JSON.parse(db.getRouterState('active_streaming_turns') || '{}'),
+    ).toEqual({});
+    expect(
+      JSON.parse(db.getRouterState('last_committed_cursor') || '{}'),
+    ).toEqual({ 'web:main': previousCursor });
+
+    recoverPendingMessagesForTests();
+    await expect(processGroupMessages('web:main')).resolves.toBe(true);
+
+    expect(runnerMocks.runHostAgent).toHaveBeenCalledOnce();
+    const prompt = runnerMocks.runHostAgent.mock.calls[0][1].prompt;
+    expect(prompt).toContain('检查 clic-claw PLANS/');
+    expect(prompt).not.toContain('港股 IPO');
+    expect(prompt).not.toContain('hkexnews');
+
+    const messages = db.getMessagesPage('web:main', undefined, 20);
+    const storedText = messages.map((message) => message.content).join('\n');
+    expect(storedText).toContain('当前 PLANS 清理结论');
+    expect(storedText).not.toContain('港股 IPO');
+    expect(storedText).not.toContain('hkexnews');
+    expect(
+      messages.some((message) => message.source_kind === 'interrupt_partial'),
+    ).toBe(false);
+
+    const completedCard = imMocks.sessions.find(
+      (session) => session.finalText === '当前 PLANS 清理结论',
+    );
+    expect(completedCard).toBeTruthy();
+    expect(
+      [
+        completedCard?.finalText,
+        ...(completedCard?.appended ?? []),
+        ...(completedCard?.commentary ?? []),
+      ].join('\n'),
+    ).not.toContain('港股 IPO');
   });
 
   test('processes only the current leading source after interrupted context', async () => {

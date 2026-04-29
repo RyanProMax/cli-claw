@@ -240,6 +240,8 @@ describe('GroupQueue shared-runner IPC recovery', () => {
       expect(calls).toEqual(['web:main']);
     });
 
+    queue.markRunnerQueryIdle('web:main');
+
     expect(
       queue.sendMessage(
         'web:sibling',
@@ -267,7 +269,7 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     expect(calls.slice(0, 2)).toEqual(['web:main', 'web:sibling']);
   });
 
-  test('IPC-injects same-source workspace work into the active runner', async () => {
+  test('queues same-source workspace work while the active query is still in flight', async () => {
     const { GroupQueue, DATA_DIR } = await loadGroupQueueModule();
     const queue = new GroupQueue();
     const calls: string[] = [];
@@ -318,6 +320,71 @@ describe('GroupQueue shared-runner IPC recovery', () => {
         {
           timestamp: '2026-04-26T12:15:01.000Z',
           id: 'msg-feishu-fresh',
+        },
+        'feishu:chat-1',
+      ),
+    ).toBe('no_active');
+    const ipcFiles = fs.existsSync(inputDir)
+      ? fs.readdirSync(inputDir).filter((name) => name.endsWith('.json'))
+      : [];
+    expect(ipcFiles).toHaveLength(0);
+
+    releaseFirstRun();
+  });
+
+  test('IPC-injects same-source workspace work only after the active query is idle', async () => {
+    const { GroupQueue, DATA_DIR } = await loadGroupQueueModule();
+    const queue = new GroupQueue();
+    const calls: string[] = [];
+    const fakeProcess = { pid: 22348, killed: false } as any;
+    const inputDir = path.join(DATA_DIR, 'ipc', 'main', 'input');
+
+    queue.setHostModeChecker(() => true);
+    queue.setSerializationKeyResolver((groupJid: string) =>
+      groupJid === 'web:main' || groupJid === 'feishu:chat-1'
+        ? 'main'
+        : groupJid,
+    );
+
+    let releaseFirstRun!: () => void;
+    const firstRunDone = new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    });
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      calls.push(groupJid);
+      queue.registerProcess(
+        groupJid,
+        fakeProcess,
+        null,
+        'main',
+        undefined,
+        undefined,
+        undefined,
+        'feishu:chat-1',
+      );
+      if (groupJid === 'web:main') {
+        await firstRunDone;
+      }
+      return true;
+    });
+
+    queue.enqueueMessageCheck('web:main');
+    await vi.waitFor(() => {
+      expect(calls).toEqual(['web:main']);
+    });
+
+    queue.markRunnerQueryIdle('web:main');
+
+    expect(
+      queue.sendMessage(
+        'feishu:chat-1',
+        'new stock alert task from feishu',
+        undefined,
+        undefined,
+        {
+          timestamp: '2026-04-26T12:15:01.000Z',
+          id: 'msg-feishu-fresh-idle',
         },
         'feishu:chat-1',
       ),
@@ -534,7 +601,7 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     releaseFirstRun();
   });
 
-  test('treats IPC-injected web sibling chat work as stuck pending work when the active runner goes idle', async () => {
+  test('treats IPC-injected web sibling chat work as stuck pending work after the active query is idle', async () => {
     const { GroupQueue } = await loadGroupQueueModule();
     const queue = new GroupQueue();
     const fakeProcess = { pid: 34567, killed: false } as any;
@@ -561,6 +628,8 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     await vi.waitFor(() => {
       expect(calls).toEqual(['web:main']);
     });
+
+    queue.markRunnerQueryIdle('web:main');
 
     expect(
       queue.sendMessage(

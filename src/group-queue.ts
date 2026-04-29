@@ -678,10 +678,19 @@ export class GroupQueue {
       return 'no_active';
     }
 
-    // queryInFlight=true：当前 query 正在执行，将消息写入 IPC 文件排队。
-    // 当前 query 完成后 waitForIpcMessage() → drainIpcInput() 会合并所有
-    // 待处理的 IPC 消息为一个 prompt，实现自然聚合（如飞书转发+评论场景）。
-    // 不再写 _drain：容器无需退出重启，复用当前进程即可。
+    // queryInFlight=true means the runtime is still producing the current turn.
+    // Do not write user messages into the active query: that would make the host
+    // switch IM/card routing while stale stream events are still arriving.
+    // Callers treat no_active as "queue this behind the current turn"; once the
+    // runner is idle, IPC is still allowed below so the runtime session can be
+    // reused for the next turn.
+    if (state.queryInFlight) {
+      logger.debug(
+        { groupJid, activeRunner },
+        'Deferring IPC behind in-flight query',
+      );
+      return 'no_active';
+    }
 
     const inputDir = this.resolveIpcInputDir(state);
     try {
