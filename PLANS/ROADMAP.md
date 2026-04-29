@@ -19,92 +19,58 @@
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 
 - Status: `monitoring`
-- Source: 2026-04-25 user request item `2`; current `/self-status`; current shell check after milestone 25
-- Summary: 长期运行和安全重启入口必须收敛到 `cli-claw start` / `cli-claw restart`；`bun src/index.ts` / `bun start` 只能是开发直启路径，并且所有状态面都要说清楚差异。
-- Current state:
-  - Owner docs already define canonical launcher behavior in `docs/COMMAND.md` and `docs/RUNTIME.md`.
-  - `make start` and the default LaunchAgent installer path now route through `cli-claw start`.
-  - `package.json` `start` now delegates to `bun src/cli.ts start`, so repo-local `bun start` / `npm start` enters the same launcher layer instead of direct `src/index.ts`.
-  - `/self-status` warns when the running service is `direct_backend` and shows the recommended canonical entrypoint.
-  - `/self-status` also marks source-launched services with source/build artifact mode so dist freshness is not presented as the live TypeScript backend freshness signal.
-  - `/self-check` validates the backend-captured authoritative launch spec.
-  - `docs/COMMAND.md` documents repo-local `bun src/cli.ts start` / `bun src/cli.ts restart` fallback for shells where `cli-claw` is not yet on PATH.
-  - `docs/COMMAND.md` now clarifies that `cli-claw restart` reads the running backend's saved authoritative restart state, writes a safe restart intent, and reports acceptance rather than directly killing or spawning from the caller shell.
-  - `README.md` now exposes the safe restart entrypoints: `cli-claw restart` for trusted external shells / Web operator contexts, and `/self-restart` for IM admin sessions.
-  - Current LaunchAgent now runs `/Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts start`.
-  - Current backend state reports `source: cli_start`, `artifactMode: source`, PID `26433`, and `/api/health` healthy after the launchd migration.
-  - `ops/install-launch-agent.sh` now retries `launchctl bootstrap` once after `bootout` before failing, covering the transient `Bootstrap failed: 5` observed during migration.
+- Source: 2026-04-25 user request item `2`; `/self-status` and safe restart hardening
+- Summary: 长期运行和安全重启入口必须收敛到 `cli-claw start` / `cli-claw restart`；开发直启路径只能作为调试入口，并且状态面必须清楚标注差异。
+- Durable contract:
+  - Canonical command behavior lives in `docs/COMMAND.md`.
+  - Runtime launch/source/build-state semantics live in `docs/RUNTIME.md`.
 - Next action:
-  - Monitor the next `/self-status` / `/self-restart` cycle to confirm it stays on `cli_start`.
-  - Decide whether the development environment should install/link `cli-claw` onto PATH so future operator shells do not need the repo-local fallback.
+  - Monitor the next `/self-status` / `/self-restart` cycle for launch-source drift.
+  - Decide whether this dev machine should install/link `cli-claw` onto PATH so operator shells do not need repo-local fallback commands.
 
 ### P0 RM-2026-04-25-01 Feishu Message Reliability Control Plane
 
 - Status: `monitoring`
 - Source: 2026-04-25 user request item `1`; 2026-04-26 Feishu incidents
-- Summary: 飞书消息链路必须以真实消息输入/输出流程作为回归基线，覆盖 inbound SDK event、DB、queue、runner output、Feishu payload、cursor 和 lifecycle；类似“正文混入历史上下文”的问题不能只靠函数级测试或人工查日志定位。
+- Summary: 飞书消息链路必须以真实输入/输出流程作为回归基线，覆盖 inbound SDK event、DB、queue、runner output、Feishu payload、cursor 和 lifecycle。
 - Durable contract:
-  - Message reliability and visibility contracts live in `docs/ARCHITECTURE.md`.
+  - Message flow and visibility contracts live in `docs/ARCHITECTURE.md`.
   - Restart/recovery context boundaries live in `docs/MEMORY.md`.
-  - Self-restart/operator command contracts live in `docs/COMMAND.md` and `docs/RUNTIME.md`.
-- Current state:
-  - Latest applied evidence: commit `357f756 Gate interrupted context resume`; safe restart `restart-2026-04-26T11-34-00-685Z-5b68e5d4` passed; `/api/health` was healthy for PID `14317`.
-  - Post-restart process check showed one backend and current runner group only; no historical orphan runner group was visible.
-  - Feishu E2E harness exists for inbound SDK event handling, lifecycle DB writes, notifier wakeup, duplicate/stale/mention cases, and managed restart phrase handling.
-  - Feishu E2E success-path coverage now drives a real inbound SDK event through real `GroupQueue`, a deterministic fake runner, real `StreamingCardController` card create/update, lifecycle evidence from `queued` through `cursor_committed`, and persisted cursor state.
-  - Feishu stale-output regression now simulates a real inbound message, stale Codex presentation state, final visibility resolution, static Feishu card send, lifecycle rows, and asserts the delivered card payload contains only the current raw final answer.
-  - Message-chain diagnostics must include correlatable `chatJid`, inbound `messageId`, `turnId`, `runId`/session id where available, `sourceKind`, runtime identity, final raw length, presentation buffer lengths, delivery type, and cursor commit decision at the boundaries that can affect visible output.
+  - Runtime/card output boundaries live in `docs/RUNTIME.md`.
 - Next action:
-  - Promote real-flow E2E to the required gate for any Feishu message visibility, restart recovery, streaming card, cursor, or output-boundary change.
-  - Add negative E2E cases for stale presentation buffer, restart first turn, pending-message recovery, and mixed source turns before changing those paths again.
-  - Add/review structured logs at every output-affecting boundary so a single `messageId` can reconstruct inbound -> queued -> runner -> visible text resolution -> Feishu payload -> cursor commit without manual guessing.
+  - Keep real-flow E2E as the required gate for Feishu message visibility, restart recovery, streaming card, cursor, or output-boundary changes.
+  - Add/review structured logs at output-affecting boundaries so one inbound `messageId` can reconstruct inbound -> queued -> runner -> visible text -> Feishu payload -> cursor commit.
 
 ### P1 RM-2026-04-25-03 Feishu Answer/Commentary Presentation Contract
 
-- Status: `proposed`
-- Source: 2026-04-25 user request items `3` and `4`; visible Feishu/Web process-text incidents
-- Summary: 飞书主正文只展示当前 turn 的 runtime answer；reasoning/commentary、工具过程、内部诊断、主动模式收敛检查和长日志必须进入独立折叠区、Web 调试区或 run log，默认不能挤占正文；final send 不应依赖跨 turn presentation `answerText`。
-- Current state:
-  - Shared stream presentation already has answer/commentary concepts and Feishu cards can render auxiliary progress.
-  - Graceful shutdown partials and known Codex transport/model diagnostics are suppressed from user-visible正文.
-  - Cli Claw no longer injects a default reply-policy wrapper into Codex prompts; current user messages are passed through without Cli Claw-owned context wrapping.
-  - Final visible replies now pass through a `reply-visibility` internal-context guard that strips raw prompt XML wrappers and restart recovery summaries before Feishu/Web delivery.
-  - `reply-visibility` now ignores Codex presentation `answerText` for final visible bodies; current runtime raw/final output is the only final-send source, with warn logs when presentation answer is present.
-  - Feishu stale-output E2E proves delivered static card markdown equals current raw final and excludes stale hkipo/history content.
-  - `answerText` is now a transitional presentation buffer, not an authoritative final-send source; partial bodies from interrupt/overflow/compact/crash recovery are not sent as IM正文.
-  - `send_message` visible-tool policy still needs hardening.
+- Status: `monitoring`
+- Source: 2026-04-25 user request items `3` and `4`; visible Feishu/Web process-text incidents; 2026-04-29 streaming card parity work
+- Summary: 飞书主正文只展示当前 turn 的 runtime answer；thinking、commentary、工具步骤、内部诊断和长日志必须进入独立折叠区、Web 调试区或 run log，默认不能挤占正文。
+- Durable contract:
+  - Feishu streaming card presentation lanes and fallback rules live in `docs/RUNTIME.md`.
+  - Final visible reply filtering lives in `reply-visibility` and is documented in `docs/RUNTIME.md`.
 - Next action:
-  - Continue tightening per-turn streaming buffers so `answerText`-like state is scoped to live card rendering and destroyed after completion.
-  - Tighten `shared/stream-presentation.ts`, `src/reply-visibility.ts`, `src/feishu-streaming-card.ts`, and `container/agent-runner/src/mcp-tools.ts` so process text cannot become Feishu main body by default.
+  - Monitor real Feishu turns for stale steps, missing live body, or process preambles entering the main body.
+  - Harden `send_message` visible-tool policy so tool-sent content follows the same answer/commentary boundary.
   - Add per-channel concise reply budgets for Feishu final answers.
 
 ### P1 RM-2026-04-25-04 First-Turn Session Isolation And Context Leakage
 
 - Status: `monitoring`
 - Source: 2026-04-25 user request item `5`; restart recovery and resume-gate incidents
-- Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息；连续性完全由底层 agent runtime session 提供，cli-claw 不维护、不总结、不拼接历史上下文，只保留消息数据库用于审计和溯源。
-- Current state:
-  - Startup recovery ignores internal prompt/command/assistant/system rows.
-  - Interrupted residual context is not replayed by cli-claw; cli-claw no longer keeps pending resume confirmation state, and any "continue" reply is sent only as the current user message for the runtime session to interpret.
-  - `docs/MEMORY.md` documents the current recovery and resume boundaries.
-  - Milestone 38 replaces IM source runtime isolation with one primary runtime session per workspace.
-  - Primary and conversation-agent turn selection now process contiguous same-source pending messages in DB order; different sources wait for the next turn instead of being regrouped or mixed into the active source. Example: `A1/A2/B1/A3/B2/B3` becomes `A1+A2 -> A`, `B1 -> B`, `A3 -> A`, `B2+B3 -> B`.
-  - Restart recovery resumes the saved runtime session and pending messages; it no longer clears the primary session or injects compact DB history.
-  - Main workspace reset paths delete only the primary runtime slot while preserving conversation agent sessions.
-  - Skill slash commands that return `assistant_prompt` are tagged as `assistant_prompt` messages and clear the workspace primary runtime session before execution, so command-generated tasks do not inherit stale runtime transcript context.
-  - Cli Claw no longer exposes memory MCP tools, daily-summary generation, transcript archive files, memory API/UI, user-global memory mounts, or Codex reply-policy wrappers as context sources.
+- Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息；连续性只由底层 agent runtime session 提供，Cli Claw 消息数据库只用于审计和溯源。
+- Durable contract:
+  - Memory/recovery boundaries live in `docs/MEMORY.md`.
+  - Runtime session and channel/source boundaries live in `docs/RUNTIME.md`.
 - Next action:
-  - Keep real-flow E2E for restart first turn and interrupted pending recovery as a required regression gate proving no DB history/recovery summary reaches agent input or user-visible output.
-  - Monitor real Feishu/Web mixed-channel turns; expected behavior is ordered contiguous-source turns for ordinary messages, with assistant-prompt skill commands starting from a fresh runtime session.
+  - Keep real-flow E2E for restart first turn and interrupted pending recovery as a required regression gate.
+  - Monitor real Feishu/Web mixed-channel turns; expected behavior is ordered contiguous-source turns, with assistant-prompt skill commands starting from a fresh runtime session.
 
 ### P1 RM-2026-04-25-06 Feishu Mention, Slash Command, And Binding UX
 
 - Status: `proposed`
 - Source: 2026-04-25 user “还有一些点想不起来了”; local DB examples
 - Summary: 飞书群聊里的 @机器人 slash command、绑定/建群引导和不可处理原因必须明确可见，不能静默失败。
-- Current state:
-  - Known risk: display-name regex stripping can fail for bot names with spaces, e.g. `@Co仔 (mac) /where`.
-  - Bot-added group guidance is still less explicit than Telegram.
 - Next action:
   - Strip Feishu mention prefixes using Feishu mention metadata rather than display-text regex.
   - Add regression tests for `@Name With Space /where`, slash command with images/files, group mention gating, and managed command phrases.
@@ -114,11 +80,7 @@
 
 - Status: `proposed`
 - Source: 2026-04-25 local logs; Codex model picker and diagnostic leakage follow-ups
-- Summary: Codex model discovery, metadata refresh, context-window errors and runtime diagnostics need proactive guardrails so user-facing Feishu replies do not expose raw JSON/errors or silently degrade.
-- Current state:
-  - `/model` uses live `codex debug models` before cache/preset fallback and preserves the current effective model in UI options.
-  - Known Codex model metadata and WebSocket transport diagnostics are stripped from assistant-visible output.
-  - `docs/RUNTIME.md` documents effective Codex model/effort resolution.
+- Summary: Codex model discovery, metadata refresh, context-window errors and runtime diagnostics need proactive guardrails so user-facing replies do not expose raw JSON/errors or silently degrade.
 - Next action:
   - Preflight effective Codex model before dispatch; if unavailable or metadata refresh hangs, fail fast with concise operator guidance.
   - Add final-send boundary classifiers for context-window/raw JSON errors so they are never persisted or sent as final user-visible正文.
@@ -129,10 +91,6 @@
 - Status: `proposed`
 - Source: 2026-04-25 cross-cutting reliability work
 - Summary: Web Monitor and IM `/self-status` should expose the same operator truth: launch mode, exact restart command, Feishu channel readiness, queue/dead-letter state, active runners, recent delivery failures and current runtime identity.
-- Current state:
-  - `/status` and `/self-status` expose compact Feishu lifecycle issue summaries.
-  - `/self-status` exposes restartability, launch source, exact command, build state, self-check result, and direct-backend warnings.
-  - Web Monitor still does not present all of the same operator truth in one place.
 - Next action:
   - Build a compact health summary API consumed by `/self-status`, `/status`, and Web Monitor.
   - Add recent failure timelines for Feishu lifecycle, queue dead letters, runner exits, and restart intents.
