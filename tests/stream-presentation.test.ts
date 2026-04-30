@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import {
   feedStreamEventToCard,
+  shouldRebuildStreamingSessionBeforeEvent,
   syncTerminalPresentationTextToCard,
 } from '../src/index.ts';
 import {
@@ -10,6 +11,30 @@ import {
 } from '../shared/stream-presentation.ts';
 
 describe('stream presentation', () => {
+  test('keeps a fresh idle Feishu streaming card session instead of rebuilding it before the first visible event', () => {
+    const idleSession = {
+      currentState: 'idle',
+      isActive: () => false,
+    };
+    const streamingSession = {
+      currentState: 'streaming',
+      isActive: () => true,
+    };
+    const completedSession = {
+      currentState: 'completed',
+      isActive: () => false,
+    };
+
+    expect(shouldRebuildStreamingSessionBeforeEvent(undefined)).toBe(false);
+    expect(shouldRebuildStreamingSessionBeforeEvent(idleSession)).toBe(false);
+    expect(shouldRebuildStreamingSessionBeforeEvent(streamingSession)).toBe(
+      false,
+    );
+    expect(shouldRebuildStreamingSessionBeforeEvent(completedSession)).toBe(
+      true,
+    );
+  });
+
   test('keeps the latest Codex assistant message in answerText and moves older messages into commentaryText', () => {
     const first = appendStreamPresentationText(
       createEmptyStreamPresentationTextState(),
@@ -94,7 +119,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('feeds Codex commentary and live answer text during Feishu streaming', () => {
+  test('waits for terminal raw final before writing any Codex text_delta into Feishu cards', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -136,8 +161,8 @@ describe('stream presentation', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     });
-    expect(session.appendCommentary).toHaveBeenCalledWith('先收集上下文');
-    expect(session.append).toHaveBeenCalledWith('最终结论');
+    expect(session.appendCommentary).not.toHaveBeenCalled();
+    expect(session.append).not.toHaveBeenCalled();
   });
 
   test('never streams stale Codex presentation answerText into Feishu cards', () => {

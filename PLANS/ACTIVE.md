@@ -104,3 +104,49 @@ Risks / Notes / Handoff:
 - User screenshot at 2026-04-30 ~10:10 shows Feishu card main body as only `我` while Web shows the full process sentence. Hypothesis: the Feishu Codex preamble guard suppresses `我会...` only after enough characters arrive, but it already streamed the first ambiguous `我`.
 - Same screenshot shows only 4 steps, and user reports a 5-step cap. Implementation currently uses `MAX_TOOL_DISPLAY = 5`; this is intentionally limiting Feishu below Web's trace.
 - Root cause confirmed and fixed: `我` was allowed before the Codex preamble detector had enough characters to match `我会...`; Feishu steps were hard-limited by `MAX_TOOL_DISPLAY = 5` and completed tools could age out within the same turn.
+
+### Milestone 58
+
+Objective:
+- Root-cause and fix the remaining Feishu stale-card residue where a new ordinary Feishu message is followed by an old Futu/stock-analysis streaming card.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/ARCHITECTURE.md`
+- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `src/group-queue.ts`
+- `src/feishu-streaming-card.ts`
+- `tests/feishu-e2e.test.ts`
+- `tests/restart-recovery.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+- `npm test -- --run tests/stream-presentation.test.ts` passed after RED/GREEN for idle streaming session rebuild.
+- `npm test -- --run tests/feishu-e2e.test.ts` passed after adding the current-cursor Codex replay regression.
+- `npm test -- --run tests/feishu-e2e.test.ts tests/restart-recovery.test.ts tests/feishu-streaming-card.test.ts tests/stream-presentation.test.ts` passed: 107 tests.
+- `npm run typecheck` passed.
+- `npm run build` passed.
+- `git diff --check` passed.
+- `./scripts/review.sh` passed its automated checks.
+
+Review status:
+- passed
+- Manual review gate passed per `RUNBOOKS/Review.md`: scope stayed within allowed files; docs updated in `docs/RUNTIME.md`; regression tests cover the observed Feishu current-cursor stale Codex presentation stream; no blocking findings.
+
+Risks / Notes / Handoff:
+- User screenshot at 2026-04-30 ~10:37 shows a new Feishu request about `agent-skills`, but the bot card below it contains stale Futu/OpenD analysis from the previous task. This looks like stale runtime/card output continuing after the new inbound event, not just DB history injection.
+- Root cause confirmed from production logs: final DB reply used the current raw Codex final, but `streamingPresentationText.answerText` had grown to 2598 chars and contained replayed previous-task presentation content from the reused Codex session. The Feishu card was still live-rendering Codex `text_delta`, so stale ACP presentation text could enter the card even though final persistence was correct.
+- Fix: Feishu cards no longer write Codex `text_delta` body/commentary live; they still live-render thinking/tools/hooks/status/todos and write the main body only from terminal raw/final output. Also fixed the idle-card rebuild predicate so a fresh idle streaming session is not treated as stale before the first visible event.

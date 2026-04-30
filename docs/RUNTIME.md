@@ -120,7 +120,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 - 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/Codex 对话上下文。
 - Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。runtime query 正在执行时不消费新的用户 IPC 消息；新消息只会排队并触发 drain。只有当前 query 已结束、runner 处于等待下一条消息的 idle 阶段时，才允许同来源消息通过 IPC 复用同一 runtime session。不同来源消息始终排队并触发 drain，让当前 turn 完成后按顺序处理。
 - 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 Codex commentary 和可识别的内部包装从主正文剥离，避免 runtime transcript 细节直接发给用户。
-- 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只能作为当前流式卡片渲染的过渡 buffer，旧 turn 的 streaming answer 不能覆盖新 turn 的最终回复。中断、overflow、compact、crash recovery 的 partial body 不会作为 IM 正文发送或持久化，也不能推进 committed cursor。
+- 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只允许作为 Web/调试展示的过渡 buffer，不得覆盖新 turn 的最终回复。中断、overflow、compact、crash recovery 的 partial body 不会作为 IM 正文发送或持久化，也不能推进 committed cursor。
 - 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
 
 ### Feishu Streaming Card Presentation
@@ -128,11 +128,11 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 飞书卡片是 runtime 输出的展示层，不是 runtime session 或记忆边界。稳定契约如下：
 
 - 正常 Agent 回复优先使用 streaming card；静态 card / post+md 仍保留为 Feishu API 失败、非流式命令回复和格式限制场景的兜底，不能移除。
-- Streaming card 将 `thinking`、`commentary`、`steps` 和主正文分区渲染。主正文只承载 answer；Codex commentary 是过程话术 / 执行说明，必须与主正文分离。
+- Streaming card 将 `thinking`、`commentary`、`steps` 和主正文分区渲染。主正文只承载 answer；Codex 的 `text_delta` presentation 流不是主正文权威来源。
 - 同来源新用户输入开始时会重置当前卡片展示态；`turnId` 变化或 `messageCursor.id` 变化也会清空上轮 presentation buffer、thinking 和中断状态，避免旧工具 steps 出现在新消息卡片上。
 - 主进程会丢弃 `messageCursor.id` 不属于当前待处理用户消息的 stale stream events；遇到 stale cursor 后，直到看到当前 cursor 前，cursor-less 工具事件也不能进入 Web snapshot 或 Feishu card。
 - 启动恢复遇到 `~/.cli-claw/streaming-buffer` 或 `active_streaming_turns` 里的中断卡片态时，只清理这些临时态；不恢复旧卡片正文、不生成 `interrupt_partial` assistant 消息、不提交该 turn 游标。
-- Codex live body 只从当前 answer buffer 渲染；明显的过程前言、内部上下文标记，以及尚无法判断是否为过程前言的单字前缀，不会进入主正文。
+- Codex 飞书卡片不直播 `text_delta` 正文或 commentary；只直播 thinking、tool steps、hook、status、todo 等进度。正文必须等 terminal raw/final output 到达后一次性写入，避免复用 Codex runtime session 时 ACP presentation 流把旧 transcript / 上一轮过程文本带进当前卡片。
 - Streaming / 完成态 card 保留当前 turn 的完整 tool steps，便于回看执行过程；临时状态、hook 和 system status 在终态收敛。
 - Footer 必须展示 runtime identity 和当前处理耗时；usage 晚到时可以补丁更新 footer，但不能改写主正文来源。
 

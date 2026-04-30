@@ -979,6 +979,156 @@ describe('Feishu in-process E2E harness', () => {
     expect(assistantMessages[0]?.content).toBe(finalText);
   });
 
+  test('does not write Codex replayed presentation text into real Feishu streaming cards for the current cursor', async () => {
+    const { db, notifier, imManager, restartGuard, processGroupMessages } =
+      await loadFeishuProcessGroupModules();
+    const chatId = 'oc_codex_current_cursor_replay';
+    const chatJid = `feishu:${chatId}`;
+    const userId = 'user-feishu-current-cursor-replay';
+    const messageId = 'om_current_cursor_agent_skills';
+    const finalText =
+      '当前请求：agent-skills 的 AGENTS.md 和 .gitignore 已处理完成。';
+    const replayedPresentationText = [
+      '我会先按技能指引查看 Futu 相关说明。',
+      'Futu_OpenD 已启动，127.0.0.1:11111 也能连通。',
+      '建议把 execution_mode 从 container 改为 host。',
+    ].join('\n');
+    const forbiddenSnippets = [
+      'Futu',
+      'Futu_OpenD',
+      '127.0.0.1:11111',
+      'execution_mode',
+    ];
+
+    db.setRegisteredGroup(chatJid, {
+      name: 'Feishu Codex Current Cursor Replay',
+      folder: 'feishu-current-cursor-replay',
+      added_at: '2026-04-30T10:37:00.000Z',
+      executionMode: 'host',
+      agentType: 'codex',
+      activation_mode: 'auto',
+      created_by: userId,
+    });
+    db.ensureChatExists(chatJid);
+
+    await imManager.connectUserFeishu(
+      userId,
+      { appId: 'app-id', appSecret: 'app-secret' },
+      vi.fn(),
+      {
+        resolveManagedCommandText: (_chatJid, text) =>
+          restartGuard.resolveManagedSelfRestartCommand(text),
+      },
+    );
+
+    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: chatId,
+        message_id: messageId,
+        create_time: '1777545420000',
+        message_type: 'text',
+        content: JSON.stringify({
+          text: '帮我分析下 agent-skills 项目内容，初始化 skill 的 AGENTS.md，并在根目录加上 gitignore',
+        }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_current_cursor_replay',
+        },
+      },
+    });
+    await expect(wakeup).resolves.toBe('woke');
+
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    };
+    hoisted.runHostAgent.mockImplementation(
+      async (_group, input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'init',
+            turnId: messageId,
+            sessionId: 'sess-current-cursor-replay',
+            messageCursor: input.messageCursor,
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'text_delta',
+            text: replayedPresentationText,
+            turnId: messageId,
+            sessionId: 'sess-current-cursor-replay',
+            messageCursor: input.messageCursor,
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'tool_use_start',
+            turnId: messageId,
+            sessionId: 'sess-current-cursor-replay',
+            toolUseId: 'tool-current-agent-skills',
+            toolName: 'exec_command',
+            toolInputSummary: 'Read AGENTS.md and inspect agent-skills',
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'success',
+          result: finalText,
+          newSessionId: 'sess-current-cursor-replay',
+          runtimeIdentity,
+          turnId: messageId,
+          sessionId: 'sess-current-cursor-replay',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+        });
+        return { status: 'success' };
+      },
+    );
+
+    await expect(processGroupMessages(chatJid)).resolves.toBe(true);
+
+    const sentInteractiveCards = hoisted.createSpy.mock.calls
+      .map((call) => call[0]?.data)
+      .filter((data) => data?.msg_type === 'interactive' && data?.content)
+      .map((data) => JSON.parse(data.content));
+    const allCardPayloads = [
+      ...hoisted.createdCards,
+      ...hoisted.updatedCards,
+      ...sentInteractiveCards,
+    ].map((card) => JSON.stringify(card));
+
+    expect(
+      allCardPayloads.some((payload) => payload.includes(finalText)),
+    ).toBe(true);
+    for (const payload of allCardPayloads) {
+      for (const snippet of forbiddenSnippets) {
+        expect(payload).not.toContain(snippet);
+      }
+    }
+
+    const assistantMessages = db
+      .getMessagesPage(chatJid, undefined, 10)
+      .filter((message: any) => message.sender === 'cli-claw-agent');
+    expect(assistantMessages[0]?.content).toBe(finalText);
+  });
+
   test('discards restart streaming residue before the first real Feishu card payload', async () => {
     vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
     const {

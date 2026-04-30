@@ -307,17 +307,11 @@ export function feedStreamEventToCard(
     case 'text_delta':
       if (se.text) {
         if (se.runtimeIdentity?.agentType === 'codex') {
-          if (presentationText.commentaryText) {
-            session.appendCommentary(presentationText.commentaryText);
-          }
-          if (
-            shouldStreamCodexAnswerText(
-              presentationText.answerText,
-              presentationText.commentaryText,
-            )
-          ) {
-            session.append(presentationText.answerText);
-          }
+          // Codex ACP text_delta is a presentation stream, not the canonical
+          // final answer. When a runtime session is reused it can replay or
+          // merge older transcript text before the final raw answer arrives.
+          // Feishu cards therefore stream tools/thinking/status live, and write
+          // body text only from the terminal raw final.
           break;
         }
         const channel = classifyStreamPresentationTextChannel(
@@ -417,28 +411,6 @@ export function feedStreamEventToCard(
   }
 }
 
-function shouldStreamCodexAnswerText(
-  text: string,
-  commentaryText = '',
-): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  if (!commentaryText.trim() && looksLikeCodexProcessPreamble(trimmed)) {
-    return false;
-  }
-  return !/(<\/?messages?>|<\/?conversation>|Current user asks:|The user(?:'s)? latest question:)/i.test(
-    trimmed,
-  );
-}
-
-function looksLikeCodexProcessPreamble(text: string): boolean {
-  if (/^(我|I)$/i.test(text.trim())) return true;
-  if (text.length > 500) return false;
-  return /^(我(先|会|来|继续|正在|已经|把)|先|接下来|当前|正在|已|I(?:'ll| will| am|’ll)\b)/i.test(
-    text,
-  );
-}
-
 export function syncTerminalPresentationTextToCard(
   session: StreamingCardController,
   _presentationText: StreamPresentationTextState,
@@ -529,6 +501,16 @@ export function resetStreamingTurnBoundaryForNewInput(
   _current?: StreamingTurnBoundaryState,
 ): StreamingTurnBoundaryState {
   return buildResetStreamingTurnBoundaryState();
+}
+
+export function shouldRebuildStreamingSessionBeforeEvent(
+  session:
+    | Pick<StreamingCardController, 'currentState' | 'isActive'>
+    | undefined,
+): boolean {
+  if (!session) return false;
+  if (session.isActive()) return false;
+  return session.currentState !== 'idle';
 }
 
 let globalMessageCursor: MessageCursor = { timestamp: '', id: '' };
@@ -3991,7 +3973,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             // ── Feed stream events into Feishu streaming card ──
             // IPC 注入的新 query 开始时，旧卡片已 complete()/abort()，
             // 需要为新 query 重建流式卡片并重置会话级状态。
-            if (streamingSession && !streamingSession.isActive()) {
+            if (shouldRebuildStreamingSessionBeforeEvent(streamingSession)) {
               logger.warn(
                 {
                   chatJid,
@@ -4001,6 +3983,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   eventCursorId: eventCursorId || null,
                   activeCursorId: activeTurnCursor.id || null,
                   streamingSessionJid,
+                  sessionState: streamingSession?.currentState ?? null,
                   previousAnswerLength:
                     streamingPresentationText.answerText.length,
                   previousCommentaryLength:
