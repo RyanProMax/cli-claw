@@ -218,6 +218,45 @@ describe('stream presentation', () => {
     expect(session.append).not.toHaveBeenCalled();
   });
 
+  test('does not stream an ambiguous one-character Codex preamble prefix into Feishu cards', () => {
+    const session = {
+      setRuntimeIdentity: vi.fn(),
+      appendCommentary: vi.fn(),
+      append: vi.fn(),
+      appendThinking: vi.fn(),
+      setThinking: vi.fn(),
+      startTool: vi.fn(),
+      updateToolSummary: vi.fn(),
+      endTool: vi.fn(),
+      setSystemStatus: vi.fn(),
+      setHook: vi.fn(),
+      setTodos: vi.fn(),
+      pushRecentEvent: vi.fn(),
+    } as any;
+
+    feedStreamEventToCard(
+      session,
+      {
+        eventType: 'text_delta',
+        text: '我',
+        messageUuid: 'msg-preamble',
+        runtimeIdentity: {
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'high',
+          supportsReasoningEffort: true,
+        },
+      } as any,
+      {
+        answerText: '我',
+        commentaryText: '',
+        streamText: '我',
+      },
+    );
+
+    expect(session.append).not.toHaveBeenCalled();
+  });
+
   test('does not sync presentation commentary to terminal Feishu cards by default', () => {
     const session = {
       appendCommentary: vi.fn(),

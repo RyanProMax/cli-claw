@@ -539,11 +539,9 @@ interface ToolCallState {
 const MAX_THINKING_CHARS = 800;
 const MAX_COMMENTARY_CHARS = 1600;
 const MAX_RECENT_EVENTS = 5;
-const MAX_TOOL_DISPLAY = 5;
 const MAX_TODO_DISPLAY = 10;
 const MAX_TOOL_SUMMARY_CHARS = 60;
 const MAX_ELEMENT_CHARS = 4000;
-const MAX_COMPLETED_TOOL_AGE = 30000; // 30s — purge completed tools after this
 
 export interface AuxiliaryState {
   thinkingText: string;
@@ -632,18 +630,16 @@ function buildAuxiliaryElementsForState(
     });
   }
 
-  // ②b Active Tools (running first, then recent completed, max MAX_TOOL_DISPLAY)
+  // ②b Tool calls. Preserve the whole per-turn tool trace; the controller is
+  // scoped to a single turn, so retaining completed tools here does not leak
+  // across future messages.
   const running: Array<[string, ToolCallState]> = [];
   const completed: Array<[string, ToolCallState]> = [];
   for (const [id, tc] of aux.toolCalls) {
     if (tc.status === 'running') running.push([id, tc]);
     else completed.push([id, tc]);
   }
-  // Show running tools first, fill remaining slots with latest completed
-  const display = [
-    ...running,
-    ...completed.slice(-Math.max(0, MAX_TOOL_DISPLAY - running.length)),
-  ].slice(0, MAX_TOOL_DISPLAY);
+  const display = [...running, ...completed];
 
   if (display.length > 0) {
     const lines = display.map(([, tc]) => {
@@ -1750,23 +1746,10 @@ export class StreamingCardController {
     if (tc) {
       tc.status = isError ? 'error' : 'complete';
       this.stateVersion++;
-      this.purgeOldTools();
       if (this.state === 'streaming') {
         this.backendMode === 'streaming'
           ? this.scheduleAuxFlush()
           : this.schedulePatch();
-      }
-    }
-  }
-
-  /**
-   * Purge completed/error tools older than MAX_COMPLETED_TOOL_AGE to prevent unbounded growth.
-   */
-  private purgeOldTools(): void {
-    const cutoff = Date.now() - MAX_COMPLETED_TOOL_AGE;
-    for (const [id, tc] of this.toolCalls) {
-      if (tc.status !== 'running' && tc.startTime < cutoff) {
-        this.toolCalls.delete(id);
       }
     }
   }

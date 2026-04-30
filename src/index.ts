@@ -432,6 +432,7 @@ function shouldStreamCodexAnswerText(
 }
 
 function looksLikeCodexProcessPreamble(text: string): boolean {
+  if (/^(我|I)$/i.test(text.trim())) return true;
   if (text.length > 500) return false;
   return /^(我(先|会|来|继续|正在|已经|把)|先|接下来|当前|正在|已|I(?:'ll| will| am|’ll)\b)/i.test(
     text,

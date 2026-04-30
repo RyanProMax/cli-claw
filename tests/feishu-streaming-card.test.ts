@@ -455,6 +455,44 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('keeps all tool calls in Feishu steps instead of truncating to five', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    for (let i = 1; i <= 7; i++) {
+      controller.startTool(`tool-${i}`, 'exec_command');
+      controller.updateToolSummary(`tool-${i}`, `command-${i}`);
+      controller.endTool(`tool-${i}`, false);
+    }
+    controller.append('最终结论');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await (controller as any).patchCard('streaming');
+
+    const lastCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const cardJson = JSON.stringify(lastCard);
+    const stepsPanel = (lastCard?.body?.elements ?? []).find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        typeof element?.header?.title?.content === 'string' &&
+        element.header.title.content.includes('7 steps'),
+    );
+
+    expect(stepsPanel).toBeTruthy();
+    for (let i = 1; i <= 7; i++) {
+      expect(cardJson).toContain(`command-${i}`);
+    }
+
+    controller.dispose();
+  });
+
   test.each([
     {
       name: 'tool progress',
