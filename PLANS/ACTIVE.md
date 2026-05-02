@@ -150,3 +150,46 @@ Risks / Notes / Handoff:
 - User screenshot at 2026-04-30 ~10:37 shows a new Feishu request about `agent-skills`, but the bot card below it contains stale Futu/OpenD analysis from the previous task. This looks like stale runtime/card output continuing after the new inbound event, not just DB history injection.
 - Root cause confirmed from production logs: final DB reply used the current raw Codex final, but `streamingPresentationText.answerText` had grown to 2598 chars and contained replayed previous-task presentation content from the reused Codex session. The Feishu card was still live-rendering Codex `text_delta`, so stale ACP presentation text could enter the card even though final persistence was correct.
 - Fix: Feishu cards no longer write Codex `text_delta` body/commentary live; they still live-render thinking/tools/hooks/status/todos and write the main body only from terminal raw/final output. Also fixed the idle-card rebuild predicate so a fresh idle streaming session is not treated as stale before the first visible event.
+
+### Milestone 59
+
+Objective:
+- Inspect the current runtime for residual Cli Claw agent/container/process state and root-cause the Feishu card footer elapsed-time bug where durations accumulate across turns instead of measuring each conversation turn independently.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/feishu-streaming-card.ts`
+- `src/index.ts`
+- `src/streaming-runtime-meta.ts`
+- `tests/streaming-runtime-meta.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `tests/feishu-e2e.test.ts`
+
+Validation:
+- `npm test -- --run tests/streaming-runtime-meta.test.ts tests/feishu-streaming-card.test.ts tests/feishu-e2e.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed: `npm test -- --run tests/streaming-runtime-meta.test.ts tests/feishu-streaming-card.test.ts tests/feishu-e2e.test.ts` (57 tests passed)
+- passed: `npm run typecheck`
+- passed: `npm run build`
+- passed: `git diff --check`
+- passed: `./scripts/review.sh` hygiene/format checks; semantic review completed manually below.
+
+Review status:
+- passed: scope updated to include extracted footer usage helper and its direct test; diff stays focused on Feishu card footer presentation, validation ran, no blocking hygiene/docs/contract issues found.
+
+Risks / Notes / Handoff:
+- User reported on 2026-05-02 that Feishu card footer elapsed time appears cumulative across multiple conversations, not per conversation turn.
+- Also requested an environment inspection for residual processes and other runtime issues before/alongside the footer fix.
+- Runtime inspection found the service healthy and one active Cli Claw runner chain; no obvious orphaned Cli Claw runner/container process. Docker CLI is not installed, so container execution mode remains unavailable on this host.
+- Safe restart passed and startup cleanup removed an orphaned pre-restart runner process group (`9851`); post-restart health is `healthy` on port 3000.
+- Root cause: runtime `usage` events can carry SDK/session-level cumulative `durationMs`/`numTurns`; Feishu card feeding used that value directly, so late usage patches could overwrite the per-turn provisional footer with cumulative elapsed time.
+- Fix: Feishu card usage events are normalized for presentation with the current turn start timestamp before reaching `StreamingCardController`, for both main workspace runs and conversation agents. Persistence still receives the original runtime usage event.

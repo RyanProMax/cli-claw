@@ -125,6 +125,7 @@ import {
 } from './im-message-lifecycle.js';
 import {
   buildProvisionalTokenUsage,
+  normalizeFooterUsageForCurrentTurn,
   normalizeStreamingStatusText,
   serializeAssistantTokenUsage,
 } from './streaming-runtime-meta.js';
@@ -295,6 +296,17 @@ function getCodexRuntimeIdentityOptions(): {
  * Feed a stream event into a Feishu streaming card controller.
  * Centralizes the event → card mapping for both main and sub-agent handlers.
  */
+export function normalizeStreamEventUsageForCard(
+  se: StreamEvent,
+  startedAtMs: number,
+): StreamEvent {
+  if (se.eventType !== 'usage' || !se.usage) return se;
+  return {
+    ...se,
+    usage: normalizeFooterUsageForCurrentTurn(se.usage, startedAtMs),
+  };
+}
+
 export function feedStreamEventToCard(
   session: StreamingCardController,
   se: StreamEvent,
@@ -4005,7 +4017,10 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             if (activeStreamingSession) {
               feedStreamEventToCard(
                 activeStreamingSession,
-                streamEvent,
+                normalizeStreamEventUsageForCard(
+                  streamEvent,
+                  agentRunStartedAt,
+                ),
                 streamingPresentationText,
               );
             }
@@ -7461,7 +7476,10 @@ async function processAgentConversation(
       if (activeAgentStreamingSession) {
         feedStreamEventToCard(
           activeAgentStreamingSession,
-          streamEvent,
+          normalizeStreamEventUsageForCard(
+            streamEvent,
+            agentConversationStartedAt,
+          ),
           agentStreamingPresentationText,
         );
       }

@@ -25,6 +25,19 @@ export function buildProvisionalTokenUsage(
   };
 }
 
+export function normalizeFooterUsageForCurrentTurn<
+  T extends AssistantFooterTokenUsage,
+>(
+  tokenUsage: T,
+  startedAtMs: number,
+): T & { durationMs: number; numTurns: number } {
+  return {
+    ...tokenUsage,
+    durationMs: Math.max(0, Date.now() - startedAtMs),
+    numTurns: 1,
+  };
+}
+
 export function serializeAssistantTokenUsage(
   tokenUsage?: AssistantFooterTokenUsage | string | null,
 ): string | undefined {
