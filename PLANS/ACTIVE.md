@@ -15,6 +15,56 @@
 
 ## Milestones
 
+### Milestone 62
+
+Objective:
+- Trace and fix Feishu streaming card step explosion, cross-turn step contamination, and completed-card step loss after a simple git push request.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `src/feishu-streaming-card.ts`
+- `src/stream-presentation.ts`
+- `tests/feishu-e2e.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `tests/stream-presentation.test.ts`
+- Related persistence/log inspection files only if root cause requires them.
+
+Validation:
+- `npm test -- --run tests/feishu-e2e.test.ts -t "suppresses cursorless Codex replayed tool steps"`
+- `npm test -- --run tests/feishu-streaming-card.test.ts tests/stream-presentation.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-04：User screenshot for message "把当前改动的提交push到远端" shows live card "Working on it (731 steps)" with old stock-analysis step text including 罗博特科 and MiniMax, while the requested task only needed git status/log/push/status.
+- 2026-05-04：Need determine whether the bad steps originate from stale runtime stream events, stale card state reuse, missing per-turn step reset, or final-card rendering dropping step panels.
+- 2026-05-04：DB/lifecycle confirmed the final raw answer for push was correct (`rawFinalLength=256`), but Codex presentation answer was stale/huge (`presentationAnswerLength=41863`) from reused session history. This explains why final text was right while live card progress was polluted.
+- 2026-05-04：Root cause identified. Main stream suppression only activated after seeing an event with an old cursor. Reused Codex sessions can emit cursor-less replayed tool/text events before the current `init/messageCursor`, so those old steps entered the new Feishu card.
+- 2026-05-04：Added regression for cursor-less Codex replayed tool steps before current Feishu cursor init; verified RED, then fixed by enabling the cursor-match gate as soon as a new Feishu streaming turn starts.
+- 2026-05-04：Aligned suppression logs so runtime diagnostics say cursor-less events are dropped before the current cursor matches, not only after an explicit stale cursor.
+
+Validation status:
+- passed 2026-05-04:
+  - `npm test -- --run tests/feishu-e2e.test.ts -t "suppresses cursorless Codex replayed tool steps"`
+  - `npm test -- --run tests/feishu-streaming-card.test.ts tests/stream-presentation.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-04: scope matches Milestone 62; the fix addresses the cursor-less replay root cause at the stream ingestion boundary; regression asserts old 罗博特科/MiniMax snippets never enter any Feishu card payload and the completed card retains the current `git push origin main` step; docs updated for the streaming-card cursor gate contract; no leftover debug code or unrelated scope changes.
+
+Handoff:
+- Not expected behavior: the 731-step live card came from reused Codex session replay before current cursor initialization, not from the push task. The raw final answer for the push was correct, but old cursor-less tool/text stream events polluted the live card. The cursor gate now starts as soon as a new Feishu streaming turn starts and only allows cursor-less events after the current `init/messageCursor` is observed.
+
 ### Milestone 61
 
 Objective:

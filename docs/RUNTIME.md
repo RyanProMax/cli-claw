@@ -130,7 +130,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 - 正常 Agent 回复优先使用 streaming card；静态 card / post+md 仍保留为 Feishu API 失败、非流式命令回复和格式限制场景的兜底，不能移除。
 - Streaming card 将 `thinking`、`commentary`、`steps` 和主正文分区渲染。主正文只承载 answer；Codex 的 `text_delta` presentation 流不是主正文权威来源。
 - 同来源新用户输入开始时会重置当前卡片展示态；`turnId` 变化或 `messageCursor.id` 变化也会清空上轮 presentation buffer、thinking 和中断状态，避免旧工具 steps 出现在新消息卡片上。
-- 主进程会丢弃 `messageCursor.id` 不属于当前待处理用户消息的 stale stream events；遇到 stale cursor 后，直到看到当前 cursor 前，cursor-less 工具事件也不能进入 Web snapshot 或 Feishu card。
+- 主进程会丢弃 `messageCursor.id` 不属于当前待处理用户消息的 stale stream events；新的 IM turn 启动后，直到看到当前 cursor 的 `init/messageCursor` 前，cursor-less 工具事件也不能进入 Web snapshot 或 Feishu card。这个 gate 必须在首个 stale cursor 出现前就生效，防止复用 Codex session 时先回放旧 transcript/tool steps。
 - 启动恢复遇到 `~/.cli-claw/streaming-buffer` 或 `active_streaming_turns` 里的中断卡片态时，只清理这些临时态；不恢复旧卡片正文、不生成 `interrupt_partial` assistant 消息、不提交该 turn 游标。
 - Codex 飞书卡片不直播 `text_delta` 正文或 commentary；只直播 thinking、tool steps、hook、status、todo 等进度。正文必须等 terminal raw/final output 到达后一次性写入，避免复用 Codex runtime session 时 ACP presentation 流把旧 transcript / 上一轮过程文本带进当前卡片。
 - 完成态 Feishu card 必须先渲染最终正文，再把 thinking、tool steps、commentary、hook、todo 等辅助信息放到正文后的折叠细节；这些辅助信息不能出现在 `/research` 等报告正文标题之前。

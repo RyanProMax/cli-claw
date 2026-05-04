@@ -3753,7 +3753,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
   let streamInterrupted = false;
   let activeStreamingEventTurnId: string | undefined;
   let activeStreamingMessageCursorId: string | undefined;
-  let suppressStreamEventsUntilCursorMatch = false;
+  let suppressStreamEventsUntilCursorMatch = Boolean(
+    streamingSession && activeTurnCursor.id,
+  );
   let streamStartedLifecycleRecorded = false;
   let lifecycleMessagesForActiveTurn = messagesForAgent;
   let activeLastProcessed = lastProcessed;
@@ -3789,9 +3791,11 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     streamInterrupted = resetState.interrupted;
     activeStreamingEventTurnId = resetState.turnId;
     activeStreamingMessageCursorId = resetState.messageCursorId;
-    suppressStreamEventsUntilCursorMatch = false;
     streamStartedLifecycleRecorded = false;
-    ensureStreamingSessionAvailable();
+    const nextSession = ensureStreamingSessionAvailable();
+    suppressStreamEventsUntilCursorMatch = Boolean(
+      nextSession && activeTurnCursor.id,
+    );
   };
 
   // ── Dynamic reply route updater ──
@@ -3981,7 +3985,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   turnId: streamEvent.turnId,
                   activeCursorId: activeTurnCursor.id,
                 },
-                'Suppressing cursor-less stream event after stale cursor',
+                'Suppressing cursor-less stream event before current cursor match',
               );
               return;
             }
@@ -7404,6 +7408,9 @@ async function processAgentConversation(
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
   };
+  suppressAgentStreamEventsUntilCursorMatch = Boolean(
+    agentStreamingSession && activeTurnCursor.id,
+  );
   let cursorLifecycleRecorded = false;
   let agentCursorCommitBlockedReason: string | null = null;
   let queuedDeferredSourceMessages = false;
@@ -7515,7 +7522,7 @@ async function processAgentConversation(
             turnId: streamEvent.turnId,
             activeCursorId: activeTurnCursor.id,
           },
-          'Suppressing cursor-less conversation-agent stream event after stale cursor',
+          'Suppressing cursor-less conversation-agent stream event before current cursor match',
         );
         return;
       }
