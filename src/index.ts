@@ -115,7 +115,10 @@ import {
   getStreamingSession,
   StreamingCardController,
 } from './feishu-streaming-card.js';
-import { resolveVisibleReplyParts } from './reply-visibility.js';
+import {
+  resolveVisibleReplyParts,
+  type ResolvedVisibleReplyParts,
+} from './reply-visibility.js';
 import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
 import {
   recordDeadLetteredLifecycleForPendingMessages,
@@ -290,6 +293,111 @@ function getCodexRuntimeIdentityOptions(): {
     codexCliModel: fallback.model,
     codexCliReasoningEffort: fallback.reasoningEffort,
   };
+}
+
+function normalizeLogText(value: string | null | undefined): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function previewTextForLog(
+  value: string | null | undefined,
+  maxLength = 220,
+): string | null {
+  const normalized = normalizeLogText(value).replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength - 3)}...`
+    : normalized;
+}
+
+function firstNonEmptyLineForLog(
+  value: string | null | undefined,
+): string | null {
+  const line = normalizeLogText(value)
+    .split('\n')
+    .find((candidate) => candidate.trim());
+  return line ? line.trim().slice(0, 220) : null;
+}
+
+function startsWithResearchTitleForLog(
+  value: string | null | undefined,
+): boolean {
+  return /^\*\*\/research｜[^*\n]+\*\*/u.test(
+    normalizeLogText(value).trimStart(),
+  );
+}
+
+function logCodexFinalVisibleReplyFields(input: {
+  chatJid?: string;
+  virtualChatJid?: string;
+  group?: string;
+  agentId?: string;
+  turnId?: unknown;
+  sessionId?: unknown;
+  sdkMessageUuid?: unknown;
+  sourceKind?: string | null;
+  finalizationReason?: string | null;
+  rawText: string;
+  presentationText: StreamPresentationTextState;
+  runtimeIdentity: RuntimeIdentity | null;
+  visibleReplyParts: ResolvedVisibleReplyParts;
+  message: string;
+}): void {
+  if (input.runtimeIdentity?.agentType !== 'codex') return;
+
+  logger.info(
+    {
+      chatJid: input.chatJid,
+      virtualChatJid: input.virtualChatJid,
+      group: input.group,
+      agentId: input.agentId,
+      turnId: input.turnId,
+      sessionId: input.sessionId,
+      sdkMessageUuid: input.sdkMessageUuid,
+      sourceKind: input.sourceKind || 'sdk_final',
+      finalizationReason: input.finalizationReason || 'completed',
+      runtimeIdentity: input.runtimeIdentity,
+      rawFinalLength: input.rawText.length,
+      rawFinalFirstLine: firstNonEmptyLineForLog(input.rawText),
+      rawFinalPreview: previewTextForLog(input.rawText),
+      presentationAnswerLength: input.presentationText.answerText.length,
+      presentationAnswerFirstLine: firstNonEmptyLineForLog(
+        input.presentationText.answerText,
+      ),
+      presentationAnswerPreview: previewTextForLog(
+        input.presentationText.answerText,
+      ),
+      presentationCommentaryLength:
+        input.presentationText.commentaryText.length,
+      presentationCommentaryFirstLine: firstNonEmptyLineForLog(
+        input.presentationText.commentaryText,
+      ),
+      presentationCommentaryPreview: previewTextForLog(
+        input.presentationText.commentaryText,
+      ),
+      visibleTextLength: input.visibleReplyParts.visibleText.length,
+      visibleFirstLine: firstNonEmptyLineForLog(
+        input.visibleReplyParts.visibleText,
+      ),
+      visiblePreview: previewTextForLog(input.visibleReplyParts.visibleText),
+      commentaryTextLength: input.visibleReplyParts.commentaryText.length,
+      commentaryFirstLine: firstNonEmptyLineForLog(
+        input.visibleReplyParts.commentaryText,
+      ),
+      commentaryPreview: previewTextForLog(
+        input.visibleReplyParts.commentaryText,
+      ),
+      droppedPresentationAnswer: Boolean(
+        input.visibleReplyParts.droppedPresentationAnswer,
+      ),
+      strippedLeadingCommentary:
+        input.visibleReplyParts.visibleText.trim() !== input.rawText.trim(),
+      startsWithResearchTitle: startsWithResearchTitleForLog(
+        input.visibleReplyParts.visibleText,
+      ),
+    },
+    input.message,
+  );
 }
 
 /**
@@ -4368,6 +4476,20 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 streamingPresentationText,
                 activeRuntimeIdentity,
               );
+              logCodexFinalVisibleReplyFields({
+                chatJid,
+                group: group.name,
+                turnId: result.turnId,
+                sessionId: result.sessionId || activeSessionId,
+                sdkMessageUuid: result.sdkMessageUuid,
+                sourceKind: result.sourceKind || 'sdk_final',
+                finalizationReason: result.finalizationReason || 'completed',
+                rawText: text,
+                presentationText: streamingPresentationText,
+                runtimeIdentity: activeRuntimeIdentity,
+                visibleReplyParts,
+                message: 'Codex final visible reply fields resolved',
+              });
               if (visibleReplyParts.droppedPresentationAnswer) {
                 logger.warn(
                   {
@@ -7668,6 +7790,20 @@ async function processAgentConversation(
           agentStreamingPresentationText,
           currentAgentRuntimeIdentity,
         );
+        logCodexFinalVisibleReplyFields({
+          virtualChatJid,
+          agentId,
+          turnId: output.turnId,
+          sessionId: output.sessionId || currentAgentSessionId,
+          sdkMessageUuid: output.sdkMessageUuid,
+          sourceKind: output.sourceKind || 'sdk_final',
+          finalizationReason: output.finalizationReason || 'completed',
+          rawText: text,
+          presentationText: agentStreamingPresentationText,
+          runtimeIdentity: currentAgentRuntimeIdentity,
+          visibleReplyParts,
+          message: 'Codex agent final visible reply fields resolved',
+        });
         if (visibleReplyParts.droppedPresentationAnswer) {
           logger.warn(
             {

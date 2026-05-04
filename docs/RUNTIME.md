@@ -133,6 +133,8 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 - 主进程会丢弃 `messageCursor.id` 不属于当前待处理用户消息的 stale stream events；遇到 stale cursor 后，直到看到当前 cursor 前，cursor-less 工具事件也不能进入 Web snapshot 或 Feishu card。
 - 启动恢复遇到 `~/.cli-claw/streaming-buffer` 或 `active_streaming_turns` 里的中断卡片态时，只清理这些临时态；不恢复旧卡片正文、不生成 `interrupt_partial` assistant 消息、不提交该 turn 游标。
 - Codex 飞书卡片不直播 `text_delta` 正文或 commentary；只直播 thinking、tool steps、hook、status、todo 等进度。正文必须等 terminal raw/final output 到达后一次性写入，避免复用 Codex runtime session 时 ACP presentation 流把旧 transcript / 上一轮过程文本带进当前卡片。
+- 完成态 Feishu card 必须先渲染最终正文，再把 thinking、tool steps、commentary、hook、todo 等辅助信息放到正文后的折叠细节；这些辅助信息不能出现在 `/research` 等报告正文标题之前。
+- Codex final visibility resolution 必须保留结构化日志，至少记录 raw final、streaming presentation answer/commentary、最终 visible text、剥离出的 commentary、`sourceKind`、`finalizationReason`、`turnId` / `sessionId` / `sdkMessageUuid` 和 runtime identity，便于追踪正文与过程文本边界。
 - Streaming / 完成态 card 保留当前 turn 的完整 tool steps，便于回看执行过程；临时状态、hook 和 system status 在终态收敛。
 - Footer 必须展示 runtime identity 和当前处理耗时；usage 晚到时可以补丁更新 footer，但不能改写主正文来源。
 

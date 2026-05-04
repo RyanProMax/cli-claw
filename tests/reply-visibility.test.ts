@@ -170,6 +170,34 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
+  test('infers Codex process logs before a bold research title as commentary', () => {
+    const rawText = [
+      '我会按 stock-analysis-skill 的研报协议执行。',
+      '本地协议文件已读取。',
+      '标准分析入口已启动并返回关键降级信号。',
+      '**/research｜HK.00100｜hk｜2026-05-04**',
+      '',
+      '**结论摘要**',
+      '- MiniMax 是港股标的。',
+    ].join('\n');
+
+    expect(
+      resolveVisibleReplyParts(rawText, {}, { agentType: 'codex' }),
+    ).toEqual({
+      visibleText: [
+        '**/research｜HK.00100｜hk｜2026-05-04**',
+        '',
+        '**结论摘要**',
+        '- MiniMax 是港股标的。',
+      ].join('\n'),
+      commentaryText: [
+        '我会按 stock-analysis-skill 的研报协议执行。',
+        '本地协议文件已读取。',
+        '标准分析入口已启动并返回关键降级信号。',
+      ].join('\n'),
+    });
+  });
+
   test('removes raw prompt wrapper blocks before sending visible text', () => {
     const rawText = [
       '<reply-policy>',

@@ -107,9 +107,10 @@ function splitLeadingCodexCommentary(
   const normalizedRawText = normalizeReplyText(rawText);
   if (!normalizedRawText) return null;
 
-  const headingMatch = /(^|\n|[。！？.!?]\s*)(#{1,6}\s+\S)/.exec(
-    normalizedRawText,
-  );
+  const headingMatch =
+    /(^|\n|[。！？.!?]\s*)((?:#{1,6}\s+\S)|(?:\*\*\/research｜[^*\n]+\*\*))/u.exec(
+      normalizedRawText,
+    );
   if (!headingMatch || headingMatch.index === 0) return null;
 
   const bodyStart = headingMatch.index + headingMatch[1].length;

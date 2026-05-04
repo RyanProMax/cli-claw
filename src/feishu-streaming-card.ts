@@ -599,10 +599,11 @@ function buildAuxiliaryElementsForState(
   const before: Array<Record<string, unknown>> = [];
   const after: Array<Record<string, unknown>> = [];
   const isStreamingLayout = state === 'streaming';
+  const auxiliaryElements = isStreamingLayout ? before : after;
 
   // ① System Status
   if (aux.systemStatus) {
-    before.push({
+    auxiliaryElements.push({
       tag: 'markdown',
       content: `⏳ ${aux.systemStatus}`.slice(0, MAX_ELEMENT_CHARS),
       text_size: 'notation',
@@ -615,7 +616,7 @@ function buildAuxiliaryElementsForState(
       aux.thinkingText.length > MAX_THINKING_CHARS
         ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
         : aux.thinkingText;
-    before.push(
+    auxiliaryElements.push(
       buildCollapsiblePanel(
         aux.isThinking ? '💭 Thinking...' : '💭 Thinking',
         truncated.slice(0, MAX_ELEMENT_CHARS),
@@ -623,7 +624,7 @@ function buildAuxiliaryElementsForState(
       ),
     );
   } else if (aux.isThinking) {
-    before.push({
+    auxiliaryElements.push({
       tag: 'markdown',
       content: '💭 Thinking...',
       text_size: 'notation',
@@ -650,7 +651,7 @@ function buildAuxiliaryElementsForState(
         : undefined;
       return formatToolStepLine(tc.name, summary);
     });
-    before.push(
+    auxiliaryElements.push(
       buildCollapsiblePanel(
         isStreamingLayout
           ? `Working on it (${display.length} steps)`
@@ -667,7 +668,7 @@ function buildAuxiliaryElementsForState(
       aux.commentaryText.length > MAX_COMMENTARY_CHARS
         ? '...' + aux.commentaryText.slice(-(MAX_COMMENTARY_CHARS - 3))
         : aux.commentaryText;
-    before.push(
+    auxiliaryElements.push(
       buildCollapsiblePanel(
         state === 'streaming' ? '💬 Commentary...' : '💬 Commentary',
         truncated.slice(0, MAX_ELEMENT_CHARS),
@@ -678,7 +679,7 @@ function buildAuxiliaryElementsForState(
 
   // ③ Hook Status
   if (aux.activeHook) {
-    before.push({
+    auxiliaryElements.push({
       tag: 'markdown',
       content: `🔗 Hook: ${aux.activeHook.hookName || aux.activeHook.hookEvent}`,
       text_size: 'notation',
@@ -702,7 +703,7 @@ function buildAuxiliaryElementsForState(
     });
     const extra =
       total > MAX_TODO_DISPLAY ? `\n... +${total - MAX_TODO_DISPLAY} 项` : '';
-    before.push({
+    auxiliaryElements.push({
       tag: 'markdown',
       content: `${header}\n${items.join('\n')}${extra}`.slice(
         0,

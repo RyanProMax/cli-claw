@@ -366,6 +366,50 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('places completed-card report body before Codex commentary details', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.appendCommentary('我会先检查标准分析入口。');
+    controller.append('临时正文');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await controller.complete(
+      [
+        '**/research｜HK.00100｜hk｜2026-05-04**',
+        '',
+        '**结论摘要**',
+        '- MiniMax 是港股标的。',
+      ].join('\n'),
+    );
+
+    const elements = updatedCards.at(-1)?.body?.elements ?? [];
+    const bodyIndex = elements.findIndex(
+      (element: any) =>
+        element?.tag === 'markdown' &&
+        element?.text_size === 'normal_text' &&
+        String(element.content).includes('/research｜HK.00100'),
+    );
+    const commentaryIndex = elements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💬 Commentary',
+    );
+
+    expect(bodyIndex).toBeGreaterThanOrEqual(0);
+    expect(commentaryIndex).toBeGreaterThanOrEqual(0);
+    expect(bodyIndex).toBeLessThan(commentaryIndex);
+
+    controller.dispose();
+  });
+
   test('renders Codex thinking, commentary, body, and live duration footer in streaming cards', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({

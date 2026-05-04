@@ -15,6 +15,66 @@
 
 ## Milestones
 
+### Milestone 60
+
+Objective:
+- Fix `/research MINIMAX` routing and Feishu/Codex output visibility diagnostics after the MiniMax incident.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `src/feishu-streaming-card.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `tests/reply-visibility.test.ts`
+
+External coordinated scope:
+- `/Users/ryan/projects/stock-analysis-skill/commands/research.py`
+- `/Users/ryan/projects/stock-analysis-skill/references/research.md`
+- `/Users/ryan/projects/stock-analysis-skill/SKILL.md`
+- `/Users/ryan/projects/stock-analysis-skill/tests/test_research_command.py`
+- `/Users/ryan/projects/stock-analysis-skill/PLANS/ACTIVE.md`
+- `/Users/ryan/projects/stock-analysis-skill/PLANS/ROADMAP.md`
+
+Validation:
+- `npm test -- --run tests/feishu-streaming-card.test.ts tests/reply-visibility.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+- In stock-analysis-skill: `python3 -m unittest tests/test_research_command.py`
+- In stock-analysis-skill: `python3 -m py_compile scripts/*.py commands/*.py`
+- In stock-analysis-skill: `git diff --check`
+
+Status:
+- done
+
+Progress:
+- 2026-05-04：Root cause identified. `/research` executor classifies any bare uppercase ASCII input matching `[A-Z][A-Z0-9.-]{0,9}` as US before upstream identity correction. `MINIMAX` therefore becomes `US.MINIMAX` and gets a US-only prompt/title even though public sources identify the listed equity as HK `00100` / ADR `MMXGY`.
+- 2026-05-04：Second root cause identified. Completed Feishu cards can render Codex commentary/thinking/tool auxiliary panels before the main final text, so process text can visually precede a report title even if it is technically not in the final markdown body.
+- 2026-05-04：Need additional structured Codex final visibility logs including raw final fields, presentation lengths, commentary strip state, first visible line, and whether the visible body starts with `/research`.
+- 2026-05-04：Implemented visible-reply stripping for process text before bold `/research` titles; completed Feishu cards now render final body before auxiliary details.
+- 2026-05-04：Added structured Codex final visibility logs for main turns and conversation agents, covering raw final, presentation answer/commentary, resolved visible text, stripped commentary, runtime identity, turn/session/message ids, and research-title detection.
+
+Validation status:
+- passed 2026-05-04:
+  - `npm test -- --run tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check` via `./scripts/review.sh`
+  - `./scripts/review.sh`
+  - stock-analysis-skill `python3 -m unittest tests/test_research_command.py`
+  - stock-analysis-skill `python3 -m py_compile scripts/*.py commands/*.py` (rerun with approval after sandbox denied `__pycache__` writes)
+  - stock-analysis-skill `git diff --check`
+
+Review status:
+- passed 2026-05-04: semantic diff review completed against the MiniMax incident scope; no unresolved review findings.
+
+Handoff:
+- `/research MINIMAX` is no longer preclassified as `US.MINIMAX`; the stock-analysis-skill executor emits a `待解析` prompt that requires identity/source-field inspection and HK rerouting when HK is the only reliable match.
+- Cli Claw strips Codex process preambles before bold `/research` titles and keeps completed-card auxiliary panels after the report body.
+- New `Codex final visible reply fields resolved` logs are the first place to inspect if a future Feishu report still shows raw final/presentation/commentary boundary issues.
+
 ### Milestone 56
 
 Objective:
