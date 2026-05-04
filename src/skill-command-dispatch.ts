@@ -194,12 +194,42 @@ function resolveSkillExecutorArgument(skillDir: string, value: string): string {
   return value;
 }
 
+function isBarePythonExecutor(command: string): boolean {
+  return (
+    command === 'python' ||
+    command === 'python3' ||
+    command === 'python.exe' ||
+    command === 'python3.exe'
+  );
+}
+
+function resolveSkillVenvPython(skillDir: string): string | null {
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          path.join(skillDir, '.venv', 'Scripts', 'python.exe'),
+          path.join(skillDir, '.venv', 'Scripts', 'python'),
+        ]
+      : [path.join(skillDir, '.venv', 'bin', 'python')];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
 function resolveSkillExecutor(
   command: DiscoveredSkillCommand,
 ): SkillCommandExecutor {
   const resolvedCommand = path.isAbsolute(command.executor.command)
     ? command.executor.command
-    : resolveSkillExecutorArgument(command.skillDir, command.executor.command);
+    : isBarePythonExecutor(command.executor.command)
+      ? (resolveSkillVenvPython(command.skillDir) ??
+        resolveSkillExecutorArgument(
+          command.skillDir,
+          command.executor.command,
+        ))
+      : resolveSkillExecutorArgument(
+          command.skillDir,
+          command.executor.command,
+        );
 
   return {
     command: resolvedCommand,

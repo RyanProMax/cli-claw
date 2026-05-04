@@ -15,6 +15,65 @@
 
 ## Milestones
 
+### Milestone 61
+
+Objective:
+- Fix skill command Python environment drift after service restart.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/COMMAND.md`
+- `src/skill-command-dispatch.ts`
+- `tests/skill-command-dispatch.test.ts`
+
+External coordinated scope:
+- `/Users/ryan/projects/stock-analysis-skill/AGENTS.md`
+- `/Users/ryan/projects/stock-analysis-skill/README.md`
+- `/Users/ryan/projects/stock-analysis-skill/SKILL.md`
+- `/Users/ryan/projects/stock-analysis-skill/commands/research.py`
+- `/Users/ryan/projects/stock-analysis-skill/references/cli.md`
+- `/Users/ryan/projects/stock-analysis-skill/references/research.md`
+- `/Users/ryan/projects/stock-analysis-skill/tests/test_research_command.py`
+- `/Users/ryan/projects/stock-analysis-skill/PLANS/ACTIVE.md`
+- `/Users/ryan/projects/stock-analysis-skill/PLANS/ROADMAP.md`
+
+Validation:
+- `npm test -- --run tests/skill-command-dispatch.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+- In stock-analysis-skill: `python3 -m unittest tests/test_research_command.py -v`
+- In stock-analysis-skill: `python3 -m py_compile scripts/*.py commands/*.py`
+- In stock-analysis-skill: `git diff --check`
+
+Status:
+- done
+
+Progress:
+- 2026-05-04：Root cause identified. Skill command executors declared bare `python3`, so the host used whichever Python was visible in the service process PATH after restart instead of the skill-local `.venv`.
+- 2026-05-04：Second root cause identified. `/research` generated bare `uv run python ...`, so the agent-facing stock-analysis-api command also depended on post-restart PATH.
+- 2026-05-04：Implemented host-side resolution so bare `python` / `python3` skill executors prefer the skill root `.venv` Python before falling back to PATH.
+- 2026-05-04：Implemented stock-analysis-skill `uv` resolution via `STOCK_ANALYSIS_UV` / `UV_BIN` / `UV` / PATH / `$HOME/.local/bin/uv` / `$HOME/.cargo/bin/uv`; generated commands now use absolute `uv`, or explicitly fail preflight.
+
+Validation status:
+- passed 2026-05-04:
+  - `npm test -- --run tests/skill-command-dispatch.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+  - stock-analysis-skill `python3 -m unittest tests/test_research_command.py -v`
+  - stock-analysis-skill `python3 -m unittest discover -s tests -v`
+  - stock-analysis-skill `python3 -m py_compile scripts/*.py commands/*.py`
+  - stock-analysis-skill `git diff --check`
+
+Review status:
+- passed 2026-05-04: scope matches Milestone 61; dispatch contract is documented in `docs/COMMAND.md`; regression covers skill-local `.venv` selection; external skill tests cover absolute `uv` and missing-`uv` preflight.
+
+Handoff:
+- Bare `python` / `python3` skill executors now prefer the skill root `.venv` Python. `/research` generated stock-analysis-api commands now use an absolute `uv`; if no `uv` is resolvable, the prompt fails preflight instead of relying on restart-sensitive PATH.
+
 ### Milestone 60
 
 Objective:

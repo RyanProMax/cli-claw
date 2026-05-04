@@ -97,6 +97,7 @@ skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发
 - 先搜索当前工作区 `.claude/skills/`，再搜索用户级同步 skill 目录；项目内 skill 可以覆盖用户级同名声明。
 - 若多个 skill 在同一搜索优先级上声明了相同命令，命令不会静默二选一，而是直接返回冲突提示。
 - executor 通过 stdin 接收 JSON payload，并通过 stdout 返回 JSON 结果。
+- executor 声明裸 `python` / `python3` 时，宿主优先使用该 skill 根目录下的 `.venv` Python（Unix: `.venv/bin/python`，Windows: `.venv/Scripts/python.exe`）；找不到 skill-local venv 时才回退到原声明命令，避免服务重启后 PATH 漂移导致 skill command 使用错误 Python 环境。
 - 结果类型目前支持：
   - `final_markdown`：本地直接返回最终文本
   - `assistant_prompt`：把命令改写成一段独立用户消息，再用隔离 runtime session 继续走 Agent 主流程

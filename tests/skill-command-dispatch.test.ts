@@ -20,8 +20,18 @@ function writeSkill(args: {
   const skillDir = path.join(args.rootDir, args.skillId);
   fs.mkdirSync(skillDir, { recursive: true });
   fs.writeFileSync(
-    path.join(skillDir, args.enabled === false ? 'SKILL.md.disabled' : 'SKILL.md'),
-    ['---', `name: ${args.skillId}`, 'description: test skill', '---', '', '# Skill'].join('\n'),
+    path.join(
+      skillDir,
+      args.enabled === false ? 'SKILL.md.disabled' : 'SKILL.md',
+    ),
+    [
+      '---',
+      `name: ${args.skillId}`,
+      'description: test skill',
+      '---',
+      '',
+      '# Skill',
+    ].join('\n'),
   );
   fs.writeFileSync(
     path.join(skillDir, 'commands.json'),
@@ -45,7 +55,9 @@ describe('skill command dispatch', () => {
   });
 
   test('discovers workspace skill commands before user-level ones', async () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-cmd-ws-'));
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-ws-'),
+    );
     const userRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-cmd-user-'));
     tempDirs.push(workspaceRoot, userRoot);
 
@@ -87,7 +99,9 @@ describe('skill command dispatch', () => {
   });
 
   test('returns a duplicate-command error when multiple enabled skills declare the same command at the same priority', async () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-cmd-dup-'));
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-dup-'),
+    );
     tempDirs.push(workspaceRoot);
 
     writeSkill({
@@ -124,7 +138,9 @@ describe('skill command dispatch', () => {
   });
 
   test('executes a discovered skill command via stdin/stdout JSON contract', async () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-cmd-run-'));
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-run-'),
+    );
     tempDirs.push(workspaceRoot);
 
     writeSkill({
@@ -175,8 +191,73 @@ describe('skill command dispatch', () => {
     expect(reply).toBe('handled hkipo for ipo');
   });
 
+  test('prefers a skill-local venv python for bare python executors', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-venv-'),
+    );
+    tempDirs.push(workspaceRoot);
+
+    const skillDir = writeSkill({
+      rootDir: workspaceRoot,
+      skillId: 'stock-analysis-skill',
+      commands: {
+        research: {
+          description: '生成研报',
+          entrypoints: ['im', 'web'],
+          executor: {
+            command: 'python3',
+            args: ['commands/reply.py'],
+          },
+        },
+      },
+    });
+    const venvPython = path.join(
+      skillDir,
+      '.venv',
+      process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
+    );
+    fs.mkdirSync(path.dirname(venvPython), { recursive: true });
+    fs.writeFileSync(
+      venvPython,
+      [
+        '#!/usr/bin/env node',
+        "let data = '';",
+        "process.stdin.setEncoding('utf8');",
+        "process.stdin.on('data', (chunk) => { data += chunk; });",
+        "process.stdin.on('end', () => {",
+        '  const payload = JSON.parse(data);',
+        "  process.stdout.write(JSON.stringify({ reply: { type: 'final_markdown', content: `venv python handled ${payload.command}` } }));",
+        '});',
+      ].join('\n'),
+    );
+    fs.chmodSync(venvPython, 0o755);
+
+    const discovered = await discoverSkillCommands({
+      entrypoint: 'im',
+      roots: [workspaceRoot],
+    });
+
+    const reply = await executeDiscoveredSkillCommand({
+      commandName: 'research',
+      discovered,
+      entrypoint: 'im',
+      chatJid: 'feishu:chat-1',
+      argsText: 'MINIMAX',
+      args: ['MINIMAX'],
+      workspace: {
+        jid: 'web:research',
+        folder: 'research',
+        name: 'Research',
+      },
+    });
+
+    expect(reply).toBe('venv python handled research');
+  });
+
   test('supports assistant_prompt replies for command-driven agent rewrites', async () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-cmd-prompt-'));
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-prompt-'),
+    );
     tempDirs.push(workspaceRoot);
 
     writeSkill({
