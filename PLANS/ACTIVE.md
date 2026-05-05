@@ -1,19 +1,61 @@
-# Codex Fast Mode Runtime Metadata
+# Codex Footer Quota Remaining
 
 ## Goal
 
-- Support toggling Codex fast mode from Cli Claw runtime controls.
-- Carry the effective Codex speed tier through runner runtime identity and persisted assistant metadata.
-- Add footer visibility for `standard (1x)` / `fast (2x)` in Web and Feishu cards.
+- Show Codex quota as remaining allowance in assistant footers instead of local used-percent windows.
+- Preserve the existing fallback for providers that only expose current usage percentages.
 
 ## Done when
 
-- `/speed` can select `standard` or `fast` for Codex workspaces.
-- Codex runner launches fast turns with `service_tier="fast"` and leaves standard turns without a service-tier override.
-- Footer helpers render `standard (1x)` or `fast (2x)` for Codex runtime identity.
-- Validation, review, commit, and safe restart pass.
+- Codex footer displays remaining 5h / 7d quota when remaining fields are present.
+- Current usage percentages are only shown as a fallback when remaining quota is unavailable.
+- Focused footer/runtime tests, typecheck, build, diff check, and review gate pass.
 
 ## Milestones
+
+### Milestone 66
+
+Objective:
+- Correct assistant footer token windows so Codex shows remaining quota, matching the operator quota semantics.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `shared/assistant-meta-footer.ts`
+- `src/runtime-usage.ts`
+- `tests/assistant-meta-footer.test.ts`
+- `tests/runtime-usage.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm run build:shared`
+- `npm test -- --run tests/assistant-meta-footer.test.ts tests/runtime-usage.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-05：Confirmed the Codex usage reader returns `primaryUsagePct` / `secondaryUsagePct` as used percentages and `primaryRemainingPct` / `secondaryRemainingPct` as remaining quota from local `~/.codex/sessions`.
+- 2026-05-05：Changed footer formatting to prefer remaining quota when present and retain current usage as a fallback for providers without remaining fields.
+- 2026-05-05：Removed the obsolete low-threshold branch from the runtime usage helper after the footer contract changed to show remaining quota whenever available.
+
+Validation status:
+- passed 2026-05-05:
+  - `npm run build:shared`
+  - `npm test -- --run tests/assistant-meta-footer.test.ts tests/runtime-usage.test.ts tests/feishu-streaming-card.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-05: scope matches Milestone 66; footer helpers now prefer remaining quota and only fall back to current usage when remaining fields are absent; runtime usage helper exposes the same availability semantics; tests cover backend footer, Web footer, Feishu card footer, and runtime usage metadata.
+
+Handoff:
+- Codex assistant footers now display remaining quota windows, e.g. local snapshot formatting produced `100% (5h) | 93% (7d)` after the fix. Commit and safe restart are the remaining operational steps.
 
 ### Milestone 65
 

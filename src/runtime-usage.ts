@@ -56,25 +56,21 @@ export async function attachRuntimeUsageFooterMeta(
   };
 }
 
-function isUsageLow(snapshot?: UsageProviderResult | null): boolean {
-  if (!snapshot?.available) return false;
-  const primaryRemaining = snapshot.primaryRemainingPct;
-  const secondaryRemaining = snapshot.secondaryRemainingPct;
-  const primaryLow =
-    typeof primaryRemaining === 'number' && Number.isFinite(primaryRemaining)
-      ? primaryRemaining < 20
-      : false;
-  const secondaryLow =
-    typeof secondaryRemaining === 'number' &&
-    Number.isFinite(secondaryRemaining)
-      ? secondaryRemaining < 10
-      : false;
-  return primaryLow || secondaryLow;
-}
-
 export function shouldShowRemainingUsageInFooter(
   snapshot?: UsageProviderResult | null,
 ): boolean {
   if (!snapshot?.available) return false;
-  return isUsageLow(snapshot);
+  if (
+    typeof snapshot.primaryRemainingPct === 'number' &&
+    Number.isFinite(snapshot.primaryRemainingPct)
+  ) {
+    return true;
+  }
+  if (
+    typeof snapshot.secondaryRemainingPct === 'number' &&
+    Number.isFinite(snapshot.secondaryRemainingPct)
+  ) {
+    return true;
+  }
+  return false;
 }

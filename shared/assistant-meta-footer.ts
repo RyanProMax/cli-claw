@@ -85,32 +85,25 @@ export function parseAssistantTokenUsage(
   return tokenUsage;
 }
 
-function shouldShowRemainingUsage(
-  usage: AssistantFooterTokenUsage | null,
-): boolean {
-  const primaryRemainingPct = normalizeNumber(usage?.primaryRemainingPct);
-  const secondaryRemainingPct = normalizeNumber(usage?.secondaryRemainingPct);
-  return (
-    (primaryRemainingPct !== null && primaryRemainingPct < 20) ||
-    (secondaryRemainingPct !== null && secondaryRemainingPct < 10)
-  );
-}
-
 function appendRemainingUsageParts(
   parts: string[],
   usage: AssistantFooterTokenUsage | null,
-): void {
-  if (!shouldShowRemainingUsage(usage)) return;
+): boolean {
+  let appended = false;
 
   const primaryRemainingPct = normalizeNumber(usage?.primaryRemainingPct);
   if (primaryRemainingPct !== null) {
     parts.push(`${Math.round(primaryRemainingPct)}% (5h)`);
+    appended = true;
   }
 
   const secondaryRemainingPct = normalizeNumber(usage?.secondaryRemainingPct);
   if (secondaryRemainingPct !== null) {
     parts.push(`${Math.round(secondaryRemainingPct)}% (7d)`);
+    appended = true;
   }
+
+  return appended;
 }
 
 function appendCurrentUsageParts(
@@ -166,8 +159,8 @@ export function getAssistantMetaFooterParts(
     parts.push(speedTier);
   }
 
-  if (!appendCurrentUsageParts(parts, tokenUsage)) {
-    appendRemainingUsageParts(parts, tokenUsage);
+  if (!appendRemainingUsageParts(parts, tokenUsage)) {
+    appendCurrentUsageParts(parts, tokenUsage);
   }
 
   return parts;
@@ -205,8 +198,8 @@ export function getAssistantCardFooterParts(
     parts.push(speedTier);
   }
 
-  if (!appendCurrentUsageParts(parts, tokenUsage)) {
-    appendRemainingUsageParts(parts, tokenUsage);
+  if (!appendRemainingUsageParts(parts, tokenUsage)) {
+    appendCurrentUsageParts(parts, tokenUsage);
   }
 
   return parts;

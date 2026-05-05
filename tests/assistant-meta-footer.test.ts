@@ -70,7 +70,7 @@ describe('assistant meta footer', () => {
     );
   });
 
-  test('appends current token usage windows in the compact footer', () => {
+  test('falls back to current token usage windows when remaining quota is missing', () => {
     const runtimeIdentity = {
       agentType: 'codex' as const,
       model: 'gpt-5.4',
@@ -93,7 +93,7 @@ describe('assistant meta footer', () => {
     );
   });
 
-  test('appends remaining usage when the current 5h window is below 20%', () => {
+  test('appends remaining quota windows in the compact footer', () => {
     const runtimeIdentity = {
       agentType: 'codex' as const,
       model: 'gpt-5.4',
@@ -102,6 +102,8 @@ describe('assistant meta footer', () => {
     };
     const tokenUsage = {
       durationMs: 5_200,
+      primaryUsagePct: 81,
+      secondaryUsagePct: 28,
       primaryRemainingPct: 19,
       secondaryRemainingPct: 72,
     };
@@ -116,7 +118,7 @@ describe('assistant meta footer', () => {
     );
   });
 
-  test('appends remaining usage when the current week window is below 10%', () => {
+  test('appends remaining quota even when only the week window is low', () => {
     const runtimeIdentity = {
       agentType: 'codex' as const,
       model: 'gpt-5.4',
@@ -139,7 +141,7 @@ describe('assistant meta footer', () => {
     );
   });
 
-  test('keeps footer minimal when both remaining thresholds are healthy', () => {
+  test('shows healthy remaining quota windows instead of hiding them', () => {
     const runtimeIdentity = {
       agentType: 'codex' as const,
       model: 'gpt-5.4',
@@ -154,9 +156,11 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | standard (1x)');
+    ).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 72% (7d)',
+    );
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x)',
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 72% (7d)',
     );
   });
 

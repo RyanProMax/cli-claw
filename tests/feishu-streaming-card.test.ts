@@ -160,7 +160,7 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('shows current token usage windows in the card footer', async () => {
+  test('shows remaining quota windows in the card footer', async () => {
     const controller = new StreamingCardController({
       client: {} as any,
       chatId: 'chat-test',
@@ -188,7 +188,7 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 72% (5h) | 96% (7d)',
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 4% (7d)',
     );
 
     controller.dispose();

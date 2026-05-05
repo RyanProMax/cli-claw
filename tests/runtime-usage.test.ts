@@ -133,7 +133,7 @@ describe('runtime usage helper', () => {
     });
   });
 
-  test('shows remaining footer only when 5h or week threshold is crossed', () => {
+  test('shows remaining footer whenever quota data is available', () => {
     expect(
       shouldShowRemainingUsageInFooter({
         provider: 'codex',
@@ -142,7 +142,7 @@ describe('runtime usage helper', () => {
         primaryRemainingPct: 28,
         secondaryRemainingPct: 72,
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldShowRemainingUsageInFooter({
