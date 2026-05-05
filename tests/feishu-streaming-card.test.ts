@@ -1477,7 +1477,7 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('strips commentary-prefixed terminal text while preserving the commentary panel', async () => {
+  test('strips commentary-prefixed hkipo terminal text into the thinking panel', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
@@ -1496,11 +1496,18 @@ describe('StreamingCardController footer caching', () => {
       commentaryText: '先收集上下文',
     };
     const visibleReplyParts = resolveVisibleReplyParts(
-      '先收集上下文\n\n## 最终结论\n\n正文',
+      [
+        '先收集上下文',
+        'Futu 当前池只有 3 只仍可认购。',
+        '**港股 IPO 池｜2026-05-05**',
+        '----',
+        '**💡 关键结论**',
+        '- 07666 池内最高。',
+      ].join('\n'),
       presentationText,
       { agentType: 'codex' },
     );
-    controller.appendCommentary(visibleReplyParts.commentaryText);
+    controller.appendThinking(visibleReplyParts.commentaryText);
     await controller.complete(visibleReplyParts.visibleText);
 
     await vi.waitFor(() => {
@@ -1508,26 +1515,29 @@ describe('StreamingCardController footer caching', () => {
     });
 
     const finalCard = updatedCards.at(-1) ?? createdCards.at(-1);
-    const commentaryPanel = (finalCard?.body?.elements ?? []).find(
+    const thinkingPanel = (finalCard?.body?.elements ?? []).find(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '💬 Commentary',
+        element?.header?.title?.content === '💭 Thinking',
     );
     const mainMarkdown = (finalCard?.body?.elements ?? []).find(
       (element: any) =>
         element?.tag === 'markdown' && element?.text_size === 'normal_text',
     );
 
-    expect(finalCard?.config?.summary?.content).toBe('最终结论');
-    expect(mainMarkdown?.content).toBe('正文');
+    expect(finalCard?.config?.summary?.content).toBe('港股 IPO 池｜2026-05-05');
+    expect(mainMarkdown?.content).toContain('**港股 IPO 池｜2026-05-05**');
     expect(JSON.stringify(mainMarkdown)).not.toContain('先收集上下文');
-    expect(commentaryPanel).toMatchObject({
+    expect(JSON.stringify(mainMarkdown)).not.toContain('Futu 当前池只有');
+    expect(thinkingPanel).toMatchObject({
       tag: 'collapsible_panel',
       expanded: false,
       elements: [
         {
           tag: 'markdown',
-          content: '先收集上下文',
+          content: ['先收集上下文', 'Futu 当前池只有 3 只仍可认购。'].join(
+            '\n',
+          ),
           text_size: 'notation',
         },
       ],

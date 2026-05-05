@@ -295,9 +295,10 @@ describe('stream presentation', () => {
     expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 
-  test('syncs explicit visible commentary to terminal Feishu cards', () => {
+  test('syncs explicit visible commentary to terminal Feishu thinking panel', () => {
     const session = {
       appendCommentary: vi.fn(),
+      appendThinking: vi.fn(),
     } as any;
 
     syncTerminalPresentationTextToCard(
@@ -309,8 +310,7 @@ describe('stream presentation', () => {
       '当前终态 commentary',
     );
 
-    expect(session.appendCommentary).toHaveBeenCalledWith(
-      '当前终态 commentary',
-    );
+    expect(session.appendThinking).toHaveBeenCalledWith('当前终态 commentary');
+    expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 });

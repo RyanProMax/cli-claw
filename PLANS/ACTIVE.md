@@ -14,6 +14,62 @@
 
 ## Milestones
 
+### Milestone 71
+
+Objective:
+- Keep Codex `/hkipo` process narration out of the Feishu main report body by recognizing the bold `港股 IPO 池` terminal title as the visible-answer boundary, and update `/hkipo` skill output to the user-requested compact section layout.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/reply-visibility.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `/Users/ryan/projects/stock-analysis-skill/commands/hkipo.py`
+- `/Users/ryan/projects/stock-analysis-skill/tests/test_hkipo_command.py`
+- `/Users/ryan/projects/stock-analysis-skill/SKILL.md`
+- `/Users/ryan/projects/stock-analysis-skill/README.md`
+- `/Users/ryan/projects/stock-analysis-skill/references/hkipo.md`
+- `/Users/ryan/projects/stock-analysis-skill/PLANS/ACTIVE.md`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `python3 -m unittest tests/test_hkipo_command.py`
+- `python3 -m unittest discover -s tests`
+- `python3 -m py_compile scripts/*.py commands/*.py`
+- `git -C /Users/ryan/projects/stock-analysis-skill diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-05: User reported `/hkipo` process narration such as "我会先..." and data-collection updates still appears in the main Feishu body. Root cause found: `reply-visibility` did not treat the bold `**港股 IPO 池｜...**` title as an answer boundary, so inferred commentary stripping did not run for hkipo reports.
+- 2026-05-05: User clarified `/hkipo` final body should remove the `申购冲突` section entirely, remove the title-tail "investment suggestion"/priority wording, and put subscription deadline plus allotment/result date in each IPO title line, e.g. `🟡 2｜01236 樂動機器人｜74｜5/6截止 | 5/7开奖`.
+- 2026-05-05: User also clarified report spacing should be compact: no blank empty lines between `关键结论`, `优先级`, per-IPO entries, and `来源`.
+
+Validation status:
+- passed 2026-05-05:
+  - `npm test -- --run tests/reply-visibility.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `python3 -m unittest tests/test_hkipo_command.py`
+  - `python3 -m unittest discover -s tests`
+  - `python3 -m py_compile scripts/*.py commands/*.py`
+  - `git -C /Users/ryan/projects/stock-analysis-skill diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-05: scope stayed within Milestone 71; `reply-visibility` now treats the bold hkipo report title as the terminal answer boundary and routes stripped process narration into the top `Thinking` fold; `/hkipo` skill output no longer contains the subscription-conflict section, uses deadline/result dates in title lines, and removes blank empty lines from the report body contract. No blocking diff hygiene or contract issues found.
+
+Risks / Notes / Handoff:
+- Build still emits the existing Vite large-chunk warning, but exits successfully.
+- The fixed-source-order heat rule reduces latest-margin drift by forcing the same source priority and timestamp gate. It does not yet implement a deterministic local scraper/cache for broker margin tables.
+
 ### Milestone 69
 
 Objective:
@@ -111,7 +167,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 70
+- Milestone 71
 
 Current status:
 - done
@@ -119,14 +175,23 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `docs/RUNTIME.md`
-- `src/feishu-streaming-card.ts`
+- `src/index.ts`
+- `src/reply-visibility.ts`
 - `tests/feishu-streaming-card.test.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/stream-presentation.test.ts`
+- `/Users/ryan/projects/stock-analysis-skill/commands/hkipo.py`
+- `/Users/ryan/projects/stock-analysis-skill/tests/test_hkipo_command.py`
+- `/Users/ryan/projects/stock-analysis-skill/SKILL.md`
+- `/Users/ryan/projects/stock-analysis-skill/README.md`
+- `/Users/ryan/projects/stock-analysis-skill/references/hkipo.md`
+- `/Users/ryan/projects/stock-analysis-skill/PLANS/ACTIVE.md`
 
 Last failure summary:
-- RED test failed as expected before implementation: completed-card `thinking` index was after the report body index.
+- RED tests failed as expected before implementation: hkipo bold titles were not recognized as answer boundaries; terminal process commentary was synced to Commentary instead of Thinking; `/hkipo` still contained `申购冲突`, blank empty lines, and priority-label title tails.
 
 Suspected cause:
-- Completed-card auxiliary layout still uses the old "body first, details after" ordering.
+- The visibility boundary only handled Markdown `#` headings and bold `/research` titles, while `/hkipo` uses a bold `港股 IPO 池` title. The skill prompt still carried outdated report-body requirements.
 
 Next step:
-- Commit the completed changes, then apply them through the safe restart path.
+- Commit both repos, then apply through the safe restart path.

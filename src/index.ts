@@ -541,7 +541,7 @@ export function syncTerminalPresentationTextToCard(
 ): void {
   const commentaryText = commentaryTextOverride ?? '';
   if (commentaryText.trim()) {
-    session.appendCommentary(commentaryText);
+    session.appendThinking(commentaryText);
   }
 }
 

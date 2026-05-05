@@ -108,7 +108,7 @@ function splitLeadingCodexCommentary(
   if (!normalizedRawText) return null;
 
   const headingMatch =
-    /(^|\n|[。！？.!?]\s*)((?:#{1,6}\s+\S)|(?:\*\*\/research｜[^*\n]+\*\*))/u.exec(
+    /(^|\n|[。！？.!?]\s*)((?:#{1,6}\s+\S)|(?:\*\*(?:\/research｜|港股 IPO 池｜)[^*\n]+\*\*))/u.exec(
       normalizedRawText,
     );
   if (!headingMatch || headingMatch.index === 0) return null;
@@ -147,6 +147,9 @@ export function resolveVisibleReplyParts(
   const droppedPresentationAnswer = Boolean(answerText);
   const commentaryText = presentationCommentaryText;
 
+  const inferred = splitLeadingCodexCommentary(sanitizedRawText);
+  if (inferred) return inferred;
+
   if (
     normalizedRawText &&
     commentaryText &&
@@ -161,9 +164,6 @@ export function resolveVisibleReplyParts(
       return { visibleText: stripped, commentaryText };
     }
   }
-
-  const inferred = splitLeadingCodexCommentary(sanitizedRawText);
-  if (inferred) return inferred;
 
   return {
     visibleText: sanitizedRawText,

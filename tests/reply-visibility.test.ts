@@ -198,6 +198,34 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
+  test('infers Codex process logs before a bold hkipo title as commentary', () => {
+    const rawText = [
+      '我会先按技能要求读取港股 IPO 研究规则。',
+      '已读取 /hkipo 评分与输出约束。',
+      'Futu 当前池只有 3 只仍可认购。',
+      '**港股 IPO 池｜2026-05-05**',
+      '----',
+      '**💡 关键结论**',
+      '- 07666 池内最高。',
+    ].join('\n');
+
+    expect(
+      resolveVisibleReplyParts(rawText, {}, { agentType: 'codex' }),
+    ).toEqual({
+      visibleText: [
+        '**港股 IPO 池｜2026-05-05**',
+        '----',
+        '**💡 关键结论**',
+        '- 07666 池内最高。',
+      ].join('\n'),
+      commentaryText: [
+        '我会先按技能要求读取港股 IPO 研究规则。',
+        '已读取 /hkipo 评分与输出约束。',
+        'Futu 当前池只有 3 只仍可认购。',
+      ].join('\n'),
+    });
+  });
+
   test('removes raw prompt wrapper blocks before sending visible text', () => {
     const rawText = [
       '<reply-policy>',
