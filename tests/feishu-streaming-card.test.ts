@@ -813,6 +813,48 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('renders empty live thinking as an expanded collapsible panel instead of top markdown', async () => {
+    const { client, createdCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.setThinking();
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+    });
+
+    const elements = createdCards[0]?.body?.elements ?? [];
+    const thinkingPanel = elements.find(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💭 Thinking...',
+    );
+
+    expect(thinkingPanel).toMatchObject({
+      tag: 'collapsible_panel',
+      expanded: true,
+      elements: [
+        {
+          tag: 'markdown',
+          content: 'Thinking...',
+          text_size: 'notation',
+        },
+      ],
+    });
+    expect(
+      elements.some(
+        (element: any) =>
+          element?.tag === 'markdown' &&
+          element?.content?.trim() === '💭 Thinking...',
+      ),
+    ).toBe(false);
+
+    controller.dispose();
+  });
+
   test('renders only the interrupt control in the default streaming footer row', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({

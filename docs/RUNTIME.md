@@ -134,6 +134,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 - 正常 Agent 回复优先使用 streaming card；静态 card / post+md 仍保留为 Feishu API 失败、非流式命令回复和格式限制场景的兜底，不能移除。
 - Streaming card 将 `thinking`、`commentary`、`steps` 和主正文分区渲染。主正文只承载 answer；Codex 的 `text_delta` presentation 流不是主正文权威来源。
+- `thinking` 必须和 tool `steps` 一样使用原生折叠面板展示；即使 runtime 只发出空 `thinking_delta`，也不能退化成顶部普通 markdown 行混入状态/正文区域。
 - 同来源新用户输入开始时会重置当前卡片展示态；`turnId` 变化或 `messageCursor.id` 变化也会清空上轮 presentation buffer、thinking 和中断状态，避免旧工具 steps 出现在新消息卡片上。
 - 主进程会丢弃 `messageCursor.id` 不属于当前待处理用户消息的 stale stream events；这是路由保护，不是上下文或 replay 判断。历史执行事件必须在 runner 源头消失，不能依赖飞书卡片层过滤。
 - 启动恢复遇到 `~/.cli-claw/streaming-buffer` 或 `active_streaming_turns` 里的中断卡片态时，只清理这些临时态；不恢复旧卡片正文、不生成 `interrupt_partial` assistant 消息、不提交该 turn 游标。

@@ -1,75 +1,64 @@
-# Runtime Configuration Command Consolidation
+# Feishu Thinking And HKIPO Presentation Polish
 
 ## Goal
 
-- Remove standalone `/model`, `/effort`, and `/speed` commands from user-facing command dispatch and help.
-- Consolidate model, reasoning effort, and Codex speed configuration under `/codex` and `/claude`, reusing one runtime configuration card/dropdown experience in Feishu and keeping Web picker behavior aligned.
-- Restructure `/help` so commands are grouped by module, for example `Agent 命令`, instead of one undifferentiated `可用命令` list.
+- Make Feishu streaming-card `thinking` visually distinct from the top status/body area by rendering it as the same native collapsible panel family as tool `steps`, even before any thinking text arrives.
+- Adjust `/hkipo` report instructions so `申购冲突` is a top-level section beside `关键结论` and `优先级`; per-IPO fields stay compact without blank lines between every small point.
 
 ## Done when
 
-- `/model`, `/effort`, and `/speed` no longer appear as built-in commands, no longer work as standalone runtime commands, and are absent from `/help`.
-- `/codex` opens a combined Codex runtime configuration picker that can update model, reasoning effort, and speed using the existing runtime configuration persistence.
-- `/claude` opens a combined Claude runtime configuration picker that can update Claude model using the same picker/card surface, without exposing unsupported Codex-only settings.
-- `/help` groups built-in and skill commands by module instead of using a single `可用命令` heading.
-- Feishu card actions, Web command picker behavior, docs, and focused tests all match the new command contract.
+- Streaming cards render empty/live thinking as a `collapsible_panel`, expanded while streaming and collapsed after completion, with tests covering the empty-thinking case.
+- The hkipo reference contract shows `申购冲突` as a top-level section and removes the per-card `⏱` line from the default card template.
+- The spacing contract requires blank lines around top-level sections only, not between every per-IPO small field.
+- Focused tests, build/typecheck as needed, `git diff --check`, and `./scripts/review.sh` pass.
 
 ## Milestones
 
-### Milestone 68
+### Milestone 69
 
 Objective:
-- Replace standalone runtime setting commands with agent-scoped `/codex` and `/claude` configuration commands, and regroup help output by module.
+- Fix Feishu card thinking presentation and synchronize hkipo report-format instructions.
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `docs/COMMAND.md`
 - `docs/RUNTIME.md`
-- `shared/runtime-command-registry.ts`
-- `src/runtime-command-registry.ts`
-- `src/runtime-command-handler.ts`
-- `src/index.ts`
-- `src/feishu.ts`
 - `src/feishu-streaming-card.ts`
-- `src/routes/groups.ts`
-- `web/src/lib/runtimeCommandPicker.ts`
-- `web/src/lib/runtimeCommandRegistry.ts`
-- `web/src/components/chat/MessageInput.tsx`
-- Related runtime command, Feishu card, group route, and Web picker tests.
-- `tests/feishu-connection.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `/Users/ryan/projects/stock-analysis-skill/SKILL.md`
+- `/Users/ryan/projects/stock-analysis-skill/references/hkipo.md`
+- Related focused tests if existing coverage needs small expectation updates.
 
 Validation:
-- `npm run build:shared`
-- `npm test -- --run tests/runtime-command-registry.test.ts tests/runtime-command-handler.test.ts tests/groups-route.test.ts tests/feishu-streaming-card.test.ts tests/feishu-connection.test.ts`
+- `npm test -- --run tests/feishu-streaming-card.test.ts`
 - `npm run typecheck`
 - `npm run build`
 - `git diff --check`
+- `git -C /Users/ryan/projects/stock-analysis-skill diff --check`
 - `./scripts/review.sh`
 
 Status:
 - done
 
 Progress:
-- 2026-05-05: Started from user request to remove `/effort` `/model` `/speed`, merge settings into `/codex` `/claude`, reuse one Feishu dropdown card, and regroup `/help` by module.
-- 2026-05-05: Added RED tests for grouped help, removed standalone runtime commands, combined `/codex` / `/claude` handler fallback, and one Feishu configuration card with multiple selectors; focused tests failed against the old behavior as expected.
-- 2026-05-05: Implemented `/codex` and `/claude` as the only user-facing runtime configuration commands. Codex now renders model, reasoning effort, and speed in one Feishu/Web picker; Claude renders model only. `/help` now groups commands into module sections and no longer emits the `可用命令：` heading.
-- 2026-05-05: Synchronized command/runtime docs and verified adjacent Web/IM slash command behavior.
+- 2026-05-05: Started from Feishu feedback: thinking should be a collapsible panel like steps; hkipo subscription conflict should be a top-level section; blank-line spacing should apply to top-level sections, not every small per-IPO field.
+- 2026-05-05: Added RED coverage for empty `setThinking()` rendering; confirmed it failed because the old branch produced no collapsible panel. Implemented the minimal card change and updated `docs/RUNTIME.md`.
+- 2026-05-05: Updated `stock-analysis-skill` `/hkipo` instructions so `⏱ 申购冲突` is top-level and per-IPO fields are compact without blank lines between every small point.
+- 2026-05-05: Final validation passed. Build still emits the existing Vite large-chunk warning, but exits successfully.
 
 Validation status:
 - passed 2026-05-05:
-  - `npm run build:shared`
-  - `npm test -- --run tests/runtime-command-registry.test.ts tests/runtime-command-handler.test.ts tests/groups-route.test.ts tests/feishu-streaming-card.test.ts tests/feishu-connection.test.ts`
-  - extra adjacent check: `npm test -- --run tests/web-slash-command.test.ts tests/im-slash-command.test.ts`
+  - `npm test -- --run tests/feishu-streaming-card.test.ts`
   - `npm run typecheck`
   - `npm run build`
   - `git diff --check`
+  - `git -C /Users/ryan/projects/stock-analysis-skill diff --check`
   - `./scripts/review.sh`
 
 Review status:
-- passed 2026-05-05: scope matches Milestone 68; standalone `/model` / `/effort` / `/speed` are removed from the command registry and Web picker detection; `/codex` and `/claude` reuse the same runtime selection persistence; Feishu renders one configuration card per agent command; `/help` is grouped by command module; docs are synchronized with the new command contract.
+- passed 2026-05-05: scope matches Milestone 69; `thinking` now consistently uses existing native collapsible panels instead of top-level markdown; hkipo instructions move `申购冲突` to a top-level section and narrow blank-line spacing to top-level sections only; docs/tests are synchronized; no blocking hygiene or contract issues found.
 
 Risks / Notes / Handoff:
-- Internal `selection: model | effort | speed` remains only for Feishu/Web dropdown callbacks and persistence; these are no longer user-facing slash commands.
+- `stock-analysis-skill` files were updated in place and match the installed skill copy used by the current `/hkipo` runtime path.
 
 ## Working Rules
 
@@ -82,33 +71,24 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 68
+- Milestone 69
 
 Current status:
 - done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `docs/COMMAND.md`
 - `docs/RUNTIME.md`
-- `shared/runtime-command-registry.ts`
 - `src/feishu-streaming-card.ts`
-- `src/index.ts`
-- `src/runtime-command-handler.ts`
-- `src/runtime-command-registry.ts`
-- `tests/feishu-connection.test.ts`
 - `tests/feishu-streaming-card.test.ts`
-- `tests/runtime-command-handler.test.ts`
-- `tests/runtime-command-registry.test.ts`
-- `web/src/components/chat/MessageInput.tsx`
-- `web/src/lib/runtimeCommandPicker.ts`
-- `web/src/lib/runtimeCommandRegistry.ts`
+- `/Users/ryan/projects/stock-analysis-skill/SKILL.md`
+- `/Users/ryan/projects/stock-analysis-skill/references/hkipo.md`
 
 Last failure summary:
-- none
+- RED test failed as expected before implementation: empty live thinking produced no `collapsible_panel`.
 
 Suspected cause:
-- n/a
+- Empty `thinking` currently falls back to a plain markdown line, and hkipo formatting instructions still place subscription conflict inside each IPO card with blank-line guidance that over-applies to per-card fields.
 
 Next step:
-- Commit the completed change, then apply it to the running service through the safe restart path if needed.
+- Commit the completed changes, then apply them through the safe restart path.

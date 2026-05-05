@@ -648,11 +648,9 @@ function buildAuxiliaryElementsForState(
       ),
     );
   } else if (aux.isThinking) {
-    auxiliaryElements.push({
-      tag: 'markdown',
-      content: '💭 Thinking...',
-      text_size: 'notation',
-    });
+    auxiliaryElements.push(
+      buildCollapsiblePanel('💭 Thinking...', 'Thinking...', isStreamingLayout),
+    );
   }
 
   // ②b Tool calls. Preserve the whole per-turn tool trace; the controller is
