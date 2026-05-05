@@ -19,42 +19,52 @@ import {
 } from '../src/runtime-command-registry.ts';
 import {
   detectRuntimePickerCommand,
-  getRuntimePickerOptions,
+  getRuntimePickerSections,
 } from '../web/src/lib/runtimeCommandPicker.ts';
 
 describe('runtime command registry', () => {
-  test('formats web help with only web-direct commands for codex workspaces', () => {
+  test('formats web help as grouped module sections for codex workspaces', () => {
     const help = formatCommandHelp({
       entrypoint: 'web',
       agentType: 'codex',
     });
 
+    expect(help).not.toContain('可用命令：');
+    expect(help).toContain('Agent 命令：');
     expect(help).toContain('/help');
     expect(help).toContain('/clear');
     expect(help).toContain('/sw <任务描述>');
-    expect(help).toContain('/model');
-    expect(help).toContain('/effort');
-    expect(help).toContain('/speed');
+    expect(help).toContain('/codex');
+    expect(help).not.toContain('/claude');
+    expect(help).not.toContain('/model');
+    expect(help).not.toContain('/effort');
+    expect(help).not.toContain('/speed');
     expect(help).not.toContain('/model <preset>');
     expect(help).not.toContain('/bind <workspace>');
   });
 
-  test('formats IM help with workspace management commands', () => {
+  test('formats IM help with commands grouped by module', () => {
     const help = formatCommandHelp({
       entrypoint: 'im',
       agentType: 'claude',
     });
 
+    expect(help).not.toContain('可用命令：');
+    expect(help).toContain('Agent 命令：');
+    expect(help).toContain('工作区命令：');
+    expect(help).toContain('服务命令：');
     expect(help).toContain('/help');
     expect(help).toContain('/bind <workspace>');
     expect(help).toContain('/where');
-    expect(help).toContain('/model');
+    expect(help).toContain('/claude');
+    expect(help).not.toContain('/codex');
+    expect(help).not.toContain('/model');
     expect(help).not.toContain('/autopilot');
     expect(help).not.toContain('/recall');
     expect(help).not.toContain('/effort <low|medium|high|xhigh>');
   });
 
-  test('does not expose legacy /usage in help or command parsing', () => {
+  test('does not expose legacy /usage or standalone runtime setting commands', () => {
     const imHelp = formatCommandHelp({
       entrypoint: 'im',
       agentType: 'codex',
@@ -67,6 +77,19 @@ describe('runtime command registry', () => {
     expect(imHelp).not.toContain('/usage');
     expect(webHelp).not.toContain('/usage');
     expect(parseRuntimeCommand('/usage')).toBeNull();
+    expect(parseRuntimeCommand('/model')).toBeNull();
+    expect(parseRuntimeCommand('/effort')).toBeNull();
+    expect(parseRuntimeCommand('/speed')).toBeNull();
+    expect(parseRuntimeCommand('/codex')).toMatchObject({
+      name: 'codex',
+      argsText: '',
+      args: [],
+    });
+    expect(parseRuntimeCommand('/claude')).toMatchObject({
+      name: 'claude',
+      argsText: '',
+      args: [],
+    });
   });
 
   test('shows self-iteration commands in IM help and parses them as local commands', () => {
@@ -158,33 +181,44 @@ describe('runtime command registry', () => {
     expect(getDefaultSpeedTierPreset('codex')).toBe('standard');
   });
 
-  test('detects runtime picker commands only for bare slash commands', () => {
-    expect(detectRuntimePickerCommand('/model')).toBe('model');
-    expect(detectRuntimePickerCommand('/model ')).toBe('model');
-    expect(detectRuntimePickerCommand('/effort')).toBe('effort');
-    expect(detectRuntimePickerCommand('/speed')).toBe('speed');
-    expect(detectRuntimePickerCommand('/model gpt-5.4')).toBeNull();
+  test('detects agent-scoped runtime picker commands only for bare slash commands', () => {
+    expect(detectRuntimePickerCommand('/codex')).toBe('codex');
+    expect(detectRuntimePickerCommand('/codex ')).toBe('codex');
+    expect(detectRuntimePickerCommand('/claude')).toBe('claude');
+    expect(detectRuntimePickerCommand('/model')).toBeNull();
+    expect(detectRuntimePickerCommand('/effort')).toBeNull();
+    expect(detectRuntimePickerCommand('/speed')).toBeNull();
+    expect(detectRuntimePickerCommand('/codex gpt-5.4')).toBeNull();
     expect(detectRuntimePickerCommand('hello')).toBeNull();
   });
 
-  test('returns runtime picker options only when the runtime supports them', () => {
-    expect(getRuntimePickerOptions({ command: 'model', agentType: 'codex' })).toHaveLength(4);
+  test('returns grouped runtime picker sections only for the matching agent command', () => {
     expect(
-      getRuntimePickerOptions({ command: 'effort', agentType: 'claude' }),
+      getRuntimePickerSections({ command: 'codex', agentType: 'codex' }).map(
+        (section) => section.command,
+      ),
+    ).toEqual(['model', 'effort', 'speed']);
+    expect(
+      getRuntimePickerSections({ command: 'claude', agentType: 'claude' }).map(
+        (section) => section.command,
+      ),
+    ).toEqual(['model']);
+    expect(
+      getRuntimePickerSections({ command: 'codex', agentType: 'claude' }),
     ).toEqual([]);
     expect(
-      getRuntimePickerOptions({ command: 'effort', agentType: 'codex' }).map(
-        (item) => item.value,
-      ),
+      getRuntimePickerSections({ command: 'codex', agentType: 'codex' })
+        .find((section) => section.command === 'effort')
+        ?.options.map((item) => item.value),
     ).toEqual(['low', 'medium', 'high', 'xhigh']);
     expect(getSpeedTierOptions()).toEqual([
       { value: 'standard', label: 'standard (1x)' },
       { value: 'fast', label: 'fast (2x)' },
     ]);
     expect(
-      getRuntimePickerOptions({ command: 'speed', agentType: 'codex' }).map(
-        (item) => item.value,
-      ),
+      getRuntimePickerSections({ command: 'codex', agentType: 'codex' })
+        .find((section) => section.command === 'speed')
+        ?.options.map((item) => item.value),
     ).toEqual(['standard', 'fast']);
   });
 
@@ -205,11 +239,11 @@ describe('runtime command registry', () => {
       args: [],
     });
     expect(
-      parseSlashCommandCandidate('model gpt-5.4', { allowBare: true }),
+      parseSlashCommandCandidate('codex', { allowBare: true }),
     ).toEqual({
-      rawName: 'model',
-      argsText: 'gpt-5.4',
-      args: ['gpt-5.4'],
+      rawName: 'codex',
+      argsText: '',
+      args: [],
     });
   });
 

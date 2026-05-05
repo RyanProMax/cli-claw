@@ -192,6 +192,43 @@ function buildHelpReply(
   });
 }
 
+function formatSpeedTierLabel(value: string | null | undefined): string {
+  return value === 'fast' ? 'fast (2x)' : 'standard (1x)';
+}
+
+function buildAgentConfigReply(
+  agentType: AgentType,
+  target: ResolvedRuntimeWorkspaceTarget,
+): string {
+  const modelCatalog = getAvailableRuntimeModelCatalog(agentType, {
+    currentModel: target.effectiveRuntimeIdentity.model,
+  });
+  const lines = [
+    `${agentType === 'codex' ? 'Codex' : 'Claude'} 配置：`,
+    `当前模型：${target.effectiveRuntimeIdentity.model}`,
+    `可用模型：${modelCatalog.options.map((option) => option.value).join(', ')}`,
+  ];
+
+  if (agentType === 'codex') {
+    const currentEffort =
+      target.effectiveRuntimeIdentity.reasoningEffort?.trim() || 'medium';
+    lines.push(`当前思考强度：${currentEffort}`);
+    lines.push(`可用思考强度：${getReasoningEffortPresets().join(', ')}`);
+    lines.push(
+      `当前速度：${formatSpeedTierLabel(
+        target.effectiveRuntimeIdentity.speedTier,
+      )}`,
+    );
+    lines.push(
+      `可用速度：${getSpeedTierOptions()
+        .map((option) => option.label)
+        .join(', ')}`,
+    );
+  }
+
+  return lines.join('\n');
+}
+
 export function buildRuntimeStatusReply(
   target: ResolvedRuntimeWorkspaceTarget,
 ): string {
@@ -306,7 +343,7 @@ async function handleEffortCommand(
 ): Promise<string> {
   const agentType = normalizeAgentType(target.effectiveGroup.agentType);
   if (!supportsReasoningEffort(agentType)) {
-    return `${agentType} 不支持 /effort，可继续使用 /model 切换模型`;
+    return `${agentType} 不支持该配置项，请使用 /${agentType} 查看可用配置`;
   }
 
   const preset = normalizeReasoningEffortPreset(rawPreset);
@@ -331,7 +368,7 @@ async function handleSpeedCommand(
 ): Promise<string> {
   const agentType = normalizeAgentType(target.effectiveGroup.agentType);
   if (!supportsSpeedTier(agentType)) {
-    return `${agentType} 不支持 /speed，可继续使用 /model 切换模型`;
+    return `${agentType} 不支持该配置项，请使用 /${agentType} 查看可用配置`;
   }
 
   const preset = normalizeSpeedTierPreset(rawPreset);
@@ -393,50 +430,24 @@ export async function executeRuntimeWorkspaceCommand(options: {
         handled: true,
         reply: buildHelpReply(options.entrypoint, target),
       };
-    case 'model':
+    case 'codex':
+    case 'claude':
       if (parsed.argsText) {
+        const label = parsed.name === 'codex' ? 'Codex' : 'Claude';
         return {
           handled: true,
-          reply: '请直接输入 /model 打开模型选择器',
+          reply: `请直接输入 /${parsed.name} 打开 ${label} 配置选择器`,
         };
       }
-      const modelCatalog = getAvailableRuntimeModelCatalog(agentType, {
-        currentModel: target.effectiveRuntimeIdentity.model,
-      });
-      return {
-        handled: true,
-        reply: [
-          `当前模型：${target.effectiveRuntimeIdentity.model}`,
-          `可用模型：${modelCatalog.options.map((option) => option.value).join(', ')}`,
-        ].join('\n'),
-      };
-    case 'effort':
-      if (!supportsReasoningEffort(agentType)) {
+      if (parsed.name !== agentType) {
         return {
           handled: true,
-          reply: `${agentType} 不支持 /effort，可继续使用 /model 切换模型`,
+          reply: `当前工作区是 ${agentType}，请使用 /${agentType} 配置该 Agent`,
         };
       }
       return {
         handled: true,
-        reply: parsed.argsText
-          ? '请直接输入 /effort 打开思考强度选择器'
-          : `可用思考强度：${getReasoningEffortPresets().join(', ')}`,
-      };
-    case 'speed':
-      if (!supportsSpeedTier(agentType)) {
-        return {
-          handled: true,
-          reply: `${agentType} 不支持 /speed，可继续使用 /model 切换模型`,
-        };
-      }
-      return {
-        handled: true,
-        reply: parsed.argsText
-          ? '请直接输入 /speed 打开速度选择器'
-          : `可用速度：${getSpeedTierOptions()
-              .map((option) => option.label)
-              .join(', ')}`,
+        reply: buildAgentConfigReply(agentType, target),
       };
     default:
       return { handled: false, reply: null };

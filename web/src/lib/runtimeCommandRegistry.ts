@@ -27,6 +27,7 @@ export type {
   RuntimeAgentType,
   RuntimeCommandDefinition,
   RuntimeCommandEntrypoint,
+  RuntimeCommandModule,
   RuntimePresetOption,
   SpeedTierPreset,
 } from '../../../shared/dist/runtime-command-registry.js';

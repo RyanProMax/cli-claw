@@ -425,57 +425,61 @@ function buildRuntimeSelectElement(options: {
   };
 }
 
-function buildRuntimeSelectionElement(options: {
-  selection: 'model' | 'effort' | 'speed';
+function buildRuntimeSelectionElements(options: {
+  agentType: 'claude' | 'codex';
   runtimeIdentity?: RuntimeIdentity | null;
   modelChoices?: RuntimePresetOption[];
-}): Record<string, unknown> | null {
+}): Record<string, unknown>[] {
   const runtimeIdentity = options.runtimeIdentity;
-  const agentType = runtimeIdentity?.agentType;
-  if (agentType !== 'claude' && agentType !== 'codex') return null;
+  const agentType = options.agentType;
+  if (runtimeIdentity?.agentType && runtimeIdentity.agentType !== agentType) {
+    return [];
+  }
 
-  if (options.selection === 'model') {
-    const currentModel =
-      runtimeIdentity?.model?.trim() || getDefaultModelPreset(agentType);
-    return buildRuntimeSelectElement({
+  const currentModel =
+    runtimeIdentity?.model?.trim() || getDefaultModelPreset(agentType);
+  const elements = [
+    buildRuntimeSelectElement({
       action: 'set_runtime_model',
       placeholder: `模型: ${currentModel}`,
       choices: options.modelChoices ?? getModelPresetOptions(agentType),
       initialOption: currentModel,
-    });
+    }),
+  ];
+
+  if (supportsReasoningEffort(agentType)) {
+    const currentEffort =
+      runtimeIdentity?.reasoningEffort?.trim() ||
+      getDefaultReasoningEffortPreset(agentType);
+    elements.push(
+      buildRuntimeSelectElement({
+        action: 'set_runtime_effort',
+        placeholder: currentEffort
+          ? `思考强度: ${currentEffort}`
+          : '选择思考强度',
+        choices: getReasoningEffortOptions(),
+        initialOption: currentEffort,
+      }),
+    );
   }
 
-  if (options.selection === 'speed') {
-    if (!supportsSpeedTier(agentType)) {
-      return null;
-    }
-
+  if (supportsSpeedTier(agentType)) {
     const currentSpeedTier =
       runtimeIdentity?.speedTier?.trim() ||
       getDefaultSpeedTierPreset(agentType);
-
-    return buildRuntimeSelectElement({
-      action: 'set_runtime_speed',
-      placeholder: currentSpeedTier ? `速度: ${currentSpeedTier}` : '选择速度',
-      choices: getSpeedTierOptions(),
-      initialOption: currentSpeedTier,
-    });
+    elements.push(
+      buildRuntimeSelectElement({
+        action: 'set_runtime_speed',
+        placeholder: currentSpeedTier
+          ? `速度: ${currentSpeedTier}`
+          : '选择速度',
+        choices: getSpeedTierOptions(),
+        initialOption: currentSpeedTier,
+      }),
+    );
   }
 
-  if (!supportsReasoningEffort(agentType)) {
-    return null;
-  }
-
-  const currentEffort =
-    runtimeIdentity?.reasoningEffort?.trim() ||
-    getDefaultReasoningEffortPreset(agentType);
-
-  return buildRuntimeSelectElement({
-    action: 'set_runtime_effort',
-    placeholder: currentEffort ? `思考强度: ${currentEffort}` : '选择思考强度',
-    choices: getReasoningEffortOptions(),
-    initialOption: currentEffort,
-  });
+  return elements;
 }
 
 function buildSchema2SelectionRow(
@@ -905,21 +909,16 @@ export function buildStaticReplyCard(
 }
 
 export function buildRuntimeSelectionCard(options: {
-  selection: 'model' | 'effort' | 'speed';
+  agentType: 'claude' | 'codex';
   runtimeIdentity?: RuntimeIdentity | null;
   modelChoices?: RuntimePresetOption[];
 }): object {
-  const label =
-    options.selection === 'model'
-      ? '模型'
-      : options.selection === 'effort'
-        ? '思考强度'
-        : '速度';
-  const selectElement = buildRuntimeSelectionElement(options);
+  const label = options.agentType === 'codex' ? 'Codex' : 'Claude';
+  const selectElements = buildRuntimeSelectionElements(options);
 
-  if (!selectElement) {
+  if (selectElements.length === 0) {
     return buildStaticReplyCard(
-      `# 运行时切换\n\n当前 runtime 不支持${label}切换。`,
+      `# 运行时切换\n\n当前工作区不支持 /${options.agentType} 配置。`,
       { runtimeIdentity: options.runtimeIdentity },
     );
   }
@@ -928,16 +927,18 @@ export function buildRuntimeSelectionCard(options: {
     schema: '2.0',
     config: {
       wide_screen_mode: true,
-      summary: { content: `选择${label}` },
+      summary: { content: `配置 ${label}` },
     },
     body: {
       elements: [
         {
           tag: 'markdown',
-          content: `请选择要切换到的${label}。`,
+          content: `请选择要调整的 ${label} 配置。`,
           text_size: 'normal_text',
         },
-        buildSchema2SelectionRow(selectElement),
+        ...selectElements.map((selectElement) =>
+          buildSchema2SelectionRow(selectElement),
+        ),
       ],
     },
   };

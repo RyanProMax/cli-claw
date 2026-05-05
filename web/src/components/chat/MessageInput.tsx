@@ -20,8 +20,8 @@ import { api } from '../../api/client';
 import { toast } from 'sonner';
 import {
   detectRuntimePickerCommand,
-  getRuntimePickerOptions,
-  type RuntimePickerCommand,
+  getRuntimePickerSections,
+  type RuntimePickerSelection,
 } from '../../lib/runtimeCommandPicker';
 import type { RuntimePresetOption } from '../../lib/runtimeCommandRegistry';
 
@@ -80,20 +80,20 @@ export function MessageInput({
   const pickerCommand = !disabled
     ? detectRuntimePickerCommand(content)
     : null;
-  const pickerOptions = pickerCommand
-    ? getRuntimePickerOptions({
+  const pickerSections = pickerCommand
+    ? getRuntimePickerSections({
         command: pickerCommand,
         agentType,
         modelOptions:
-          pickerCommand === 'model'
+          pickerCommand === agentType
             ? (runtimeModelOptions ?? undefined)
             : undefined,
       })
     : [];
-  const currentRuntimeValue =
-    pickerCommand === 'model'
+  const getCurrentRuntimeValue = (selection: RuntimePickerSelection) =>
+    selection === 'model'
       ? (runtimeModelCurrent ?? group?.model ?? null)
-      : pickerCommand === 'effort'
+      : selection === 'effort'
         ? (group?.reasoning_effort ?? null)
         : (group?.speed_tier ?? 'standard');
 
@@ -101,7 +101,7 @@ export function MessageInput({
   useKeyboardHeight();
 
   useEffect(() => {
-    if (pickerCommand !== 'model' || !groupJid) {
+    if (!pickerCommand || pickerCommand !== agentType || !groupJid) {
       setRuntimeModelOptions(null);
       setRuntimeModelCurrent(null);
       return;
@@ -130,7 +130,7 @@ export function MessageInput({
     return () => {
       cancelled = true;
     };
-  }, [pickerCommand, groupJid]);
+  }, [agentType, pickerCommand, groupJid]);
 
   // Restore draft when groupJid changes (including initial mount)
   useEffect(() => {
@@ -444,12 +444,12 @@ export function MessageInput({
       : 0;
 
   const handleRuntimeCommandSelect = async (
-    command: RuntimePickerCommand,
+    command: RuntimePickerSelection,
     value: string,
   ) => {
     if (disabled || sending || !groupJid || !group) return;
 
-    if (currentRuntimeValue === value) {
+    if (getCurrentRuntimeValue(command) === value) {
       setSendError(null);
       successTap();
       setContent('');
@@ -490,7 +490,9 @@ export function MessageInput({
             : '速度已更新',
         {
           description:
-            pickerOptions.find((option) => option.value === value)?.label ?? value,
+            pickerSections
+              .flatMap((section) => section.options)
+              .find((option) => option.value === value)?.label ?? value,
         },
       );
       setContent('');
@@ -669,36 +671,42 @@ export function MessageInput({
             <div className="px-3 pb-2">
               <div className="rounded-xl border border-brand-200/60 bg-brand-50/30 p-2.5">
                 <div className="mb-2 text-[11px] font-medium text-muted-foreground">
-                  {pickerCommand === 'model'
-                    ? '选择模型'
-                    : pickerCommand === 'effort'
-                      ? '选择思考强度'
-                      : '选择速度'}
+                  {pickerCommand === 'codex' ? '配置 Codex' : '配置 Claude'}
                 </div>
-                {pickerOptions.length > 0 ? (
-                  <div className="space-y-1">
-                    {pickerOptions.map((option) => {
-                      const selected = currentRuntimeValue === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => handleRuntimeCommandSelect(pickerCommand, option.value)}
-                          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer ${
-                            selected
-                              ? 'bg-brand-100 text-primary'
-                              : 'hover:bg-brand-100/70 text-foreground/80'
-                          }`}
-                        >
-                          <span className="flex-1 min-w-0 truncate">{option.label}</span>
-                          {selected && <Check className="w-4 h-4 flex-shrink-0" />}
-                        </button>
-                      );
-                    })}
+                {pickerSections.length > 0 ? (
+                  <div className="space-y-3">
+                    {pickerSections.map((section) => (
+                      <div key={section.command} className="space-y-1">
+                        <div className="px-1 text-[11px] font-medium text-muted-foreground">
+                          {section.label}
+                        </div>
+                        {section.options.map((option) => {
+                          const selected =
+                            getCurrentRuntimeValue(section.command) === option.value;
+                          return (
+                            <button
+                              key={`${section.command}:${option.value}`}
+                              type="button"
+                              onClick={() =>
+                                handleRuntimeCommandSelect(section.command, option.value)
+                              }
+                              className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer ${
+                                selected
+                                  ? 'bg-brand-100 text-primary'
+                                  : 'hover:bg-brand-100/70 text-foreground/80'
+                              }`}
+                            >
+                              <span className="flex-1 min-w-0 truncate">{option.label}</span>
+                              {selected && <Check className="w-4 h-4 flex-shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-                    当前 runtime 不支持思考强度切换
+                    当前工作区是 {agentType === 'codex' ? 'Codex' : 'Claude'}，请使用 /{agentType} 配置该 Agent
                   </div>
                 )}
               </div>

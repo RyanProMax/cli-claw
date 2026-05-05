@@ -7,6 +7,8 @@ export interface RuntimePresetOption {
   label: string;
 }
 
+export type RuntimeCommandModule = 'agent' | 'workspace' | 'service';
+
 const CLAUDE_MODEL_PRESETS = [
   'opus[1m]',
   'opus',
@@ -36,6 +38,7 @@ export interface RuntimeCommandDefinition {
   aliases?: string[];
   usage: string;
   description: string;
+  module: RuntimeCommandModule;
   availableEntrypoints: RuntimeCommandEntrypoint[];
   availabilityByRuntime?: RuntimeAgentType[] | 'all';
 }
@@ -57,7 +60,8 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
   {
     name: 'help',
     usage: '/help',
-    description: '查看当前入口可用命令',
+    description: '查看当前入口按模块分组的命令',
+    module: 'agent',
     availableEntrypoints: ['im', 'web'],
     availabilityByRuntime: 'all',
   },
@@ -65,6 +69,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'clear',
     usage: '/clear',
     description: '清除当前工作区或会话上下文',
+    module: 'agent',
     availableEntrypoints: ['im', 'web'],
     availabilityByRuntime: 'all',
   },
@@ -73,6 +78,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     aliases: ['ls'],
     usage: '/list',
     description: '查看当前用户可访问的工作区与对话',
+    module: 'workspace',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -80,6 +86,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'status',
     usage: '/status',
     description: '查看当前工作区和运行状态摘要',
+    module: 'workspace',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -87,6 +94,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'self-status',
     usage: '/self-status',
     description: '查看 cli-claw 服务版本、自检与重启需求',
+    module: 'service',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -94,6 +102,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'self-check',
     usage: '/self-check',
     description: '隔离启动候选服务做冷启动健康检查，不重启当前服务',
+    module: 'service',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -101,6 +110,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'self-restart',
     usage: '/self-restart',
     description: '创建自重启 intent 并交给独立 watchdog 执行',
+    module: 'service',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -108,6 +118,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'where',
     usage: '/where',
     description: '查看当前聊天绑定位置',
+    module: 'workspace',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -115,6 +126,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'bind',
     usage: '/bind <workspace>',
     description: '绑定到指定工作区或会话',
+    module: 'workspace',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -122,6 +134,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'unbind',
     usage: '/unbind',
     description: '解除当前绑定',
+    module: 'workspace',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -129,6 +142,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'new',
     usage: '/new <名称>',
     description: '创建新工作区并绑定过去',
+    module: 'workspace',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -136,6 +150,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     name: 'require_mention',
     usage: '/require_mention true|false',
     description: '控制群聊中是否必须 @机器人',
+    module: 'workspace',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',
   },
@@ -144,27 +159,23 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     aliases: ['spawn'],
     usage: '/sw <任务描述>',
     description: '创建并行任务',
+    module: 'agent',
     availableEntrypoints: ['im', 'web'],
     availabilityByRuntime: 'all',
   },
   {
-    name: 'model',
-    usage: '/model',
-    description: '切换当前工作区模型预设',
+    name: 'claude',
+    usage: '/claude',
+    description: '配置当前工作区 Claude 模型',
+    module: 'agent',
     availableEntrypoints: ['im', 'web'],
-    availabilityByRuntime: 'all',
+    availabilityByRuntime: ['claude'],
   },
   {
-    name: 'effort',
-    usage: '/effort',
-    description: '切换当前工作区思考强度',
-    availableEntrypoints: ['im', 'web'],
-    availabilityByRuntime: ['codex'],
-  },
-  {
-    name: 'speed',
-    usage: '/speed',
-    description: '切换当前工作区 Codex 响应速度',
+    name: 'codex',
+    usage: '/codex',
+    description: '配置当前工作区 Codex 模型、思考强度和速度',
+    module: 'agent',
     availableEntrypoints: ['im', 'web'],
     availabilityByRuntime: ['codex'],
   },
@@ -379,11 +390,28 @@ export function formatCommandHelp(options: {
   agentType: RuntimeAgentType;
 }): string {
   const commands = getAvailableCommands(options);
-  const lines = ['可用命令：'];
-  for (const command of commands) {
-    lines.push(`- ${command.usage}：${command.description}`);
+  const moduleLabels: Array<[RuntimeCommandModule, string]> = [
+    ['agent', 'Agent 命令'],
+    ['workspace', '工作区命令'],
+    ['service', '服务命令'],
+  ];
+  const sections: string[] = [];
+
+  for (const [module, label] of moduleLabels) {
+    const moduleCommands = commands.filter(
+      (command) => command.module === module,
+    );
+    if (moduleCommands.length === 0) continue;
+    sections.push(
+      [
+        `${label}：`,
+        ...moduleCommands.map(
+          (command) => `- ${command.usage}：${command.description}`,
+        ),
+      ].join('\n'),
+    );
   }
-  return lines.join('\n');
+  return sections.join('\n\n');
 }
 
 export function formatUnknownRuntimeCommandReply(rawName: string): string {

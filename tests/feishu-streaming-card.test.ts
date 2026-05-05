@@ -13,6 +13,17 @@ import {
 import { resolveVisibleReplyParts } from '../src/reply-visibility.ts';
 import { formatToolStepLine } from '../src/tool-step-display.ts';
 
+function collectSelectStaticElements(value: unknown): any[] {
+  if (!value || typeof value !== 'object') return [];
+  if ((value as any).tag === 'select_static') return [value];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectSelectStaticElements(item));
+  }
+  return Object.values(value).flatMap((item) =>
+    collectSelectStaticElements(item),
+  );
+}
+
 function createStreamingModeClient() {
   const createdCards: Array<Record<string, any>> = [];
   const updatedCards: Array<Record<string, any>> = [];
@@ -840,26 +851,28 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('builds a runtime selection card with the expanded Codex model list', () => {
+  test('builds one Codex runtime configuration card with model, effort, and speed selectors', () => {
     const card = buildRuntimeSelectionCard({
-      selection: 'model',
+      agentType: 'codex',
       runtimeIdentity: {
         agentType: 'codex',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
+        speedTier: 'fast',
         supportsReasoningEffort: true,
       },
     }) as any;
 
-    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
-    expect(card.config.summary.content).toBe('选择模型');
-    expect(select).toMatchObject({
+    const selects = collectSelectStaticElements(card);
+    expect(card.config.summary.content).toBe('配置 Codex');
+    expect(selects).toHaveLength(3);
+    expect(selects[0]).toMatchObject({
       tag: 'select_static',
       value: { action: 'set_runtime_model' },
       placeholder: { content: '模型: gpt-5.4' },
       initial_option: 'gpt-5.4',
     });
-    expect(select.options).toEqual([
+    expect(selects[0].options).toEqual([
       {
         text: { tag: 'plain_text', content: 'GPT-5.4' },
         value: 'gpt-5.4',
@@ -877,11 +890,23 @@ describe('StreamingCardController footer caching', () => {
         value: 'gpt-5.2',
       },
     ]);
+    expect(selects[1]).toMatchObject({
+      tag: 'select_static',
+      value: { action: 'set_runtime_effort' },
+      placeholder: { content: '思考强度: high' },
+      initial_option: 'high',
+    });
+    expect(selects[2]).toMatchObject({
+      tag: 'select_static',
+      value: { action: 'set_runtime_speed' },
+      placeholder: { content: '速度: fast' },
+      initial_option: 'fast',
+    });
   });
 
-  test('prefers injected runtime model choices when building a model selection card', () => {
+  test('prefers injected runtime model choices when building an agent configuration card', () => {
     const card = buildRuntimeSelectionCard({
-      selection: 'model',
+      agentType: 'codex',
       runtimeIdentity: {
         agentType: 'codex',
         model: 'gpt-5.5',
@@ -895,7 +920,7 @@ describe('StreamingCardController footer caching', () => {
       ],
     }) as any;
 
-    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    const select = collectSelectStaticElements(card)[0];
     expect(select).toMatchObject({
       tag: 'select_static',
       placeholder: { content: '模型: gpt-5.5' },
@@ -918,9 +943,9 @@ describe('StreamingCardController footer caching', () => {
     ]);
   });
 
-  test('falls back to the current Codex defaults when selection card inputs are unset', () => {
+  test('falls back to the current Codex defaults when configuration card inputs are unset', () => {
     const card = buildRuntimeSelectionCard({
-      selection: 'effort',
+      agentType: 'codex',
       runtimeIdentity: {
         agentType: 'codex',
         model: null,
@@ -929,36 +954,26 @@ describe('StreamingCardController footer caching', () => {
       },
     }) as any;
 
-    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
-    expect(select).toMatchObject({
+    const selects = collectSelectStaticElements(card);
+    expect(selects[0]).toMatchObject({
+      tag: 'select_static',
+      placeholder: { content: '模型: gpt-5.4' },
+      initial_option: 'gpt-5.4',
+      value: { action: 'set_runtime_model' },
+    });
+    expect(selects[1]).toMatchObject({
       tag: 'select_static',
       placeholder: { content: '思考强度: medium' },
       initial_option: 'medium',
       value: { action: 'set_runtime_effort' },
     });
-  });
-
-  test('builds a runtime speed selection card for Codex', () => {
-    const card = buildRuntimeSelectionCard({
-      selection: 'speed',
-      runtimeIdentity: {
-        agentType: 'codex',
-        model: 'gpt-5.4',
-        reasoningEffort: 'high',
-        speedTier: 'fast',
-        supportsReasoningEffort: true,
-      },
-    }) as any;
-
-    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
-    expect(card.config.summary.content).toBe('选择速度');
-    expect(select).toMatchObject({
+    expect(selects[2]).toMatchObject({
       tag: 'select_static',
-      placeholder: { content: '速度: fast' },
-      initial_option: 'fast',
+      placeholder: { content: '速度: standard' },
+      initial_option: 'standard',
       value: { action: 'set_runtime_speed' },
     });
-    expect(select.options).toEqual([
+    expect(selects[2].options).toEqual([
       {
         text: { tag: 'plain_text', content: 'standard (1x)' },
         value: 'standard',
@@ -970,9 +985,31 @@ describe('StreamingCardController footer caching', () => {
     ]);
   });
 
+  test('builds one Claude runtime configuration card with only the model selector', () => {
+    const card = buildRuntimeSelectionCard({
+      agentType: 'claude',
+      runtimeIdentity: {
+        agentType: 'claude',
+        model: 'sonnet',
+        reasoningEffort: null,
+        supportsReasoningEffort: false,
+      },
+    }) as any;
+
+    const selects = collectSelectStaticElements(card);
+    expect(card.config.summary.content).toBe('配置 Claude');
+    expect(selects).toHaveLength(1);
+    expect(selects[0]).toMatchObject({
+      tag: 'select_static',
+      placeholder: { content: '模型: sonnet' },
+      initial_option: 'sonnet',
+      value: { action: 'set_runtime_model' },
+    });
+  });
+
   test('omits initial_option when the current value is no longer in the preset list', () => {
     const card = buildRuntimeSelectionCard({
-      selection: 'model',
+      agentType: 'codex',
       runtimeIdentity: {
         agentType: 'codex',
         model: 'legacy-model',
@@ -981,7 +1018,7 @@ describe('StreamingCardController footer caching', () => {
       },
     }) as any;
 
-    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    const select = collectSelectStaticElements(card)[0];
     expect(select.placeholder).toMatchObject({ content: '模型: legacy-model' });
     expect(select.initial_option).toBeUndefined();
   });

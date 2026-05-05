@@ -32,7 +32,7 @@ Cli Claw 的“命令”分成两层：
 - `cli-claw restart` 不会在当前 shell 里直接 kill/拉起服务，也不会用调用方当前目录或 argv 推导新启动命令。它只读取当前 backend 持久化到 `~/.cli-claw/ops/current-backend.json` 的 authoritative restart state，写入 restart intent，再交给 watchdog 执行。若当前服务由 `launchd` 托管，watchdog 会改为 `launchctl kickstart -k ...` 保持 supervision。
 - `cli-claw restart` 只表示“安全重启请求已被受理”。最终是否完成，以 `~/.cli-claw/ops/restarts/*.json`、`/self-status` 或 IM 成功回执为准；若找不到 current backend state、保存的 PID 已不存在、launch spec 不安全、或 watchdog 缺失，launcher 会以非零状态失败，而不是尝试猜测启动方式。
 - 从 IM 让 agent 自己操作服务时，优先使用显式应用内命令 `/self-restart` 或受管重启短语。普通 IM-origin agent 工具调用即使命中了 `cli-claw restart` 这类 safe launcher 字面命令，也会被 restart guard 拦截；Web operator 环境和外部 shell 才适合直接调用 `cli-claw restart`。
-- 这些命令与下文的 `/help`、`/model`、`/clear` 等应用内命令不是同一层协议。
+- 这些命令与下文的 `/help`、`/codex`、`/claude`、`/clear` 等应用内命令不是同一层协议。
 
 ## 应用内命令概览
 
@@ -50,7 +50,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 - 当前入口：`im` / `web`
 - 当前工作区 runtime：`claude` / `codex`
 
-因此 `/help` 不是静态文档回显，而是按“当前入口 + 当前工作区 runtime”动态输出真正可执行的命令列表。
+因此 `/help` 不是静态文档回显，而是按“当前入口 + 当前工作区 runtime”动态输出真正可执行的命令列表，并按模块分组展示。
 
 任何以 `/` 开头、并被入口识别为 slash command 候选的输入，都会先经过本地命令分发层：
 
@@ -66,30 +66,28 @@ skill command 的执行结果有两类：
 
 因此，并不是所有 slash command 都会在本地层终止；skill command 可以选择把命令解析结果继续交给 Agent。
 
-## 全局可用命令
+## Agent 命令
 
-以下命令在 IM 与 Web 都可直接识别：
+以下命令在 IM 与 Web 都可直接识别；runtime 配置命令会按当前工作区 agent 只展示一个：
 
 | 命令             | 别名                | 作用                                          |
 | ---------------- | ------------------- | --------------------------------------------- |
-| `/help`          | -                   | 查看当前入口、当前 runtime 下真正可用的命令   |
+| `/help`          | -                   | 按模块查看当前入口、当前 runtime 下真正可用的命令 |
 | `/clear`         | -                   | 清除当前工作区或当前绑定 Agent 的会话上下文   |
 | `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务                      |
-| `/model`         | -                   | 打开当前工作区模型选择器                      |
-| `/effort`        | -                   | 打开当前工作区思考强度选择器；仅 `codex` 支持 |
-| `/speed`         | -                   | 打开当前工作区 Codex 速度选择器；仅 `codex` 支持 |
+| `/claude`        | -                   | 配置 Claude 工作区模型；仅当前 runtime 为 `claude` 时可用 |
+| `/codex`         | -                   | 配置 Codex 工作区模型、思考强度和速度；仅当前 runtime 为 `codex` 时可用 |
 
 说明：
 
-- `/model`、`/effort` 与 `/speed` 都是“当前工作区级”设置，会持久化到工作区 runtime 配置。
-- 当工作区未显式设置 `codex` 的模型、思考强度或速度时，`/status`、选择卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 Codex CLI fallback（环境变量与 `~/.codex/config.toml`），避免不同入口看到不同值。
-- `codex` 的 `/model` 选项在 IM / Feishu / Web 入口会优先执行宿主机 `codex debug models` 获取当前 CLI catalog；命令不可用、超时或返回异常时，才依次回退到 `~/.codex/models_cache.json` 与内置 preset。若当前 effective model 不在 catalog 中，选择器仍会把它作为当前值展示，避免 `/status` 与 `/model` 不一致。
+- `/claude` 与 `/codex` 都是“当前工作区级”配置入口，会持久化到工作区 runtime 配置。
+- 当工作区未显式设置 `codex` 的模型、思考强度或速度时，`/status`、`/codex` 配置卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 Codex CLI fallback（环境变量与 `~/.codex/config.toml`），避免不同入口看到不同值。
+- `codex` 的模型选项在 IM / Feishu / Web 入口会优先执行宿主机 `codex debug models` 获取当前 CLI catalog；命令不可用、超时或返回异常时，才依次回退到 `~/.codex/models_cache.json` 与内置 preset。若当前 effective model 不在 catalog 中，配置卡仍会把它作为当前值展示，避免 `/status` 与 `/codex` 不一致。
 - 普通回复 footer 会始终保留基础 runtime 信息（时长 / Agent 类型 / 模型 / 推理强度 / Codex 速度）；Codex 速度展示为 `standard (1x)` 或 `fast (2x)`。当当前 runtime usage 可用时，会追加 `72% (5h) | 96% (7d)` 这类 5h / 7d token usage 百分比；旧消息若只有 remaining 元数据，仍仅在低余额阈值下显示兼容提示。
 - 普通回复不会读取 `PLANS/ACTIVE.md`、roadmap、历史摘要或旧 partial body 来补正文；任务进度只留在本地计划文件与显式命令输出中。
-- `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
-- Web 输入框只在输入 bare `/model`、`/effort` 或 `/speed` 时展示选择 UI；飞书会返回对应的选择卡；不再默认在普通回复卡片 footer 常驻下拉。
-- `claude` 不支持 `reasoning_effort`；在该 runtime 下执行 `/effort` 会返回明确提示。
-- 历史的 `/model <preset>` / `/effort <preset>` / `/speed <preset>` 参数式交互不再作为用户命令保留。
+- `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要，并分成 `Agent 命令`、`工作区命令`、`服务命令`、`技能命令` 等模块；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
+- Web 输入框只在输入 bare `/codex` 或 `/claude` 时展示配置 UI；飞书会返回同一张配置卡，用多个下拉分别设置模型、思考强度和速度（Claude 只显示模型）。
+- 历史的 `/model` / `/effort` / `/speed` 独立命令，以及它们的参数式交互，都不再作为用户命令保留。
 
 ## Skill Command
 
@@ -159,49 +157,42 @@ IM 入口本身不是长期对话身份；它会路由到某个 workspace 的主
 
 ## Web 入口说明
 
-Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 可用命令：
+Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命令：
 
 - `/help`
 - `/clear`
 - `/sw`
 - `/spawn`
-- `/model`
-- `/effort`
+- `/claude`（Claude 工作区）
+- `/codex`（Codex 工作区）
 
 如果在 Web 输入框输入了已知但当前入口不可用的命令（例如 `/bind`），系统会直接返回明确提示，而不会把它当普通消息交给 Agent。
-当输入 `/model` 或 `/effort` 时，输入框上方会展示对应选项；点击后由前端发送实际切换命令。
+当输入 `/claude` 或 `/codex` 时，输入框上方会展示该 Agent 的配置选项；点击后由前端发送实际切换请求。`/codex` 同时展示模型、思考强度和速度，`/claude` 只展示模型。
 
 如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容，并以隔离 runtime session 执行。该 session 不会写回 workspace 主会话；下一条普通消息继续使用原主会话，若历史版本已把上一轮 skill final 的 session 误写成主 session，则会先忽略它并建立新的普通主会话。
 
-## 运行时相关命令
+## 运行时配置命令
 
-### `/model`
+### `/claude`
 
-- `claude` 预设：
+- 仅当前工作区 runtime 为 `claude` 时展示。
+- 可配置模型预设：
   - `opus[1m]`
   - `opus`
   - `sonnet[1m]`
   - `sonnet`
   - `haiku`
-- `codex` 选项：
-  - 优先来自当前宿主机 `codex debug models` 的实时 catalog。
-  - CLI catalog 不可用时回退到 `~/.codex/models_cache.json`。
-  - cache 也不可用时才使用内置 preset。
-  - `/model` 文本回复会同时返回当前模型与可用模型。
 
-### `/effort`
+### `/codex`
 
-- 仅 `codex` 支持。
-- 当前工作区 runtime 不支持时，命令会返回明确提示，不会静默忽略。
-
-### `/speed`
-
-- 仅 `codex` 支持。
-- 可用值为 `standard` 与 `fast`；`fast` 会向 Codex CLI 下发 `service_tier="fast"`，`standard` 表示不下发 service-tier 覆盖。
-- 当前工作区 runtime 不支持时，命令会返回明确提示，不会静默忽略。
+- 仅当前工作区 runtime 为 `codex` 时展示。
+- 模型选项优先来自当前宿主机 `codex debug models` 的实时 catalog；CLI catalog 不可用时回退到 `~/.codex/models_cache.json`，cache 也不可用时才使用内置 preset。
+- 思考强度可用值为 `low`、`medium`、`high`、`xhigh`。
+- 速度可用值为 `standard` 与 `fast`；`fast` 会向 Codex CLI 下发 `service_tier="fast"`，`standard` 表示不下发 service-tier 覆盖。
+- 文本 fallback 会同时返回当前配置与可用值；飞书和 Web 使用同一组配置选项渲染下拉。
 
 ## 备注
 
 - `/sw` 与 `/spawn` 是同义命令。
 - `/bind` 目标里的 `agent短ID` 指 conversation agent 的短标识，不是工作区 folder。
-- `claude` 的 `/model` 可用值以运行时命令注册表为准；`codex` 的 `/model` 在 backend 入口优先使用本机 Codex CLI 实时 catalog，本文档不枚举动态列表。
+- `claude` 的模型可用值以运行时命令注册表为准；`codex` 的模型在 backend 入口优先使用本机 Codex CLI 实时 catalog，本文档不枚举动态列表。

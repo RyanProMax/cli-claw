@@ -8,7 +8,14 @@ import {
   type RuntimePresetOption,
 } from './runtimeCommandRegistry';
 
-export type RuntimePickerCommand = 'model' | 'effort' | 'speed';
+export type RuntimePickerCommand = 'codex' | 'claude';
+export type RuntimePickerSelection = 'model' | 'effort' | 'speed';
+
+export interface RuntimePickerSection {
+  command: RuntimePickerSelection;
+  label: string;
+  options: RuntimePresetOption[];
+}
 
 function normalizeCommandText(value: string): string {
   return value.trim().toLowerCase();
@@ -18,28 +25,43 @@ export function detectRuntimePickerCommand(
   value: string,
 ): RuntimePickerCommand | null {
   const normalized = normalizeCommandText(value);
-  if (normalized === '/model') return 'model';
-  if (normalized === '/effort') return 'effort';
-  if (normalized === '/speed') return 'speed';
+  if (normalized === '/codex') return 'codex';
+  if (normalized === '/claude') return 'claude';
   return null;
 }
 
-export function getRuntimePickerOptions(options: {
+export function getRuntimePickerSections(options: {
   command: RuntimePickerCommand;
   agentType: RuntimeAgentType;
   modelOptions?: RuntimePresetOption[];
-}): RuntimePresetOption[] {
-  if (options.command === 'model') {
-    return options.modelOptions ?? getModelPresetOptions(options.agentType);
-  }
-  if (!supportsReasoningEffort(options.agentType)) {
+}): RuntimePickerSection[] {
+  if (options.command !== options.agentType) {
     return [];
   }
-  if (options.command === 'effort') {
-    return getReasoningEffortOptions();
+
+  const sections: RuntimePickerSection[] = [
+    {
+      command: 'model',
+      label: '模型',
+      options: options.modelOptions ?? getModelPresetOptions(options.agentType),
+    },
+  ];
+
+  if (supportsReasoningEffort(options.agentType)) {
+    sections.push({
+      command: 'effort',
+      label: '思考强度',
+      options: getReasoningEffortOptions(),
+    });
   }
-  if (!supportsSpeedTier(options.agentType)) {
-    return [];
+
+  if (supportsSpeedTier(options.agentType)) {
+    sections.push({
+      command: 'speed',
+      label: '速度',
+      options: getSpeedTierOptions(),
+    });
   }
-  return getSpeedTierOptions();
+
+  return sections;
 }

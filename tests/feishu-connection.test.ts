@@ -163,7 +163,7 @@ const PREBUILT_CARD_WRAPPER = JSON.stringify({
     schema: '2.0',
     config: {
       wide_screen_mode: true,
-      summary: { content: '选择模型' },
+      summary: { content: '配置 Codex' },
     },
     body: {
       elements: [],
@@ -395,7 +395,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         message_id: 'msg-command',
         create_time: Date.now().toString(),
         message_type: 'text',
-        content: JSON.stringify({ text: '/model' }),
+        content: JSON.stringify({ text: '/codex' }),
         chat_type: 'p2p',
       },
       sender: {
@@ -591,7 +591,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         message_id: 'msg-command',
         create_time: Date.now().toString(),
         message_type: 'text',
-        content: JSON.stringify({ text: '/effort' }),
+        content: JSON.stringify({ text: '/codex' }),
         chat_type: 'p2p',
       },
       sender: {

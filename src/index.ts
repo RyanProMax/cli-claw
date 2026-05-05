@@ -1979,14 +1979,9 @@ async function handleCommand(
     'IM command invoked',
   );
 
-  if (
-    cmd === 'help' ||
-    cmd === 'model' ||
-    cmd === 'effort' ||
-    cmd === 'speed'
-  ) {
+  if (cmd === 'help' || cmd === 'codex' || cmd === 'claude') {
     if (
-      (cmd === 'model' || cmd === 'effort' || cmd === 'speed') &&
+      (cmd === 'codex' || cmd === 'claude') &&
       !rawArgs &&
       chatJid.startsWith('feishu:')
     ) {
@@ -1998,18 +1993,18 @@ async function handleCommand(
       if (!target) {
         return '未找到当前工作区';
       }
+      if (cmd !== target.effectiveRuntimeIdentity.agentType) {
+        return `当前工作区是 ${target.effectiveRuntimeIdentity.agentType}，请使用 /${target.effectiveRuntimeIdentity.agentType} 配置该 Agent`;
+      }
       return JSON.stringify({
         type: 'interactive',
         card: buildRuntimeSelectionCard({
-          selection: cmd,
+          agentType: cmd,
           runtimeIdentity: target.effectiveRuntimeIdentity,
-          modelChoices:
-            cmd === 'model'
-              ? getAvailableRuntimeModelOptions(
-                  target.effectiveRuntimeIdentity.agentType,
-                  { currentModel: target.effectiveRuntimeIdentity.model },
-                )
-              : undefined,
+          modelChoices: getAvailableRuntimeModelOptions(
+            target.effectiveRuntimeIdentity.agentType,
+            { currentModel: target.effectiveRuntimeIdentity.model },
+          ),
         }),
       });
     }

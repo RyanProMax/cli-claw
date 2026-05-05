@@ -281,7 +281,7 @@ describe('runtime command handler', () => {
     expect(stopGroup).toHaveBeenCalledWith('web:proj-home', { force: true });
   });
 
-  test('returns picker-oriented help for bare /model without exposing the old usage form', async () => {
+  test('returns combined Codex configuration help for bare /codex', async () => {
     const { deps } = createDeps({
       'web:proj-home': {
         name: 'Project Home',
@@ -297,18 +297,23 @@ describe('runtime command handler', () => {
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'web',
       chatJid: 'web:proj-home',
-      commandText: '/model',
+      commandText: '/codex',
       deps,
     });
 
-    expect(result).toEqual({
-      handled: true,
-      reply:
-        '当前模型：gpt-5.4-mini\n可用模型：gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2',
-    });
+    expect(result.handled).toBe(true);
+    expect(result.reply).toContain('Codex 配置：');
+    expect(result.reply).toContain('当前模型：gpt-5.4-mini');
+    expect(result.reply).toContain(
+      '可用模型：gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2',
+    );
+    expect(result.reply).toContain('当前思考强度：medium');
+    expect(result.reply).toContain('可用思考强度：low, medium, high, xhigh');
+    expect(result.reply).toContain('当前速度：standard (1x)');
+    expect(result.reply).toContain('可用速度：standard (1x), fast (2x)');
   });
 
-  test('surfaces dynamically discovered codex models in bare /model replies', async () => {
+  test('surfaces dynamically discovered codex models in bare /codex replies', async () => {
     getAvailableRuntimeModelPresetsMock.mockImplementation(
       (
         agentType: 'claude' | 'codex',
@@ -343,15 +348,14 @@ describe('runtime command handler', () => {
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'web',
       chatJid: 'web:proj-home',
-      commandText: '/model',
+      commandText: '/codex',
       deps,
     });
 
-    expect(result).toEqual({
-      handled: true,
-      reply:
-        '当前模型：gpt-5.4-mini\n可用模型：gpt-5.4-mini, gpt-5.4, gpt-5.5, gpt-5.3-codex-spark',
-    });
+    expect(result.handled).toBe(true);
+    expect(result.reply).toContain(
+      '可用模型：gpt-5.4-mini, gpt-5.4, gpt-5.5, gpt-5.3-codex-spark',
+    );
   });
 
   test('returns command-only help without embedding runtime status lines', async () => {
@@ -374,12 +378,13 @@ describe('runtime command handler', () => {
     });
 
     expect(result.handled).toBe(true);
-    expect(result.reply).toContain('可用命令：');
+    expect(result.reply).not.toContain('可用命令：');
+    expect(result.reply).toContain('Agent 命令：');
     expect(result.reply).not.toContain('当前模型:');
     expect(result.reply).not.toContain('当前 runtime:');
   });
 
-  test('rejects the legacy parameterized /model form and points users to the picker', async () => {
+  test('does not handle removed standalone runtime setting commands', async () => {
     const { deps, setGroup } = createDeps({
       'web:proj-home': {
         name: 'Project Home',
@@ -392,17 +397,16 @@ describe('runtime command handler', () => {
       },
     });
 
-    const result = await executeRuntimeWorkspaceCommand({
-      entrypoint: 'web',
-      chatJid: 'web:proj-home',
-      commandText: '/model gpt-5.4',
-      deps,
-    });
+    for (const commandText of ['/model', '/effort', '/speed']) {
+      const result = await executeRuntimeWorkspaceCommand({
+        entrypoint: 'web',
+        chatJid: 'web:proj-home',
+        commandText,
+        deps,
+      });
 
-    expect(result).toEqual({
-      handled: true,
-      reply: '请直接输入 /model 打开模型选择器',
-    });
+      expect(result).toEqual({ handled: false, reply: null });
+    }
     expect(setGroup).not.toHaveBeenCalled();
   });
 
@@ -453,7 +457,7 @@ describe('runtime command handler', () => {
     expect(groups['web:proj-home']?.model).toBe('gpt-5.3-codex-spark');
   });
 
-  test('returns a clear unsupported message for bare /effort on claude workspaces', async () => {
+  test('returns combined Claude configuration help for bare /claude', async () => {
     const { deps, setGroup } = createDeps({
       'web:proj-home': {
         name: 'Project Home',
@@ -469,18 +473,22 @@ describe('runtime command handler', () => {
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'web',
       chatJid: 'web:proj-home',
-      commandText: '/effort',
+      commandText: '/claude',
       deps,
     });
 
-    expect(result).toEqual({
-      handled: true,
-      reply: 'claude 不支持 /effort，可继续使用 /model 切换模型',
-    });
+    expect(result.handled).toBe(true);
+    expect(result.reply).toContain('Claude 配置：');
+    expect(result.reply).toContain('当前模型：sonnet');
+    expect(result.reply).toContain(
+      '可用模型：opus[1m], opus, sonnet[1m], sonnet, haiku',
+    );
+    expect(result.reply).not.toContain('思考强度');
+    expect(result.reply).not.toContain('速度');
     expect(setGroup).not.toHaveBeenCalled();
   });
 
-  test('rejects the legacy parameterized /effort form and points users to the picker', async () => {
+  test('rejects the parameterized /codex form and points users to the picker', async () => {
     const { deps, setGroup } = createDeps({
       'web:proj-home': {
         name: 'Project Home',
@@ -497,18 +505,18 @@ describe('runtime command handler', () => {
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'web',
       chatJid: 'web:proj-home',
-      commandText: '/effort xhigh',
+      commandText: '/codex gpt-5.4',
       deps,
     });
 
     expect(result).toEqual({
       handled: true,
-      reply: '请直接输入 /effort 打开思考强度选择器',
+      reply: '请直接输入 /codex 打开 Codex 配置选择器',
     });
     expect(setGroup).not.toHaveBeenCalled();
   });
 
-  test('returns picker-oriented help for bare /effort on codex workspaces', async () => {
+  test('returns a clear unsupported message for the other agent config command', async () => {
     const { deps } = createDeps({
       'web:proj-home': {
         name: 'Project Home',
@@ -525,13 +533,13 @@ describe('runtime command handler', () => {
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'web',
       chatJid: 'web:proj-home',
-      commandText: '/effort',
+      commandText: '/claude',
       deps,
     });
 
     expect(result).toEqual({
       handled: true,
-      reply: '可用思考强度：low, medium, high, xhigh',
+      reply: '当前工作区是 codex，请使用 /codex 配置该 Agent',
     });
   });
 
