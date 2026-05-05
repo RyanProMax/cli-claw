@@ -19,6 +19,19 @@ describe('formatToolStepLine', () => {
     );
   });
 
+  test('uses tool-name verbs when Codex sends the whole step as the name', () => {
+    expect(formatToolStepLine('Read SKILL.md')).toBe('📖 Read SKILL.md');
+    expect(formatToolStepLine('Search runtime command in src')).toBe(
+      '🔎 Search runtime command in src',
+    );
+    expect(
+      formatToolStepLine('Edit /Users/ryan/projects/cli-claw/PLANS/ACTIVE.md'),
+    ).toBe('✏️ Edit /Users/ryan/projects/cli-claw/PLANS/ACTIVE.md');
+    expect(formatToolStepLine('List /Users/ryan/projects/cli-claw')).toBe(
+      '📂 List /Users/ryan/projects/cli-claw',
+    );
+  });
+
   test('covers web, plan, input, and command step categories', () => {
     expect(formatToolStepLine('web_search', 'Searching the Web')).toBe(
       '🌐 web_search · Searching the Web',

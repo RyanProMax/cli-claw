@@ -24,6 +24,7 @@ const TOOL_EMOJI_BY_NAME: Array<[RegExp, string]> = [
 const STEP_EMOJI_BY_SUMMARY: Array<[RegExp, string]> = [
   [/^(read|open|fetch|view)\b/i, '📖'],
   [/^(search|find|grep|rg|look up|looking up)\b/i, '🔎'],
+  [/^(list|ls)\b/i, '📂'],
   [/^(edit|write|update|patch|modify|create)\b/i, '✏️'],
   [/^(delete|remove)\b/i, '🗑️'],
   [/^(move|rename)\b/i, '🚚'],
@@ -50,6 +51,9 @@ function getSummaryEmoji(summary?: string): string | undefined {
 function getToolEmoji(toolName: string, summary?: string): string {
   const toolNameEmoji = getToolNameEmoji(toolName);
   if (toolNameEmoji) return toolNameEmoji;
+
+  const toolNameStepEmoji = getSummaryEmoji(toolName);
+  if (toolNameStepEmoji) return toolNameStepEmoji;
 
   const summaryEmoji = summary ? getSummaryEmoji(summary) : undefined;
   if (summaryEmoji) return summaryEmoji;
