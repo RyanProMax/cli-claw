@@ -139,7 +139,8 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - 主进程会丢弃 `messageCursor.id` 不属于当前待处理用户消息的 stale stream events；这是路由保护，不是上下文或 replay 判断。历史执行事件必须在 runner 源头消失，不能依赖飞书卡片层过滤。
 - 启动恢复遇到 `~/.cli-claw/streaming-buffer` 或 `active_streaming_turns` 里的中断卡片态时，只清理这些临时态；不恢复旧卡片正文、不生成 `interrupt_partial` assistant 消息、不提交该 turn 游标。
 - Codex 飞书卡片不直播 `text_delta` 正文或 commentary；只直播 thinking、tool steps、hook、status、todo 等进度。正文必须等 terminal raw/final output 到达后一次性写入，避免 presentation 过渡文本覆盖当前 turn 的最终答案。
-- Feishu card 必须把 thinking、tool steps、commentary、hook、todo 等过程信息作为顶部辅助区展示，再渲染最终正文；完成态也不能把 steps 折叠栏移到正文底部。若 Codex terminal final 把“我会先…”这类过程句粘在 `**港股 IPO 池｜...**` 等报告标题前，`reply-visibility` 必须把这段剥离出正文，并同步进顶部 `Thinking` 折叠栏。
+- Feishu card 必须把 tool `steps` 作为顶部第一个过程面板展示，`Thinking` 紧随其后，再渲染 status/commentary/hook/todo 和最终正文；完成态也不能把 steps 折叠栏移到正文底部。若 Codex terminal final 把“我会先…”这类过程句粘在 `**港股 IPO 池｜...**` 等报告标题前，`reply-visibility` 必须把这段剥离出正文，并同步进顶部 `Thinking` 折叠栏。
+- Feishu Markdown 不保证保留普通单换行；紧凑报告（如 `/hkipo`）的顶层小节、排序行和字段行必须在卡片渲染层补显式 hard break，避免 `关键结论`、`优先级`、个股字段和 `来源` 被挤成一个段落。
 - Codex final visibility resolution 必须保留结构化日志，至少记录 raw final、streaming presentation answer/commentary、最终 visible text、剥离出的 commentary、`sourceKind`、`finalizationReason`、`turnId` / `sessionId` / `sdkMessageUuid` 和 runtime identity，便于追踪正文与过程文本边界。
 - Streaming / 完成态 card 保留当前 turn 的完整 tool steps，便于回看执行过程；临时状态、hook 和 system status 在终态收敛。
 - Footer 必须展示 runtime identity 和当前处理耗时；耗时使用紧凑格式并省略为 0 的小时/分钟单位，例如 `36s`、`1min12s`、`1h23min12s`，且不显示小数秒。usage 晚到时可以补丁更新 footer，但不能改写主正文来源。

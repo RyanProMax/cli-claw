@@ -626,16 +626,7 @@ function buildAuxiliaryElementsForState(
   const isStreamingLayout = state === 'streaming';
   const auxiliaryElements = before;
 
-  // ① System Status
-  if (aux.systemStatus) {
-    auxiliaryElements.push({
-      tag: 'markdown',
-      content: `⏳ ${aux.systemStatus}`.slice(0, MAX_ELEMENT_CHARS),
-      text_size: 'notation',
-    });
-  }
-
-  // ② Tool calls. Preserve the whole per-turn tool trace; the controller is
+  // ① Tool calls. Preserve the whole per-turn tool trace; the controller is
   // scoped to a single turn, so retaining completed tools here does not leak
   // across future messages.
   const running: Array<[string, ToolCallState]> = [];
@@ -666,7 +657,7 @@ function buildAuxiliaryElementsForState(
     );
   }
 
-  // ②b Thinking
+  // ② Thinking
   if (aux.thinkingText) {
     const truncated =
       aux.thinkingText.length > MAX_THINKING_CHARS
@@ -685,7 +676,16 @@ function buildAuxiliaryElementsForState(
     );
   }
 
-  // ②c Commentary
+  // ③ System Status
+  if (aux.systemStatus) {
+    auxiliaryElements.push({
+      tag: 'markdown',
+      content: `⏳ ${aux.systemStatus}`.slice(0, MAX_ELEMENT_CHARS),
+      text_size: 'notation',
+    });
+  }
+
+  // ④ Commentary
   if (aux.commentaryText) {
     const truncated =
       aux.commentaryText.length > MAX_COMMENTARY_CHARS
@@ -700,7 +700,7 @@ function buildAuxiliaryElementsForState(
     );
   }
 
-  // ③ Hook Status
+  // ⑤ Hook Status
   if (aux.activeHook) {
     auxiliaryElements.push({
       tag: 'markdown',

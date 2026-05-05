@@ -14,6 +14,49 @@
 
 ## Milestones
 
+### Milestone 72
+
+Objective:
+- Fix the current Feishu `/hkipo` completed-card presentation regression: tool `steps` must be the first process panel, `Thinking` must sit directly below it, and compact report line breaks must survive Feishu Markdown rendering.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/feishu-markdown-style.ts`
+- `src/feishu-streaming-card.ts`
+- `tests/feishu-streaming-card.test.ts`
+- Focused formatting tests if existing coverage needs a smaller unit assertion.
+
+Validation:
+- `npm test -- --run tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-05: User reported the real Feishu card still renders `Thinking` above `steps`, while the compact hkipo正文 collapses into one paragraph because single Markdown newlines do not survive Feishu rendering.
+- 2026-05-05: Added RED coverage for steps being the first process element even when a system status exists, and for hkipo compact reports that use plain section headings, list bullets, and unbold ranked title lines.
+- 2026-05-05: Moved system status below steps/thinking and expanded compact-report hard-break handling to bridge Feishu-normalized blank lines with `<br>` for hkipo section/rank/field boundaries.
+
+Validation status:
+- passed 2026-05-05:
+  - `npm test -- --run tests/feishu-streaming-card.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-05: scope stayed within Milestone 72; process-panel ordering now puts steps first and Thinking second; compact hkipo report line breaks are renderer-side and limited to hkipo-like section/rank/field lines; docs and tests match the presentation contract. No blocking hygiene or contract issues found.
+
+Risks / Notes / Handoff:
+- The fix should be renderer-side so existing hkipo compact output remains compact without requiring blank empty lines between every field.
+- Build still emits the existing Vite large-chunk warning, but exits successfully.
+
 ### Milestone 71
 
 Objective:
@@ -167,7 +210,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 71
+- Milestone 72
 
 Current status:
 - done
@@ -175,23 +218,15 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `docs/RUNTIME.md`
-- `src/index.ts`
-- `src/reply-visibility.ts`
+- `src/feishu-markdown-style.ts`
+- `src/feishu-streaming-card.ts`
 - `tests/feishu-streaming-card.test.ts`
-- `tests/reply-visibility.test.ts`
-- `tests/stream-presentation.test.ts`
-- `/Users/ryan/projects/stock-analysis-skill/commands/hkipo.py`
-- `/Users/ryan/projects/stock-analysis-skill/tests/test_hkipo_command.py`
-- `/Users/ryan/projects/stock-analysis-skill/SKILL.md`
-- `/Users/ryan/projects/stock-analysis-skill/README.md`
-- `/Users/ryan/projects/stock-analysis-skill/references/hkipo.md`
-- `/Users/ryan/projects/stock-analysis-skill/PLANS/ACTIVE.md`
 
 Last failure summary:
-- RED tests failed as expected before implementation: hkipo bold titles were not recognized as answer boundaries; terminal process commentary was synced to Commentary instead of Thinking; `/hkipo` still contained `申购冲突`, blank empty lines, and priority-label title tails.
+- RED tests failed as expected before implementation: system status was still allowed to appear before the steps panel, and plain hkipo section/list/rank lines did not receive hard breaks, so Feishu could collapse them into one paragraph.
 
 Suspected cause:
-- The visibility boundary only handled Markdown `#` headings and bold `/research` titles, while `/hkipo` uses a bold `港股 IPO 池` title. The skill prompt still carried outdated report-body requirements.
+- Feishu Markdown collapses single newlines unless the renderer inserts explicit hard breaks; compact-report detection was too narrow for plain section headings, list bullets, and unbold ranked title lines. The auxiliary panel builder also allowed system status to sit above the process panels, so `steps` was not strictly topmost.
 
 Next step:
-- Commit both repos, then apply through the safe restart path.
+- Commit the fix, then apply through the safe restart path.

@@ -218,6 +218,14 @@ function preserveCompactReportLineBreaks(text: string): string {
     const nextTrimmed = next?.trim() ?? '';
     const isFence = /^```/.test(trimmed);
 
+    if (
+      !inCodeBlock &&
+      trimmed === '' &&
+      shouldBridgeCompactReportBlank(output, nextTrimmed)
+    ) {
+      continue;
+    }
+
     output.push(line);
 
     if (inCodeBlock) {
@@ -238,6 +246,21 @@ function preserveCompactReportLineBreaks(text: string): string {
   return output.join('\n');
 }
 
+function shouldBridgeCompactReportBlank(
+  output: string[],
+  nextTrimmed: string,
+): boolean {
+  if (!nextTrimmed || output.length === 0) return false;
+  const previousIndex = output.length - 1;
+  const previousRaw = output[previousIndex] ?? '';
+  const previousTrimmed = previousRaw.trim();
+  if (!shouldHardBreakCompactLine(previousTrimmed, nextTrimmed, previousRaw)) {
+    return false;
+  }
+  output[previousIndex] = previousRaw.replace(/\s*$/, '') + '<br>';
+  return true;
+}
+
 function shouldHardBreakCompactLine(
   current: string,
   next: string,
@@ -245,12 +268,20 @@ function shouldHardBreakCompactLine(
 ): boolean {
   if (!current || !next) return false;
   if (/<br\s*\/?>$/i.test(current) || /\s{2}$/.test(rawCurrent)) return false;
+  const currentCompact = isCompactReportLine(current);
+  const nextCompact = isCompactReportLine(next);
   if (isMarkdownBlockBoundary(current) || isMarkdownBlockBoundary(next)) {
     return false;
   }
-  if (isMarkdownListLine(current) || isMarkdownListLine(next)) return false;
+  if (
+    (isMarkdownListLine(current) || isMarkdownListLine(next)) &&
+    !currentCompact &&
+    !nextCompact
+  ) {
+    return false;
+  }
 
-  return isCompactReportLine(current) || isCompactReportLine(next);
+  return currentCompact || nextCompact;
 }
 
 function isMarkdownBlockBoundary(line: string): boolean {
@@ -272,9 +303,18 @@ function isMarkdownTableLine(line: string): boolean {
 }
 
 function isCompactReportLine(line: string): boolean {
+  const normalized = stripOuterBold(line);
   return (
-    /^\*\*[^*\n]+\*\*$/.test(line) || /^(?:📍|💰|🛡️?|📈|⚠️?|🔗)\s/u.test(line)
+    /^港股 IPO 池\s*[｜|]\s*\d{4}-\d{2}-\d{2}$/.test(normalized) ||
+    /^(?:💡\s*关键结论|📌\s*优先级|🔗\s*来源)$/.test(normalized) ||
+    /^(?:🟢|🟡|⚪)\s*\d+\s*[｜|]/u.test(normalized) ||
+    /^[-*+]\s+(?:🟢|🟡|⚪)\s/u.test(normalized) ||
+    /^(?:📍|💰|🛡️?|📈|⚠️?|🔗)\s/u.test(normalized)
   );
+}
+
+function stripOuterBold(line: string): string {
+  return line.replace(/^\*\*([^*\n]+)\*\*$/, '$1').trim();
 }
 
 // ---------------------------------------------------------------------------
