@@ -142,7 +142,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - Feishu card 必须把 thinking、tool steps、commentary、hook、todo 等过程信息作为顶部辅助区展示，再渲染最终正文；完成态也不能把 steps 折叠栏移到正文底部。
 - Codex final visibility resolution 必须保留结构化日志，至少记录 raw final、streaming presentation answer/commentary、最终 visible text、剥离出的 commentary、`sourceKind`、`finalizationReason`、`turnId` / `sessionId` / `sdkMessageUuid` 和 runtime identity，便于追踪正文与过程文本边界。
 - Streaming / 完成态 card 保留当前 turn 的完整 tool steps，便于回看执行过程；临时状态、hook 和 system status 在终态收敛。
-- Footer 必须展示 runtime identity 和当前处理耗时；usage 晚到时可以补丁更新 footer，但不能改写主正文来源。
+- Footer 必须展示 runtime identity 和当前处理耗时；耗时使用 `HH:mm:ss` 且不显示小数秒。usage 晚到时可以补丁更新 footer，但不能改写主正文来源。
 
 当前限制：
 

@@ -43,6 +43,16 @@ function normalizeNumber(value: number | null | undefined): number | null {
   return value;
 }
 
+function formatDurationHHMMSS(durationMs: number): string {
+  const totalSeconds = Math.floor(Math.max(0, durationMs) / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds]
+    .map((value) => String(value).padStart(2, '0'))
+    .join(':');
+}
+
 function formatAgentTypeLabel(agentType?: string | null): string | null {
   const normalized = normalizeText(agentType)?.toLowerCase();
   if (!normalized) return null;
@@ -109,7 +119,7 @@ export function getAssistantMetaFooterParts(
 
   const durationMs = normalizeNumber(tokenUsage?.durationMs);
   if (durationMs !== null && durationMs > 0) {
-    parts.push(`${(durationMs / 1000).toFixed(1)}s`);
+    parts.push(formatDurationHHMMSS(durationMs));
   }
 
   const agentType = formatAgentTypeLabel(runtimeIdentity?.agentType);
@@ -146,7 +156,7 @@ export function getAssistantCardFooterParts(
 
   const durationMs = normalizeNumber(tokenUsage?.durationMs);
   if (durationMs !== null && durationMs > 0) {
-    parts.push(`${(durationMs / 1000).toFixed(1)}s`);
+    parts.push(formatDurationHHMMSS(durationMs));
   }
 
   const agentType = formatAgentTypeLabel(runtimeIdentity?.agentType);
