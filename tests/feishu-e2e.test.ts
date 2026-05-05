@@ -894,6 +894,7 @@ describe('Feishu in-process E2E harness', () => {
             eventType: 'tool_use_start',
             turnId: reusedTurnId,
             sessionId: 'sess-cursor-boundary',
+            messageCursor: staleCursor,
             toolUseId: 'tool-stale-hkipo',
             toolName: 'stock-analysis-skill',
             toolInputSummary: 'site:www1.hkexnews.hk 港股 IPO 旧工具 trace',
@@ -1114,9 +1115,9 @@ describe('Feishu in-process E2E harness', () => {
       ...sentInteractiveCards,
     ].map((card) => JSON.stringify(card));
 
-    expect(
-      allCardPayloads.some((payload) => payload.includes(finalText)),
-    ).toBe(true);
+    expect(allCardPayloads.some((payload) => payload.includes(finalText))).toBe(
+      true,
+    );
     for (const payload of allCardPayloads) {
       for (const snippet of forbiddenSnippets) {
         expect(payload).not.toContain(snippet);
@@ -1129,187 +1130,18 @@ describe('Feishu in-process E2E harness', () => {
     expect(assistantMessages[0]?.content).toBe(finalText);
   });
 
-  test('suppresses cursorless Codex replayed tool steps before current Feishu cursor init', async () => {
+  test('routes current Feishu stream events without replay gates', async () => {
     const { db, notifier, imManager, restartGuard, processGroupMessages } =
       await loadFeishuProcessGroupModules();
-    const chatId = 'oc_codex_cursorless_tool_replay';
+    const chatId = 'oc_codex_current_live_stream';
     const chatJid = `feishu:${chatId}`;
-    const userId = 'user-feishu-cursorless-tool-replay';
-    const messageId = 'om_push_commit_current';
-    const finalText =
-      '已推送到远端：main -> origin/main，当前本地与远端同步。';
-    const forbiddenSnippets = [
-      '罗博特科',
-      'MiniMax',
-      '300757',
-      'old stock-analysis step',
-    ];
-
-    db.setRegisteredGroup(chatJid, {
-      name: 'Feishu Cursorless Tool Replay',
-      folder: 'feishu-cursorless-tool-replay',
-      added_at: '2026-05-04T15:20:00.000Z',
-      executionMode: 'host',
-      agentType: 'codex',
-      activation_mode: 'auto',
-      created_by: userId,
-    });
-    db.ensureChatExists(chatJid);
-
-    await imManager.connectUserFeishu(
-      userId,
-      { appId: 'app-id', appSecret: 'app-secret' },
-      vi.fn(),
-      {
-        resolveManagedCommandText: (_chatJid, text) =>
-          restartGuard.resolveManagedSelfRestartCommand(text),
-      },
-    );
-
-    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
-    await hoisted.handlers['im.message.receive_v1']?.({
-      message: {
-        chat_id: chatId,
-        message_id: messageId,
-        create_time: '1777908417645',
-        message_type: 'text',
-        content: JSON.stringify({
-          text: '把当前改动的提交push到远端',
-        }),
-        chat_type: 'p2p',
-      },
-      sender: {
-        sender_id: {
-          open_id: 'ou_cursorless_tool_replay',
-        },
-      },
-    });
-    await expect(wakeup).resolves.toBe('woke');
-
-    const runtimeIdentity = {
-      agentType: 'codex' as const,
-      model: 'gpt-5.5',
-      reasoningEffort: 'xhigh',
-      supportsReasoningEffort: true,
-    };
-    hoisted.runHostAgent.mockImplementation(
-      async (_group, input, _onProcess, onOutput) => {
-        await onOutput?.({
-          status: 'stream',
-          result: null,
-          runtimeIdentity,
-          streamEvent: {
-            eventType: 'tool_use_start',
-            turnId: messageId,
-            sessionId: 'sess-reused-codex',
-            toolUseId: 'old-tool-robotechnik',
-            toolName: '300757 罗博特科 2025 年报',
-            toolInputSummary:
-              'old stock-analysis step: 300757 罗博特科 MiniMax',
-            runtimeIdentity,
-          },
-        });
-        await onOutput?.({
-          status: 'stream',
-          result: null,
-          runtimeIdentity,
-          streamEvent: {
-            eventType: 'text_delta',
-            text: '旧 presentation：罗博特科 2025 年报 MiniMax，不应进入本轮卡片。',
-            turnId: messageId,
-            sessionId: 'sess-reused-codex',
-            runtimeIdentity,
-          },
-        });
-        await onOutput?.({
-          status: 'stream',
-          result: null,
-          runtimeIdentity,
-          streamEvent: {
-            eventType: 'init',
-            turnId: messageId,
-            sessionId: 'sess-reused-codex',
-            messageCursor: input.messageCursor,
-            runtimeIdentity,
-          },
-        });
-        await onOutput?.({
-          status: 'stream',
-          result: null,
-          runtimeIdentity,
-          streamEvent: {
-            eventType: 'tool_use_start',
-            turnId: messageId,
-            sessionId: 'sess-reused-codex',
-            toolUseId: 'current-git-push',
-            toolName: 'git push origin main',
-            toolInputSummary: 'push current stock-analysis-skill commit',
-            runtimeIdentity,
-          },
-        });
-        await onOutput?.({
-          status: 'success',
-          result: finalText,
-          newSessionId: 'sess-reused-codex',
-          runtimeIdentity,
-          turnId: messageId,
-          sessionId: 'sess-reused-codex',
-          sourceKind: 'sdk_final',
-          finalizationReason: 'completed',
-        });
-        return { status: 'success' };
-      },
-    );
-
-    await expect(processGroupMessages(chatJid)).resolves.toBe(true);
-
-    const sentInteractiveCards = hoisted.createSpy.mock.calls
-      .map((call) => call[0]?.data)
-      .filter((data) => data?.msg_type === 'interactive' && data?.content)
-      .map((data) => JSON.parse(data.content));
-    const allCardPayloads = [
-      ...hoisted.createdCards,
-      ...hoisted.updatedCards,
-      ...sentInteractiveCards,
-    ].map((card) => JSON.stringify(card));
-
-    expect(
-      allCardPayloads.some((payload) => payload.includes(finalText)),
-    ).toBe(true);
-    expect(
-      allCardPayloads.some((payload) =>
-        payload.includes('git push origin main'),
-      ),
-    ).toBe(true);
-    const finalCardPayload = allCardPayloads.find((payload) =>
-      payload.includes(finalText),
-    );
-    expect(finalCardPayload).toContain('git push origin main');
-    for (const payload of allCardPayloads) {
-      for (const snippet of forbiddenSnippets) {
-        expect(payload).not.toContain(snippet);
-      }
-    }
-  });
-
-  test('suppresses current-cursor replayed tool steps before current Feishu cursor init', async () => {
-    const { db, notifier, imManager, restartGuard, processGroupMessages } =
-      await loadFeishuProcessGroupModules();
-    const chatId = 'oc_codex_current_cursor_tool_replay';
-    const chatJid = `feishu:${chatId}`;
-    const userId = 'user-feishu-current-cursor-tool-replay';
-    const messageId = 'om_hkipo_format_current';
+    const userId = 'user-feishu-current-live-stream';
+    const messageId = 'om_current_live_stream';
     const finalText = '已更新 /hkipo 申购冲突语义与飞书换行模板。';
-    const forbiddenSnippets = [
-      '罗博特科',
-      'MiniMax',
-      '300757',
-      'old current-cursor replay step',
-    ];
 
     db.setRegisteredGroup(chatJid, {
-      name: 'Feishu Current Cursor Tool Replay',
-      folder: 'feishu-current-cursor-tool-replay',
+      name: 'Feishu Current Live Stream',
+      folder: 'feishu-current-live-stream',
       added_at: '2026-05-05T03:19:00.000Z',
       executionMode: 'host',
       agentType: 'codex',
@@ -1342,7 +1174,7 @@ describe('Feishu in-process E2E harness', () => {
       },
       sender: {
         sender_id: {
-          open_id: 'ou_current_cursor_tool_replay',
+          open_id: 'ou_current_live_stream',
         },
       },
     });
@@ -1361,38 +1193,9 @@ describe('Feishu in-process E2E harness', () => {
           result: null,
           runtimeIdentity,
           streamEvent: {
-            eventType: 'tool_use_start',
-            turnId: messageId,
-            sessionId: 'sess-reused-codex',
-            messageCursor: input.messageCursor,
-            toolUseId: 'old-current-cursor-tool-robotechnik',
-            toolName: '300757 罗博特科 2025 年报',
-            toolInputSummary:
-              'old current-cursor replay step: 300757 罗博特科 MiniMax',
-            runtimeIdentity,
-          },
-        });
-        await onOutput?.({
-          status: 'stream',
-          result: null,
-          runtimeIdentity,
-          streamEvent: {
-            eventType: 'text_delta',
-            text: '旧 presentation：罗博特科 MiniMax，不应进入本轮卡片。',
-            turnId: messageId,
-            sessionId: 'sess-reused-codex',
-            messageCursor: input.messageCursor,
-            runtimeIdentity,
-          },
-        });
-        await onOutput?.({
-          status: 'stream',
-          result: null,
-          runtimeIdentity,
-          streamEvent: {
             eventType: 'init',
             turnId: messageId,
-            sessionId: 'sess-reused-codex',
+            sessionId: 'sess-current-live-stream',
             messageCursor: input.messageCursor,
             runtimeIdentity,
           },
@@ -1404,7 +1207,7 @@ describe('Feishu in-process E2E harness', () => {
           streamEvent: {
             eventType: 'tool_use_start',
             turnId: messageId,
-            sessionId: 'sess-reused-codex',
+            sessionId: 'sess-current-live-stream',
             messageCursor: input.messageCursor,
             toolUseId: 'current-hkipo-patch',
             toolName: 'apply_patch',
@@ -1415,10 +1218,10 @@ describe('Feishu in-process E2E harness', () => {
         await onOutput?.({
           status: 'success',
           result: finalText,
-          newSessionId: 'sess-reused-codex',
+          newSessionId: 'sess-current-live-stream',
           runtimeIdentity,
           turnId: messageId,
-          sessionId: 'sess-reused-codex',
+          sessionId: 'sess-current-live-stream',
           sourceKind: 'sdk_final',
           finalizationReason: 'completed',
         });
@@ -1438,9 +1241,9 @@ describe('Feishu in-process E2E harness', () => {
       ...sentInteractiveCards,
     ].map((card) => JSON.stringify(card));
 
-    expect(
-      allCardPayloads.some((payload) => payload.includes(finalText)),
-    ).toBe(true);
+    expect(allCardPayloads.some((payload) => payload.includes(finalText))).toBe(
+      true,
+    );
     expect(
       allCardPayloads.some((payload) => payload.includes('apply_patch')),
     ).toBe(true);
@@ -1448,11 +1251,6 @@ describe('Feishu in-process E2E harness', () => {
       payload.includes(finalText),
     );
     expect(finalCardPayload).toContain('apply_patch');
-    for (const payload of allCardPayloads) {
-      for (const snippet of forbiddenSnippets) {
-        expect(payload).not.toContain(snippet);
-      }
-    }
   });
 
   test('discards restart streaming residue before the first real Feishu card payload', async () => {

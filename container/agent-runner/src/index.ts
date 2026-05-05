@@ -58,6 +58,7 @@ import {
   appendCodexFinalTurnChunk,
   buildCodexAcpLaunchArgs,
   formatCodexRuntimeError,
+  shouldEmitCodexSessionUpdate,
   stripCodexRuntimeDiagnosticPrefix,
 } from './codex-session-runtime.js';
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
@@ -1307,7 +1308,9 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
   let activeTurnText = '';
   let activeTurnMessageUuid: string | undefined;
   let activeCodexTurnId = containerInput.turnId;
-  let activeCodexMessageCursor = containerInput.messageCursor;
+  let activeCodexMessageCursor: { timestamp: string; id?: string } | undefined;
+  let liveCodexPromptActive = false;
+  let ignoredCodexSetupUpdateCount = 0;
   const connection = new ClientSideConnection(
     () => ({
       requestPermission: async (params) => {
@@ -1350,6 +1353,19 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       },
       sessionUpdate: async (notification: SessionNotification) => {
         const update = notification.update as any;
+        if (
+          !shouldEmitCodexSessionUpdate({
+            livePromptActive: liveCodexPromptActive,
+          })
+        ) {
+          ignoredCodexSetupUpdateCount += 1;
+          if (ignoredCodexSetupUpdateCount <= 3) {
+            log(
+              `Ignoring Codex ACP session update outside live prompt: ${update?.sessionUpdate || 'unknown'}`,
+            );
+          }
+          return;
+        }
         const baseEvent = {
           turnId: activeCodexTurnId,
           sessionId: notification.sessionId,
@@ -1535,11 +1551,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       activeTurnMessageUuid = undefined;
       activeCodexTurnId = containerInput.turnId;
       activeCodexMessageCursor = containerInput.messageCursor;
-      emitTurnInitEvent(
-        sessionId,
-        activeCodexTurnId,
-        activeCodexMessageCursor,
-      );
+      emitTurnInitEvent(sessionId, activeCodexTurnId, activeCodexMessageCursor);
       containerInput.messageCursor = undefined;
 
       let closeRequested = false;
@@ -1558,11 +1570,13 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       }, CODEX_INTERRUPT_POLL_MS);
 
       try {
+        liveCodexPromptActive = true;
         await connection.prompt({
           sessionId,
           prompt: codexPromptBlocks(prompt, promptImages),
         });
       } finally {
+        liveCodexPromptActive = false;
         clearInterval(cancelWatcher);
       }
 

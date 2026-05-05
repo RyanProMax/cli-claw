@@ -15,6 +15,59 @@
 
 ## Milestones
 
+### Milestone 64
+
+Objective:
+- Remove external historical-context/replay coupling from the runtime stream path: Codex ACP session recovery must remain internal to the runner and must not emit historical execution events to the host; the host should no longer depend on pre-init replay filtering as the primary fix.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/ARCHITECTURE.md`
+- `docs/MEMORY.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `container/agent-runner/src/index.ts`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `tests/codex-session-runtime.test.ts`
+- `tests/feishu-e2e.test.ts`
+
+Validation:
+- `npm test -- --run tests/codex-session-runtime.test.ts`
+- `npm test -- --run tests/feishu-e2e.test.ts -t "routes current Feishu stream events without replay gates"`
+- `npm test -- --run tests/feishu-e2e.test.ts -t "sends current Codex raw final to Feishu when presentation contains stale transcript"`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-05：User rejected adding per-run protocol fields and requested complete removal of external historical-context/replay coupling. Revised root contract: continuity belongs only to the underlying runtime session; Cli Claw only stores the session handle and current pending turn, and historical execution events must not cross the runner output boundary.
+- 2026-05-05：Added runner-side contract test for Codex ACP session updates: updates are private until a live prompt is active.
+- 2026-05-05：Changed Codex runner so `loadSession` / session setup updates are ignored before `connection.prompt()` starts, and the current message cursor is only attached once the current turn is active.
+- 2026-05-05：Removed host-side pre-init stream suppression gates from main and conversation-agent paths; host now keeps only stale `messageCursor.id` route protection.
+- 2026-05-05：Replaced replay-gate Feishu tests with current-live-stream and stale-cursor route tests that match the simplified architecture.
+
+Validation status:
+- passed 2026-05-05:
+  - failed as expected before implementation: `npm test -- --run tests/codex-session-runtime.test.ts`
+  - `npm test -- --run tests/codex-session-runtime.test.ts`
+  - `npm test -- --run tests/feishu-e2e.test.ts -t "routes current Feishu stream events without replay gates"`
+  - `npm test -- --run tests/feishu-e2e.test.ts -t "sends current Codex raw final to Feishu when presentation contains stale transcript"`
+  - extra adjacent check: `npm test -- --run tests/feishu-e2e.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-05: scope matches Milestone 64; Codex replay/history suppression moved from host card ingestion to runner session-update emission boundary; no new per-turn protocol fields were added; host pre-init gate code and tests were removed rather than layered; stale cursor route protection remains because it is message routing, not context management; docs now define runner stdout as current-turn live output only.
+
+Handoff:
+- Codex session continuity remains internal to ACP/Codex through the stored session id. Cli Claw no longer republishes session recovery/history updates as stream events, and the Feishu/Web presentation path no longer depends on pre-init replay filtering for correctness. If old steps appear again after this change, the next place to inspect is whether ACP emits old updates during `connection.prompt()` itself rather than during `loadSession` / setup.
+
 ### Milestone 63
 
 Objective:

@@ -3753,9 +3753,6 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
   let streamInterrupted = false;
   let activeStreamingEventTurnId: string | undefined;
   let activeStreamingMessageCursorId: string | undefined;
-  let suppressStreamEventsUntilCursorMatch = Boolean(
-    streamingSession && activeTurnCursor.id,
-  );
   let streamStartedLifecycleRecorded = false;
   let lifecycleMessagesForActiveTurn = messagesForAgent;
   let activeLastProcessed = lastProcessed;
@@ -3792,10 +3789,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     activeStreamingEventTurnId = resetState.turnId;
     activeStreamingMessageCursorId = resetState.messageCursorId;
     streamStartedLifecycleRecorded = false;
-    const nextSession = ensureStreamingSessionAvailable();
-    suppressStreamEventsUntilCursorMatch = Boolean(
-      nextSession && activeTurnCursor.id,
-    );
+    ensureStreamingSessionAvailable();
   };
 
   // ── Dynamic reply route updater ──
@@ -3957,18 +3951,11 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                     runtimeIdentity: activeRuntimeIdentity,
                   };
             const eventCursorId = streamEvent.messageCursor?.id?.trim();
-            const isCurrentCursorInit = Boolean(
-              eventCursorId &&
-              activeTurnCursor.id &&
-              eventCursorId === activeTurnCursor.id &&
-              streamEvent.eventType === 'init',
-            );
             if (
               eventCursorId &&
               activeTurnCursor.id &&
               eventCursorId !== activeTurnCursor.id
             ) {
-              suppressStreamEventsUntilCursorMatch = true;
               logger.warn(
                 {
                   chatJid,
@@ -3980,22 +3967,6 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 'Suppressing stale stream event for previous message cursor',
               );
               return;
-            }
-            if (suppressStreamEventsUntilCursorMatch && !isCurrentCursorInit) {
-              logger.warn(
-                {
-                  chatJid,
-                  eventType: streamEvent.eventType,
-                  turnId: streamEvent.turnId,
-                  eventCursorId: eventCursorId || null,
-                  activeCursorId: activeTurnCursor.id,
-                },
-                'Suppressing pre-init stream event before current cursor match',
-              );
-              return;
-            }
-            if (isCurrentCursorInit) {
-              suppressStreamEventsUntilCursorMatch = false;
             }
             if (streamingSession) {
               const streamText =
@@ -4227,7 +4198,6 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   streamingAccumulatedThinking = '';
                   activeStreamingEventTurnId = undefined;
                   activeStreamingMessageCursorId = undefined;
-                  suppressStreamEventsUntilCursorMatch = false;
                   commitCursor();
                 } catch (err) {
                   logger.warn(
@@ -4730,7 +4700,6 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               streamingAccumulatedThinking = '';
               activeStreamingEventTurnId = undefined;
               activeStreamingMessageCursorId = undefined;
-              suppressStreamEventsUntilCursorMatch = false;
               // Persist cursor as soon as a visible reply is emitted.
               // Long-lived runners may stay alive for idleTimeout, and waiting
               // until process exit would cause duplicate replay after restart.
@@ -7364,7 +7333,6 @@ async function processAgentConversation(
   let agentStreamInterrupted = false;
   let agentStreamingEventTurnId: string | undefined;
   let agentStreamingMessageCursorId: string | undefined;
-  let suppressAgentStreamEventsUntilCursorMatch = false;
   let agentStreamStartedLifecycleRecorded = false;
   if (agentStreamingSession && streamingSessionJid) {
     registerStreamingSession(streamingSessionJid, agentStreamingSession);
@@ -7416,9 +7384,6 @@ async function processAgentConversation(
     timestamp: lastProcessed.timestamp,
     id: lastProcessed.id,
   };
-  suppressAgentStreamEventsUntilCursorMatch = Boolean(
-    agentStreamingSession && activeTurnCursor.id,
-  );
   let cursorLifecycleRecorded = false;
   let agentCursorCommitBlockedReason: string | null = null;
   let queuedDeferredSourceMessages = false;
@@ -7500,18 +7465,11 @@ async function processAgentConversation(
               runtimeIdentity: currentAgentRuntimeIdentity,
             };
       const eventCursorId = streamEvent.messageCursor?.id?.trim();
-      const isCurrentCursorInit = Boolean(
-        eventCursorId &&
-        activeTurnCursor.id &&
-        eventCursorId === activeTurnCursor.id &&
-        streamEvent.eventType === 'init',
-      );
       if (
         eventCursorId &&
         activeTurnCursor.id &&
         eventCursorId !== activeTurnCursor.id
       ) {
-        suppressAgentStreamEventsUntilCursorMatch = true;
         logger.warn(
           {
             chatJid,
@@ -7524,23 +7482,6 @@ async function processAgentConversation(
           'Suppressing stale conversation-agent stream event for previous message cursor',
         );
         return;
-      }
-      if (suppressAgentStreamEventsUntilCursorMatch && !isCurrentCursorInit) {
-        logger.warn(
-          {
-            chatJid,
-            agentId,
-            eventType: streamEvent.eventType,
-            turnId: streamEvent.turnId,
-            eventCursorId: eventCursorId || null,
-            activeCursorId: activeTurnCursor.id,
-          },
-          'Suppressing pre-init conversation-agent stream event before current cursor match',
-        );
-        return;
-      }
-      if (isCurrentCursorInit) {
-        suppressAgentStreamEventsUntilCursorMatch = false;
       }
       const turnBoundary = applyStreamingTurnBoundary(
         {
@@ -7744,7 +7685,6 @@ async function processAgentConversation(
             commitCursor();
             agentStreamingEventTurnId = undefined;
             agentStreamingMessageCursorId = undefined;
-            suppressAgentStreamEventsUntilCursorMatch = false;
           } catch (err) {
             logger.warn(
               { err, chatJid, agentId },
@@ -7966,7 +7906,6 @@ async function processAgentConversation(
           agentStreamingThinking = '';
           agentStreamingEventTurnId = undefined;
           agentStreamingMessageCursorId = undefined;
-          suppressAgentStreamEventsUntilCursorMatch = false;
           unregisterStreamingSession(streamingSessionJid);
           agentStreamingSession = undefined;
           if (ensureAgentStreamingSessionAvailable()) {
@@ -8399,7 +8338,6 @@ async function processAgentConversation(
         commitCursor();
         agentStreamingEventTurnId = undefined;
         agentStreamingMessageCursorId = undefined;
-        suppressAgentStreamEventsUntilCursorMatch = false;
       } catch (err) {
         logger.warn(
           { err, chatJid, agentId },
@@ -8525,7 +8463,6 @@ async function processAgentConversation(
         commitCursor();
         agentStreamingEventTurnId = undefined;
         agentStreamingMessageCursorId = undefined;
-        suppressAgentStreamEventsUntilCursorMatch = false;
       } catch (err) {
         logger.warn(
           { err, chatJid, agentId },

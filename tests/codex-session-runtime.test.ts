@@ -7,6 +7,7 @@ import {
   buildCodexAcpLaunchArgs,
   formatCodexRuntimeError,
   isCodexContextWindowError,
+  shouldEmitCodexSessionUpdate,
   stripCodexRuntimeDiagnosticPrefix,
 } from '../container/agent-runner/src/codex-session-runtime.ts';
 
@@ -62,6 +63,20 @@ describe('codex ACP runtime overrides', () => {
       '-c',
       'model_reasoning_effort="medium"',
     ]);
+  });
+
+  test('keeps ACP session recovery updates private until a live prompt is active', () => {
+    expect(
+      shouldEmitCodexSessionUpdate({
+        livePromptActive: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldEmitCodexSessionUpdate({
+        livePromptActive: true,
+      }),
+    ).toBe(true);
   });
 
   test('preserves blank-line boundaries between same-turn Codex assistant messages', () => {

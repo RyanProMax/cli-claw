@@ -7,6 +7,7 @@
 - Runtime 上下文由 Claude / Codex 自己维护。Cli Claw 只保存 runtime session id，并在需要时 reset / resume。
 - 消息数据库 `~/.cli-claw/db/messages.db` 是产品侧展示、队列 cursor、恢复待处理消息和审计溯源的唯一历史记录。
 - Cli Claw 不维护长期记忆层，不生成每日摘要，不归档 transcript，不暴露 `memory_*` 工具，也不把历史消息、摘要、文件或旧 partial body 注入 agent prompt。
+- Runtime session 恢复是 runner 内部动作；恢复期间的历史 transcript、旧工具步骤和 session update 不属于当前用户消息输出，不能穿过 runner stdout 进入主进程、Web snapshot 或 IM 卡片。
 
 ## 读取与注入
 
