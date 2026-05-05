@@ -5,6 +5,7 @@ import path from 'path';
 export interface CodexCliConfig {
   model: string | null;
   reasoningEffort: string | null;
+  speedTier: string | null;
 }
 
 function normalizeTomlString(value: string | undefined): string | null {
@@ -25,7 +26,7 @@ export function readCodexCliConfig(
 ): CodexCliConfig {
   try {
     if (!fs.existsSync(configPath)) {
-      return { model: null, reasoningEffort: null };
+      return { model: null, reasoningEffort: null, speedTier: null };
     }
     const content = fs.readFileSync(configPath, 'utf-8');
     return {
@@ -33,8 +34,9 @@ export function readCodexCliConfig(
       reasoningEffort:
         readTomlString(content, 'model_reasoning_effort') ??
         readTomlString(content, 'reasoning_effort'),
+      speedTier: readTomlString(content, 'service_tier'),
     };
   } catch {
-    return { model: null, reasoningEffort: null };
+    return { model: null, reasoningEffort: null, speedTier: null };
   }
 }

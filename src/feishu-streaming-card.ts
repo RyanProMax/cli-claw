@@ -30,9 +30,12 @@ import type { RuntimeIdentity } from './types.js';
 import {
   getDefaultModelPreset,
   getDefaultReasoningEffortPreset,
+  getDefaultSpeedTierPreset,
   getModelPresetOptions,
   getReasoningEffortOptions,
+  getSpeedTierOptions,
   supportsReasoningEffort,
+  supportsSpeedTier,
   type RuntimePresetOption,
 } from './runtime-command-registry.js';
 import { formatToolStepLine } from './tool-step-display.js';
@@ -394,7 +397,7 @@ const INTERRUPT_BUTTON_V2 = {
 } as const;
 
 function buildRuntimeSelectElement(options: {
-  action: 'set_runtime_model' | 'set_runtime_effort';
+  action: 'set_runtime_model' | 'set_runtime_effort' | 'set_runtime_speed';
   placeholder: string;
   choices: Array<{ value: string; label: string }>;
   initialOption?: string | null;
@@ -423,7 +426,7 @@ function buildRuntimeSelectElement(options: {
 }
 
 function buildRuntimeSelectionElement(options: {
-  selection: 'model' | 'effort';
+  selection: 'model' | 'effort' | 'speed';
   runtimeIdentity?: RuntimeIdentity | null;
   modelChoices?: RuntimePresetOption[];
 }): Record<string, unknown> | null {
@@ -439,6 +442,23 @@ function buildRuntimeSelectionElement(options: {
       placeholder: `模型: ${currentModel}`,
       choices: options.modelChoices ?? getModelPresetOptions(agentType),
       initialOption: currentModel,
+    });
+  }
+
+  if (options.selection === 'speed') {
+    if (!supportsSpeedTier(agentType)) {
+      return null;
+    }
+
+    const currentSpeedTier =
+      runtimeIdentity?.speedTier?.trim() ||
+      getDefaultSpeedTierPreset(agentType);
+
+    return buildRuntimeSelectElement({
+      action: 'set_runtime_speed',
+      placeholder: currentSpeedTier ? `速度: ${currentSpeedTier}` : '选择速度',
+      choices: getSpeedTierOptions(),
+      initialOption: currentSpeedTier,
     });
   }
 
@@ -885,11 +905,16 @@ export function buildStaticReplyCard(
 }
 
 export function buildRuntimeSelectionCard(options: {
-  selection: 'model' | 'effort';
+  selection: 'model' | 'effort' | 'speed';
   runtimeIdentity?: RuntimeIdentity | null;
   modelChoices?: RuntimePresetOption[];
 }): object {
-  const label = options.selection === 'model' ? '模型' : '思考强度';
+  const label =
+    options.selection === 'model'
+      ? '模型'
+      : options.selection === 'effort'
+        ? '思考强度'
+        : '速度';
   const selectElement = buildRuntimeSelectionElement(options);
 
   if (!selectElement) {
@@ -1871,6 +1896,7 @@ export class StreamingCardController {
       this.footerRuntimeIdentity?.model === nextIdentity?.model &&
       this.footerRuntimeIdentity?.reasoningEffort ===
         nextIdentity?.reasoningEffort &&
+      this.footerRuntimeIdentity?.speedTier === nextIdentity?.speedTier &&
       this.footerRuntimeIdentity?.supportsReasoningEffort ===
         nextIdentity?.supportsReasoningEffort;
     if (unchanged) return;

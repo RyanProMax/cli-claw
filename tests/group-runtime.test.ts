@@ -159,6 +159,7 @@ describe('resolveEffectiveRuntimeIdentity', () => {
       agentType: 'codex',
       model: 'gpt-5.4',
       reasoningEffort: 'medium',
+      speedTier: 'standard',
       supportsReasoningEffort: true,
     });
   });
@@ -177,12 +178,14 @@ describe('resolveEffectiveRuntimeIdentity', () => {
         {
           codexCliModel: 'gpt-5.4',
           codexCliReasoningEffort: 'xhigh',
+          codexCliSpeedTier: 'fast',
         } as any,
       ),
     ).toEqual({
       agentType: 'codex',
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
+      speedTier: 'fast',
       supportsReasoningEffort: true,
     });
   });
@@ -198,11 +201,13 @@ describe('resolveEffectiveRuntimeIdentity', () => {
         executionMode: 'host',
         model: 'gpt-5.4-mini',
         reasoningEffort: 'high',
+        speedTier: 'fast',
       }),
     ).toEqual({
       agentType: 'codex',
       model: 'gpt-5.4-mini',
       reasoningEffort: 'high',
+      speedTier: 'fast',
       supportsReasoningEffort: true,
     });
   });

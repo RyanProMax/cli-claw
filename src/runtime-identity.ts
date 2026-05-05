@@ -13,6 +13,7 @@ export function normalizeRuntimeIdentity(
 
   const model = normalizeText(identity.model);
   const reasoningEffort = normalizeText(identity.reasoningEffort);
+  const speedTier = normalizeText(identity.speedTier);
   const supportsReasoningEffort =
     typeof identity.supportsReasoningEffort === 'boolean'
       ? identity.supportsReasoningEffort
@@ -22,6 +23,8 @@ export function normalizeRuntimeIdentity(
     agentType: identity.agentType,
     model: model ?? null,
     reasoningEffort: reasoningEffort ?? null,
+    speedTier:
+      speedTier ?? (identity.agentType === 'codex' ? 'standard' : null),
     supportsReasoningEffort,
   };
 }
@@ -55,11 +58,21 @@ export function formatRuntimeIdentityFooter(
 ): string | null {
   const normalized = normalizeRuntimeIdentity(identity);
   if (!normalized?.model) return null;
+  const speedTier =
+    normalized.agentType === 'codex'
+      ? normalized.speedTier === 'fast'
+        ? 'fast (2x)'
+        : normalized.speedTier && normalized.speedTier !== 'standard'
+          ? normalized.speedTier
+          : 'standard (1x)'
+      : null;
   if (normalized.reasoningEffort) {
-    return `${normalized.model} | ${normalized.reasoningEffort}`;
+    return [normalized.model, normalized.reasoningEffort, speedTier]
+      .filter(Boolean)
+      .join(' | ');
   }
   if (normalized.supportsReasoningEffort === false) {
     return normalized.model;
   }
-  return null;
+  return speedTier ? `${normalized.model} | ${speedTier}` : null;
 }

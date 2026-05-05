@@ -45,6 +45,7 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
   - `executionMode`
   - `model`
   - `reasoningEffort`
+  - `speedTier`
 - `codex` 会被强制约束到 `host`。
 - admin 主工作区默认 `host`；member 主工作区默认 `container`。
 - `cli-claw start` 会先校验启动目录是否满足 host allowlist，再把该目录物化到缺失 `customCwd` 的 host 工作区。
@@ -53,11 +54,12 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 运行时参数按以下顺序生效：
 
-1. 工作区显式设置的 `model` / `reasoningEffort`
+1. 工作区显式设置的 `model` / `reasoningEffort` / `speedTier`
 2. 对 `codex` 而言，backend 会显式读取与 runner 相同的用户级 / 进程级 fallback：
    - `OPENAI_MODEL` / `CODEX_MODEL`
    - `OPENAI_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `REASONING_EFFORT`
-   - `~/.codex/config.toml` 中的 `model` / `model_reasoning_effort`（或 `reasoning_effort`）
+   - `OPENAI_SERVICE_TIER` / `CODEX_SERVICE_TIER` / `SERVICE_TIER`
+   - `~/.codex/config.toml` 中的 `model` / `model_reasoning_effort`（或 `reasoning_effort`）/ `service_tier`
 3. runtime 默认配置
 4. CLI / provider 自身默认值
 
@@ -66,10 +68,11 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - `claude` 的 `model` 仍采用 preset-only 约束。
 - `codex` 的 `model` 在 backend 侧优先通过宿主机 `codex debug models` 读取当前 CLI 实时 catalog；若 CLI 不可用、超时或返回异常，再回退到 `~/.codex/models_cache.json`，最后回退到内置 preset。
 - `/model` 选择器和命令回复会把 effective runtime identity 中的当前模型一起传入选项构造；当当前模型不在实时 catalog 中时，它仍会作为当前值展示，避免状态摘要、选择器和 dispatch fallback 互相矛盾。
-- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/model` / `/effort` 选择卡、runner dispatch 和 footer fallback 都必须读取这同一份结果，不能让 Codex CLI 全局配置只影响 runner/footer 而不影响 `/status`。
+- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/model` / `/effort` / `/speed` 选择卡、runner dispatch 和 footer fallback 都必须读取这同一份结果，不能让 Codex CLI 全局配置只影响 runner/footer 而不影响 `/status`。
 - `reasoningEffort` 只有支持该能力的 runtime 才会真正下发。
 - 不支持 `reasoningEffort` 的 runtime 会忽略该字段，但 `model` 仍可独立生效。
-- 非主工作区若继承同 folder 的 home workspace runtime，则会沿用该 home workspace 的 `agentType` / `executionMode` / `model` / `reasoningEffort`。
+- `speedTier` 只有 `codex` 支持；`fast` 会下发 Codex CLI `service_tier="fast"`，`standard` 表示不下发 service-tier 覆盖。
+- 非主工作区若继承同 folder 的 home workspace runtime，则会沿用该 home workspace 的 `agentType` / `executionMode` / `model` / `reasoningEffort` / `speedTier`。
 
 ## Host 工作目录解析
 
@@ -92,6 +95,7 @@ host 相关消费者统一使用同一份 effective cwd contract：
 - `agentType`
 - `model`
 - `reasoningEffort`
+- `speedTier`
 - `supportsReasoningEffort`
 
 这份元数据会沿着 runner -> backend -> DB / WebSocket -> Web / IM 卡片 一路透传，用于：
@@ -102,7 +106,7 @@ host 相关消费者统一使用同一份 effective cwd contract：
 - run log / dispatch log 排障
 - 区分“请求的运行时”和“实际执行的运行时”
 
-backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与 `reasoningEffort` 写入 runner input。对 Codex，这份 effective identity 还会显式纳入用户级 `~/.codex/config.toml` / 相关环境变量 fallback；这样 workspace 未显式设置时，`/status`、选择卡、dispatch 和 footer fallback 仍会保持一套值。若 runner 返回了实际 `runtime_identity`，仍以 runner 返回值为最终记录。
+backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`reasoningEffort` 与 `speedTier` 写入 runner input。对 Codex，这份 effective identity 还会显式纳入用户级 `~/.codex/config.toml` / 相关环境变量 fallback；这样 workspace 未显式设置时，`/status`、选择卡、dispatch 和 footer fallback 仍会保持一套值。若 runner 返回了实际 `runtime_identity`，仍以 runner 返回值为最终记录。
 
 ## 会话与 Runner 对应关系
 
@@ -142,7 +146,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model` 与
 当前限制：
 
 - `sessions` 表的主键维度仍是 `(folder, agentId)`；主会话使用空 `agent_id`，不再为 IM 主对话创建或保留 `im:<sourceJid>` runtime slot。它不是 `(folder, agentId, agentType)`。
-- 切换 `agentType`、`executionMode`、`model` 或 `reasoningEffort` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
+- 切换 `agentType`、`executionMode`、`model`、`reasoningEffort` 或 `speedTier` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
 - 因此，主对话从 Codex 切到 Claude 再切回 Codex 时，当前版本不保证恢复切换前的 Codex session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
 
 ## 外部运行时契约

@@ -6,11 +6,13 @@ import path from 'node:path';
 export interface CodexCliConfig {
   model: string | null;
   reasoningEffort: string | null;
+  speedTier: string | null;
 }
 
 export interface CodexRuntimeFallback {
   model: string | null;
   reasoningEffort: string | null;
+  speedTier: string | null;
 }
 
 export interface CodexCliReadiness {
@@ -125,7 +127,7 @@ export function readCodexCliConfig(
 ): CodexCliConfig {
   try {
     if (!fs.existsSync(configPath)) {
-      return { model: null, reasoningEffort: null };
+      return { model: null, reasoningEffort: null, speedTier: null };
     }
     const content = fs.readFileSync(configPath, 'utf-8');
     return {
@@ -133,9 +135,10 @@ export function readCodexCliConfig(
       reasoningEffort:
         readTomlString(content, 'model_reasoning_effort') ??
         readTomlString(content, 'reasoning_effort'),
+      speedTier: readTomlString(content, 'service_tier'),
     };
   } catch {
-    return { model: null, reasoningEffort: null };
+    return { model: null, reasoningEffort: null, speedTier: null };
   }
 }
 
@@ -157,6 +160,11 @@ export function getCodexRuntimeFallback(
       normalizeText(env.CODEX_REASONING_EFFORT) ??
       normalizeText(env.REASONING_EFFORT) ??
       cliConfig.reasoningEffort,
+    speedTier:
+      normalizeText(env.OPENAI_SERVICE_TIER) ??
+      normalizeText(env.CODEX_SERVICE_TIER) ??
+      normalizeText(env.SERVICE_TIER) ??
+      cliConfig.speedTier,
   };
 }
 

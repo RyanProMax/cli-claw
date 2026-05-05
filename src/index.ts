@@ -287,11 +287,13 @@ let startupLaunchSpec: StartupLaunchSpec = inferStartupLaunchSpecFromProcess();
 function getCodexRuntimeIdentityOptions(): {
   codexCliModel: string | null;
   codexCliReasoningEffort: string | null;
+  codexCliSpeedTier: string | null;
 } {
   const fallback = getCodexRuntimeFallback();
   return {
     codexCliModel: fallback.model,
     codexCliReasoningEffort: fallback.reasoningEffort,
+    codexCliSpeedTier: fallback.speedTier,
   };
 }
 
@@ -1976,9 +1978,14 @@ async function handleCommand(
     'IM command invoked',
   );
 
-  if (cmd === 'help' || cmd === 'model' || cmd === 'effort') {
+  if (
+    cmd === 'help' ||
+    cmd === 'model' ||
+    cmd === 'effort' ||
+    cmd === 'speed'
+  ) {
     if (
-      (cmd === 'model' || cmd === 'effort') &&
+      (cmd === 'model' || cmd === 'effort' || cmd === 'speed') &&
       !rawArgs &&
       chatJid.startsWith('feishu:')
     ) {
@@ -2423,6 +2430,7 @@ function handleStatusCommand(chatJid: string): string {
       runtimeAgentType: runtimeIdentity?.agentType ?? null,
       runtimeModel: runtimeIdentity?.model ?? null,
       runtimeReasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
+      runtimeSpeedTier: runtimeIdentity?.speedTier ?? null,
     },
     'Status command rendered',
   );
@@ -2441,6 +2449,7 @@ function handleStatusCommand(chatJid: string): string {
       agentType: runtimeIdentity?.agentType === 'codex' ? 'codex' : 'claude',
       model: runtimeIdentity?.model ?? 'unknown',
       reasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
+      speedTier: runtimeIdentity?.speedTier ?? null,
       primaryRemaining: formatQuotaValue(codexUsage?.primaryRemainingPct),
       primaryReset: formatResetValue(codexUsage?.primaryResetAt),
       secondaryRemaining: formatQuotaValue(codexUsage?.secondaryRemainingPct),
@@ -5373,6 +5382,7 @@ async function runAgent(
           agentType,
           model: effectiveRuntimeIdentity.model ?? null,
           reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
+          speedTier: effectiveRuntimeIdentity.speedTier ?? null,
           isMain: isAdminHome,
           isHome,
           isAdminHome,
@@ -5394,6 +5404,7 @@ async function runAgent(
           chatJid,
           model: effectiveRuntimeIdentity.model ?? null,
           reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
+          speedTier: effectiveRuntimeIdentity.speedTier ?? null,
           isMain: isAdminHome,
           isHome,
           isAdminHome,
@@ -8079,6 +8090,7 @@ async function processAgentConversation(
       agentType,
       model: effectiveRuntimeIdentity.model ?? null,
       reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
+      speedTier: effectiveRuntimeIdentity.speedTier ?? null,
       isMain: isAdminHome,
       isHome,
       isAdminHome,
@@ -9436,7 +9448,7 @@ function handleCardInterrupt(chatJid: string): void {
 async function handleCardRuntimeUpdate(
   chatJid: string,
   update: {
-    action: 'set_runtime_model' | 'set_runtime_effort';
+    action: 'set_runtime_model' | 'set_runtime_effort' | 'set_runtime_speed';
     value: string;
   },
 ): Promise<string> {
@@ -9450,7 +9462,12 @@ async function handleCardRuntimeUpdate(
   );
   const result = await applyRuntimeWorkspaceSelection({
     chatJid,
-    selection: update.action === 'set_runtime_model' ? 'model' : 'effort',
+    selection:
+      update.action === 'set_runtime_model'
+        ? 'model'
+        : update.action === 'set_runtime_effort'
+          ? 'effort'
+          : 'speed',
     value: update.value,
     deps: {
       getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),

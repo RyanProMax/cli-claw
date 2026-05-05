@@ -93,7 +93,9 @@ export function MessageInput({
   const currentRuntimeValue =
     pickerCommand === 'model'
       ? (runtimeModelCurrent ?? group?.model ?? null)
-      : (group?.reasoning_effort ?? null);
+      : pickerCommand === 'effort'
+        ? (group?.reasoning_effort ?? null)
+        : (group?.speed_tier ?? 'standard');
 
   // iOS keyboard adaptation
   useKeyboardHeight();
@@ -474,10 +476,18 @@ export function MessageInput({
             ? value as 'low' | 'medium' | 'high' | 'xhigh'
             : ((group.reasoning_effort as 'low' | 'medium' | 'high' | 'xhigh' | null) ??
               null),
+        speed_tier:
+          command === 'speed'
+            ? (value as 'standard' | 'fast')
+            : ((group.speed_tier as 'standard' | 'fast' | null) ?? null),
       });
       successTap();
       toast.success(
-        command === 'model' ? '模型已更新' : '思考强度已更新',
+        command === 'model'
+          ? '模型已更新'
+          : command === 'effort'
+            ? '思考强度已更新'
+            : '速度已更新',
         {
           description:
             pickerOptions.find((option) => option.value === value)?.label ?? value,
@@ -659,7 +669,11 @@ export function MessageInput({
             <div className="px-3 pb-2">
               <div className="rounded-xl border border-brand-200/60 bg-brand-50/30 p-2.5">
                 <div className="mb-2 text-[11px] font-medium text-muted-foreground">
-                  {pickerCommand === 'model' ? '选择模型' : '选择思考强度'}
+                  {pickerCommand === 'model'
+                    ? '选择模型'
+                    : pickerCommand === 'effort'
+                      ? '选择思考强度'
+                      : '选择速度'}
                 </div>
                 {pickerOptions.length > 0 ? (
                   <div className="space-y-1">

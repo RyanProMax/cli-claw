@@ -1,6 +1,7 @@
 export interface RequestedCodexRuntime {
   model?: string | null;
   reasoningEffort?: string | null;
+  speedTier?: string | null;
 }
 
 export interface CodexTurnAccumulator {
@@ -50,6 +51,14 @@ function normalizeReasoningEffort(
   return parts[parts.length - 1] || normalized;
 }
 
+function normalizeServiceTier(value: string | null | undefined): string | null {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  const lowered = normalized.toLowerCase();
+  if (lowered === 'standard') return null;
+  return lowered;
+}
+
 function toTomlBasicString(value: string): string {
   return JSON.stringify(value);
 }
@@ -62,6 +71,7 @@ export function buildCodexAcpConfigOverrides(
   const reasoningEffort = normalizeReasoningEffort(
     requestedRuntime.reasoningEffort,
   );
+  const serviceTier = normalizeServiceTier(requestedRuntime.speedTier);
 
   if (model) {
     overrides.push(`model=${toTomlBasicString(model)}`);
@@ -71,6 +81,10 @@ export function buildCodexAcpConfigOverrides(
     overrides.push(
       `model_reasoning_effort=${toTomlBasicString(reasoningEffort)}`,
     );
+  }
+
+  if (serviceTier) {
+    overrides.push(`service_tier=${toTomlBasicString(serviceTier)}`);
   }
 
   return overrides;

@@ -18,6 +18,7 @@ export interface GroupInfo {
   execution_mode?: 'container' | 'host';
   model?: string | null;
   reasoning_effort?: string | null;
+  speed_tier?: string | null;
   custom_cwd?: string;
   created_by?: string;
   pinned_at?: string;

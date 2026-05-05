@@ -26,6 +26,7 @@ export interface StreamRuntimeIdentity {
   agentType: 'claude' | 'codex';
   model?: string | null;
   reasoningEffort?: string | null;
+  speedTier?: string | null;
   supportsReasoningEffort?: boolean | null;
 }
 

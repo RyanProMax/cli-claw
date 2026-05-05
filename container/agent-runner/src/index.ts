@@ -76,6 +76,11 @@ const CODEX_REASONING_EFFORT =
   process.env.CODEX_REASONING_EFFORT ||
   process.env.REASONING_EFFORT ||
   '';
+const CODEX_SERVICE_TIER =
+  process.env.OPENAI_SERVICE_TIER ||
+  process.env.CODEX_SERVICE_TIER ||
+  process.env.SERVICE_TIER ||
+  '';
 const CODEX_CLI_CONFIG = readCodexCliConfig();
 
 const IPC_INPUT_DIR = path.join(WORKSPACE_IPC, 'input');
@@ -167,6 +172,9 @@ function extractCodexRuntimeIdentity(
   let reasoningEffort =
     readStringField(payload, 'reasoning_effort') ??
     readStringField(payload, 'model_reasoning_effort');
+  let speedTier =
+    readStringField(payload, 'speed_tier') ??
+    readStringField(payload, 'service_tier');
 
   const models = isRecord(payload.models) ? payload.models : null;
   const currentModelId = models
@@ -190,20 +198,28 @@ function extractCodexRuntimeIdentity(
     readCodexConfigOption(configOptions, 'model_reasoning_effort') ??
     readCodexConfigOption(payload.config, 'reasoning_effort') ??
     readCodexConfigOption(payload.config, 'model_reasoning_effort');
+  speedTier =
+    speedTier ??
+    readCodexConfigOption(configOptions, 'service_tier') ??
+    readCodexConfigOption(payload.config, 'service_tier');
 
-  if (!model && !reasoningEffort) return null;
+  if (!model && !reasoningEffort && !speedTier) return null;
 
   return {
     agentType: 'codex',
     model,
     reasoningEffort,
+    speedTier: speedTier ?? 'standard',
     supportsReasoningEffort: true,
   };
 }
 
 function buildRuntimeIdentity(
   agentType: 'claude' | 'codex',
-  requestedRuntime?: Pick<ContainerInput, 'model' | 'reasoningEffort'>,
+  requestedRuntime?: Pick<
+    ContainerInput,
+    'model' | 'reasoningEffort' | 'speedTier'
+  >,
 ): StreamRuntimeIdentity {
   if (agentType === 'codex') {
     return {
@@ -216,6 +232,11 @@ function buildRuntimeIdentity(
         normalizeRuntimeText(requestedRuntime?.reasoningEffort ?? undefined) ??
         normalizeRuntimeText(CODEX_REASONING_EFFORT) ??
         normalizeRuntimeText(CODEX_CLI_CONFIG.reasoningEffort ?? undefined),
+      speedTier:
+        normalizeRuntimeText(requestedRuntime?.speedTier ?? undefined) ??
+        normalizeRuntimeText(CODEX_SERVICE_TIER) ??
+        normalizeRuntimeText(CODEX_CLI_CONFIG.speedTier ?? undefined) ??
+        'standard',
       supportsReasoningEffort: true,
     };
   }
@@ -225,6 +246,7 @@ function buildRuntimeIdentity(
       normalizeRuntimeText(requestedRuntime?.model ?? undefined) ??
       normalizeRuntimeText(CLAUDE_MODEL),
     reasoningEffort: null,
+    speedTier: null,
     supportsReasoningEffort: false,
   };
 }
@@ -1268,6 +1290,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
     requestedRuntime: {
       model: containerInput.model ?? null,
       reasoningEffort: containerInput.reasoningEffort ?? null,
+      speedTier: containerInput.speedTier ?? null,
     },
   });
   const acpEnv = {
@@ -1285,7 +1308,19 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
           REASONING_EFFORT: containerInput.reasoningEffort,
         }
       : {}),
+    ...(containerInput.speedTier && containerInput.speedTier !== 'standard'
+      ? {
+          OPENAI_SERVICE_TIER: containerInput.speedTier,
+          CODEX_SERVICE_TIER: containerInput.speedTier,
+          SERVICE_TIER: containerInput.speedTier,
+        }
+      : {}),
   };
+  if (containerInput.speedTier === 'standard') {
+    delete acpEnv.OPENAI_SERVICE_TIER;
+    delete acpEnv.CODEX_SERVICE_TIER;
+    delete acpEnv.SERVICE_TIER;
+  }
   const acpProcess = spawn(acpCommand, acpArgs, {
     cwd: WORKSPACE_GROUP,
     env: acpEnv,
@@ -2302,6 +2337,7 @@ async function main(): Promise<void> {
     activeRuntimeIdentity = buildRuntimeIdentity(requestedAgentType, {
       model: containerInput.model ?? null,
       reasoningEffort: containerInput.reasoningEffort ?? null,
+      speedTier: containerInput.speedTier ?? null,
     });
     log(
       `Received input for group: ${containerInput.groupFolder}, chatJid: ${containerInput.chatJid}, agentType: ${requestedAgentType}, session: ${containerInput.sessionId || 'new'}, runnerPid: ${process.pid}`,

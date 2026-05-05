@@ -35,6 +35,7 @@ import {
 import {
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
+  normalizeSpeedTierPreset,
 } from './runtime-command-registry.js';
 import type { MessageSourceKind, RuntimeIdentity } from './types.js';
 
@@ -95,7 +96,7 @@ export interface ConnectOptions {
   onCardRuntimeUpdate?: (
     chatJid: string,
     update: {
-      action: 'set_runtime_model' | 'set_runtime_effort';
+      action: 'set_runtime_model' | 'set_runtime_effort' | 'set_runtime_speed';
       value: string;
     },
   ) => Promise<string | null>;
@@ -141,7 +142,8 @@ export interface FeishuConnection {
 type FeishuCardAction =
   | 'interrupt_stream'
   | 'set_runtime_model'
-  | 'set_runtime_effort';
+  | 'set_runtime_effort'
+  | 'set_runtime_speed';
 
 // ─── Shared Helpers (pure functions, no instance state) ────────
 
@@ -1654,7 +1656,8 @@ export function createFeishuConnection(
     if (
       value === 'interrupt_stream' ||
       value === 'set_runtime_model' ||
-      value === 'set_runtime_effort'
+      value === 'set_runtime_effort' ||
+      value === 'set_runtime_speed'
     ) {
       return value;
     }
@@ -1783,9 +1786,12 @@ export function createFeishuConnection(
     selectedValue: string | null,
   ): Extract<
     FeishuCardAction,
-    'set_runtime_model' | 'set_runtime_effort'
+    'set_runtime_model' | 'set_runtime_effort' | 'set_runtime_speed'
   > | null {
     if (!selectedValue) return null;
+    if (normalizeSpeedTierPreset(selectedValue)) {
+      return 'set_runtime_speed';
+    }
     if (normalizeReasoningEffortPreset(selectedValue)) {
       return 'set_runtime_effort';
     }
@@ -1966,7 +1972,9 @@ export function createFeishuConnection(
 
             const selectedValue = extractCardActionValue(data);
             const runtimeAction =
-              action === 'set_runtime_model' || action === 'set_runtime_effort'
+              action === 'set_runtime_model' ||
+              action === 'set_runtime_effort' ||
+              action === 'set_runtime_speed'
                 ? action
                 : inferRuntimeActionFromSelectedValue(selectedValue);
 

@@ -188,6 +188,7 @@ interface ChatState {
       execution_mode: 'container' | 'host';
       model?: string | null;
       reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
+      speed_tier?: 'standard' | 'fast' | null;
     },
   ) => Promise<void>;
   togglePin: (jid: string) => Promise<void>;
@@ -384,6 +385,7 @@ function toPresentationRuntimeIdentity(
     agentType: identity.agentType,
     model: identity.model,
     reasoningEffort: identity.reasoningEffort,
+    speedTier: identity.speedTier,
     supportsReasoningEffort: identity.supportsReasoningEffort,
   };
 }
@@ -1366,6 +1368,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       execution_mode: 'container' | 'host';
       model?: string | null;
       reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
+      speed_tier?: 'standard' | 'fast' | null;
     },
   ) => {
     try {
@@ -1382,6 +1385,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               execution_mode: runtime.execution_mode,
               model: runtime.model ?? null,
               reasoning_effort: runtime.reasoning_effort ?? null,
+              speed_tier: runtime.speed_tier ?? null,
             },
           },
           error: null,

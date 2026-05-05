@@ -233,6 +233,7 @@ describe('group runtime stale-build guard', () => {
     mocks.getCodexRuntimeFallback.mockReturnValue({
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
+      speedTier: null,
     });
     mocks.getClaudeProviderConfig.mockReturnValue({
       anthropicModel: 'sonnet',
@@ -421,7 +422,7 @@ describe('group runtime stale-build guard', () => {
     );
   });
 
-  test('persists workspace model and reasoning effort on patch', async () => {
+  test('persists workspace model, reasoning effort, and speed tier on patch', async () => {
     const app = createApp();
 
     const res = await app.request('/api/groups/web:main', {
@@ -431,6 +432,7 @@ describe('group runtime stale-build guard', () => {
         agent_type: 'codex',
         model: 'gpt-5.4',
         reasoning_effort: 'xhigh',
+        speed_tier: 'fast',
       }),
     });
 
@@ -440,6 +442,7 @@ describe('group runtime stale-build guard', () => {
       expect.objectContaining({
         model: 'gpt-5.4',
         reasoningEffort: 'xhigh',
+        speedTier: 'fast',
       }),
     );
   });

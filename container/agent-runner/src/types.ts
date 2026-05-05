@@ -21,6 +21,7 @@ export interface ContainerInput {
   agentType?: 'claude' | 'codex';
   model?: string | null;
   reasoningEffort?: string | null;
+  speedTier?: string | null;
   /** @deprecated Use isHome + isAdminHome instead. Kept for backward compatibility with older host processes. */
   isMain?: boolean;
   /** Whether this is the user's home container (admin or member). */

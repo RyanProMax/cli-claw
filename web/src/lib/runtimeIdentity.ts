@@ -2,6 +2,7 @@ export interface RuntimeIdentity {
   agentType?: 'claude' | 'codex' | string;
   model?: string | null;
   reasoningEffort?: string | null;
+  speedTier?: string | null;
   supportsReasoningEffort?: boolean | null;
 }
 
@@ -18,7 +19,17 @@ export function formatRuntimeIdentityFooter(
   const model = normalizeText(identity.model);
   if (!model) return null;
   const reasoningEffort = normalizeText(identity.reasoningEffort);
-  if (reasoningEffort) return `${model} | ${reasoningEffort}`;
+  const speedTier =
+    identity.agentType === 'codex'
+      ? identity.speedTier === 'fast'
+        ? 'fast (2x)'
+        : identity.speedTier && identity.speedTier !== 'standard'
+          ? identity.speedTier
+          : 'standard (1x)'
+      : null;
+  if (reasoningEffort) {
+    return [model, reasoningEffort, speedTier].filter(Boolean).join(' | ');
+  }
   if (identity.supportsReasoningEffort === false) return model;
-  return null;
+  return speedTier ? `${model} | ${speedTier}` : null;
 }

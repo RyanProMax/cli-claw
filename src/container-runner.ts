@@ -165,6 +165,7 @@ export interface ContainerInput {
   agentType?: AgentType;
   model?: string | null;
   reasoningEffort?: string | null;
+  speedTier?: string | null;
   /** @deprecated Use isHome + isAdminHome instead */
   isMain: boolean;
   turnId?: string;

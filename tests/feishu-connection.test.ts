@@ -293,7 +293,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     });
 
     expect(buildStaticReplyCard).toHaveBeenCalledWith('最终回复', {
-      footerNote: '2.5s | Codex | GPT-5.5 | high',
+      footerNote: '2.5s | Codex | GPT-5.5 | high | standard (1x)',
       runtimeIdentity,
     });
     expect(hoisted.createSpy).toHaveBeenCalledWith({
@@ -347,7 +347,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
               [
                 {
                   tag: 'md',
-                  text: '最终回复\n\n2.5s | Codex | GPT-5.5 | high',
+              text: '最终回复\n\n2.5s | Codex | GPT-5.5 | high | standard (1x)',
                 },
               ],
             ],
@@ -1106,6 +1106,39 @@ describe('feishu connection prebuilt interactive card delivery', () => {
           },
         }),
       },
+    });
+  });
+
+  test('forwards speed picker card actions when Feishu returns select_static option as a string', async () => {
+    const onCardRuntimeUpdate = vi
+      .fn()
+      .mockResolvedValue('已将当前工作区速度切换为 fast');
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCardRuntimeUpdate,
+    });
+
+    await hoisted.handlers['card.action.trigger']?.({
+      action: {
+        tag: 'select_static',
+        option: 'fast',
+        value: {
+          action: 'set_runtime_speed',
+        },
+      },
+      context: {
+        open_chat_id: 'runtime-chat',
+      },
+    });
+
+    expect(onCardRuntimeUpdate).toHaveBeenCalledWith('feishu:runtime-chat', {
+      action: 'set_runtime_speed',
+      value: 'fast',
     });
   });
 

@@ -1,6 +1,7 @@
 export {
   getDefaultModelPreset,
   getDefaultReasoningEffortPreset,
+  getDefaultSpeedTierPreset,
   findRuntimeCommand,
   formatCommandHelp,
   getAvailableCommands,
@@ -8,12 +9,16 @@ export {
   getModelPresets,
   getReasoningEffortOptions,
   getReasoningEffortPresets,
+  getSpeedTierOptions,
+  getSpeedTierPresets,
   isCommandAvailable,
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
+  normalizeSpeedTierPreset,
   parseRuntimeCommand,
   RUNTIME_COMMANDS,
   supportsReasoningEffort,
+  supportsSpeedTier,
 } from '../../../shared/dist/runtime-command-registry.js';
 
 export type {
@@ -23,4 +28,5 @@ export type {
   RuntimeCommandDefinition,
   RuntimeCommandEntrypoint,
   RuntimePresetOption,
+  SpeedTierPreset,
 } from '../../../shared/dist/runtime-command-registry.js';

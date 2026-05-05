@@ -31,7 +31,9 @@ import {
 } from '../host-workspace-cwd.js';
 import {
   normalizeReasoningEffortPreset,
+  normalizeSpeedTierPreset,
   supportsReasoningEffort,
+  supportsSpeedTier,
 } from '../runtime-command-registry.js';
 import {
   getAvailableRuntimeModelOptions,
@@ -137,6 +139,17 @@ function normalizeOptionalReasoningEffort(
   return normalizeReasoningEffortPreset(trimmed);
 }
 
+function normalizeOptionalSpeedTier(
+  agentType: AgentType,
+  rawValue: string | null | undefined,
+): string | null {
+  if (rawValue == null) return null;
+  const trimmed = rawValue.trim();
+  if (!trimmed) return null;
+  if (!supportsSpeedTier(agentType)) return null;
+  return normalizeSpeedTierPreset(trimmed);
+}
+
 function findHomeSiblingGroup(group: RegisteredGroup): RegisteredGroup | null {
   for (const siblingJid of getJidsByFolder(group.folder)) {
     const sibling = getRegisteredGroup(siblingJid);
@@ -163,6 +176,7 @@ function resolveRuntimeIdentityForGroup(group: RegisteredGroup) {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
       codexCliModel: codexRuntimeFallback.model,
       codexCliReasoningEffort: codexRuntimeFallback.reasoningEffort,
+      codexCliSpeedTier: codexRuntimeFallback.speedTier,
     },
   );
 }
@@ -249,6 +263,7 @@ interface GroupPayloadItem {
   agent_type: AgentType;
   model?: string | null;
   reasoning_effort?: string | null;
+  speed_tier?: string | null;
   kind: 'home' | 'feishu' | 'web';
   editable: boolean;
   deletable: boolean;
@@ -368,6 +383,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
       agent_type: group.agentType || 'claude',
       model: group.model ?? null,
       reasoning_effort: group.reasoningEffort ?? null,
+      speed_tier: group.speedTier ?? null,
       kind: isHome ? 'home' : isWeb ? 'web' : 'feishu',
       editable: isWeb,
       deletable: isWeb && !isHome,
@@ -515,6 +531,20 @@ groupRoutes.post('/', authMiddleware, async (c) => {
         error: supportsReasoningEffort(agentType)
           ? 'Unsupported reasoning_effort preset'
           : `${agentType} does not support reasoning_effort`,
+      },
+      400,
+    );
+  }
+  const speedTier = normalizeOptionalSpeedTier(
+    agentType,
+    validation.data.speed_tier,
+  );
+  if (validation.data.speed_tier && !speedTier) {
+    return c.json(
+      {
+        error: supportsSpeedTier(agentType)
+          ? 'Unsupported speed_tier preset'
+          : `${agentType} does not support speed_tier`,
       },
       400,
     );
@@ -697,6 +727,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     executionMode: executionMode as ExecutionMode,
     model,
     reasoningEffort,
+    speedTier,
     customCwd: executionMode === 'host' ? normalizedCustomCwd : undefined,
     initSourcePath: executionMode !== 'host' ? initSourcePath : undefined,
     initGitUrl: executionMode !== 'host' ? initGitUrl : undefined,
@@ -775,6 +806,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       execution_mode: group.executionMode || 'container',
       model: group.model ?? null,
       reasoning_effort: group.reasoningEffort ?? null,
+      speed_tier: group.speedTier ?? null,
       custom_cwd: hasHostExecutionPermission(authUser)
         ? materializedGroup.group.customCwd
         : undefined,
@@ -815,6 +847,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     execution_mode,
     model,
     reasoning_effort,
+    speed_tier,
   } = validation.data;
   const name = rawName ? normalizeGroupName(rawName) : undefined;
 
@@ -826,7 +859,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     agent_type === undefined &&
     execution_mode === undefined &&
     model === undefined &&
-    reasoning_effort === undefined
+    reasoning_effort === undefined &&
+    speed_tier === undefined
   ) {
     return c.json({ error: 'No fields to update' }, 400);
   }
@@ -847,7 +881,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     agent_type === undefined &&
     execution_mode === undefined &&
     model === undefined &&
-    reasoning_effort === undefined;
+    reasoning_effort === undefined &&
+    speed_tier === undefined;
   if (isPinOnly) {
     if (
       !canAccessGroup(
@@ -896,7 +931,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     agent_type !== undefined ||
     execution_mode !== undefined ||
     model !== undefined ||
-    reasoning_effort !== undefined
+    reasoning_effort !== undefined ||
+    speed_tier !== undefined
   ) {
     const nextAgentType =
       agent_type !== undefined
@@ -948,6 +984,20 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         400,
       );
     }
+    const nextSpeedTier =
+      speed_tier !== undefined
+        ? normalizeOptionalSpeedTier(nextAgentType, speed_tier)
+        : (existing.speedTier ?? null);
+    if (speed_tier !== undefined && speed_tier !== null && !nextSpeedTier) {
+      return c.json(
+        {
+          error: supportsSpeedTier(nextAgentType)
+            ? 'Unsupported speed_tier preset'
+            : `${nextAgentType} does not support speed_tier`,
+        },
+        400,
+      );
+    }
     const runtimeBoundaryChanged = hasRuntimeBoundaryChange({
       currentAgentType: existing.agentType || 'claude',
       currentExecutionMode: existing.executionMode || 'container',
@@ -957,7 +1007,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     const runtimeSettingsChanged =
       runtimeBoundaryChanged ||
       (existing.model ?? null) !== nextModel ||
-      (existing.reasoningEffort ?? null) !== nextReasoningEffort;
+      (existing.reasoningEffort ?? null) !== nextReasoningEffort ||
+      (existing.speedTier ?? null) !== nextSpeedTier;
     const runtimeError = validateGroupRuntimeUpdate({
       isHome: !!existing.is_home,
       currentExecutionMode: existing.executionMode || 'container',
@@ -1009,6 +1060,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
           : existing.executionMode,
       model: nextModel,
       reasoningEffort: nextReasoningEffort,
+      speedTier: nextSpeedTier,
       customCwd: existing.customCwd,
       initSourcePath: existing.initSourcePath,
       initGitUrl: existing.initGitUrl,
@@ -1053,6 +1105,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
             nextModel,
             previousReasoningEffort: existing.reasoningEffort ?? null,
             nextReasoningEffort,
+            previousSpeedTier: existing.speedTier ?? null,
+            nextSpeedTier,
             err,
           },
           'Workspace runtime changed but failed to reset active runners',
@@ -1077,6 +1131,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
           nextModel,
           previousReasoningEffort: existing.reasoningEffort ?? null,
           nextReasoningEffort,
+          previousSpeedTier: existing.speedTier ?? null,
+          nextSpeedTier,
         },
         'Workspace runtime changed, reset active runners and sessions',
       );

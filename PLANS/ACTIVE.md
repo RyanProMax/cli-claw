@@ -1,19 +1,84 @@
-# Feishu Card Residue Root Cause Trace
+# Codex Fast Mode Runtime Metadata
 
 ## Goal
 
-- Find the remaining root cause of Feishu cards showing old `/hkipo` stock-analysis content after a new ordinary Feishu message.
-- Add structured diagnostics at the failing boundaries so one Feishu `messageId` can be traced through DB, queue, runner stream events, card state, and final delivery.
-- Fix the root cause with a real-flow regression that fails on the observed stale-card behavior and passes after the fix.
+- Support toggling Codex fast mode from Cli Claw runtime controls.
+- Carry the effective Codex speed tier through runner runtime identity and persisted assistant metadata.
+- Add footer visibility for `standard (1x)` / `fast (2x)` in Web and Feishu cards.
 
 ## Done when
 
-- Live evidence identifies whether the stale content is coming from runtime session reuse, stale streaming buffer/card state, stale SDK event routing, or Feishu delivery/update targeting.
-- Logs include enough compact fields to connect current user message id, source jid, turn id, session id, stream/card cursor, card message id, and visible text hash/preview.
-- Feishu card payload for a new ordinary message cannot include old stock-analysis snippets, even when stale streaming/card state exists before processing.
-- Validation, review, commit, safe restart, and residue check pass.
+- `/speed` can select `standard` or `fast` for Codex workspaces.
+- Codex runner launches fast turns with `service_tier="fast"` and leaves standard turns without a service-tier override.
+- Footer helpers render `standard (1x)` or `fast (2x)` for Codex runtime identity.
+- Validation, review, commit, and safe restart pass.
 
 ## Milestones
+
+### Milestone 65
+
+Objective:
+- Add Codex speed-tier runtime setting and footer display with minimal coupling to existing model/effort controls.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `shared/runtime-command-registry.ts`
+- `shared/assistant-meta-footer.ts`
+- `shared/stream-event.ts`
+- `src/types.ts`
+- `src/db.ts`
+- `src/codex-config.ts`
+- `src/group-runtime.ts`
+- `src/runtime-identity.ts`
+- `src/runtime-command-handler.ts`
+- `src/routes/groups.ts`
+- `src/feishu.ts`
+- `src/feishu-streaming-card.ts`
+- `src/index.ts`
+- `src/container-runner.ts`
+- `container/agent-runner/src/types.ts`
+- `container/agent-runner/src/codex-config.ts`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `container/agent-runner/src/index.ts`
+- `web/src/types.ts`
+- `web/src/lib/runtimeIdentity.ts`
+- `web/src/lib/runtimeCommandPicker.ts`
+- `web/src/components/chat/MessageInput.tsx`
+- `web/src/stores/chat.ts`
+- Related tests for runtime command, footer, group route, Codex runner, and Feishu picker behavior.
+
+Validation:
+- `npm test -- --run tests/codex-session-runtime.test.ts tests/assistant-meta-footer.test.ts tests/runtime-identity.test.ts tests/runtime-command-registry.test.ts tests/runtime-command-handler.test.ts tests/groups-route.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-05：Confirmed local Codex CLI accepts `service_tier="fast"` and rejects `standard`; standard is represented by omitting the service-tier override.
+- 2026-05-05：Added workspace-level `speedTier` / `speed_tier`, `/speed` runtime picker, Feishu card action handling, Web picker support, DB persistence, and runner dispatch propagation.
+- 2026-05-05：Added Codex footer rendering for `standard (1x)` / `fast (2x)` across shared footer helpers, Web runtime footer, Feishu static/streaming cards, and status output.
+- 2026-05-05：Documented the `/speed` command and `speedTier` runtime identity contract in command/runtime docs.
+
+Validation status:
+- passed 2026-05-05:
+  - `npm test -- --run tests/codex-session-runtime.test.ts tests/codex-config.test.ts tests/assistant-meta-footer.test.ts tests/runtime-identity.test.ts tests/runtime-command-registry.test.ts tests/runtime-command-handler.test.ts tests/group-runtime.test.ts tests/groups-route.test.ts tests/feishu-streaming-card.test.ts tests/feishu-connection.test.ts tests/im-command-utils.test.ts`
+  - extra focused rerun after semantic adjustment: `npm test -- --run tests/runtime-command-handler.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-05: scope matches Milestone 65; the implementation follows the existing model/effort runtime-control pattern; `fast` maps to Codex CLI `service_tier="fast"` while `standard` does not emit a service-tier override; footer/state metadata is propagated through shared runtime identity instead of channel-specific hacks; docs and tests cover the new command, persistence, runner launch args, and footer output.
+
+Handoff:
+- `/speed` is available for Codex workspaces in Web and Feishu. Footer now shows `standard (1x)` by default for Codex and `fast (2x)` when the effective runtime identity carries `speedTier: "fast"`. Codex CLI does not accept `service_tier="standard"`; standard is represented as no service-tier override.
 
 ### Milestone 64
 

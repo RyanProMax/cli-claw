@@ -16,8 +16,12 @@ describe('runtime identity helpers', () => {
       supportsReasoningEffort: true,
     };
 
-    expect(formatBackendRuntimeIdentityFooter(identity)).toBe('GPT-5.4 | xhigh');
-    expect(formatWebRuntimeIdentityFooter(identity)).toBe('GPT-5.4 | xhigh');
+    expect(formatBackendRuntimeIdentityFooter(identity)).toBe(
+      'GPT-5.4 | xhigh | standard (1x)',
+    );
+    expect(formatWebRuntimeIdentityFooter(identity)).toBe(
+      'GPT-5.4 | xhigh | standard (1x)',
+    );
   });
 
   test('shows model only when reasoning effort is not applicable', () => {
@@ -31,14 +35,18 @@ describe('runtime identity helpers', () => {
     expect(formatWebRuntimeIdentityFooter(identity)).toBe('claude-opus-4.1');
   });
 
-  test('hides footer when reasoning effort support is unknown and effort is missing', () => {
+  test('shows Codex speed tier when reasoning effort is missing', () => {
     const identity = {
       agentType: 'codex' as const,
       model: 'GPT-5.4',
     };
 
-    expect(formatBackendRuntimeIdentityFooter(identity)).toBeNull();
-    expect(formatWebRuntimeIdentityFooter(identity)).toBeNull();
+    expect(formatBackendRuntimeIdentityFooter(identity)).toBe(
+      'GPT-5.4 | standard (1x)',
+    );
+    expect(formatWebRuntimeIdentityFooter(identity)).toBe(
+      'GPT-5.4 | standard (1x)',
+    );
   });
 
   test('serializes and parses normalized runtime identity payloads', () => {
@@ -46,6 +54,7 @@ describe('runtime identity helpers', () => {
       agentType: 'codex',
       model: ' GPT-5.4 ',
       reasoningEffort: ' xhigh ',
+      speedTier: ' fast ',
       supportsReasoningEffort: true,
     });
 
@@ -54,6 +63,7 @@ describe('runtime identity helpers', () => {
       agentType: 'codex',
       model: 'GPT-5.4',
       reasoningEffort: 'xhigh',
+      speedTier: 'fast',
       supportsReasoningEffort: true,
     });
   });

@@ -121,6 +121,7 @@ export const GroupCreateSchema = z.object({
   execution_mode: z.enum(['container', 'host']).optional(),
   model: z.string().max(128).optional(),
   reasoning_effort: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+  speed_tier: z.enum(['standard', 'fast']).optional(),
   custom_cwd: z
     .string()
     .optional()
@@ -193,6 +194,7 @@ export const GroupPatchSchema = z.object({
     .enum(['low', 'medium', 'high', 'xhigh'])
     .nullable()
     .optional(),
+  speed_tier: z.enum(['standard', 'fast']).nullable().optional(),
 });
 
 export const LoginSchema = z.object({

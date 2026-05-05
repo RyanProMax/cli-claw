@@ -4,14 +4,18 @@ import {
   formatCommandHelp,
   getDefaultModelPreset,
   getDefaultReasoningEffortPreset,
+  getDefaultSpeedTierPreset,
   getModelPresetOptions,
   formatUnknownRuntimeCommandReply,
   getModelPresets,
+  getSpeedTierOptions,
   normalizeModelPreset,
   normalizeReasoningEffortPreset,
+  normalizeSpeedTierPreset,
   parseSlashCommandCandidate,
   parseRuntimeCommand,
   supportsReasoningEffort,
+  supportsSpeedTier,
 } from '../src/runtime-command-registry.ts';
 import {
   detectRuntimePickerCommand,
@@ -30,6 +34,7 @@ describe('runtime command registry', () => {
     expect(help).toContain('/sw <任务描述>');
     expect(help).toContain('/model');
     expect(help).toContain('/effort');
+    expect(help).toContain('/speed');
     expect(help).not.toContain('/model <preset>');
     expect(help).not.toContain('/bind <workspace>');
   });
@@ -112,6 +117,13 @@ describe('runtime command registry', () => {
     expect(normalizeReasoningEffortPreset('turbo')).toBeNull();
   });
 
+  test('normalizes speed tier presets only for supported runtimes', () => {
+    expect(supportsSpeedTier('codex')).toBe(true);
+    expect(supportsSpeedTier('claude')).toBe(false);
+    expect(normalizeSpeedTierPreset(' FAST ')).toBe('fast');
+    expect(normalizeSpeedTierPreset('turbo')).toBeNull();
+  });
+
   test('exposes preset-only model lists by runtime', () => {
     expect(getModelPresets('claude')).toEqual([
       'opus[1m]',
@@ -142,12 +154,15 @@ describe('runtime command registry', () => {
     expect(getDefaultModelPreset('codex')).toBe('gpt-5.4');
     expect(getDefaultReasoningEffortPreset('claude')).toBeNull();
     expect(getDefaultReasoningEffortPreset('codex')).toBe('medium');
+    expect(getDefaultSpeedTierPreset('claude')).toBeNull();
+    expect(getDefaultSpeedTierPreset('codex')).toBe('standard');
   });
 
   test('detects runtime picker commands only for bare slash commands', () => {
     expect(detectRuntimePickerCommand('/model')).toBe('model');
     expect(detectRuntimePickerCommand('/model ')).toBe('model');
     expect(detectRuntimePickerCommand('/effort')).toBe('effort');
+    expect(detectRuntimePickerCommand('/speed')).toBe('speed');
     expect(detectRuntimePickerCommand('/model gpt-5.4')).toBeNull();
     expect(detectRuntimePickerCommand('hello')).toBeNull();
   });
@@ -162,6 +177,15 @@ describe('runtime command registry', () => {
         (item) => item.value,
       ),
     ).toEqual(['low', 'medium', 'high', 'xhigh']);
+    expect(getSpeedTierOptions()).toEqual([
+      { value: 'standard', label: 'standard (1x)' },
+      { value: 'fast', label: 'fast (2x)' },
+    ]);
+    expect(
+      getRuntimePickerOptions({ command: 'speed', agentType: 'codex' }).map(
+        (item) => item.value,
+      ),
+    ).toEqual(['standard', 'fast']);
   });
 
   test('extracts unknown slash commands without treating them as valid runtime commands', () => {

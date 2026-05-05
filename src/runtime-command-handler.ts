@@ -1,9 +1,13 @@
 import {
   formatCommandHelp,
   getReasoningEffortPresets,
+  getSpeedTierOptions,
+  getSpeedTierPresets,
   normalizeReasoningEffortPreset,
+  normalizeSpeedTierPreset,
   parseRuntimeCommand,
   supportsReasoningEffort,
+  supportsSpeedTier,
   type RuntimeCommandEntrypoint,
 } from './runtime-command-registry.js';
 import {
@@ -56,7 +60,7 @@ export interface RuntimeCommandResponse {
 
 export interface RuntimeWorkspaceSelectionOptions {
   chatJid: string;
-  selection: 'model' | 'effort';
+  selection: 'model' | 'effort' | 'speed';
   value: string;
   deps: RuntimeCommandDeps;
 }
@@ -162,6 +166,7 @@ export function resolveRuntimeWorkspaceTarget(
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
       codexCliModel: codexRuntimeFallback.model,
       codexCliReasoningEffort: codexRuntimeFallback.reasoningEffort,
+      codexCliSpeedTier: codexRuntimeFallback.speedTier,
     },
   );
 
@@ -193,6 +198,12 @@ export function buildRuntimeStatusReply(
   const runtimeIdentity = target.effectiveRuntimeIdentity;
   const agentType = normalizeAgentType(runtimeIdentity.agentType);
   const currentEffort = runtimeIdentity.reasoningEffort?.trim() || null;
+  const currentSpeedTier =
+    agentType === 'codex'
+      ? runtimeIdentity.speedTier === 'fast'
+        ? 'fast (2x)'
+        : 'standard (1x)'
+      : null;
   const lines = [
     '🤖 Agent',
     '━━━━━━━━━━',
@@ -203,6 +214,9 @@ export function buildRuntimeStatusReply(
   if (currentEffort) {
     lines.push(`⚙️ 当前推理强度: ${currentEffort}`);
   }
+  if (currentSpeedTier) {
+    lines.push(`🚀 当前速度: ${currentSpeedTier}`);
+  }
 
   return lines.join('\n');
 }
@@ -210,7 +224,9 @@ export function buildRuntimeStatusReply(
 async function updateWorkspaceRuntime(
   target: ResolvedRuntimeWorkspaceTarget,
   deps: RuntimeCommandDeps,
-  patch: Partial<Pick<RegisteredGroup, 'model' | 'reasoningEffort'>>,
+  patch: Partial<
+    Pick<RegisteredGroup, 'model' | 'reasoningEffort' | 'speedTier'>
+  >,
 ): Promise<void> {
   logger.info(
     {
@@ -218,11 +234,14 @@ async function updateWorkspaceRuntime(
       runtimeOwnerJid: target.runtimeOwnerJid,
       previousModel: target.runtimeOwnerGroup.model ?? null,
       previousReasoningEffort: target.runtimeOwnerGroup.reasoningEffort ?? null,
+      previousSpeedTier: target.runtimeOwnerGroup.speedTier ?? null,
       nextModel: patch.model ?? target.runtimeOwnerGroup.model ?? null,
       nextReasoningEffort:
         patch.reasoningEffort ??
         target.runtimeOwnerGroup.reasoningEffort ??
         null,
+      nextSpeedTier:
+        patch.speedTier ?? target.runtimeOwnerGroup.speedTier ?? null,
     },
     'Persisting workspace runtime update',
   );
@@ -245,6 +264,7 @@ async function updateWorkspaceRuntime(
       runtimeOwnerJid: target.runtimeOwnerJid,
       persistedModel: updated.model ?? null,
       persistedReasoningEffort: updated.reasoningEffort ?? null,
+      persistedSpeedTier: updated.speedTier ?? null,
     },
     'Persisted workspace runtime update',
   );
@@ -304,6 +324,30 @@ async function handleEffortCommand(
   return `已将当前工作区思考强度切换为 ${preset}`;
 }
 
+async function handleSpeedCommand(
+  target: ResolvedRuntimeWorkspaceTarget,
+  deps: RuntimeCommandDeps,
+  rawPreset: string,
+): Promise<string> {
+  const agentType = normalizeAgentType(target.effectiveGroup.agentType);
+  if (!supportsSpeedTier(agentType)) {
+    return `${agentType} 不支持 /speed，可继续使用 /model 切换模型`;
+  }
+
+  const preset = normalizeSpeedTierPreset(rawPreset);
+  if (!preset) {
+    return `不支持的速度预设。可用值：${getSpeedTierPresets().join(', ')}`;
+  }
+
+  const currentPreset = target.effectiveRuntimeIdentity.speedTier ?? 'standard';
+  if (currentPreset === preset) {
+    return `当前工作区速度已经是 ${preset}`;
+  }
+
+  await updateWorkspaceRuntime(target, deps, { speedTier: preset });
+  return `已将当前工作区速度切换为 ${preset}`;
+}
+
 export async function applyRuntimeWorkspaceSelection(
   options: RuntimeWorkspaceSelectionOptions,
 ): Promise<RuntimeCommandResponse> {
@@ -315,7 +359,9 @@ export async function applyRuntimeWorkspaceSelection(
   const reply =
     options.selection === 'model'
       ? await handleModelCommand(target, options.deps, options.value)
-      : await handleEffortCommand(target, options.deps, options.value);
+      : options.selection === 'effort'
+        ? await handleEffortCommand(target, options.deps, options.value)
+        : await handleSpeedCommand(target, options.deps, options.value);
 
   return {
     handled: true,
@@ -376,6 +422,21 @@ export async function executeRuntimeWorkspaceCommand(options: {
         reply: parsed.argsText
           ? '请直接输入 /effort 打开思考强度选择器'
           : `可用思考强度：${getReasoningEffortPresets().join(', ')}`,
+      };
+    case 'speed':
+      if (!supportsSpeedTier(agentType)) {
+        return {
+          handled: true,
+          reply: `${agentType} 不支持 /speed，可继续使用 /model 切换模型`,
+        };
+      }
+      return {
+        handled: true,
+        reply: parsed.argsText
+          ? '请直接输入 /speed 打开速度选择器'
+          : `可用速度：${getSpeedTierOptions()
+              .map((option) => option.label)
+              .join(', ')}`,
       };
     default:
       return { handled: false, reply: null };

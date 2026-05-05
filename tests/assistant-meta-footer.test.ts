@@ -23,10 +23,10 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | GPT-5.4 | xhigh');
+    ).toBe('5.2s | Codex | GPT-5.4 | xhigh | standard (1x)');
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | GPT-5.4 | xhigh');
+    ).toBe('5.2s | Codex | GPT-5.4 | xhigh | standard (1x)');
   });
 
   test('skips reasoning effort when it is not applicable for the runtime', () => {
@@ -64,10 +64,10 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('4.5s | Codex | GPT-5.4');
+    ).toBe('4.5s | Codex | GPT-5.4 | standard (1x)');
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('4.5s | Codex | GPT-5.4');
+    ).toBe('4.5s | Codex | GPT-5.4 | standard (1x)');
   });
 
   test('appends remaining usage when the current 5h window is below 20%', () => {
@@ -85,10 +85,14 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 19%(5h) | 72%(week)');
+    ).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 19%(5h) | 72%(week)',
+    );
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 19%(5h) | 72%(week)');
+    ).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 19%(5h) | 72%(week)',
+    );
   });
 
   test('appends remaining usage when the current week window is below 10%', () => {
@@ -106,10 +110,14 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 42%(5h) | 9%(week)');
+    ).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 42%(5h) | 9%(week)',
+    );
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | 42%(5h) | 9%(week)');
+    ).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 42%(5h) | 9%(week)',
+    );
   });
 
   test('keeps footer minimal when both remaining thresholds are healthy', () => {
@@ -127,10 +135,10 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh');
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | standard (1x)');
     expect(
       formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh');
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | standard (1x)');
   });
 
   test('formats compact card footer with duration, agent type, model, and effort only', () => {
@@ -149,9 +157,9 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantCardFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5.2s | Codex | gpt-5.4 | xhigh');
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | standard (1x)');
     expect(formatWebAssistantCardFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh',
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x)',
     );
   });
 
@@ -173,7 +181,32 @@ describe('assistant meta footer', () => {
         runtimeIdentity,
         tokenUsage,
       }),
-    ).toBe('Hello from assistant\n\n4.5s | Codex | GPT-5.4 | xhigh');
+    ).toBe(
+      'Hello from assistant\n\n4.5s | Codex | GPT-5.4 | xhigh | standard (1x)',
+    );
+  });
+
+  test('formats fast Codex speed tier', () => {
+    const runtimeIdentity = {
+      agentType: 'codex' as const,
+      model: 'GPT-5.4',
+      reasoningEffort: 'xhigh',
+      speedTier: 'fast',
+      supportsReasoningEffort: true,
+    };
+
+    expect(
+      formatBackendAssistantMetaFooter({
+        runtimeIdentity,
+        tokenUsage: { durationMs: 4_500 },
+      }),
+    ).toBe('4.5s | Codex | GPT-5.4 | xhigh | fast (2x)');
+    expect(
+      formatWebAssistantMetaFooter({
+        runtimeIdentity,
+        tokenUsage: { durationMs: 4_500 },
+      }),
+    ).toBe('4.5s | Codex | GPT-5.4 | xhigh | fast (2x)');
   });
 
   test('keeps original text when no footer parts are available', () => {

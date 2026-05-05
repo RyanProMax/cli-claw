@@ -90,7 +90,7 @@ describe('StreamingCardController footer caching', () => {
     (controller as any).state = 'completed';
 
     expect((controller as any).getFooterNote()).toBe(
-      '5.2s | Codex | GPT-5.4 | xhigh',
+      '5.2s | Codex | GPT-5.4 | xhigh | standard (1x)',
     );
 
     controller.dispose();
@@ -122,7 +122,7 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh | 19%(5h) | 72%(week)',
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 19%(5h) | 72%(week)',
     );
 
     controller.dispose();
@@ -154,7 +154,7 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh | 42%(5h) | 9%(week)',
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 42%(5h) | 9%(week)',
     );
 
     controller.dispose();
@@ -455,6 +455,7 @@ describe('StreamingCardController footer caching', () => {
     expect(statusNote).toContain('⏳ 生成中...');
     expect(statusNote).toContain('Codex');
     expect(statusNote).toContain('gpt-5.4');
+    expect(statusNote).toContain('standard (1x)');
 
     controller.dispose();
   });
@@ -871,6 +872,38 @@ describe('StreamingCardController footer caching', () => {
     });
   });
 
+  test('builds a runtime speed selection card for Codex', () => {
+    const card = buildRuntimeSelectionCard({
+      selection: 'speed',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'gpt-5.4',
+        reasoningEffort: 'high',
+        speedTier: 'fast',
+        supportsReasoningEffort: true,
+      },
+    }) as any;
+
+    const select = card.body.elements?.[1]?.columns?.[0]?.elements?.[0];
+    expect(card.config.summary.content).toBe('选择速度');
+    expect(select).toMatchObject({
+      tag: 'select_static',
+      placeholder: { content: '速度: fast' },
+      initial_option: 'fast',
+      value: { action: 'set_runtime_speed' },
+    });
+    expect(select.options).toEqual([
+      {
+        text: { tag: 'plain_text', content: 'standard (1x)' },
+        value: 'standard',
+      },
+      {
+        text: { tag: 'plain_text', content: 'fast (2x)' },
+        value: 'fast',
+      },
+    ]);
+  });
+
   test('omits initial_option when the current value is no longer in the preset list', () => {
     const card = buildRuntimeSelectionCard({
       selection: 'model',
@@ -978,7 +1011,9 @@ describe('StreamingCardController footer caching', () => {
 
     const note: string = (controller as any).buildStreamingStatusNote();
     expect(note).toContain('⏳ 生成中...');
-    expect(note).toMatch(/\d+\.\ds \| Codex \| GPT-5\.4 \| high/);
+    expect(note).toMatch(
+      /\d+\.\ds \| Codex \| GPT-5\.4 \| high \| standard \(1x\)/,
+    );
 
     controller.dispose();
   });
@@ -1048,7 +1083,9 @@ describe('StreamingCardController footer caching', () => {
 
     const finalCardJson = JSON.stringify(updatedCards.at(-1));
     expect(finalCardJson).toContain('⚠️ 已中断');
-    expect(finalCardJson).toMatch(/\d+\.\ds \| Codex \| GPT-5\.4 \| high/);
+    expect(finalCardJson).toMatch(
+      /\d+\.\ds \| Codex \| GPT-5\.4 \| high \| standard \(1x\)/,
+    );
     expect(finalCardJson).not.toContain('Thinking...');
     expect(finalCardJson).not.toContain('Reasoning...');
 

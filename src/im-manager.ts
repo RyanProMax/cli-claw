@@ -82,7 +82,7 @@ export interface ConnectFeishuOptions {
   onCardRuntimeUpdate?: (
     chatJid: string,
     update: {
-      action: 'set_runtime_model' | 'set_runtime_effort';
+      action: 'set_runtime_model' | 'set_runtime_effort' | 'set_runtime_speed';
       value: string;
     },
   ) => Promise<string | null>;

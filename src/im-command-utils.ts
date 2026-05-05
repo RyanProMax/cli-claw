@@ -186,6 +186,7 @@ export interface StatusDisplayInfo {
   agentType: string;
   model: string;
   reasoningEffort: string | null;
+  speedTier?: string | null;
   primaryRemaining: string;
   primaryReset: string;
   secondaryRemaining: string;
@@ -211,6 +212,12 @@ export function formatSystemStatus(
       ? `排队中 (#${queuePosition})`
       : '空闲';
   const reasoningEffort = status.reasoningEffort?.trim() || '不支持';
+  const speedTier =
+    status.agentType === 'codex'
+      ? status.speedTier === 'fast'
+        ? 'fast (2x)'
+        : 'standard (1x)'
+      : '不支持';
 
   const lines = [
     '🤖 Agent',
@@ -218,6 +225,7 @@ export function formatSystemStatus(
     `🤖 当前 Agent: ${status.agentType}`,
     `🧠 当前模型: ${status.model}`,
     `⚙️ 当前推理强度: ${reasoningEffort}`,
+    `🚀 当前速度: ${speedTier}`,
     `⏳ 5h 剩余: ${status.primaryRemaining}（重置时间：${status.primaryReset}）`,
     `📅 7d 剩余: ${status.secondaryRemaining}（重置时间：${status.secondaryReset}）`,
     '',

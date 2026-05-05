@@ -1,7 +1,9 @@
 import {
   getDefaultModelPreset,
   getDefaultReasoningEffortPreset,
+  getDefaultSpeedTierPreset,
   supportsReasoningEffort,
+  supportsSpeedTier,
 } from './runtime-command-registry.js';
 import type {
   AgentType,
@@ -73,6 +75,7 @@ export function buildEffectiveGroupFromHomeSibling(
     executionMode: homeGroup.executionMode ?? group.executionMode,
     model: homeGroup.model ?? group.model,
     reasoningEffort: homeGroup.reasoningEffort ?? group.reasoningEffort,
+    speedTier: homeGroup.speedTier ?? group.speedTier,
     customCwd: resolveEffectiveHostWorkspaceCwd(group, homeGroup),
     created_by: group.created_by || homeGroup.created_by,
     is_home: true,
@@ -85,10 +88,12 @@ export function resolveEffectiveRuntimeIdentity(
     claudeProviderModel?: string | null;
     codexCliModel?: string | null;
     codexCliReasoningEffort?: string | null;
+    codexCliSpeedTier?: string | null;
   } = {},
 ): RuntimeIdentity {
   const agentType = normalizeAgentType(group.agentType);
   const supportsEffort = supportsReasoningEffort(agentType);
+  const supportsSpeed = supportsSpeedTier(agentType);
   const model =
     normalizeRuntimeText(group.model) ??
     (agentType === 'claude'
@@ -107,6 +112,13 @@ export function resolveEffectiveRuntimeIdentity(
           ? normalizeRuntimeText(options.codexCliReasoningEffort)
           : null) ??
         getDefaultReasoningEffortPreset(agentType))
+      : null,
+    speedTier: supportsSpeed
+      ? (normalizeRuntimeText(group.speedTier) ??
+        (agentType === 'codex'
+          ? normalizeRuntimeText(options.codexCliSpeedTier)
+          : null) ??
+        getDefaultSpeedTierPreset(agentType))
       : null,
     supportsReasoningEffort: supportsEffort,
   };

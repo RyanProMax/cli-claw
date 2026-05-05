@@ -17,6 +17,21 @@ describe('codex ACP runtime overrides', () => {
       buildCodexAcpConfigOverrides({
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
+        speedTier: 'fast',
+      }),
+    ).toEqual([
+      'model="gpt-5.4"',
+      'model_reasoning_effort="medium"',
+      'service_tier="fast"',
+    ]);
+  });
+
+  test('omits service_tier override for standard speed', () => {
+    expect(
+      buildCodexAcpConfigOverrides({
+        model: 'gpt-5.4',
+        reasoningEffort: 'medium',
+        speedTier: 'standard',
       }),
     ).toEqual(['model="gpt-5.4"', 'model_reasoning_effort="medium"']);
   });
@@ -37,6 +52,7 @@ describe('codex ACP runtime overrides', () => {
         requestedRuntime: {
           model: 'gpt-5.4',
           reasoningEffort: 'medium',
+          speedTier: 'fast',
         },
       }),
     ).toEqual([
@@ -46,6 +62,8 @@ describe('codex ACP runtime overrides', () => {
       'model="gpt-5.4"',
       '-c',
       'model_reasoning_effort="medium"',
+      '-c',
+      'service_tier="fast"',
     ]);
 
     expect(

@@ -77,18 +77,19 @@ skill command 的执行结果有两类：
 | `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务                      |
 | `/model`         | -                   | 打开当前工作区模型选择器                      |
 | `/effort`        | -                   | 打开当前工作区思考强度选择器；仅 `codex` 支持 |
+| `/speed`         | -                   | 打开当前工作区 Codex 速度选择器；仅 `codex` 支持 |
 
 说明：
 
-- `/model` 与 `/effort` 都是“当前工作区级”设置，会持久化到工作区 runtime 配置。
-- 当工作区未显式设置 `codex` 的模型或思考强度时，`/status`、选择卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 Codex CLI fallback（环境变量与 `~/.codex/config.toml`），避免不同入口看到不同值。
+- `/model`、`/effort` 与 `/speed` 都是“当前工作区级”设置，会持久化到工作区 runtime 配置。
+- 当工作区未显式设置 `codex` 的模型、思考强度或速度时，`/status`、选择卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 Codex CLI fallback（环境变量与 `~/.codex/config.toml`），避免不同入口看到不同值。
 - `codex` 的 `/model` 选项在 IM / Feishu / Web 入口会优先执行宿主机 `codex debug models` 获取当前 CLI catalog；命令不可用、超时或返回异常时，才依次回退到 `~/.codex/models_cache.json` 与内置 preset。若当前 effective model 不在 catalog 中，选择器仍会把它作为当前值展示，避免 `/status` 与 `/model` 不一致。
-- 普通回复 footer 会始终保留基础 runtime 信息（时长 / Agent 类型 / 模型 / 推理强度）；只有当前 `5h < 20%` 或 `week < 10%` 时，才会额外追加 `5h` / `week` remaining 百分比。
+- 普通回复 footer 会始终保留基础 runtime 信息（时长 / Agent 类型 / 模型 / 推理强度 / Codex 速度）；Codex 速度展示为 `standard (1x)` 或 `fast (2x)`。只有当前 `5h < 20%` 或 `week < 10%` 时，才会额外追加 `5h` / `week` remaining 百分比。
 - 普通回复不会读取 `PLANS/ACTIVE.md`、roadmap、历史摘要或旧 partial body 来补正文；任务进度只留在本地计划文件与显式命令输出中。
 - `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
-- Web 输入框只在输入 bare `/model` 或 `/effort` 时展示选择 UI；飞书会返回对应的选择卡；不再默认在普通回复卡片 footer 常驻下拉。
+- Web 输入框只在输入 bare `/model`、`/effort` 或 `/speed` 时展示选择 UI；飞书会返回对应的选择卡；不再默认在普通回复卡片 footer 常驻下拉。
 - `claude` 不支持 `reasoning_effort`；在该 runtime 下执行 `/effort` 会返回明确提示。
-- 历史的 `/model <preset>` / `/effort <preset>` 参数式交互不再作为用户命令保留。
+- 历史的 `/model <preset>` / `/effort <preset>` / `/speed <preset>` 参数式交互不再作为用户命令保留。
 
 ## Skill Command
 
@@ -126,7 +127,7 @@ skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发
 说明：
 
 - `/status` 会以 “Agent” 与 “运行状态” 两段展示当前 runtime 摘要（Agent
-  类型、模型、推理强度）、当前 Codex 5h / 7d
+  类型、模型、推理强度、Codex 速度）、当前 Codex 5h / 7d
   余额、当前工作区、当前会话、会话数、队列负载和服务进程 cwd。
 - Feishu 入口的 `/status` 还会附加最近 Feishu 消息链路事件；当存在最近非 ok 事件时，会单独显示一行紧凑的“飞书异常”，避免投递失败或跳过原因被后续正常事件盖掉。
 - Codex 余额读取自本机 `~/.codex/sessions/**/*.jsonl` 的最新 usage 快照；当前 runtime 不是 `codex` 或本地快照不可用时，对应余额会显示 `unavailable` / `unknown`。
@@ -191,6 +192,12 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 可用命
 ### `/effort`
 
 - 仅 `codex` 支持。
+- 当前工作区 runtime 不支持时，命令会返回明确提示，不会静默忽略。
+
+### `/speed`
+
+- 仅 `codex` 支持。
+- 可用值为 `standard` 与 `fast`；`fast` 会向 Codex CLI 下发 `service_tier="fast"`，`standard` 表示不下发 service-tier 覆盖。
 - 当前工作区 runtime 不支持时，命令会返回明确提示，不会静默忽略。
 
 ## 备注

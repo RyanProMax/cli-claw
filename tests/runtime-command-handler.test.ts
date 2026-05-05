@@ -14,7 +14,7 @@ vi.mock('../src/workspace-runtime-reset.ts', () => ({
 }));
 
 const getCodexRuntimeFallbackMock = vi.hoisted(() =>
-  vi.fn(() => ({ model: null, reasoningEffort: null })),
+  vi.fn(() => ({ model: null, reasoningEffort: null, speedTier: null })),
 );
 const getAvailableRuntimeModelPresetsMock = vi.hoisted(() =>
   vi.fn(
@@ -119,6 +119,7 @@ describe('runtime command handler', () => {
     getCodexRuntimeFallbackMock.mockReturnValue({
       model: null,
       reasoningEffort: null,
+      speedTier: null,
     });
     getAvailableRuntimeModelPresetsMock.mockImplementation(
       (
@@ -555,6 +556,9 @@ describe('runtime command handler', () => {
     expect(buildRuntimeStatusReply(target!)).toContain(
       '⚙️ 当前推理强度: medium',
     );
+    expect(buildRuntimeStatusReply(target!)).toContain(
+      '🚀 当前速度: standard (1x)',
+    );
     expect(buildRuntimeStatusReply(target!)).not.toContain('当前 runtime:');
     expect(buildRuntimeStatusReply(target!)).not.toContain('模型预设:');
   });
@@ -563,6 +567,7 @@ describe('runtime command handler', () => {
     getCodexRuntimeFallbackMock.mockReturnValue({
       model: 'gpt-5.4-mini',
       reasoningEffort: 'xhigh',
+      speedTier: 'fast',
     });
     const { deps } = createDeps({
       'web:proj-home': {
@@ -583,6 +588,9 @@ describe('runtime command handler', () => {
     );
     expect(buildRuntimeStatusReply(target!)).toContain(
       '⚙️ 当前推理强度: xhigh',
+    );
+    expect(buildRuntimeStatusReply(target!)).toContain(
+      '🚀 当前速度: fast (2x)',
     );
   });
 
@@ -605,8 +613,43 @@ describe('runtime command handler', () => {
       agentType: 'codex',
       model: 'gpt-5.4',
       reasoningEffort: 'high',
+      speedTier: 'standard',
       supportsReasoningEffort: true,
     });
     expect(buildRuntimeStatusReply(target!)).toContain('⚙️ 当前推理强度: high');
+  });
+
+  test('updates workspace speed presets through the shared selection helper', async () => {
+    const { deps, groups, setGroup, stopGroup } = createDeps({
+      'web:proj-home': {
+        name: 'Project Home',
+        folder: 'proj',
+        added_at: '2026-04-05T00:00:00.000Z',
+        is_home: true,
+        agentType: 'codex',
+        executionMode: 'host',
+        model: 'gpt-5.4',
+        reasoningEffort: 'medium',
+        speedTier: 'standard',
+      },
+    });
+
+    const result = await applyRuntimeWorkspaceSelection({
+      chatJid: 'web:proj-home',
+      selection: 'speed',
+      value: 'fast',
+      deps,
+    });
+
+    expect(result).toEqual({
+      handled: true,
+      reply: '已将当前工作区速度切换为 fast',
+    });
+    expect(setGroup).toHaveBeenCalledWith(
+      'web:proj-home',
+      expect.objectContaining({ speedTier: 'fast' }),
+    );
+    expect(groups['web:proj-home']?.speedTier).toBe('fast');
+    expect(stopGroup).toHaveBeenCalledWith('web:proj-home', { force: true });
   });
 });

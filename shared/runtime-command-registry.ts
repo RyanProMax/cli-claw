@@ -1,6 +1,7 @@
 export type RuntimeAgentType = 'claude' | 'codex';
 export type RuntimeCommandEntrypoint = 'im' | 'web';
 export type ReasoningEffortPreset = 'low' | 'medium' | 'high' | 'xhigh';
+export type SpeedTierPreset = 'standard' | 'fast';
 export interface RuntimePresetOption {
   value: string;
   label: string;
@@ -27,6 +28,8 @@ const REASONING_EFFORT_PRESETS = [
   'high',
   'xhigh',
 ] as const;
+
+const SPEED_TIER_PRESETS = ['standard', 'fast'] as const;
 
 export interface RuntimeCommandDefinition {
   name: string;
@@ -158,6 +161,13 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availableEntrypoints: ['im', 'web'],
     availabilityByRuntime: ['codex'],
   },
+  {
+    name: 'speed',
+    usage: '/speed',
+    description: '切换当前工作区 Codex 响应速度',
+    availableEntrypoints: ['im', 'web'],
+    availabilityByRuntime: ['codex'],
+  },
 ];
 
 function normalizeText(value: string): string {
@@ -167,6 +177,10 @@ function normalizeText(value: string): string {
 export function supportsReasoningEffort(
   agentType: RuntimeAgentType,
 ): boolean {
+  return agentType === 'codex';
+}
+
+export function supportsSpeedTier(agentType: RuntimeAgentType): boolean {
   return agentType === 'codex';
 }
 
@@ -220,6 +234,24 @@ export function getReasoningEffortOptions(): RuntimePresetOption[] {
   return getReasoningEffortPresets().map((value) => ({ value, label: value }));
 }
 
+export function getSpeedTierPresets(): SpeedTierPreset[] {
+  return [...SPEED_TIER_PRESETS];
+}
+
+export function getDefaultSpeedTierPreset(
+  agentType: RuntimeAgentType,
+): SpeedTierPreset | null {
+  if (!supportsSpeedTier(agentType)) return null;
+  return 'standard';
+}
+
+export function getSpeedTierOptions(): RuntimePresetOption[] {
+  return [
+    { value: 'standard', label: 'standard (1x)' },
+    { value: 'fast', label: 'fast (2x)' },
+  ];
+}
+
 export function normalizeModelPreset(
   agentType: RuntimeAgentType,
   rawValue: string,
@@ -236,6 +268,13 @@ export function normalizeReasoningEffortPreset(
 ): ReasoningEffortPreset | null {
   const normalized = normalizeText(rawValue);
   return REASONING_EFFORT_PRESETS.find((preset) => preset === normalized) ?? null;
+}
+
+export function normalizeSpeedTierPreset(
+  rawValue: string,
+): SpeedTierPreset | null {
+  const normalized = normalizeText(rawValue);
+  return SPEED_TIER_PRESETS.find((preset) => preset === normalized) ?? null;
 }
 
 function isCommandAvailableForAgent(

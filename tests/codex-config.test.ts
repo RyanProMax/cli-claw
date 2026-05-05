@@ -31,11 +31,13 @@ describe('readCodexCliConfig', () => {
     const file = makeConfig([
       'model = "gpt-5.4"',
       'model_reasoning_effort = "xhigh"',
+      'service_tier = "fast"',
     ].join('\n'));
 
     expect(readCodexCliConfig(file)).toEqual({
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
+      speedTier: 'fast',
     });
   });
 
@@ -48,10 +50,12 @@ describe('readCodexCliConfig', () => {
     expect(readCodexCliConfig(file)).toEqual({
       model: 'gpt-5.4',
       reasoningEffort: 'high',
+      speedTier: null,
     });
     expect(readCodexCliConfig(path.join(file, '.missing'))).toEqual({
       model: null,
       reasoningEffort: null,
+      speedTier: null,
     });
   });
 });

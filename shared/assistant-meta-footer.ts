@@ -2,6 +2,7 @@ export interface AssistantFooterRuntimeIdentity {
   agentType?: string;
   model?: string | null;
   reasoningEffort?: string | null;
+  speedTier?: string | null;
   supportsReasoningEffort?: boolean | null;
 }
 
@@ -46,6 +47,19 @@ function formatAgentTypeLabel(agentType?: string | null): string | null {
   if (normalized === 'codex') return 'Codex';
   if (normalized === 'claude') return 'Claude';
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatSpeedTierLabel(
+  runtimeIdentity?: AssistantFooterRuntimeIdentity | null,
+): string | null {
+  const agentType = normalizeText(runtimeIdentity?.agentType)?.toLowerCase();
+  if (agentType !== 'codex') return null;
+
+  const speedTier =
+    normalizeText(runtimeIdentity?.speedTier)?.toLowerCase() ?? 'standard';
+  if (speedTier === 'fast') return 'fast (2x)';
+  if (speedTier === 'standard') return 'standard (1x)';
+  return speedTier;
 }
 
 export function formatCompactNumber(value: number): string {
@@ -124,6 +138,11 @@ export function getAssistantMetaFooterParts(
     parts.push(reasoningEffort);
   }
 
+  const speedTier = formatSpeedTierLabel(runtimeIdentity);
+  if (speedTier) {
+    parts.push(speedTier);
+  }
+
   appendRemainingUsageParts(parts, tokenUsage);
 
   return parts;
@@ -154,6 +173,11 @@ export function getAssistantCardFooterParts(
   const reasoningEffort = normalizeText(runtimeIdentity?.reasoningEffort);
   if (reasoningEffort) {
     parts.push(reasoningEffort);
+  }
+
+  const speedTier = formatSpeedTierLabel(runtimeIdentity);
+  if (speedTier) {
+    parts.push(speedTier);
   }
 
   appendRemainingUsageParts(parts, tokenUsage);
