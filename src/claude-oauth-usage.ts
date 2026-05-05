@@ -138,6 +138,8 @@ export async function getClaudeUsageSnapshot(
       provider: 'claude',
       available: true,
       source: 'Claude OAuth API',
+      primaryUsagePct: fiveHour.utilization,
+      secondaryUsagePct: sevenDay.utilization,
       primaryRemainingPct: remainingPct(fiveHour.utilization),
       secondaryRemainingPct: remainingPct(sevenDay.utilization),
       primaryResetAt: fiveHour.resets_at,

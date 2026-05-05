@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { getClaudeUsageSnapshot } from '../src/claude-oauth-usage.ts';
-import { executeUsageCommand } from '../src/usage-command.ts';
+import {
+  executeUsageCommand,
+  getCodexUsageSnapshot,
+} from '../src/usage-command.ts';
 
 function writeCodexSession(root: string, rel: string, lines: unknown[]) {
   const full = join(root, rel);
@@ -83,6 +86,15 @@ describe('usage command', () => {
     expect(reply).toContain('Claude');
     expect(reply).toContain('原因: 未启用 Claude OAuth provider');
     expectUnavailableResetLines(reply);
+
+    expect(getCodexUsageSnapshot({ codexHome })).toMatchObject({
+      provider: 'codex',
+      available: true,
+      primaryUsagePct: 27,
+      secondaryUsagePct: 39,
+      primaryRemainingPct: 73,
+      secondaryRemainingPct: 61,
+    });
   });
 
   test('selects newest snapshot by timestamp even when a newer-touched file contains older data', async () => {
@@ -760,6 +772,8 @@ describe('usage command', () => {
       provider: 'claude',
       available: true,
       source: 'Claude OAuth API',
+      primaryUsagePct: 62,
+      secondaryUsagePct: 41,
       primaryRemainingPct: 38,
       secondaryRemainingPct: 59,
       primaryResetAt: '2026-04-10T12:00:00.000Z',

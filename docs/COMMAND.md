@@ -84,7 +84,7 @@ skill command 的执行结果有两类：
 - `/model`、`/effort` 与 `/speed` 都是“当前工作区级”设置，会持久化到工作区 runtime 配置。
 - 当工作区未显式设置 `codex` 的模型、思考强度或速度时，`/status`、选择卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 Codex CLI fallback（环境变量与 `~/.codex/config.toml`），避免不同入口看到不同值。
 - `codex` 的 `/model` 选项在 IM / Feishu / Web 入口会优先执行宿主机 `codex debug models` 获取当前 CLI catalog；命令不可用、超时或返回异常时，才依次回退到 `~/.codex/models_cache.json` 与内置 preset。若当前 effective model 不在 catalog 中，选择器仍会把它作为当前值展示，避免 `/status` 与 `/model` 不一致。
-- 普通回复 footer 会始终保留基础 runtime 信息（时长 / Agent 类型 / 模型 / 推理强度 / Codex 速度）；Codex 速度展示为 `standard (1x)` 或 `fast (2x)`。只有当前 `5h < 20%` 或 `week < 10%` 时，才会额外追加 `5h` / `week` remaining 百分比。
+- 普通回复 footer 会始终保留基础 runtime 信息（时长 / Agent 类型 / 模型 / 推理强度 / Codex 速度）；Codex 速度展示为 `standard (1x)` 或 `fast (2x)`。当当前 runtime usage 可用时，会追加 `72% (5h) | 96% (7d)` 这类 5h / 7d token usage 百分比；旧消息若只有 remaining 元数据，仍仅在低余额阈值下显示兼容提示。
 - 普通回复不会读取 `PLANS/ACTIVE.md`、roadmap、历史摘要或旧 partial body 来补正文；任务进度只留在本地计划文件与显式命令输出中。
 - `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
 - Web 输入框只在输入 bare `/model`、`/effort` 或 `/speed` 时展示选择 UI；飞书会返回对应的选择卡；不再默认在普通回复卡片 footer 常驻下拉。

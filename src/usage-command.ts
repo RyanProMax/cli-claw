@@ -6,6 +6,8 @@ export interface UsageProviderResult {
   provider: 'codex' | 'claude';
   available: boolean;
   source: string;
+  primaryUsagePct?: number;
+  secondaryUsagePct?: number;
   primaryRemainingPct?: number;
   secondaryRemainingPct?: number;
   primaryResetAt?: unknown;
@@ -247,6 +249,8 @@ function readLatestCodexUsage(codexHome: string): UsageProviderResult {
             available: true,
             source: 'local ~/.codex/sessions',
             snapshotTimestampMs,
+            primaryUsagePct: primaryUsedPercent,
+            secondaryUsagePct: secondaryUsedPercent,
             primaryRemainingPct: Math.max(0, 100 - primaryUsedPercent),
             secondaryRemainingPct: Math.max(0, 100 - secondaryUsedPercent),
             primaryResetAt: formatResetTime(rateLimits.primary.resets_at),

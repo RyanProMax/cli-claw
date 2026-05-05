@@ -28,6 +28,8 @@ describe('runtime usage helper', () => {
       provider: 'codex',
       available: true,
       source: 'local ~/.codex/sessions',
+      primaryUsagePct: 72,
+      secondaryUsagePct: 28,
       primaryRemainingPct: 28,
       secondaryRemainingPct: 72,
     });
@@ -39,6 +41,8 @@ describe('runtime usage helper', () => {
       }),
     ).resolves.toMatchObject({
       provider: 'codex',
+      primaryUsagePct: 72,
+      secondaryUsagePct: 28,
       primaryRemainingPct: 28,
       secondaryRemainingPct: 72,
     });
@@ -49,6 +53,8 @@ describe('runtime usage helper', () => {
       provider: 'claude',
       available: true,
       source: 'Claude OAuth API',
+      primaryUsagePct: 82,
+      secondaryUsagePct: 36,
       primaryRemainingPct: 18,
       secondaryRemainingPct: 64,
     });
@@ -60,6 +66,8 @@ describe('runtime usage helper', () => {
       }),
     ).resolves.toMatchObject({
       provider: 'claude',
+      primaryUsagePct: 82,
+      secondaryUsagePct: 36,
       primaryRemainingPct: 18,
       secondaryRemainingPct: 64,
     });
@@ -74,6 +82,8 @@ describe('runtime usage helper', () => {
       provider: 'codex',
       available: true,
       source: 'local ~/.codex/sessions',
+      primaryUsagePct: 72,
+      secondaryUsagePct: 28,
       primaryRemainingPct: 28,
       secondaryRemainingPct: 72,
     });
@@ -84,6 +94,8 @@ describe('runtime usage helper', () => {
         model: 'gpt-5.4',
       }),
     ).resolves.toEqual({
+      primaryUsagePct: 72,
+      secondaryUsagePct: 28,
       primaryRemainingPct: 28,
       secondaryRemainingPct: 72,
     });
@@ -94,6 +106,8 @@ describe('runtime usage helper', () => {
       provider: 'codex',
       available: true,
       source: 'local ~/.codex/sessions',
+      primaryUsagePct: 72,
+      secondaryUsagePct: 28,
       primaryRemainingPct: 28,
       secondaryRemainingPct: 72,
     });
@@ -112,6 +126,8 @@ describe('runtime usage helper', () => {
     ).resolves.toEqual({
       durationMs: 5_200,
       inputTokens: 100,
+      primaryUsagePct: 72,
+      secondaryUsagePct: 28,
       primaryRemainingPct: 28,
       secondaryRemainingPct: 72,
     });

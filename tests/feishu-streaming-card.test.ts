@@ -122,7 +122,7 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 19%(5h) | 72%(week)',
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 19% (5h) | 72% (7d)',
     );
 
     controller.dispose();
@@ -154,7 +154,41 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 42%(5h) | 9%(week)',
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)',
+    );
+
+    controller.dispose();
+  });
+
+  test('shows current token usage windows in the card footer', async () => {
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+    });
+
+    controller.setRuntimeIdentity({
+      agentType: 'codex',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    });
+
+    (controller as any).state = 'completed';
+
+    await controller.patchUsageNote({
+      inputTokens: 0,
+      outputTokens: 0,
+      costUSD: 0,
+      durationMs: 5_200,
+      numTurns: 1,
+      primaryUsagePct: 72,
+      secondaryUsagePct: 96,
+      primaryRemainingPct: 28,
+      secondaryRemainingPct: 4,
+    } as any);
+
+    expect((controller as any).getFooterNote()).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 72% (5h) | 96% (7d)',
     );
 
     controller.dispose();

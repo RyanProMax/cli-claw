@@ -11,7 +11,10 @@ import {
 
 export type RuntimeUsageFooterMeta = Pick<
   AssistantFooterTokenUsage,
-  'primaryRemainingPct' | 'secondaryRemainingPct'
+  | 'primaryUsagePct'
+  | 'secondaryUsagePct'
+  | 'primaryRemainingPct'
+  | 'secondaryRemainingPct'
 >;
 
 export async function getRuntimeUsageSnapshot(
@@ -31,6 +34,8 @@ export async function getRuntimeUsageFooterMeta(
   if (!snapshot?.available) return null;
 
   return {
+    primaryUsagePct: snapshot.primaryUsagePct ?? null,
+    secondaryUsagePct: snapshot.secondaryUsagePct ?? null,
     primaryRemainingPct: snapshot.primaryRemainingPct ?? null,
     secondaryRemainingPct: snapshot.secondaryRemainingPct ?? null,
   };

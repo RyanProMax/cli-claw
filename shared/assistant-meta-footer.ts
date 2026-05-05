@@ -21,6 +21,8 @@ export interface AssistantFooterTokenUsage {
   durationMs?: number | null;
   numTurns?: number | null;
   modelUsage?: Record<string, AssistantFooterModelUsage> | null;
+  primaryUsagePct?: number | null;
+  secondaryUsagePct?: number | null;
   primaryRemainingPct?: number | null;
   secondaryRemainingPct?: number | null;
 }
@@ -102,13 +104,34 @@ function appendRemainingUsageParts(
 
   const primaryRemainingPct = normalizeNumber(usage?.primaryRemainingPct);
   if (primaryRemainingPct !== null) {
-    parts.push(`${Math.round(primaryRemainingPct)}%(5h)`);
+    parts.push(`${Math.round(primaryRemainingPct)}% (5h)`);
   }
 
   const secondaryRemainingPct = normalizeNumber(usage?.secondaryRemainingPct);
   if (secondaryRemainingPct !== null) {
-    parts.push(`${Math.round(secondaryRemainingPct)}%(week)`);
+    parts.push(`${Math.round(secondaryRemainingPct)}% (7d)`);
   }
+}
+
+function appendCurrentUsageParts(
+  parts: string[],
+  usage: AssistantFooterTokenUsage | null,
+): boolean {
+  let appended = false;
+
+  const primaryUsagePct = normalizeNumber(usage?.primaryUsagePct);
+  if (primaryUsagePct !== null) {
+    parts.push(`${Math.round(primaryUsagePct)}% (5h)`);
+    appended = true;
+  }
+
+  const secondaryUsagePct = normalizeNumber(usage?.secondaryUsagePct);
+  if (secondaryUsagePct !== null) {
+    parts.push(`${Math.round(secondaryUsagePct)}% (7d)`);
+    appended = true;
+  }
+
+  return appended;
 }
 
 export function getAssistantMetaFooterParts(
@@ -143,7 +166,9 @@ export function getAssistantMetaFooterParts(
     parts.push(speedTier);
   }
 
-  appendRemainingUsageParts(parts, tokenUsage);
+  if (!appendCurrentUsageParts(parts, tokenUsage)) {
+    appendRemainingUsageParts(parts, tokenUsage);
+  }
 
   return parts;
 }
@@ -180,7 +205,9 @@ export function getAssistantCardFooterParts(
     parts.push(speedTier);
   }
 
-  appendRemainingUsageParts(parts, tokenUsage);
+  if (!appendCurrentUsageParts(parts, tokenUsage)) {
+    appendRemainingUsageParts(parts, tokenUsage);
+  }
 
   return parts;
 }

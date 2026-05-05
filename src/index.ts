@@ -4065,7 +4065,13 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 streamStartedLifecycleRecorded = true;
               }
             }
-            broadcastStreamEvent(chatJid, streamEvent);
+            const streamEventWithFooterUsage =
+              await enrichUsageStreamEventForFooter(
+                streamEvent,
+                activeRuntimeIdentity,
+                agentRunStartedAt,
+              );
+            broadcastStreamEvent(chatJid, streamEventWithFooterUsage);
 
             // ── 累积 text_delta / thinking_delta 文本（中断时用于保存已输出内容）──
             if (streamEvent.eventType === 'text_delta' && streamEvent.text) {
@@ -4117,10 +4123,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             if (activeStreamingSession) {
               feedStreamEventToCard(
                 activeStreamingSession,
-                normalizeStreamEventUsageForCard(
-                  streamEvent,
-                  agentRunStartedAt,
-                ),
+                streamEventWithFooterUsage,
                 streamingPresentationText,
               );
             }
@@ -4218,7 +4221,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             }
 
             // Persist SDK Task lifecycle to DB so tabs survive page refresh
-            const se = result.streamEvent;
+            const se = streamEventWithFooterUsage;
             if (
               (se.eventType === 'task_start' && se.toolUseId) ||
               (se.eventType === 'tool_use_start' &&
@@ -5589,9 +5592,42 @@ async function patchStreamingSessionFooterUsage(
     costUSD: enrichedUsage.costUSD ?? 0,
     durationMs: enrichedUsage.durationMs ?? 0,
     numTurns: enrichedUsage.numTurns ?? 1,
+    primaryUsagePct: enrichedUsage.primaryUsagePct ?? undefined,
+    secondaryUsagePct: enrichedUsage.secondaryUsagePct ?? undefined,
     primaryRemainingPct: enrichedUsage.primaryRemainingPct ?? undefined,
     secondaryRemainingPct: enrichedUsage.secondaryRemainingPct ?? undefined,
   });
+}
+
+async function enrichUsageStreamEventForFooter(
+  streamEvent: StreamEvent,
+  runtimeIdentity: OutboundMessageMeta['runtimeIdentity'],
+  startedAtMs: number,
+): Promise<StreamEvent> {
+  if (streamEvent.eventType !== 'usage' || !streamEvent.usage) {
+    return streamEvent;
+  }
+  const normalizedStreamEvent = normalizeStreamEventUsageForCard(
+    streamEvent,
+    startedAtMs,
+  );
+  const normalizedUsage = normalizedStreamEvent.usage;
+  if (!normalizedUsage) return normalizedStreamEvent;
+  const enrichedUsage = await enrichTokenUsageWithCurrentRuntimeRemaining(
+    runtimeIdentity,
+    normalizedUsage,
+  );
+  if (!enrichedUsage) return normalizedStreamEvent;
+  return {
+    ...normalizedStreamEvent,
+    usage: {
+      ...normalizedUsage,
+      primaryUsagePct: enrichedUsage.primaryUsagePct ?? undefined,
+      secondaryUsagePct: enrichedUsage.secondaryUsagePct ?? undefined,
+      primaryRemainingPct: enrichedUsage.primaryRemainingPct ?? undefined,
+      secondaryRemainingPct: enrichedUsage.secondaryRemainingPct ?? undefined,
+    },
+  };
 }
 
 export function buildInterruptedReply(
@@ -7553,7 +7589,12 @@ async function processAgentConversation(
           agentStreamStartedLifecycleRecorded = true;
         }
       }
-      broadcastStreamEvent(chatJid, streamEvent, agentId);
+      const streamEventWithFooterUsage = await enrichUsageStreamEventForFooter(
+        streamEvent,
+        currentAgentRuntimeIdentity,
+        agentConversationStartedAt,
+      );
+      broadcastStreamEvent(chatJid, streamEventWithFooterUsage, agentId);
 
       // ── 累积 text_delta 文本（中断时用于保存已输出内容）──
       if (streamEvent.eventType === 'text_delta' && streamEvent.text) {
@@ -7573,10 +7614,7 @@ async function processAgentConversation(
       if (activeAgentStreamingSession) {
         feedStreamEventToCard(
           activeAgentStreamingSession,
-          normalizeStreamEventUsageForCard(
-            streamEvent,
-            agentConversationStartedAt,
-          ),
+          streamEventWithFooterUsage,
           agentStreamingPresentationText,
         );
       }
@@ -7707,13 +7745,13 @@ async function processAgentConversation(
 
       // Persist token usage for agent conversations
       if (
-        output.streamEvent.eventType === 'usage' &&
-        output.streamEvent.usage
+        streamEventWithFooterUsage.eventType === 'usage' &&
+        streamEventWithFooterUsage.usage
       ) {
         try {
           updateLatestMessageTokenUsage(
             virtualChatJid,
-            JSON.stringify(output.streamEvent.usage),
+            JSON.stringify(streamEventWithFooterUsage.usage),
             lastAgentReplyMsgId,
           );
 
@@ -7727,7 +7765,7 @@ async function processAgentConversation(
             groupFolder: effectiveGroup.folder,
             agentId,
             messageId: lastAgentReplyMsgId,
-            usage: output.streamEvent.usage,
+            usage: streamEventWithFooterUsage.usage,
           });
         } catch (err) {
           logger.warn(
