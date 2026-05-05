@@ -43,14 +43,16 @@ function normalizeNumber(value: number | null | undefined): number | null {
   return value;
 }
 
-function formatDurationHHMMSS(durationMs: number): string {
+function formatCompactDuration(durationMs: number): string {
   const totalSeconds = Math.floor(Math.max(0, durationMs) / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds]
-    .map((value) => String(value).padStart(2, '0'))
-    .join(':');
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}min`);
+  if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`);
+  return parts.join('');
 }
 
 function formatAgentTypeLabel(agentType?: string | null): string | null {
@@ -119,7 +121,7 @@ export function getAssistantMetaFooterParts(
 
   const durationMs = normalizeNumber(tokenUsage?.durationMs);
   if (durationMs !== null && durationMs > 0) {
-    parts.push(formatDurationHHMMSS(durationMs));
+    parts.push(formatCompactDuration(durationMs));
   }
 
   const agentType = formatAgentTypeLabel(runtimeIdentity?.agentType);
@@ -156,7 +158,7 @@ export function getAssistantCardFooterParts(
 
   const durationMs = normalizeNumber(tokenUsage?.durationMs);
   if (durationMs !== null && durationMs > 0) {
-    parts.push(formatDurationHHMMSS(durationMs));
+    parts.push(formatCompactDuration(durationMs));
   }
 
   const agentType = formatAgentTypeLabel(runtimeIdentity?.agentType);

@@ -293,7 +293,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     });
 
     expect(buildStaticReplyCard).toHaveBeenCalledWith('最终回复', {
-      footerNote: '00:00:02 | Codex | GPT-5.5 | high | standard (1x)',
+      footerNote: '2s | Codex | GPT-5.5 | high | standard (1x)',
       runtimeIdentity,
     });
     expect(hoisted.createSpy).toHaveBeenCalledWith({
@@ -347,7 +347,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
               [
                 {
                   tag: 'md',
-              text: '最终回复\n\n00:00:02 | Codex | GPT-5.5 | high | standard (1x)',
+              text: '最终回复\n\n2s | Codex | GPT-5.5 | high | standard (1x)',
                 },
               ],
             ],

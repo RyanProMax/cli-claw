@@ -82,7 +82,7 @@ describe('IM channel footer consumption', () => {
   };
 
   const expectedText =
-    'Hello world\n\n00:00:02 | Codex | GPT-5.4 | high | standard (1x)';
+    'Hello world\n\n2s | Codex | GPT-5.4 | high | standard (1x)';
 
   beforeEach(() => {
     hoisted.feishuInner.connect.mockReset();
