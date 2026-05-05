@@ -604,7 +604,8 @@ function buildCollapsiblePanel(
 
 /**
  * Build auxiliary markdown elements for the streaming card.
- * Returns elements to insert before and after the main text content.
+ * Returns elements to insert before the main text content so process panels
+ * stay at the top instead of jumping below the final answer on completion.
  */
 function buildAuxiliaryElements(aux: AuxiliaryState): {
   before: Array<Record<string, unknown>>;
@@ -623,7 +624,7 @@ function buildAuxiliaryElementsForState(
   const before: Array<Record<string, unknown>> = [];
   const after: Array<Record<string, unknown>> = [];
   const isStreamingLayout = state === 'streaming';
-  const auxiliaryElements = isStreamingLayout ? before : after;
+  const auxiliaryElements = before;
 
   // ① System Status
   if (aux.systemStatus) {

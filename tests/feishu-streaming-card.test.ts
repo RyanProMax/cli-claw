@@ -443,14 +443,17 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('places completed-card report body before Codex commentary details', async () => {
+  test('places completed-card process panels before the report body', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
       chatId: 'chat-test',
     });
 
+    controller.appendThinking('先理解需求。');
     controller.appendCommentary('我会先检查标准分析入口。');
+    controller.startTool('tool-1', 'exec_command');
+    controller.updateToolSummary('tool-1', 'rg hkipo');
     controller.append('临时正文');
 
     await vi.waitFor(() => {
@@ -479,10 +482,24 @@ describe('StreamingCardController footer caching', () => {
         element?.tag === 'collapsible_panel' &&
         element?.header?.title?.content === '💬 Commentary',
     );
+    const thinkingIndex = elements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💭 Thinking',
+    );
+    const stepsIndex = elements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '1 steps',
+    );
 
     expect(bodyIndex).toBeGreaterThanOrEqual(0);
     expect(commentaryIndex).toBeGreaterThanOrEqual(0);
-    expect(bodyIndex).toBeLessThan(commentaryIndex);
+    expect(thinkingIndex).toBeGreaterThanOrEqual(0);
+    expect(stepsIndex).toBeGreaterThanOrEqual(0);
+    expect(thinkingIndex).toBeLessThan(bodyIndex);
+    expect(stepsIndex).toBeLessThan(bodyIndex);
+    expect(commentaryIndex).toBeLessThan(bodyIndex);
 
     controller.dispose();
   });
