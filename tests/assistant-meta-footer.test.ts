@@ -26,19 +26,19 @@ describe('assistant meta footer', () => {
         runtimeIdentity,
         tokenUsage: { durationMs: 72_000 },
       }),
-    ).toBe('1min12s | Codex | GPT-5.4 | high | standard (1x)');
+    ).toBe('1m12s | Codex | GPT-5.4 | high | standard (1x)');
     expect(
       formatBackendAssistantMetaFooter({
         runtimeIdentity,
         tokenUsage: { durationMs: 4_992_000 },
       }),
-    ).toBe('1h23min12s | Codex | GPT-5.4 | high | standard (1x)');
+    ).toBe('1h23m12s | Codex | GPT-5.4 | high | standard (1x)');
     expect(
       formatWebAssistantMetaFooter({
         runtimeIdentity,
         tokenUsage: { durationMs: 4_992_000 },
       }),
-    ).toBe('1h23min12s | Codex | GPT-5.4 | high | standard (1x)');
+    ).toBe('1h23m12s | Codex | GPT-5.4 | high | standard (1x)');
   });
 
   test('formats base footer with duration, agent type, model, and reasoning effort', () => {
@@ -165,9 +165,7 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)',
-    );
+    ).toBe('5s | Codex | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)');
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
       '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)',
     );
