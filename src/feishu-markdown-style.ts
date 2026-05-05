@@ -118,9 +118,19 @@ function shouldInsertBlankAfter(
   index: number,
   currentKind: StreamingBlockKind,
 ): boolean {
-  if (currentKind !== 'heading' && currentKind !== 'rule') return false;
+  if (
+    currentKind !== 'heading' &&
+    currentKind !== 'rule' &&
+    currentKind !== 'list'
+  ) {
+    return false;
+  }
   const nextLine = lines[index + 1];
-  return nextLine !== undefined && nextLine.trim() !== '';
+  if (nextLine === undefined || nextLine.trim() === '') return false;
+  if (currentKind === 'list') {
+    return getStreamingBlockKind(nextLine) !== 'list';
+  }
+  return true;
 }
 
 /**
@@ -185,10 +195,86 @@ function _optimizeMarkdownStyle(text: string, cardVersion = 2): string {
     });
   }
 
-  // ── 6. Compress excessive blank lines (3+ → 2) ────────────────
+  // ── 6. Preserve compact report field lines in Schema 2 cards ─────
+  if (cardVersion >= 2) {
+    r = preserveCompactReportLineBreaks(r);
+  }
+
+  // ── 7. Compress excessive blank lines (3+ → 2) ────────────────
   r = r.replace(/\n{3,}/g, '\n\n');
 
   return r;
+}
+
+function preserveCompactReportLineBreaks(text: string): string {
+  const lines = text.split('\n');
+  const output: string[] = [];
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    const trimmed = line.trim();
+    const next = lines[i + 1];
+    const nextTrimmed = next?.trim() ?? '';
+    const isFence = /^```/.test(trimmed);
+
+    output.push(line);
+
+    if (inCodeBlock) {
+      if (isFence) inCodeBlock = false;
+      continue;
+    }
+
+    if (isFence) {
+      inCodeBlock = true;
+      continue;
+    }
+
+    if (shouldHardBreakCompactLine(trimmed, nextTrimmed, line)) {
+      output[output.length - 1] = line.replace(/\s*$/, '') + '<br>';
+    }
+  }
+
+  return output.join('\n');
+}
+
+function shouldHardBreakCompactLine(
+  current: string,
+  next: string,
+  rawCurrent: string,
+): boolean {
+  if (!current || !next) return false;
+  if (/<br\s*\/?>$/i.test(current) || /\s{2}$/.test(rawCurrent)) return false;
+  if (isMarkdownBlockBoundary(current) || isMarkdownBlockBoundary(next)) {
+    return false;
+  }
+  if (isMarkdownListLine(current) || isMarkdownListLine(next)) return false;
+
+  return isCompactReportLine(current) || isCompactReportLine(next);
+}
+
+function isMarkdownBlockBoundary(line: string): boolean {
+  return (
+    /^#{1,6}\s+\S/.test(line) ||
+    /^(?:-{3,}|\*{3,}|_{3,})$/.test(line) ||
+    /^<br\s*\/?>$/i.test(line) ||
+    isMarkdownTableLine(line) ||
+    /^>/.test(line)
+  );
+}
+
+function isMarkdownListLine(line: string): boolean {
+  return /^(?:[-*+]\s+\S|\d+[.)]\s+\S)/.test(line);
+}
+
+function isMarkdownTableLine(line: string): boolean {
+  return /^\|.*\|$/.test(line);
+}
+
+function isCompactReportLine(line: string): boolean {
+  return (
+    /^\*\*[^*\n]+\*\*$/.test(line) || /^(?:📍|💰|🛡️?|📈|⚠️?|🔗)\s/u.test(line)
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -594,6 +594,100 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('pins steps above thinking in Feishu auxiliary panels', async () => {
+    const { client, createdCards, updatedCards } = createStreamingModeClient();
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    controller.appendThinking('先判断任务目标');
+    controller.startTool('tool-1', 'exec_command');
+    controller.updateToolSummary('tool-1', 'rg StreamingCard');
+    controller.append('最终结论');
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
+
+    await (controller as any).patchCard('streaming');
+
+    const streamingElements = updatedCards.at(-1)?.body?.elements ?? [];
+    const streamingThinkingIndex = streamingElements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💭 Thinking',
+    );
+    const streamingStepsIndex = streamingElements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === 'Working on it (1 steps)',
+    );
+
+    expect(streamingStepsIndex).toBeGreaterThanOrEqual(0);
+    expect(streamingThinkingIndex).toBeGreaterThanOrEqual(0);
+    expect(streamingStepsIndex).toBeLessThan(streamingThinkingIndex);
+
+    await controller.complete('最终完成');
+
+    const completedElements = updatedCards.at(-1)?.body?.elements ?? [];
+    const completedThinkingIndex = completedElements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '💭 Thinking',
+    );
+    const completedStepsIndex = completedElements.findIndex(
+      (element: any) =>
+        element?.tag === 'collapsible_panel' &&
+        element?.header?.title?.content === '1 steps',
+    );
+
+    expect(completedStepsIndex).toBeGreaterThanOrEqual(0);
+    expect(completedThinkingIndex).toBeGreaterThanOrEqual(0);
+    expect(completedStepsIndex).toBeLessThan(completedThinkingIndex);
+
+    controller.dispose();
+  });
+
+  test('preserves compact report line breaks in completed Feishu cards', () => {
+    const card = buildStaticReplyCard(
+      [
+        '**港股 IPO 池｜2026-05-05**',
+        '----',
+        '**💡 关键结论**',
+        '- 🟢 最值得跟踪：01236 樂動機器人，热度最强。',
+        '**📌 优先级**',
+        '**🟢 1｜01236 樂動機器人｜86｜5/6截止 | 5/8开奖**',
+        '📍 阶段：招股中；Futu：HK$24.00-30.00/200股/HK$6,060.51/可认购',
+        '💰 热度：孖展约HK$486亿、约485x（外部补充，2026-05-04）',
+        '🛡 结构：15%绿鞋；基石1名约占发售30.78%',
+        '📈 回测：200-1000x强热度桶',
+        '⚠️ 风险：估值与客户集中压力',
+        '**🔗 来源**',
+        '- Futu/OpenD `get_ipo_list(HK)`，2026-05-05。',
+      ].join('\n'),
+    ) as any;
+
+    const mainMarkdown = card?.body?.elements?.find(
+      (element: any) =>
+        element?.tag === 'markdown' && element?.text_size === 'normal_text',
+    );
+
+    expect(mainMarkdown?.content).toContain(
+      '**📌 优先级**<br>\n**🟢 1｜01236 樂動機器人｜86｜5/6截止 | 5/8开奖**',
+    );
+    expect(mainMarkdown?.content).toContain(
+      '**🟢 1｜01236 樂動機器人｜86｜5/6截止 | 5/8开奖**<br>\n📍 阶段：招股中',
+    );
+    expect(mainMarkdown?.content).toContain(
+      '💰 热度：孖展约HK$486亿、约485x（外部补充，2026-05-04）<br>\n🛡 结构：15%绿鞋',
+    );
+    expect(mainMarkdown?.content).toContain(
+      '⚠️ 风险：估值与客户集中压力<br>\n**🔗 来源**',
+    );
+  });
+
   test('keeps all tool calls in Feishu steps instead of truncating to five', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({

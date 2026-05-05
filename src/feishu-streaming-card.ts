@@ -635,26 +635,7 @@ function buildAuxiliaryElementsForState(
     });
   }
 
-  // ② Thinking
-  if (aux.thinkingText) {
-    const truncated =
-      aux.thinkingText.length > MAX_THINKING_CHARS
-        ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
-        : aux.thinkingText;
-    auxiliaryElements.push(
-      buildCollapsiblePanel(
-        aux.isThinking ? '💭 Thinking...' : '💭 Thinking',
-        truncated.slice(0, MAX_ELEMENT_CHARS),
-        isStreamingLayout,
-      ),
-    );
-  } else if (aux.isThinking) {
-    auxiliaryElements.push(
-      buildCollapsiblePanel('💭 Thinking...', 'Thinking...', isStreamingLayout),
-    );
-  }
-
-  // ②b Tool calls. Preserve the whole per-turn tool trace; the controller is
+  // ② Tool calls. Preserve the whole per-turn tool trace; the controller is
   // scoped to a single turn, so retaining completed tools here does not leak
   // across future messages.
   const running: Array<[string, ToolCallState]> = [];
@@ -682,6 +663,25 @@ function buildAuxiliaryElementsForState(
         lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
         isStreamingLayout,
       ),
+    );
+  }
+
+  // ②b Thinking
+  if (aux.thinkingText) {
+    const truncated =
+      aux.thinkingText.length > MAX_THINKING_CHARS
+        ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
+        : aux.thinkingText;
+    auxiliaryElements.push(
+      buildCollapsiblePanel(
+        aux.isThinking ? '💭 Thinking...' : '💭 Thinking',
+        truncated.slice(0, MAX_ELEMENT_CHARS),
+        isStreamingLayout,
+      ),
+    );
+  } else if (aux.isThinking) {
+    auxiliaryElements.push(
+      buildCollapsiblePanel('💭 Thinking...', 'Thinking...', isStreamingLayout),
     );
   }
 
