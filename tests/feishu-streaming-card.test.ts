@@ -688,84 +688,65 @@ describe('StreamingCardController footer caching', () => {
   });
 
   test('preserves compact report line breaks in completed Feishu cards', () => {
+    const reportLines = [
+      '**港股 IPO 池｜2026-05-05**',
+      '----',
+      '**💡 关键结论**',
+      '- 🟢 最值得跟踪：01236 樂動機器人，热度最强。',
+      '**📌 优先级**',
+      '**🟢 1｜01236 樂動機器人｜86｜5/6截止 | 5/8开奖**',
+      '📍 阶段：招股中；Futu：HK$24.00-30.00/200股/HK$6,060.51/可认购',
+      '💰 热度：孖展约HK$486亿、约485x（外部补充，2026-05-04）',
+      '🛡 结构：15%绿鞋；基石1名约占发售30.78%',
+      '📈 回测：200-1000x强热度桶',
+      '⚠️ 风险：估值与客户集中压力',
+      '**🔗 来源**',
+      '- Futu/OpenD `get_ipo_list(HK)`，2026-05-05。',
+    ];
     const card = buildStaticReplyCard(
-      [
-        '**港股 IPO 池｜2026-05-05**',
-        '----',
-        '**💡 关键结论**',
-        '- 🟢 最值得跟踪：01236 樂動機器人，热度最强。',
-        '**📌 优先级**',
-        '**🟢 1｜01236 樂動機器人｜86｜5/6截止 | 5/8开奖**',
-        '📍 阶段：招股中；Futu：HK$24.00-30.00/200股/HK$6,060.51/可认购',
-        '💰 热度：孖展约HK$486亿、约485x（外部补充，2026-05-04）',
-        '🛡 结构：15%绿鞋；基石1名约占发售30.78%',
-        '📈 回测：200-1000x强热度桶',
-        '⚠️ 风险：估值与客户集中压力',
-        '**🔗 来源**',
-        '- Futu/OpenD `get_ipo_list(HK)`，2026-05-05。',
-      ].join('\n'),
+      reportLines.join('\n'),
     ) as any;
 
-    const mainMarkdown = card?.body?.elements?.find(
+    const reportMarkdown = (card?.body?.elements ?? []).filter(
       (element: any) =>
         element?.tag === 'markdown' && element?.text_size === 'normal_text',
     );
+    const reportContents = reportMarkdown.map((element: any) => element.content);
 
-    expect(mainMarkdown?.content).toContain(
-      '**📌 优先级**<br>\n**🟢 1｜01236 樂動機器人｜86｜5/6截止 | 5/8开奖**',
-    );
-    expect(mainMarkdown?.content).toContain(
-      '**🟢 1｜01236 樂動機器人｜86｜5/6截止 | 5/8开奖**<br>\n📍 阶段：招股中',
-    );
-    expect(mainMarkdown?.content).toContain(
-      '💰 热度：孖展约HK$486亿、约485x（外部补充，2026-05-04）<br>\n🛡 结构：15%绿鞋',
-    );
-    expect(mainMarkdown?.content).toContain(
-      '⚠️ 风险：估值与客户集中压力<br>\n**🔗 来源**',
-    );
+    expect(reportContents).toEqual(reportLines);
+    expect(reportContents.join('\n')).not.toContain('<br>');
+    expect(card?.config?.summary?.content).toBe('港股 IPO 池｜2026-05-05');
   });
 
   test('preserves hkipo compact line breaks without relying on bold headings', () => {
-    const card = buildStaticReplyCard(
-      [
-        '港股 IPO 池 | 2026-05-05',
-        '----',
-        '💡 关键结论',
-        '- 🟢 最值得跟踪：01236 樂動機器人，最新可核孖展约485x，热度最强。',
-        '- 🟡 观察：07666 劑泰科技-P，基石阵容强但首日热度尚未公布。',
-        '- ⚪ 谨慎/观察：07630 英派藥業-B，结构正常但18A亏损属性压低赔率。',
-        '📌 优先级',
-        '🟢 1 | 01236 樂動機器人 | 86 | 5/6截止 | 5/8开奖',
-        '📍 阶段：招股中，2026-05-11上市；Futu：HK$24.00-30.00/200股/HK$6,060.51/可认购',
-        '💰 热度：孖展约HK$486亿、约485x（外部补充，2026-05-04）',
-        '🛡 结构：15%绿鞋；基石1名约占发售30.78%；保荐海通、国泰君安',
-        '📈 回测：200-1000x强热度桶，近期高热硬科技新股首日赔率偏高',
-        '⚠️ 风险：估值80-100亿港元叠加亏损与客户集中，若热度回落弹性会收缩',
-        '🔗 来源',
-        '- Futu/OpenD `get_ipo_list(HK)`，2026-05-05。',
-      ].join('\n'),
-    ) as any;
+    const reportLines = [
+      '港股 IPO 池 | 2026-05-05',
+      '----',
+      '💡 关键结论',
+      '- 🟢 最值得跟踪：01236 樂動機器人，最新可核孖展约485x，热度最强。',
+      '- 🟡 观察：07666 劑泰科技-P，基石阵容强但首日热度尚未公布。',
+      '- ⚪ 谨慎/观察：07630 英派藥業-B，结构正常但18A亏损属性压低赔率。',
+      '📌 优先级',
+      '🟢 1 | 01236 樂動機器人 | 86 | 5/6截止 | 5/8开奖',
+      '📍 阶段：招股中，2026-05-11上市；Futu：HK$24.00-30.00/200股/HK$6,060.51/可认购',
+      '💰 热度：孖展约HK$486亿、约485x（外部补充，2026-05-04）',
+      '🛡 结构：15%绿鞋；基石1名约占发售30.78%；保荐海通、国泰君安',
+      '📈 回测：200-1000x强热度桶，近期高热硬科技新股首日赔率偏高',
+      '⚠️ 风险：估值80-100亿港元叠加亏损与客户集中，若热度回落弹性会收缩',
+      '🔗 来源',
+      '- Futu/OpenD `get_ipo_list(HK)`，2026-05-05。',
+    ];
+    const card = buildStaticReplyCard(reportLines.join('\n')) as any;
 
-    const mainMarkdown = card?.body?.elements?.find(
+    const reportMarkdown = (card?.body?.elements ?? []).filter(
       (element: any) =>
         element?.tag === 'markdown' && element?.text_size === 'normal_text',
     );
+    const reportContents = reportMarkdown.map((element: any) => element.content);
 
-    expect(mainMarkdown?.content).toContain(
-      '💡 关键结论<br>\n- 🟢 最值得跟踪',
-    );
-    expect(mainMarkdown?.content).toContain(
-      '- ⚪ 谨慎/观察：07630 英派藥業-B，结构正常但18A亏损属性压低赔率。<br>\n📌 优先级',
-    );
-    expect(mainMarkdown?.content).toContain(
-      '📌 优先级<br>\n🟢 1 | 01236 樂動機器人 | 86 | 5/6截止 | 5/8开奖',
-    );
-    expect(mainMarkdown?.content).toContain(
-      '🟢 1 | 01236 樂動機器人 | 86 | 5/6截止 | 5/8开奖<br>\n📍 阶段',
-    );
-    expect(mainMarkdown?.content).toContain(
-      '⚠️ 风险：估值80-100亿港元叠加亏损与客户集中，若热度回落弹性会收缩<br>\n🔗 来源',
-    );
+    expect(reportContents).toEqual(reportLines);
+    expect(reportContents.join('\n')).not.toContain('<br>');
+    expect(card?.config?.summary?.content).toBe('港股 IPO 池 | 2026-05-05');
   });
 
   test('keeps all tool calls in Feishu steps instead of truncating to five', async () => {

@@ -238,6 +238,14 @@ interface CardContentOptions {
   emptyContentFallback?: string;
 }
 
+function buildMarkdownElement(content: string): Record<string, unknown> {
+  return {
+    tag: 'markdown',
+    content,
+    text_size: 'normal_text',
+  };
+}
+
 const DETAILS_BLOCK_RE =
   /<details>\s*<summary>([\s\S]*?)<\/summary>\s*([\s\S]*?)\s*<\/details>/gi;
 
@@ -305,6 +313,92 @@ function resolveCardTitle(
   return 'Reply';
 }
 
+function stripOuterBold(line: string): string {
+  return line.replace(/^\*\*([^*\n]+)\*\*$/, '$1').trim();
+}
+
+function normalizeCompactReportLine(line: string): string {
+  return stripOuterBold(line)
+    .replace(/^[-*+]\s+/, '')
+    .trim();
+}
+
+function isCompactReportTitle(line: string): boolean {
+  return /^港股 IPO 池\s*[｜|]\s*\d{4}-\d{2}-\d{2}$/.test(
+    normalizeCompactReportLine(line),
+  );
+}
+
+function isCompactReportSection(line: string): boolean {
+  return /^(?:💡\s*关键结论|📌\s*优先级|🔗\s*来源)$/.test(
+    normalizeCompactReportLine(line),
+  );
+}
+
+function isCompactReportRankLine(line: string): boolean {
+  return /^(?:🟢|🟡|⚪)\s*\d+\s*[｜|]/u.test(normalizeCompactReportLine(line));
+}
+
+function isCompactReportFieldLine(line: string): boolean {
+  return /^(?:📍|💰|🛡️?|📈|⚠️?|🔗)\s/u.test(normalizeCompactReportLine(line));
+}
+
+function shouldRenderAsCompactReport(lines: string[]): boolean {
+  if (lines.length < 4) return false;
+  return (
+    lines.some(isCompactReportTitle) &&
+    lines.some(isCompactReportSection) &&
+    lines.some(isCompactReportRankLine) &&
+    lines.some(isCompactReportFieldLine)
+  );
+}
+
+function buildCompactReportElements(
+  content: string,
+  splitFn: (text: string, maxLen: number) => string[],
+): Array<Record<string, unknown>> | null {
+  const lines = content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!shouldRenderAsCompactReport(lines)) return null;
+
+  const elements: Array<Record<string, unknown>> = [];
+  for (const line of lines) {
+    const chunks =
+      line.length > CARD_MD_LIMIT ? splitFn(line, CARD_MD_LIMIT) : [line];
+    for (const chunk of chunks) {
+      const trimmed = chunk.trim();
+      if (!trimmed) continue;
+      elements.push(buildMarkdownElement(trimmed));
+    }
+  }
+
+  return elements.length > 0 ? elements : null;
+}
+
+function appendMarkdownElements(
+  elements: Array<Record<string, unknown>>,
+  content: string,
+  splitFn: (text: string, maxLen: number) => string[],
+): void {
+  const compactReportElements = buildCompactReportElements(content, splitFn);
+  if (compactReportElements) {
+    elements.push(...compactReportElements);
+    return;
+  }
+
+  if (content.length > CARD_MD_LIMIT) {
+    for (const chunk of splitFn(content, CARD_MD_LIMIT)) {
+      elements.push(buildMarkdownElement(chunk));
+    }
+    return;
+  }
+
+  elements.push(buildMarkdownElement(content));
+}
+
 /**
  * Build the content elements shared by both Legacy and Schema 2.0 card builders.
  * Splits long text, handles `---` section dividers, and extracts the title.
@@ -339,34 +433,13 @@ function buildCardContent(
     const contentToRender = formatMarkdown(segment.content);
     if (!contentToRender) continue;
 
-    if (contentToRender.length > CARD_MD_LIMIT) {
-      for (const chunk of splitFn(contentToRender, CARD_MD_LIMIT)) {
-        elements.push({
-          tag: 'markdown',
-          content: chunk,
-          text_size: 'normal_text',
-        });
-      }
-      continue;
-    }
-
-    // Keep --- as markdown content instead of using { tag: 'hr' }
-    // because Schema 2.0 (CardKit) does not support the hr tag.
-    elements.push({
-      tag: 'markdown',
-      content: contentToRender,
-      text_size: 'normal_text',
-    });
+    appendMarkdownElements(elements, contentToRender, splitFn);
   }
 
   if (elements.length === 0) {
     const fallbackContent = formatMarkdown(text.trim() || emptyContentFallback);
     if (fallbackContent) {
-      elements.push({
-        tag: 'markdown',
-        content: fallbackContent,
-        text_size: 'normal_text',
-      });
+      appendMarkdownElements(elements, fallbackContent, splitFn);
     }
   }
 

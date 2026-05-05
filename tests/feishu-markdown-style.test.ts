@@ -74,4 +74,15 @@ describe('normalizeStreamingMarkdown', () => {
       ),
     ).toBe('**📌 优先级**\n**🟢 1｜01236 樂動機器人**\n📍 阶段：招股中');
   });
+
+  test('does not inject report-specific hard breaks into Schema 2 markdown', () => {
+    expect(
+      optimizeMarkdownStyle(
+        ['**📌 优先级**', '**🟢 1｜01236 樂動機器人**', '📍 阶段：招股中'].join(
+          '\n',
+        ),
+        2,
+      ),
+    ).toBe('**📌 优先级**\n**🟢 1｜01236 樂動機器人**\n📍 阶段：招股中');
+  });
 });

@@ -14,6 +14,50 @@
 
 ## Milestones
 
+### Milestone 73
+
+Objective:
+- Replace the report-specific Feishu Markdown hard-break workaround with first-class Schema 2 card rendering for compact reports, so `/hkipo` reports use the same interactive-card path as normal Feishu messages without report-specific `<br>` injection in the global Markdown optimizer.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/feishu-markdown-style.ts`
+- `src/feishu-streaming-card.ts`
+- `tests/feishu-markdown-style.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm test -- --run tests/feishu-markdown-style.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-05: User rejected the "safe"/workaround framing and clarified the target: reports should be rendered as normal Feishu message cards, not via a degraded or tricky Markdown side path.
+- 2026-05-05: Added RED coverage proving Schema 2 Markdown still injected report-specific `<br>` and completed `/hkipo` cards still rendered the whole report as one markdown element.
+- 2026-05-05: Removed compact-report hard-break injection from the global Markdown optimizer and moved compact report layout into Schema 2 card content construction, where each report line is rendered as a native `markdown` element on the normal interactive-card path.
+- 2026-05-05: Updated `docs/RUNTIME.md` to make native card elements the durable report-rendering contract and explicitly reject separate "safe"/degraded report formats.
+
+Validation status:
+- passed 2026-05-05:
+  - `npm test -- --run tests/feishu-markdown-style.test.ts tests/feishu-streaming-card.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-05: scope stayed inside Milestone 73; normal Feishu card send paths remain unchanged; compact `/hkipo` reports now use native Schema 2 markdown elements instead of global `<br>` rewriting; tests cover both bold and plain report headings plus optimizer non-injection; docs match the new presentation contract. No blocking hygiene or regression issue found.
+
+Risks / Notes / Handoff:
+- Keep the normal Feishu card send path unchanged; only move compact report layout handling from Markdown post-processing into card element construction.
+- Build still emits the existing Vite large-chunk warning, but exits successfully.
+
 ### Milestone 72
 
 Objective:
@@ -210,7 +254,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 72
+- Milestone 73
 
 Current status:
 - done
@@ -220,13 +264,14 @@ Changed files:
 - `docs/RUNTIME.md`
 - `src/feishu-markdown-style.ts`
 - `src/feishu-streaming-card.ts`
+- `tests/feishu-markdown-style.test.ts`
 - `tests/feishu-streaming-card.test.ts`
 
 Last failure summary:
-- RED tests failed as expected before implementation: system status was still allowed to appear before the steps panel, and plain hkipo section/list/rank lines did not receive hard breaks, so Feishu could collapse them into one paragraph.
+- RED tests failed as expected before implementation: Schema 2 Markdown optimizer still injected `<br>` into report-shaped lines, and completed `/hkipo` cards still rendered the entire report as one markdown element.
 
 Suspected cause:
-- Feishu Markdown collapses single newlines unless the renderer inserts explicit hard breaks; compact-report detection was too narrow for plain section headings, list bullets, and unbold ranked title lines. The auxiliary panel builder also allowed system status to sit above the process panels, so `steps` was not strictly topmost.
+- Report line preservation currently lives in the generic Markdown optimizer as report-shaped `<br>` injection instead of being modeled as Feishu card element layout.
 
 Next step:
 - Commit the fix, then apply through the safe restart path.
