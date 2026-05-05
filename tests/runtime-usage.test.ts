@@ -94,11 +94,26 @@ describe('runtime usage helper', () => {
         model: 'gpt-5.4',
       }),
     ).resolves.toEqual({
-      primaryUsagePct: 72,
-      secondaryUsagePct: 28,
       primaryRemainingPct: 28,
       secondaryRemainingPct: 72,
     });
+  });
+
+  test('does not build footer metadata when only used percentages are available', async () => {
+    getCodexUsageSnapshotMock.mockReturnValue({
+      provider: 'codex',
+      available: true,
+      source: 'local ~/.codex/sessions',
+      primaryUsagePct: 72,
+      secondaryUsagePct: 96,
+    });
+
+    await expect(
+      getRuntimeUsageFooterMeta({
+        agentType: 'codex',
+        model: 'gpt-5.4',
+      }),
+    ).resolves.toBeNull();
   });
 
   test('merges current remaining usage into existing token usage metadata', async () => {
@@ -126,8 +141,6 @@ describe('runtime usage helper', () => {
     ).resolves.toEqual({
       durationMs: 5_200,
       inputTokens: 100,
-      primaryUsagePct: 72,
-      secondaryUsagePct: 28,
       primaryRemainingPct: 28,
       secondaryRemainingPct: 72,
     });
@@ -153,5 +166,15 @@ describe('runtime usage helper', () => {
         secondaryRemainingPct: 9,
       }),
     ).toBe(true);
+
+    expect(
+      shouldShowRemainingUsageInFooter({
+        provider: 'codex',
+        available: true,
+        source: 'local ~/.codex/sessions',
+        primaryUsagePct: 72,
+        secondaryUsagePct: 96,
+      }),
+    ).toBe(false);
   });
 });

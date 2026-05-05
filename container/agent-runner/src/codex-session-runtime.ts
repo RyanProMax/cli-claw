@@ -4,6 +4,14 @@ export interface RequestedCodexRuntime {
   speedTier?: string | null;
 }
 
+export interface RuntimeIdentityState {
+  agentType: 'claude' | 'codex';
+  model?: string | null;
+  reasoningEffort?: string | null;
+  speedTier?: string | null;
+  supportsReasoningEffort?: boolean | null;
+}
+
 export interface CodexTurnAccumulator {
   text: string;
   lastMessageUuid?: string;
@@ -57,6 +65,32 @@ function normalizeServiceTier(value: string | null | undefined): string | null {
   const lowered = normalized.toLowerCase();
   if (lowered === 'standard') return null;
   return lowered;
+}
+
+export function mergeRuntimeIdentityState(
+  base?: RuntimeIdentityState | null,
+  next?: RuntimeIdentityState | null,
+): RuntimeIdentityState | null {
+  if (!base) return next ?? null;
+  if (!next) return base;
+
+  const agentType = next.agentType ?? base.agentType;
+  const sameAgentType = agentType === base.agentType;
+  return {
+    agentType,
+    model: normalizeText(next.model) ?? (sameAgentType ? base.model : null),
+    reasoningEffort:
+      normalizeText(next.reasoningEffort) ??
+      (sameAgentType ? base.reasoningEffort : null),
+    speedTier:
+      normalizeText(next.speedTier) ?? (sameAgentType ? base.speedTier : null),
+    supportsReasoningEffort:
+      typeof next.supportsReasoningEffort === 'boolean'
+        ? next.supportsReasoningEffort
+        : sameAgentType
+          ? base.supportsReasoningEffort
+          : null,
+  };
 }
 
 function toTomlBasicString(value: string): string {

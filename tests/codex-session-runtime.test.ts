@@ -7,6 +7,7 @@ import {
   buildCodexAcpLaunchArgs,
   formatCodexRuntimeError,
   isCodexContextWindowError,
+  mergeRuntimeIdentityState,
   shouldEmitCodexSessionUpdate,
   stripCodexRuntimeDiagnosticPrefix,
 } from '../container/agent-runner/src/codex-session-runtime.ts';
@@ -95,6 +96,33 @@ describe('codex ACP runtime overrides', () => {
         livePromptActive: true,
       }),
     ).toBe(true);
+  });
+
+  test('preserves requested speed when ACP session metadata omits service tier', () => {
+    expect(
+      mergeRuntimeIdentityState(
+        {
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'xhigh',
+          speedTier: 'fast',
+          supportsReasoningEffort: true,
+        },
+        {
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'xhigh',
+          speedTier: null,
+          supportsReasoningEffort: true,
+        },
+      ),
+    ).toEqual({
+      agentType: 'codex',
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+      speedTier: 'fast',
+      supportsReasoningEffort: true,
+    });
   });
 
   test('preserves blank-line boundaries between same-turn Codex assistant messages', () => {

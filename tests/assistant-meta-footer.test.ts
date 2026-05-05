@@ -70,7 +70,7 @@ describe('assistant meta footer', () => {
     );
   });
 
-  test('falls back to current token usage windows when remaining quota is missing', () => {
+  test('does not show used token windows when remaining quota is missing', () => {
     const runtimeIdentity = {
       agentType: 'codex' as const,
       model: 'gpt-5.4',
@@ -85,11 +85,9 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 72% (5h) | 96% (7d)',
-    );
+    ).toBe('5.2s | Codex | gpt-5.4 | xhigh | standard (1x)');
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x) | 72% (5h) | 96% (7d)',
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x)',
     );
   });
 

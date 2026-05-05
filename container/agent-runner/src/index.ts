@@ -58,6 +58,7 @@ import {
   appendCodexFinalTurnChunk,
   buildCodexAcpLaunchArgs,
   formatCodexRuntimeError,
+  mergeRuntimeIdentityState,
   shouldEmitCodexSessionUpdate,
   stripCodexRuntimeDiagnosticPrefix,
 } from './codex-session-runtime.js';
@@ -209,7 +210,7 @@ function extractCodexRuntimeIdentity(
     agentType: 'codex',
     model,
     reasoningEffort,
-    speedTier: speedTier ?? 'standard',
+    speedTier: speedTier ?? null,
     supportsReasoningEffort: true,
   };
 }
@@ -530,16 +531,17 @@ const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---CLI_CLAW_OUTPUT_END---';
 
 function writeOutput(output: ContainerOutput): void {
-  const runtimeIdentity = output.runtimeIdentity ?? activeRuntimeIdentity;
+  const runtimeIdentity = mergeRuntimeIdentityState(
+    activeRuntimeIdentity,
+    output.runtimeIdentity ?? output.streamEvent?.runtimeIdentity,
+  );
   if (runtimeIdentity) {
     output = {
       ...output,
       runtimeIdentity,
       ...(output.streamEvent
         ? {
-            streamEvent: output.streamEvent.runtimeIdentity
-              ? output.streamEvent
-              : { ...output.streamEvent, runtimeIdentity },
+            streamEvent: { ...output.streamEvent, runtimeIdentity },
           }
         : {}),
     };
@@ -1546,8 +1548,10 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
           cwd: WORKSPACE_GROUP,
           mcpServers,
         });
-        activeRuntimeIdentity =
-          extractCodexRuntimeIdentity(loadedSession) ?? activeRuntimeIdentity;
+        activeRuntimeIdentity = mergeRuntimeIdentityState(
+          activeRuntimeIdentity,
+          extractCodexRuntimeIdentity(loadedSession),
+        );
       } catch {
         sessionId = undefined;
         latestSessionId = undefined;
@@ -1561,8 +1565,10 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       });
       sessionId = newSession.sessionId;
       latestSessionId = sessionId;
-      activeRuntimeIdentity =
-        extractCodexRuntimeIdentity(newSession) ?? activeRuntimeIdentity;
+      activeRuntimeIdentity = mergeRuntimeIdentityState(
+        activeRuntimeIdentity,
+        extractCodexRuntimeIdentity(newSession),
+      );
       if (
         newSession.modes?.availableModes?.some(
           (mode: SessionMode) => mode.id === 'auto',

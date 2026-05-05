@@ -194,6 +194,38 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
+  test('does not show used token windows when remaining quota is missing', async () => {
+    const controller = new StreamingCardController({
+      client: {} as any,
+      chatId: 'chat-test',
+    });
+
+    controller.setRuntimeIdentity({
+      agentType: 'codex',
+      model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
+      supportsReasoningEffort: true,
+    });
+
+    (controller as any).state = 'completed';
+
+    await controller.patchUsageNote({
+      inputTokens: 0,
+      outputTokens: 0,
+      costUSD: 0,
+      durationMs: 5_200,
+      numTurns: 1,
+      primaryUsagePct: 72,
+      secondaryUsagePct: 96,
+    } as any);
+
+    expect((controller as any).getFooterNote()).toBe(
+      '5.2s | Codex | gpt-5.4 | xhigh | standard (1x)',
+    );
+
+    controller.dispose();
+  });
+
   test('finalizes visible runtime errors in aborted state with the final text', async () => {
     const controller = new StreamingCardController({
       client: {} as any,

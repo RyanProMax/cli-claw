@@ -1,17 +1,71 @@
-# Codex Footer Quota Remaining
+# Codex Runtime Footer Consistency
 
 ## Goal
 
-- Show Codex quota as remaining allowance in assistant footers instead of local used-percent windows.
-- Preserve the existing fallback for providers that only expose current usage percentages.
+- Show quota only when a real remaining quota field is available; never render used-percent windows as if they were remaining allowance.
+- Keep Codex speed footer/status sourced from the same effective runtime setting that launches Codex ACP.
 
 ## Done when
 
 - Codex footer displays remaining 5h / 7d quota when remaining fields are present.
-- Current usage percentages are only shown as a fallback when remaining quota is unavailable.
-- Focused footer/runtime tests, typecheck, build, diff check, and review gate pass.
+- Current usage percentages are never shown in assistant footers when remaining quota is unavailable.
+- Codex ACP runtime identity events that omit `service_tier` do not overwrite the workspace's effective `fast` speed setting.
+- Running Codex ACP launch arguments can be verified to include `service_tier="fast"` when `/speed` is set to `fast`.
+- Focused footer/runtime/speed tests, typecheck, build, diff check, and review gate pass.
 
 ## Milestones
+
+### Milestone 67
+
+Objective:
+- Fix footer quota semantics and Codex speed identity drift so displayed runtime metadata and actual ACP launch settings stay consistent.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `shared/assistant-meta-footer.ts`
+- `src/runtime-identity.ts`
+- `src/runtime-usage.ts`
+- `src/index.ts`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `container/agent-runner/src/index.ts`
+- `tests/assistant-meta-footer.test.ts`
+- `tests/runtime-identity.test.ts`
+- `tests/runtime-usage.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `tests/codex-session-runtime.test.ts`
+
+Validation:
+- `npm run build:shared`
+- `npm test -- --run tests/assistant-meta-footer.test.ts tests/runtime-usage.test.ts tests/runtime-identity.test.ts tests/feishu-streaming-card.test.ts tests/codex-session-runtime.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-05：Confirmed current running Codex ACP process was launched with `-c service_tier="fast"`; the runtime activation path is correct, but stream/session metadata later overwrote `fast` with a default `standard`.
+- 2026-05-05：Checked Codex docs and zed `codex-acp`: Codex supports Fast mode via `service_tier = "fast"` in config or CLI `-c` overrides, and zed `codex-acp` parses `-c` overrides into Codex `Config::load_with_cli_overrides_and_harness_overrides`.
+- 2026-05-05：Removed assistant footer fallback to used-percent fields; footer quota windows now render only from `primaryRemainingPct` / `secondaryRemainingPct`.
+- 2026-05-05：Added runtime identity merge helpers on host and runner paths so Codex ACP session metadata that omits `service_tier` preserves the effective workspace speed tier.
+
+Validation status:
+- passed 2026-05-05:
+  - `npm run build:shared`
+  - `npm test -- --run tests/assistant-meta-footer.test.ts tests/runtime-usage.test.ts tests/runtime-identity.test.ts tests/feishu-streaming-card.test.ts tests/codex-session-runtime.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+  - runtime spot check: formatter no longer shows `72% (5h) | 96% (7d)` when only used-percent fields exist, and merge preserves `speedTier: "fast"` when ACP metadata omits speed.
+
+Review status:
+- passed 2026-05-05: scope matches Milestone 67; the effective speed setting remains the source of truth when downstream runtime metadata lacks `service_tier`; actual Codex ACP process args were verified to include `service_tier="fast"`; footer tests cover no-fallback usage semantics in shared and Feishu card paths.
+
+Handoff:
+- Root cause fixed: `/speed` persisted `fast` and the ACP launch args contained `service_tier="fast"`, but `extractCodexRuntimeIdentity()` defaulted missing ACP `service_tier` metadata to `standard`, then host/card code trusted that later stream identity over the effective workspace identity. The runner now treats absent service tier as unknown and both runner/host merge it with the effective runtime identity before writing stream/footer metadata.
 
 ### Milestone 66
 

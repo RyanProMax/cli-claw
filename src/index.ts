@@ -255,6 +255,7 @@ import {
 import { verifyPairingCode } from './telegram-pairing.js';
 import { executeSessionReset } from './commands.js';
 import { getCodexUsageSnapshot } from './usage-command.js';
+import { mergeRuntimeIdentity } from './runtime-identity.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
 import {
   hasPendingSelfRestartForChat,
@@ -3946,19 +3947,18 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
           if (result.newSessionId && result.status !== 'error') {
             activeSessionId = result.newSessionId;
           }
-          activeRuntimeIdentity =
-            result.streamEvent?.runtimeIdentity ||
-            result.runtimeIdentity ||
-            activeRuntimeIdentity;
+          activeRuntimeIdentity = mergeRuntimeIdentity(
+            activeRuntimeIdentity,
+            result.streamEvent?.runtimeIdentity || result.runtimeIdentity,
+          );
           // 流式事件处理 - 广播 WebSocket + 持久化 SDK Task 生命周期到 DB
           if (result.status === 'stream' && result.streamEvent) {
-            const streamEvent =
-              result.streamEvent.runtimeIdentity || !activeRuntimeIdentity
-                ? result.streamEvent
-                : {
-                    ...result.streamEvent,
-                    runtimeIdentity: activeRuntimeIdentity,
-                  };
+            const streamEvent = activeRuntimeIdentity
+              ? {
+                  ...result.streamEvent,
+                  runtimeIdentity: activeRuntimeIdentity,
+                }
+              : result.streamEvent;
             const eventCursorId = streamEvent.messageCursor?.id?.trim();
             if (
               eventCursorId &&
@@ -7497,20 +7497,19 @@ async function processAgentConversation(
       setSession(effectiveGroup.folder, output.newSessionId, agentId);
       currentAgentSessionId = output.newSessionId;
     }
-    currentAgentRuntimeIdentity =
-      output.streamEvent?.runtimeIdentity ||
-      output.runtimeIdentity ||
-      currentAgentRuntimeIdentity;
+    currentAgentRuntimeIdentity = mergeRuntimeIdentity(
+      currentAgentRuntimeIdentity,
+      output.streamEvent?.runtimeIdentity || output.runtimeIdentity,
+    );
 
     // Stream events
     if (output.status === 'stream' && output.streamEvent) {
-      const streamEvent =
-        output.streamEvent.runtimeIdentity || !currentAgentRuntimeIdentity
-          ? output.streamEvent
-          : {
-              ...output.streamEvent,
-              runtimeIdentity: currentAgentRuntimeIdentity,
-            };
+      const streamEvent = currentAgentRuntimeIdentity
+        ? {
+            ...output.streamEvent,
+            runtimeIdentity: currentAgentRuntimeIdentity,
+          }
+        : output.streamEvent;
       const eventCursorId = streamEvent.messageCursor?.id?.trim();
       if (
         eventCursorId &&

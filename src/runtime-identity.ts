@@ -29,6 +29,40 @@ export function normalizeRuntimeIdentity(
   };
 }
 
+export function mergeRuntimeIdentity(
+  base?: RuntimeIdentity | null,
+  next?: RuntimeIdentity | null,
+): RuntimeIdentity | null {
+  if (!base) return normalizeRuntimeIdentity(next);
+  if (!next) return normalizeRuntimeIdentity(base);
+
+  const normalizedBase = normalizeRuntimeIdentity(base);
+  if (!normalizedBase) return normalizeRuntimeIdentity(next);
+
+  const nextModel = normalizeText(next.model);
+  const nextReasoningEffort = normalizeText(next.reasoningEffort);
+  const nextSpeedTier = normalizeText(next.speedTier);
+  const agentType = next.agentType ?? normalizedBase.agentType;
+  const sameAgentType = agentType === normalizedBase.agentType;
+  const supportsReasoningEffort =
+    typeof next.supportsReasoningEffort === 'boolean'
+      ? next.supportsReasoningEffort
+      : sameAgentType
+        ? normalizedBase.supportsReasoningEffort
+        : null;
+
+  return normalizeRuntimeIdentity({
+    agentType,
+    model: nextModel ?? (sameAgentType ? normalizedBase.model : null),
+    reasoningEffort:
+      nextReasoningEffort ??
+      (sameAgentType ? normalizedBase.reasoningEffort : null),
+    speedTier:
+      nextSpeedTier ?? (sameAgentType ? normalizedBase.speedTier : null),
+    supportsReasoningEffort,
+  });
+}
+
 export function serializeRuntimeIdentity(
   identity?: RuntimeIdentity | null,
 ): string | null {

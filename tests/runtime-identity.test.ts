@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   formatRuntimeIdentityFooter as formatBackendRuntimeIdentityFooter,
+  mergeRuntimeIdentity,
   parseRuntimeIdentity,
   serializeRuntimeIdentity,
 } from '../src/runtime-identity.ts';
@@ -62,6 +63,33 @@ describe('runtime identity helpers', () => {
     expect(parseRuntimeIdentity(serialized)).toEqual({
       agentType: 'codex',
       model: 'GPT-5.4',
+      reasoningEffort: 'xhigh',
+      speedTier: 'fast',
+      supportsReasoningEffort: true,
+    });
+  });
+
+  test('preserves existing Codex speed when runtime update omits speed tier', () => {
+    expect(
+      mergeRuntimeIdentity(
+        {
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'xhigh',
+          speedTier: 'fast',
+          supportsReasoningEffort: true,
+        },
+        {
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'xhigh',
+          speedTier: null,
+          supportsReasoningEffort: true,
+        },
+      ),
+    ).toEqual({
+      agentType: 'codex',
+      model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
       speedTier: 'fast',
       supportsReasoningEffort: true,
