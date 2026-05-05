@@ -15,6 +15,53 @@
 
 ## Milestones
 
+### Milestone 63
+
+Objective:
+- Fix the remaining Feishu streaming-card contamination where reused Codex sessions replay old tool steps with the current cursor before the current `init` event.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `tests/feishu-e2e.test.ts`
+
+Validation:
+- `npm test -- --run tests/feishu-e2e.test.ts -t "suppresses current-cursor replayed tool steps before current Feishu cursor init"`
+- `npm test -- --run tests/feishu-e2e.test.ts -t "suppresses cursorless Codex replayed tool steps"`
+- `npm test -- --run tests/feishu-streaming-card.test.ts tests/stream-presentation.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-05：User screenshot for message "每个小点..." shows live card "Working on it (829 steps)" with old 罗博特科/MiniMax steps despite Milestone 62.
+- 2026-05-05：DB/lifecycle confirms the raw final for the 03:19Z turn was current and correct (`rawFinalLength=1219`), while Codex presentation text was again stale/huge (`presentationAnswerLength=44946`).
+- 2026-05-05：Log timing shows `stream_started` was delayed until 03:20:00Z, while the message arrived at 03:19:32Z. This is consistent with Codex session replay events being processed before the current `init/messageCursor`.
+- 2026-05-05：Root cause refined. The previous fix only dropped cursor-less replay before current init. ACP `loadSession` replay can be stamped by the runner with the current cursor before `init`, so the main process incorrectly treats old tool steps as current.
+- 2026-05-05：Added RED regression for current-cursor replay before current init; old 罗博特科/MiniMax tool step entered the card before the fix. Fixed by requiring the current `init/messageCursor` event, not merely a matching cursor id, to open the stream/card gate.
+
+Validation status:
+- passed 2026-05-05:
+  - failed as expected before fix: `npm test -- --run tests/feishu-e2e.test.ts -t "suppresses current-cursor replayed tool steps"`
+  - `npm test -- --run tests/feishu-e2e.test.ts -t "suppresses current-cursor replayed tool steps"`
+  - `npm test -- --run tests/feishu-e2e.test.ts -t "suppresses cursorless Codex replayed tool steps"`
+  - `npm test -- --run tests/feishu-streaming-card.test.ts tests/stream-presentation.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-05: scope matches Milestone 63; the fix tightens the existing stream gate without changing final-answer selection; regression covers the observed second failure mode where replayed stale tool events already carry the current cursor but arrive before current `init`; docs describe the stricter contract; no unrelated changes.
+
+Handoff:
+- The second recurrence was not from the stock-analysis-skill change itself. The live card was polluted because reused Codex/ACP session replay events were stamped with the current cursor before current `init`, bypassing the Milestone 62 cursor-less replay guard. Feishu/Web stream ingestion now drops every non-`init` event until the current `init/messageCursor` is observed, even when that event already carries the current cursor.
+
 ### Milestone 62
 
 Objective:

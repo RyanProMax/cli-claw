@@ -3957,6 +3957,12 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                     runtimeIdentity: activeRuntimeIdentity,
                   };
             const eventCursorId = streamEvent.messageCursor?.id?.trim();
+            const isCurrentCursorInit = Boolean(
+              eventCursorId &&
+              activeTurnCursor.id &&
+              eventCursorId === activeTurnCursor.id &&
+              streamEvent.eventType === 'init',
+            );
             if (
               eventCursorId &&
               activeTurnCursor.id &&
@@ -3975,19 +3981,21 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               );
               return;
             }
-            if (eventCursorId && eventCursorId === activeTurnCursor.id) {
-              suppressStreamEventsUntilCursorMatch = false;
-            } else if (suppressStreamEventsUntilCursorMatch) {
+            if (suppressStreamEventsUntilCursorMatch && !isCurrentCursorInit) {
               logger.warn(
                 {
                   chatJid,
                   eventType: streamEvent.eventType,
                   turnId: streamEvent.turnId,
+                  eventCursorId: eventCursorId || null,
                   activeCursorId: activeTurnCursor.id,
                 },
-                'Suppressing cursor-less stream event before current cursor match',
+                'Suppressing pre-init stream event before current cursor match',
               );
               return;
+            }
+            if (isCurrentCursorInit) {
+              suppressStreamEventsUntilCursorMatch = false;
             }
             if (streamingSession) {
               const streamText =
@@ -7492,6 +7500,12 @@ async function processAgentConversation(
               runtimeIdentity: currentAgentRuntimeIdentity,
             };
       const eventCursorId = streamEvent.messageCursor?.id?.trim();
+      const isCurrentCursorInit = Boolean(
+        eventCursorId &&
+        activeTurnCursor.id &&
+        eventCursorId === activeTurnCursor.id &&
+        streamEvent.eventType === 'init',
+      );
       if (
         eventCursorId &&
         activeTurnCursor.id &&
@@ -7511,20 +7525,22 @@ async function processAgentConversation(
         );
         return;
       }
-      if (eventCursorId && eventCursorId === activeTurnCursor.id) {
-        suppressAgentStreamEventsUntilCursorMatch = false;
-      } else if (suppressAgentStreamEventsUntilCursorMatch) {
+      if (suppressAgentStreamEventsUntilCursorMatch && !isCurrentCursorInit) {
         logger.warn(
           {
             chatJid,
             agentId,
             eventType: streamEvent.eventType,
             turnId: streamEvent.turnId,
+            eventCursorId: eventCursorId || null,
             activeCursorId: activeTurnCursor.id,
           },
-          'Suppressing cursor-less conversation-agent stream event before current cursor match',
+          'Suppressing pre-init conversation-agent stream event before current cursor match',
         );
         return;
+      }
+      if (isCurrentCursorInit) {
+        suppressAgentStreamEventsUntilCursorMatch = false;
       }
       const turnBoundary = applyStreamingTurnBoundary(
         {
