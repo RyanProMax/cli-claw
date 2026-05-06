@@ -144,7 +144,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - Feishu Markdown 不保证保留普通单换行；紧凑报告（如 `/hkipo`）必须在 Schema 2 卡片 builder 中分拆为多个原生 `markdown` elements，保持与正常飞书 interactive card 相同的发送路径。不要在通用 Markdown optimizer 里注入报告私有 `<br>` 或另开“安全版/降级版”格式。
 - Codex final visibility resolution 必须保留结构化日志，至少记录 raw final、streaming presentation answer/commentary、最终 visible text、剥离出的 commentary、`sourceKind`、`finalizationReason`、`turnId` / `sessionId` / `sdkMessageUuid` 和 runtime identity，便于追踪正文与过程文本边界。
 - Streaming / 完成态 card 保留当前 turn 的完整 tool steps，便于回看执行过程；临时状态、hook 和 system status 在终态收敛。
-- Footer 必须展示 runtime identity 和当前处理耗时；耗时按当前 streaming turn 计算，而不是按长运行 handler、runtime session 或 SDK 累计 usage 计算。同来源新用户输入、`turnId` 变化或 `messageCursor.id` 变化时，presentation buffer、thinking、中断状态和 footer 计时起点必须一起重置。耗时使用紧凑格式并省略为 0 的小时/分钟单位，例如 `36s`、`1min12s`、`1h23min12s`，且不显示小数秒。usage 晚到时可以补丁更新 footer，但不能改写主正文来源。
+- Footer 必须展示 runtime identity 和当前处理耗时；耗时按当前 streaming turn 计算，而不是按长运行 handler、runtime session 或 SDK 累计 usage 计算。同来源新用户输入、`turnId` 变化、`messageCursor.id` 变化，或完成态清理后首次绑定下一轮 `turnId` / `messageCursor.id` 时，presentation buffer、thinking、中断状态和 footer 计时起点必须一起重置。耗时使用紧凑格式并省略为 0 的小时/分钟单位，例如 `36s`、`1min12s`、`1h23min12s`，且不显示小数秒。usage 晚到时可以补丁更新 footer，但不能改写主正文来源。
 
 当前限制：
 

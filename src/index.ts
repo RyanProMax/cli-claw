@@ -581,6 +581,12 @@ export function applyStreamingTurnBoundary(
   }
 
   if (!current.turnId && !current.messageCursorId) {
+    const startedAtMs =
+      typeof current.startedAtMs === 'number'
+        ? typeof nowMs === 'number'
+          ? nowMs
+          : Date.now()
+        : undefined;
     return {
       nextState: {
         ...current,
@@ -588,6 +594,7 @@ export function applyStreamingTurnBoundary(
         ...(nextMessageCursorId
           ? { messageCursorId: nextMessageCursorId }
           : {}),
+        ...(typeof startedAtMs === 'number' ? { startedAtMs } : {}),
       },
       turnChanged: false,
     };

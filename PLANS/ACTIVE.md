@@ -12,6 +12,47 @@
 
 ## Milestones
 
+### Milestone 75
+
+Objective:
+- Fix Feishu/Web assistant footer elapsed time so a new streaming turn cannot inherit a stale start timestamp from a previous completed turn or long-lived runner.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `tests/streaming-turn-boundary.test.ts`
+
+Validation:
+- `npm test -- --run tests/streaming-turn-boundary.test.ts tests/streaming-runtime-meta.test.ts tests/assistant-meta-footer.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-06: User reported Feishu footer showing an impossible `27m` duration and suspected elapsed-time accumulation.
+- 2026-05-06: Root cause investigation found the turn boundary helper already resets elapsed start time when an existing `turnId` / `messageCursor.id` changes, but not when a previously cleared boundary first observes the next turn id/cursor. After a completed turn clears ids but leaves the old `startedAtMs`, the next turn can inherit the stale start if route reset did not run before the first stream event.
+
+Validation status:
+- failed as expected 2026-05-06:
+  - `npm test -- --run tests/streaming-turn-boundary.test.ts` failed because a cleared boundary retained `startedAtMs=1000` instead of resetting to `60000` when first binding the next cursor.
+- passed 2026-05-06:
+  - `npm test -- --run tests/streaming-turn-boundary.test.ts tests/streaming-runtime-meta.test.ts tests/assistant-meta-footer.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-06: scope stayed within Milestone 75; the fix changes only turn-boundary elapsed-time binding, with focused regression coverage and the runtime footer contract updated. No blocking scope, hygiene, or contract issue found.
+
+Risks / Notes / Handoff:
+- This fixes stale elapsed-time inheritance when the next turn first binds `turnId` / `messageCursor.id` after completed-state cleanup. Applying it to live Feishu requires the normal Cli Claw restart path after commit.
+
 ### Milestone 74
 
 Objective:

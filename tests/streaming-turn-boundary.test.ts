@@ -80,6 +80,45 @@ describe('applyStreamingTurnBoundary', () => {
     });
   });
 
+  test('resets elapsed-time start when binding the first observed id after cleanup', async () => {
+    const { applyStreamingTurnBoundary } = await loadIndexModule();
+
+    const result = applyStreamingTurnBoundary(
+      {
+        turnId: undefined,
+        messageCursorId: undefined,
+        startedAtMs: 1_000,
+        presentationText: {
+          answerText: '',
+          commentaryText: '',
+        },
+        thinkingText: '',
+        interrupted: false,
+      },
+      {
+        turnId: 'turn-new',
+        messageCursor: {
+          timestamp: '2026-05-06T14:30:00.000Z',
+          id: 'new-cursor',
+        },
+      },
+      60_000,
+    );
+
+    expect(result.turnChanged).toBe(false);
+    expect(result.nextState).toMatchObject({
+      turnId: 'turn-new',
+      messageCursorId: 'new-cursor',
+      startedAtMs: 60_000,
+      presentationText: {
+        answerText: '',
+        commentaryText: '',
+      },
+      thinkingText: '',
+      interrupted: false,
+    });
+  });
+
   test('clears stale commentary, thinking, and interrupted state when a new turn starts', async () => {
     const { applyStreamingTurnBoundary } = await loadIndexModule();
 
