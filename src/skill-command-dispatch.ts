@@ -215,6 +215,46 @@ function resolveSkillVenvPython(skillDir: string): string | null {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
 
+function parseSkillEnvLine(line: string): [string, string] | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith('#')) return null;
+
+  const separatorIndex = trimmed.indexOf('=');
+  if (separatorIndex <= 0) return null;
+
+  const key = trimmed.slice(0, separatorIndex).trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return null;
+
+  let value = trimmed.slice(separatorIndex + 1).trim();
+  if (
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
+  ) {
+    value = value.slice(1, -1);
+  }
+
+  return [key, value];
+}
+
+function readSkillEnvFile(skillDir: string): Record<string, string> {
+  const envPath = path.join(skillDir, '.env');
+  if (!fs.existsSync(envPath)) return {};
+
+  try {
+    const values: Record<string, string> = {};
+    for (const rawLine of fs.readFileSync(envPath, 'utf-8').split(/\r?\n/)) {
+      const parsed = parseSkillEnvLine(rawLine);
+      if (!parsed) continue;
+      const [key, value] = parsed;
+      values[key] = value;
+    }
+    return values;
+  } catch {
+    return {};
+  }
+}
+
 function resolveSkillExecutor(
   command: DiscoveredSkillCommand,
 ): SkillCommandExecutor {
@@ -343,11 +383,13 @@ function executeSkillCommandProcess(
   payload: SkillCommandExecutorPayload,
 ): Promise<string> {
   const resolvedExecutor = resolveSkillExecutor(command);
+  const skillEnv = readSkillEnvFile(command.skillDir);
 
   return new Promise((resolve, reject) => {
     const child = spawn(resolvedExecutor.command, resolvedExecutor.args, {
       cwd: command.skillDir,
       env: {
+        ...skillEnv,
         ...process.env,
         CLI_CLAW_COMMAND: command.name,
         CLI_CLAW_SKILL_ID: command.skillId,

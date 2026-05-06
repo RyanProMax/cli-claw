@@ -254,6 +254,58 @@ describe('skill command dispatch', () => {
     expect(reply).toBe('venv python handled research');
   });
 
+  test('loads skill-local env file for command executors', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-env-'),
+    );
+    tempDirs.push(workspaceRoot);
+
+    writeSkill({
+      rootDir: workspaceRoot,
+      skillId: 'stock-analysis-skill',
+      commands: {
+        hkipo: {
+          description: '分析当前港股新股',
+          entrypoints: ['im', 'web'],
+          executor: {
+            command: process.execPath,
+            args: ['commands/reply.js'],
+          },
+        },
+      },
+      files: {
+        '.env': 'STOCK_ANALYSIS_API_ROOT="~/projects/stock-analysis-api"\n',
+        'commands/reply.js': [
+          "process.stdin.resume();",
+          "process.stdin.on('end', () => {",
+          "  process.stdout.write(JSON.stringify({ reply: { type: 'final_markdown', content: process.env.STOCK_ANALYSIS_API_ROOT || 'missing' } }));",
+          '});',
+        ].join('\n'),
+      },
+    });
+
+    const discovered = await discoverSkillCommands({
+      entrypoint: 'im',
+      roots: [workspaceRoot],
+    });
+
+    const reply = await executeDiscoveredSkillCommand({
+      commandName: 'hkipo',
+      discovered,
+      entrypoint: 'im',
+      chatJid: 'feishu:chat-1',
+      argsText: '',
+      args: [],
+      workspace: {
+        jid: 'web:ipo',
+        folder: 'ipo',
+        name: 'IPO Workspace',
+      },
+    });
+
+    expect(reply).toBe('~/projects/stock-analysis-api');
+  });
+
   test('supports assistant_prompt replies for command-driven agent rewrites', async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'skill-cmd-prompt-'),

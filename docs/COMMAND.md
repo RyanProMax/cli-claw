@@ -96,6 +96,7 @@ skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发
 - 先搜索当前工作区 `.claude/skills/`，再搜索用户级同步 skill 目录；项目内 skill 可以覆盖用户级同名声明。
 - 若多个 skill 在同一搜索优先级上声明了相同命令，命令不会静默二选一，而是直接返回冲突提示。
 - executor 通过 stdin 接收 JSON payload，并通过 stdout 返回 JSON 结果。
+- executor 环境会先读取该 skill 根目录的 `.env`，再叠加 Cli Claw 服务进程环境，最后注入 `CLI_CLAW_COMMAND`、`CLI_CLAW_SKILL_ID`、`CLI_CLAW_SKILL_DIR`；服务进程环境优先于 `.env`，用于部署级覆盖。
 - executor 声明裸 `python` / `python3` 时，宿主优先使用该 skill 根目录下的 `.venv` Python（Unix: `.venv/bin/python`，Windows: `.venv/Scripts/python.exe`）；找不到 skill-local venv 时才回退到原声明命令，避免服务重启后 PATH 漂移导致 skill command 使用错误 Python 环境。
 - 结果类型目前支持：
   - `final_markdown`：本地直接返回最终文本
