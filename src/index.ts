@@ -548,6 +548,7 @@ export function syncTerminalPresentationTextToCard(
 export interface StreamingTurnBoundaryState {
   turnId?: string;
   messageCursorId?: string;
+  startedAtMs?: number;
   presentationText: StreamPresentationTextState;
   thinkingText: string;
   interrupted: boolean;
@@ -556,10 +557,12 @@ export interface StreamingTurnBoundaryState {
 function buildResetStreamingTurnBoundaryState(
   turnId?: string,
   messageCursorId?: string,
+  startedAtMs?: number,
 ): StreamingTurnBoundaryState {
   return {
     ...(turnId ? { turnId } : {}),
     ...(messageCursorId ? { messageCursorId } : {}),
+    ...(typeof startedAtMs === 'number' ? { startedAtMs } : {}),
     presentationText: createEmptyStreamPresentationTextState(),
     thinkingText: '',
     interrupted: false,
@@ -569,6 +572,7 @@ function buildResetStreamingTurnBoundaryState(
 export function applyStreamingTurnBoundary(
   current: StreamingTurnBoundaryState,
   event: Pick<StreamEvent, 'turnId' | 'messageCursor'>,
+  nowMs?: number,
 ): { nextState: StreamingTurnBoundaryState; turnChanged: boolean } {
   const nextTurnId = event.turnId?.trim() || undefined;
   const nextMessageCursorId = event.messageCursor?.id?.trim() || undefined;
@@ -615,6 +619,11 @@ export function applyStreamingTurnBoundary(
     nextState: buildResetStreamingTurnBoundaryState(
       nextTurnId,
       nextMessageCursorId,
+      typeof current.startedAtMs === 'number'
+        ? typeof nowMs === 'number'
+          ? nowMs
+          : Date.now()
+        : undefined,
     ),
     turnChanged: true,
   };
@@ -3793,6 +3802,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     streamInterrupted = resetState.interrupted;
     activeStreamingEventTurnId = resetState.turnId;
     activeStreamingMessageCursorId = resetState.messageCursorId;
+    activeStreamingTurnStartedAt = Date.now();
     streamStartedLifecycleRecorded = false;
     ensureStreamingSessionAvailable();
   };
@@ -3930,6 +3940,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       ...getCodexRuntimeIdentityOptions(),
     });
   const agentRunStartedAt = Date.now();
+  let activeStreamingTurnStartedAt = agentRunStartedAt;
   try {
     output = await runAgent(
       effectiveGroup,
@@ -4002,6 +4013,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               {
                 turnId: activeStreamingEventTurnId,
                 messageCursorId: activeStreamingMessageCursorId,
+                startedAtMs: activeStreamingTurnStartedAt,
                 presentationText: streamingPresentationText,
                 thinkingText: streamingAccumulatedThinking,
                 interrupted: streamInterrupted,
@@ -4014,6 +4026,8 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               streamingAccumulatedThinking =
                 turnBoundary.nextState.thinkingText;
               streamInterrupted = turnBoundary.nextState.interrupted;
+              activeStreamingTurnStartedAt =
+                turnBoundary.nextState.startedAtMs ?? Date.now();
               streamStartedLifecycleRecorded = false;
               if (streamingSession) {
                 if (streamingSession.isActive()) {
@@ -4064,7 +4078,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               await enrichUsageStreamEventForFooter(
                 streamEvent,
                 activeRuntimeIdentity,
-                agentRunStartedAt,
+                activeStreamingTurnStartedAt,
               );
             broadcastStreamEvent(chatJid, streamEventWithFooterUsage);
 
@@ -4131,8 +4145,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               streamEvent.statusText === 'interrupted'
             ) {
               streamInterrupted = true;
-              const provisionalUsage =
-                buildProvisionalTokenUsage(agentRunStartedAt);
+              const provisionalUsage = buildProvisionalTokenUsage(
+                activeStreamingTurnStartedAt,
+              );
               // Skip if shutdown handler already saved this text (prevents duplicates)
               const inlineWebJid = chatJid.startsWith('web:')
                 ? chatJid
@@ -4539,7 +4554,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   await patchStreamingSessionFooterUsage(
                     activeStreamingSession,
                     activeRuntimeIdentity,
-                    buildProvisionalTokenUsage(agentRunStartedAt),
+                    buildProvisionalTokenUsage(activeStreamingTurnStartedAt),
                   ).catch(() => {});
                   syncTerminalPresentationTextToCard(
                     activeStreamingSession,
@@ -4767,8 +4782,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             .then(() => true)
             .catch(() => false);
         } else if (wasInterrupted) {
-          const provisionalUsage =
-            buildProvisionalTokenUsage(agentRunStartedAt);
+          const provisionalUsage = buildProvisionalTokenUsage(
+            activeStreamingTurnStartedAt,
+          );
           await patchStreamingSessionFooterUsage(
             activeStreamingSession,
             activeRuntimeIdentity,
@@ -4779,8 +4795,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
             .then(() => true)
             .catch(() => false);
         } else {
-          const provisionalUsage =
-            buildProvisionalTokenUsage(agentRunStartedAt);
+          const provisionalUsage = buildProvisionalTokenUsage(
+            activeStreamingTurnStartedAt,
+          );
           await patchStreamingSessionFooterUsage(
             activeStreamingSession,
             activeRuntimeIdentity,
@@ -4808,7 +4825,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       shutdownSavedJids.has(webJidForShutdownCheck);
 
     if (wasInterrupted && !alreadySavedByShutdown) {
-      const provisionalUsage = buildProvisionalTokenUsage(agentRunStartedAt);
+      const provisionalUsage = buildProvisionalTokenUsage(
+        activeStreamingTurnStartedAt,
+      );
       const interruptedText = buildInterruptedReply(
         streamingPresentationText.answerText,
         streamingAccumulatedThinking,
@@ -4864,7 +4883,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
         streamingPresentationText.commentaryText.trim())
     ) {
       try {
-        const provisionalUsage = buildProvisionalTokenUsage(agentRunStartedAt);
+        const provisionalUsage = buildProvisionalTokenUsage(
+          activeStreamingTurnStartedAt,
+        );
         const partialReply = buildInterruptedReply(
           streamingPresentationText.answerText,
           streamingAccumulatedThinking,
@@ -7485,6 +7506,7 @@ async function processAgentConversation(
       ...getCodexRuntimeIdentityOptions(),
     });
   const agentConversationStartedAt = Date.now();
+  let activeAgentTurnStartedAt = agentConversationStartedAt;
 
   const wrappedOnOutput = async (output: ContainerOutput) => {
     // Track session
@@ -7528,6 +7550,7 @@ async function processAgentConversation(
         {
           turnId: agentStreamingEventTurnId,
           messageCursorId: agentStreamingMessageCursorId,
+          startedAtMs: activeAgentTurnStartedAt,
           presentationText: agentStreamingPresentationText,
           thinkingText: agentStreamingThinking,
           interrupted: agentStreamInterrupted,
@@ -7539,6 +7562,8 @@ async function processAgentConversation(
           turnBoundary.nextState.presentationText;
         agentStreamingThinking = turnBoundary.nextState.thinkingText;
         agentStreamInterrupted = turnBoundary.nextState.interrupted;
+        activeAgentTurnStartedAt =
+          turnBoundary.nextState.startedAtMs ?? Date.now();
         agentStreamStartedLifecycleRecorded = false;
         if (streamingSessionJid) {
           if (agentStreamingSession) {
@@ -7586,7 +7611,7 @@ async function processAgentConversation(
       const streamEventWithFooterUsage = await enrichUsageStreamEventForFooter(
         streamEvent,
         currentAgentRuntimeIdentity,
-        agentConversationStartedAt,
+        activeAgentTurnStartedAt,
       );
       broadcastStreamEvent(chatJid, streamEventWithFooterUsage, agentId);
 
@@ -7620,7 +7645,7 @@ async function processAgentConversation(
       ) {
         agentStreamInterrupted = true;
         const provisionalUsage = buildProvisionalTokenUsage(
-          agentConversationStartedAt,
+          activeAgentTurnStartedAt,
         );
         if (!isCurrentTurnCommitted()) {
           const interruptedText = decorateTaskReplyText(
@@ -7907,7 +7932,7 @@ async function processAgentConversation(
             await patchStreamingSessionFooterUsage(
               activeAgentStreamingSession,
               currentAgentRuntimeIdentity,
-              buildProvisionalTokenUsage(agentConversationStartedAt),
+              buildProvisionalTokenUsage(activeAgentTurnStartedAt),
             ).catch(() => {});
             syncTerminalPresentationTextToCard(
               activeAgentStreamingSession,
@@ -8257,7 +8282,7 @@ async function processAgentConversation(
               .catch(() => false);
         } else if (wasInterrupted) {
           const provisionalUsage = buildProvisionalTokenUsage(
-            agentConversationStartedAt,
+            activeAgentTurnStartedAt,
           );
           await patchStreamingSessionFooterUsage(
             activeAgentStreamingSession,
@@ -8271,7 +8296,7 @@ async function processAgentConversation(
               .catch(() => false);
         } else {
           const provisionalUsage = buildProvisionalTokenUsage(
-            agentConversationStartedAt,
+            activeAgentTurnStartedAt,
           );
           await patchStreamingSessionFooterUsage(
             activeAgentStreamingSession,
@@ -8296,7 +8321,7 @@ async function processAgentConversation(
     // ── 保存中断内容 ──
     if (wasInterrupted) {
       const provisionalUsage = buildProvisionalTokenUsage(
-        agentConversationStartedAt,
+        activeAgentTurnStartedAt,
       );
       const interruptedText = decorateTaskReplyText(
         buildInterruptedReply(
@@ -8394,7 +8419,7 @@ async function processAgentConversation(
     if (shouldSavePartialReply()) {
       try {
         const provisionalUsage = buildProvisionalTokenUsage(
-          agentConversationStartedAt,
+          activeAgentTurnStartedAt,
         );
         const partialReply = decorateTaskReplyText(
           buildInterruptedReply(

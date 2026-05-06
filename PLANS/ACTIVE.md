@@ -320,3 +320,45 @@ Suspected cause:
 
 Next step:
 - Commit the fix, then apply through the safe restart path.
+
+### Milestone 74
+
+Objective:
+- Fix Feishu assistant footer duration so elapsed time is scoped to the current streaming turn, not the whole long-running agent handler.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/index.ts`
+- `tests/streaming-turn-boundary.test.ts`
+- Focused tests if needed for footer duration normalization.
+
+Validation:
+- `npm test -- --run tests/streaming-turn-boundary.test.ts tests/streaming-runtime-meta.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-06: User reported Feishu footer showing an impossible 27m elapsed time. Root cause investigation found the SDK cumulative duration normalization exists, but the long-running conversation-agent path keeps one handler-level start timestamp while turn boundaries reset text/thinking only; follow-up turns therefore inherit earlier elapsed time.
+- 2026-05-06: Added RED coverage for turn-boundary elapsed start reset; it failed because `startedAtMs` was not tracked.
+- 2026-05-06: Added per-turn `startedAtMs` to streaming boundary state and changed main/conversation usage normalization plus provisional footer patches to use the current turn start.
+- 2026-05-06: Updated `docs/RUNTIME.md` to state footer duration is scoped to the current streaming turn.
+
+Validation status:
+- passed 2026-05-06:
+  - `npm test -- --run tests/streaming-turn-boundary.test.ts tests/streaming-runtime-meta.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-06: scope stayed within Milestone 74; footer duration now follows the same turn boundary as presentation/thinking state; the SDK cumulative duration path remains normalized, and late usage patches cannot reintroduce handler-level elapsed time. Build still emits the existing Vite large-chunk warning, but exits successfully.
+
+Risks / Notes / Handoff:
+- This fixes the accumulation path for current and future streaming turn boundaries. It does not rewrite old already-sent Feishu cards that displayed an inflated footer.

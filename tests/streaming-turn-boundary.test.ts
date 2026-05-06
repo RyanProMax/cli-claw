@@ -144,4 +144,33 @@ describe('applyStreamingTurnBoundary', () => {
       interrupted: false,
     });
   });
+
+  test('resets the elapsed-time start when a new turn starts', async () => {
+    const { applyStreamingTurnBoundary } = await loadIndexModule();
+
+    const result = applyStreamingTurnBoundary(
+      {
+        turnId: 'turn-reused',
+        messageCursorId: 'old-cursor',
+        startedAtMs: 1_000,
+        presentationText: {
+          answerText: '旧正文',
+          commentaryText: '旧过程',
+        },
+        thinkingText: '旧 thinking',
+        interrupted: true,
+      },
+      {
+        turnId: 'turn-reused',
+        messageCursor: {
+          timestamp: '2026-04-29T04:00:00.000Z',
+          id: 'new-cursor',
+        },
+      },
+      5_000,
+    );
+
+    expect(result.turnChanged).toBe(true);
+    expect(result.nextState.startedAtMs).toBe(5_000);
+  });
 });
