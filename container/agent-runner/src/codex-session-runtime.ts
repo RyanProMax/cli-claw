@@ -33,6 +33,9 @@ const CODEX_RUNTIME_DIAGNOSTIC_PREFIXES = [
 const CODEX_CONTEXT_WINDOW_ERROR_MESSAGE =
   'Codex 上下文窗口已满，当前会话历史太长，无法继续。请发送 /clear 清除当前会话上下文后重试，或在新会话里重新描述需求。';
 
+const CODEX_REMOTE_COMPACT_PARAMETER_ERROR_MESSAGE =
+  'Codex 上下文压缩失败：当前 Codex 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 Codex runtime 后重试，必要时发送 /clear 清除当前会话上下文。';
+
 function normalizeText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -174,6 +177,18 @@ export function isCodexContextWindowError(errorMessage: string): boolean {
   );
 }
 
+export function isCodexRemoteCompactParameterError(
+  errorMessage: string,
+): boolean {
+  const normalized = normalizeRuntimeErrorText(errorMessage);
+  if (!normalized) return false;
+  return (
+    /remote compact task/i.test(normalized) &&
+    /unknown[_ ]parameter/i.test(normalized) &&
+    /safety_identifier/i.test(normalized)
+  );
+}
+
 export function formatCodexRuntimeError(
   errorMessage: string,
   options: CodexRuntimeErrorFormatOptions = {},
@@ -190,6 +205,10 @@ export function formatCodexRuntimeError(
 
   if (isCodexContextWindowError(normalized)) {
     return CODEX_CONTEXT_WINDOW_ERROR_MESSAGE;
+  }
+
+  if (isCodexRemoteCompactParameterError(normalized)) {
+    return CODEX_REMOTE_COMPACT_PARAMETER_ERROR_MESSAGE;
   }
 
   if (

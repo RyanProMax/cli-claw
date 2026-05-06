@@ -28,6 +28,16 @@ describe('formatUserFacingRuntimeError', () => {
     );
   });
 
+  test('formats Codex remote compact parameter errors without raw JSON', () => {
+    const stderr = `
+      {"message":"Internal error","code":-32603,"data":{"message":"Error running remote compact task: { \\"error\\": { \\"message\\": \\"Unknown parameter: 'safety_identifier'.\\", \\"type\\": \\"invalid_request_error\\", \\"param\\": \\"safety_identifier\\", \\"code\\": \\"unknown_parameter\\" } }","codex_error_info":"other"}}
+    `;
+
+    expect(formatUserFacingRuntimeError(stderr)).toBe(
+      'Codex 上下文压缩失败：当前 Codex 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 Codex runtime 后重试，必要时发送 /clear 清除当前会话上下文。',
+    );
+  });
+
   test('preserves an already-streamed error result on non-zero exit', async () => {
     const stdoutState = createStdoutParserState();
     stdoutState.lastErrorOutput = {

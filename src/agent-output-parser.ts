@@ -669,6 +669,14 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
   if (!normalized) return null;
 
   if (
+    /remote compact task/i.test(normalized) &&
+    /unknown[_ ]parameter/i.test(normalized) &&
+    /safety_identifier/i.test(normalized)
+  ) {
+    return 'Codex 上下文压缩失败：当前 Codex 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 Codex runtime 后重试，必要时发送 /clear 清除当前会话上下文。';
+  }
+
+  if (
     /Codex CLI 未登录/u.test(normalized) ||
     /auth_required|login required|please login|not logged in/i.test(normalized)
   ) {

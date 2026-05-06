@@ -81,9 +81,11 @@
 - Status: `proposed`
 - Source: 2026-04-25 local logs; Codex model picker and diagnostic leakage follow-ups
 - Summary: Codex model discovery, metadata refresh, context-window errors and runtime diagnostics need proactive guardrails so user-facing replies do not expose raw JSON/errors or silently degrade.
+- Recent update:
+  - 2026-05-06: Added classifiers for Codex remote compact `unknown_parameter safety_identifier` errors at runner and host boundaries so raw JSON no longer reaches Feishu/Web正文.
 - Next action:
   - Preflight effective Codex model before dispatch; if unavailable or metadata refresh hangs, fail fast with concise operator guidance.
-  - Add final-send boundary classifiers for context-window/raw JSON errors so they are never persisted or sent as final user-visible正文.
+  - Continue expanding final-send boundary classifiers for remaining context-window/raw JSON errors so they are never persisted or sent as final user-visible正文.
   - Add runtime health cache with TTL and error budget to avoid per-turn slow model discovery.
 
 ### P2 RM-2026-04-25-08 Operator Observability Surface

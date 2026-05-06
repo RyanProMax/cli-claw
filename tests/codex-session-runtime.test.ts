@@ -7,6 +7,7 @@ import {
   buildCodexAcpLaunchArgs,
   formatCodexRuntimeError,
   isCodexContextWindowError,
+  isCodexRemoteCompactParameterError,
   mergeRuntimeIdentityState,
   shouldEmitCodexSessionUpdate,
   stripCodexRuntimeDiagnosticPrefix,
@@ -252,6 +253,31 @@ describe('codex ACP runtime overrides', () => {
     );
     expect(formatted).not.toContain('Internal error');
     expect(formatted).not.toContain('context_window_exceeded');
+  });
+
+  test('formats Codex remote compact parameter errors without leaking raw JSON', () => {
+    const error = JSON.stringify(
+      {
+        message: 'Internal error',
+        code: -32603,
+        data: {
+          message:
+            'Error running remote compact task: { "error": { "message": "Unknown parameter: \'safety_identifier\'.", "type": "invalid_request_error", "param": "safety_identifier", "code": "unknown_parameter" } }',
+          codex_error_info: 'other',
+        },
+      },
+      null,
+      2,
+    );
+
+    const formatted = formatCodexRuntimeError(error, { isCodexRuntime: true });
+    expect(isCodexRemoteCompactParameterError(error)).toBe(true);
+    expect(formatted).toBe(
+      'Codex 上下文压缩失败：当前 Codex 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 Codex runtime 后重试，必要时发送 /clear 清除当前会话上下文。',
+    );
+    expect(formatted).not.toContain('Internal error');
+    expect(formatted).not.toContain('unknown_parameter');
+    expect(formatted).not.toContain('{ "error"');
   });
 
   test('keeps Codex auth and quota errors user-facing after formatting', () => {

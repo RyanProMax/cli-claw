@@ -126,6 +126,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - Runner 可以用 runtime session id 恢复底层会话，但恢复过程是 runner 内部动作。恢复期间产生的 Codex ACP session updates、历史 transcript 片段或旧工具步骤不得进入 runner stdout；stdout 只发布当前 prompt live 期间产生的事件和最终结果。
 - 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 Codex commentary 和可识别的内部包装从主正文剥离，避免 runtime transcript 细节直接发给用户。
 - 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只允许作为 Web/调试展示的过渡 buffer，不得覆盖新 turn 的最终回复。中断、overflow、compact、crash recovery 的 partial body 不会作为 IM 正文发送或持久化，也不能推进 committed cursor。
+- Codex runtime 错误必须在 runner / host 边界格式化为稳定中文提示；JSON-RPC `Internal error`、远端 compact task 失败、`unknown_parameter safety_identifier` 等诊断不得原样进入飞书/Web 正文。
 - 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
 
 ### Feishu Streaming Card Presentation
