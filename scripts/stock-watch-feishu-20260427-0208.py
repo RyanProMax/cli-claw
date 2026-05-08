@@ -279,9 +279,9 @@ def format_snapshot_lines(rows: list[dict], *, ok: int, total: int) -> list[str]
             f"｜⚡{big_move_count}｜{alert_count}"
         )
     ]
-    append_snapshot_section(lines, f"异动 {len(alert_rows)} 家", alert_rows)
-    append_snapshot_section(lines, f"下跌 {len(down_rows)} 家", down_rows)
-    append_snapshot_section(lines, f"上涨 {len(up_rows)} 家", up_rows)
+    append_snapshot_section(lines, f" 异动 {len(alert_rows)} 家", alert_rows)
+    append_snapshot_section(lines, f" 下跌 {len(down_rows)} 家", down_rows)
+    append_snapshot_section(lines, f" 上涨 {len(up_rows)} 家", up_rows)
     append_snapshot_section(lines, f"➖ 平盘 {len(flat_rows)} 家", flat_rows)
     return lines
 
@@ -372,7 +372,7 @@ def main() -> int:
         prev_quote = (previous.get(symbol) or {}).get("quote_data") or {}
         try:
             prev_cp = float(prev_quote.get("change_pct"))
-            if abs(cp - prev_cp) >= CHANGE_POINT_THRESHOLD:
+            if not reasons and abs(cp - prev_cp) >= CHANGE_POINT_THRESHOLD:
                 current_alert_keys.add(f"change_point:{symbol}")
                 reasons.append(format_change_point_reason(cp - prev_cp))
         except Exception:
