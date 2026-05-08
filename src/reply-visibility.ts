@@ -107,6 +107,12 @@ function looksLikeProcessCommentaryPrefix(prefix: string): boolean {
   return startsLikeProcessCommentary(normalized);
 }
 
+function isStructuredReportHeading(headingText: string): boolean {
+  return /^(?:\*\*(?:\/research｜|港股 IPO 池｜)[^*\n]+\*\*)/u.test(
+    headingText.trim(),
+  );
+}
+
 function splitLeadingCodexCommentary(
   rawText: string,
 ): ResolvedVisibleReplyParts | null {
@@ -123,7 +129,14 @@ function splitLeadingCodexCommentary(
   const commentaryText = normalizedRawText.slice(0, bodyStart).trim();
   const visibleText = normalizedRawText.slice(bodyStart).trim();
   if (!commentaryText || !visibleText) return null;
-  if (!looksLikeProcessCommentaryPrefix(commentaryText)) return null;
+
+  const headingText = headingMatch[2] ?? '';
+  const strongStructuredBoundary = isStructuredReportHeading(headingText);
+  if (strongStructuredBoundary) {
+    if (!startsLikeProcessCommentary(commentaryText)) return null;
+  } else if (!looksLikeProcessCommentaryPrefix(commentaryText)) {
+    return null;
+  }
 
   return { visibleText, commentaryText };
 }

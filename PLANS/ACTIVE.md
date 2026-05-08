@@ -1,3 +1,67 @@
+# Codex Feishu Final Body Visibility Regression
+
+## Goal
+
+- Restore Codex Feishu/Web final-answer visibility when a terminal final contains process narration followed by the actual user-facing report body.
+- Keep process narration in the unified Thinking lane without swallowing structured final reports such as `/research`.
+
+## Done when
+
+- A regression test covers a long Codex process preamble followed by a structured `/research` title where raw final text equals streamed commentary text.
+- The visible reply resolver returns the `/research` report as body text and keeps only the process preamble in Thinking/commentary.
+- Runtime documentation records the boundary so future Codex `text_delta` changes do not collapse final bodies into Thinking.
+- Focused tests, typecheck/build, diff check, review, commit, and safe restart pass.
+
+## Milestones
+
+### Milestone 81
+
+Objective:
+- Fix the Codex final visibility classifier so a long process preamble before a structured final report is stripped into Thinking while the report remains visible正文.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `src/reply-visibility.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/stream-presentation.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-08: Production log for the Cloudflare `/research` turn shows `rawFinalLength=5287`, `visibleTextLength=0`, `commentaryTextLength=5287`, followed by `Message sent length: 0`; the final report existed but was classified entirely as Thinking/commentary.
+- 2026-05-08: Added a RED regression for long duplicated Codex process narration followed by `**/research｜NET｜us｜2026-05-08**`; it initially reproduced the incident with empty `visibleText`.
+- 2026-05-08: Updated `reply-visibility` so strong structured report headings (`/research` and 港股 IPO 池) split long process preambles into Thinking/commentary while keeping the report body visible; preserved process-only duplicate handling.
+
+Validation status:
+- passed
+  - `npm test -- --run tests/reply-visibility.test.ts`: failed before the fix with empty `visibleText`, matching the production incident.
+  - `npm test -- --run tests/reply-visibility.test.ts`: passed after the fix, 19 tests.
+  - `npm test -- --run tests/reply-visibility.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts`: passed, 79 tests. Existing Feishu CardKit fallback logs appeared but tests passed.
+  - `npm run typecheck`: passed.
+  - `npm run build`: passed. Existing Vite chunk-size warning appeared.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. Existing `LC_ALL` locale warning appeared and the script requested semantic review.
+
+Review status:
+- passed 2026-05-08: scope stayed within Milestone 81. The diff targets the final visibility boundary only, keeps Codex `text_delta` out of answer buffers, preserves process-only duplicate finals, and documents the structured-report exception for `/research` / 港股 IPO 池 titles.
+
+Risks / Notes / Handoff:
+- Runtime code changed; after commit, apply with the normal safe restart path.
+- The structured-boundary exception is deliberately narrow to `/research` and 港股 IPO 池 headings to avoid turning arbitrary long process logs into正文.
+
+---
+
 # Stock Watch Snapshot Readability
 
 ## Goal

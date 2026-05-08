@@ -267,6 +267,36 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
+  test('keeps a structured research report visible after a long duplicated Codex process preamble', () => {
+    const processText = [
+      '我会按 stock-analysis-skill 的研报流程做：先读 reference，再走标准 API，最后补齐公开来源。',
+      '当前已经完成身份核验、标准代码解析、财报模块拉取、行情口径对齐和机构观点交叉核验。'.repeat(
+        14,
+      ),
+      '过程信息应该进入 Thinking，但下面的研报正文必须作为最终回复发送。',
+    ].join('\n');
+    const reportText = [
+      '**/research｜NET｜us｜2026-05-08**',
+      '',
+      '**一句话结论**',
+      'Cloudflare 的最终研报正文在这里。',
+    ].join('\n');
+    const rawText = `${processText}\n${reportText}`;
+
+    expect(
+      resolveVisibleReplyParts(
+        rawText,
+        {
+          commentaryText: rawText,
+        },
+        { agentType: 'codex' },
+      ),
+    ).toEqual({
+      visibleText: reportText,
+      commentaryText: processText,
+    });
+  });
+
   test('infers Codex process logs before a bold hkipo title as commentary', () => {
     const rawText = [
       '我会先按技能要求读取港股 IPO 研究规则。',
