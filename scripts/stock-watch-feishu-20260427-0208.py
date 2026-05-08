@@ -205,16 +205,17 @@ def number_to_text(value) -> str:
         return str(value)
 
 
-def move_badge(change_pct: float) -> str:
+def format_abs_move_reason(change_pct: float) -> str:
     if change_pct >= ABS_MOVE_THRESHOLD:
-        return "📈⚡"
-    if change_pct > 0:
-        return "📈"
+        return "上涨幅度超 2%"
     if change_pct <= -ABS_MOVE_THRESHOLD:
-        return "📉⚡"
-    if change_pct < 0:
-        return "📉"
-    return "➖"
+        return "下跌幅度超 2%"
+    return "涨跌幅度超 2%"
+
+
+def format_change_point_reason(delta: float) -> str:
+    direction = "拉升" if delta > 0 else "回落"
+    return f"较上次{direction} {abs(delta) * 100:.2f} 个百分点"
 
 
 def format_snapshot_row(
@@ -225,15 +226,13 @@ def format_snapshot_row(
     change_pct: float,
     reasons: list[str],
 ) -> str:
-    icon = move_badge(change_pct)
     price_text = number_to_text(price)
     pct_text = ratio_to_pct(change_pct)
     if reasons:
-        return (
-            f"🚨 {icon} {symbol} {name} {price_text} {pct_text}"
-            f"｜{'；'.join(reasons)}"
-        )
-    return f"{icon} {symbol} {name} {price_text} {pct_text}"
+        return f"⚡ {symbol} {name} {price_text} {pct_text}｜{'；'.join(reasons)}"
+    if change_pct == 0:
+        return f"➖ {symbol} {name} {price_text} {pct_text}"
+    return f" {symbol} {name} {price_text} {pct_text}"
 
 
 def append_snapshot_section(
@@ -272,19 +271,18 @@ def format_snapshot_lines(rows: list[dict], *, ok: int, total: int) -> list[str]
     down_count = sum(1 for row in rows if row["change_pct"] < 0)
     big_move_count = sum(1 for row in rows if abs(row["change_pct"]) >= ABS_MOVE_THRESHOLD)
     alert_count = len(alert_rows)
-    other_prefix = "其他 " if alert_rows else ""
 
     lines = [
         (
-            f"盯盘全量快照：成功 {ok}/{total}"
-            f"｜📈{up_count}｜📉{down_count}"
-            f"｜⚡{big_move_count}｜🚨{alert_count}"
+            f"盯盘快照：成功 {ok}/{total}"
+            f"｜{up_count}｜{down_count}"
+            f"｜⚡{big_move_count}｜{alert_count}"
         )
     ]
-    append_snapshot_section(lines, f"🚨 异动 {len(alert_rows)}", alert_rows)
-    append_snapshot_section(lines, f"📉 {other_prefix}{len(down_rows)}", down_rows)
-    append_snapshot_section(lines, f"📈 {other_prefix}{len(up_rows)}", up_rows)
-    append_snapshot_section(lines, f"➖ {other_prefix}{len(flat_rows)}", flat_rows)
+    append_snapshot_section(lines, f"异动 {len(alert_rows)} 家", alert_rows)
+    append_snapshot_section(lines, f"下跌 {len(down_rows)} 家", down_rows)
+    append_snapshot_section(lines, f"上涨 {len(up_rows)} 家", up_rows)
+    append_snapshot_section(lines, f"➖ 平盘 {len(flat_rows)} 家", flat_rows)
     return lines
 
 
@@ -367,7 +365,7 @@ def main() -> int:
         reasons = []
         if abs(cp) >= ABS_MOVE_THRESHOLD:
             current_alert_keys.add(f"abs_move:{symbol}")
-            reasons.append(f"幅度 {ratio_to_pct(cp)}")
+            reasons.append(format_abs_move_reason(cp))
         if symbol == "603228" and cp >= 0.095:
             current_alert_keys.add(f"limit_up:{symbol}")
             reasons.append("接近/达到涨停")
@@ -376,7 +374,7 @@ def main() -> int:
             prev_cp = float(prev_quote.get("change_pct"))
             if abs(cp - prev_cp) >= CHANGE_POINT_THRESHOLD:
                 current_alert_keys.add(f"change_point:{symbol}")
-                reasons.append(f"较上次变化 {((cp - prev_cp) * 100):+.2f}pct")
+                reasons.append(format_change_point_reason(cp - prev_cp))
         except Exception:
             pass
         rows.append(
