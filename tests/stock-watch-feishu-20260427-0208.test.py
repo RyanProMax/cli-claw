@@ -94,15 +94,15 @@ class StockWatchPushGatingTest(unittest.TestCase):
         output = self.run_script("2026-04-27T10:10:00+08:00", payload(0.0))
 
         self.assertIn("盯盘全量快照", output)
-        self.assertIn("异动 0", output)
+        self.assertIn("🚨0", output)
 
     def test_new_alert_pushes_before_30_minute_heartbeat(self) -> None:
         self.run_script("2026-04-27T09:40:00+08:00", payload(0.0))
 
         output = self.run_script("2026-04-27T09:50:00+08:00", payload(0.03))
 
-        self.assertIn("🚨 603228", output)
-        self.assertIn("🚨 300033", output)
+        self.assertIn("🚨 📈⚡ 603228", output)
+        self.assertIn("🚨 📈⚡ 300033", output)
 
     def test_persistent_alert_is_silent_until_heartbeat(self) -> None:
         self.run_script("2026-04-27T09:40:00+08:00", payload(0.03))
@@ -137,22 +137,28 @@ class StockWatchPushGatingTest(unittest.TestCase):
             ),
         )
 
-        self.assertIn("上涨 1｜下跌 3｜大幅 1｜异动 2", output)
+        self.assertIn("📈1｜📉3｜⚡1｜🚨2", output)
         self.assertIn("🚨 异动 2", output)
-        self.assertIn("📉 其他下跌 1", output)
-        self.assertIn("📈 其他上涨 1", output)
+        self.assertIn("📉 其他 1", output)
+        self.assertIn("📈 其他 1", output)
         self.assertIn(
-            "🚨 002466 天齐锂业 76.52 -3.21% 🔴 大跌｜涨跌幅 -3.21%",
+            "🚨 📉⚡ 002466 天齐锂业 76.52 -3.21%｜幅度 -3.21%",
             output,
         )
         self.assertIn(
-            "🚨 300757 罗博特科 508 -0.45% 🟠 下跌｜较上次变化 -1.73pct",
+            "🚨 📉 300757 罗博特科 508 -0.45%｜较上次变化 -1.73pct",
             output,
         )
-        self.assertIn("🟠 300033 同花顺 243.04 -1.70% 下跌", output)
-        self.assertIn("🟢 603228 景旺电子 74.73 +0.67% 上涨", output)
-        self.assertLess(output.index("🚨 异动 2"), output.index("📉 其他下跌 1"))
-        self.assertLess(output.index("📉 其他下跌 1"), output.index("📈 其他上涨 1"))
+        self.assertIn("📉 300033 同花顺 243.04 -1.70%", output)
+        self.assertIn("📈 603228 景旺电子 74.73 +0.67%", output)
+        self.assertNotIn("大跌", output)
+        self.assertNotIn("大涨", output)
+        self.assertNotIn("上涨", output)
+        self.assertNotIn("下跌", output)
+        self.assertNotIn("平盘", output)
+        self.assertNotIn("涨跌幅", output)
+        self.assertLess(output.index("🚨 异动 2"), output.index("📉 其他 1"))
+        self.assertLess(output.index("📉 其他 1"), output.index("📈 其他 1"))
 
 
 if __name__ == "__main__":

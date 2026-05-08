@@ -13,6 +13,40 @@
 
 ## Milestones
 
+### Milestone 78
+
+Objective:
+- Remove textual direction labels from stock-watch snapshot rows and counts, replacing them with direction/magnitude emoji markers.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `scripts/stock-watch-feishu-20260427-0208.py`
+- `tests/stock-watch-feishu-20260427-0208.test.py`
+
+Validation:
+- `python3 tests/stock-watch-feishu-20260427-0208.test.py`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-08: User clarified that textual labels like `大跌` / `上涨` are still noisy; direction should be communicated primarily through up/down emoji.
+- 2026-05-08: Replaced row direction words with `📈` / `📉` / `📈⚡` / `📉⚡` / `➖`, replaced header words with compact emoji counts, and changed alert reason `涨跌幅` to `幅度`.
+
+Validation status:
+- passed
+  - `python3 tests/stock-watch-feishu-20260427-0208.test.py`: passed, 6 tests.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. It emitted the existing `LC_ALL` locale warning but exited 0.
+
+Review status:
+- passed 2026-05-08: scope stayed within Milestone 78. The diff only changes stock-watch presentation text and focused assertions; polling, thresholds, state persistence, and read-only API usage are unchanged.
+
+Risks / Notes / Handoff:
+- Completed as a presentation-only change; no service restart required for the next scheduled script run.
+
 ### Milestone 77
 
 Objective:

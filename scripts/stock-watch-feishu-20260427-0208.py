@@ -205,16 +205,16 @@ def number_to_text(value) -> str:
         return str(value)
 
 
-def move_badge(change_pct: float) -> tuple[str, str]:
+def move_badge(change_pct: float) -> str:
     if change_pct >= ABS_MOVE_THRESHOLD:
-        return "🔥", "大涨"
+        return "📈⚡"
     if change_pct > 0:
-        return "🟢", "上涨"
+        return "📈"
     if change_pct <= -ABS_MOVE_THRESHOLD:
-        return "🔴", "大跌"
+        return "📉⚡"
     if change_pct < 0:
-        return "🟠", "下跌"
-    return "⚪", "平盘"
+        return "📉"
+    return "➖"
 
 
 def format_snapshot_row(
@@ -225,15 +225,15 @@ def format_snapshot_row(
     change_pct: float,
     reasons: list[str],
 ) -> str:
-    icon, label = move_badge(change_pct)
+    icon = move_badge(change_pct)
     price_text = number_to_text(price)
     pct_text = ratio_to_pct(change_pct)
     if reasons:
         return (
-            f"🚨 {symbol} {name} {price_text} {pct_text} "
-            f"{icon} {label}｜{'；'.join(reasons)}"
+            f"🚨 {icon} {symbol} {name} {price_text} {pct_text}"
+            f"｜{'；'.join(reasons)}"
         )
-    return f"{icon} {symbol} {name} {price_text} {pct_text} {label}"
+    return f"{icon} {symbol} {name} {price_text} {pct_text}"
 
 
 def append_snapshot_section(
@@ -272,19 +272,19 @@ def format_snapshot_lines(rows: list[dict], *, ok: int, total: int) -> list[str]
     down_count = sum(1 for row in rows if row["change_pct"] < 0)
     big_move_count = sum(1 for row in rows if abs(row["change_pct"]) >= ABS_MOVE_THRESHOLD)
     alert_count = len(alert_rows)
-    other_prefix = "其他" if alert_rows else ""
+    other_prefix = "其他 " if alert_rows else ""
 
     lines = [
         (
             f"盯盘全量快照：成功 {ok}/{total}"
-            f"｜上涨 {up_count}｜下跌 {down_count}"
-            f"｜大幅 {big_move_count}｜异动 {alert_count}"
+            f"｜📈{up_count}｜📉{down_count}"
+            f"｜⚡{big_move_count}｜🚨{alert_count}"
         )
     ]
     append_snapshot_section(lines, f"🚨 异动 {len(alert_rows)}", alert_rows)
-    append_snapshot_section(lines, f"📉 {other_prefix}下跌 {len(down_rows)}", down_rows)
-    append_snapshot_section(lines, f"📈 {other_prefix}上涨 {len(up_rows)}", up_rows)
-    append_snapshot_section(lines, f"⚪ {other_prefix}平盘 {len(flat_rows)}", flat_rows)
+    append_snapshot_section(lines, f"📉 {other_prefix}{len(down_rows)}", down_rows)
+    append_snapshot_section(lines, f"📈 {other_prefix}{len(up_rows)}", up_rows)
+    append_snapshot_section(lines, f"➖ {other_prefix}{len(flat_rows)}", flat_rows)
     return lines
 
 
@@ -367,7 +367,7 @@ def main() -> int:
         reasons = []
         if abs(cp) >= ABS_MOVE_THRESHOLD:
             current_alert_keys.add(f"abs_move:{symbol}")
-            reasons.append(f"涨跌幅 {ratio_to_pct(cp)}")
+            reasons.append(f"幅度 {ratio_to_pct(cp)}")
         if symbol == "603228" and cp >= 0.095:
             current_alert_keys.add(f"limit_up:{symbol}")
             reasons.append("接近/达到涨停")
