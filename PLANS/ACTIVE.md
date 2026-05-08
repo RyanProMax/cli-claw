@@ -1,3 +1,55 @@
+# Stock Watch Snapshot Readability
+
+## Goal
+
+- Make the Feishu stock-watch full snapshot readable at a glance by separating alerts, losers, gainers, and flat items, with clear direction and move-size labels.
+
+## Done when
+
+- The scheduled stock-watch script keeps the same read-only API polling path and push gating.
+- Snapshot output starts with concise counts for success,上涨,下跌,大幅, and异动.
+- Output groups rows so alerts are first, then remaining down/up/flat items sorted by move severity.
+- Focused tests, diff check, review, and commit pass.
+
+## Milestones
+
+### Milestone 77
+
+Objective:
+- Improve `scripts/stock-watch-feishu-20260427-0208.py` snapshot presentation so Feishu messages expose direction, magnitude, and alert priority without changing polling or trading behavior.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `scripts/stock-watch-feishu-20260427-0208.py`
+- `tests/stock-watch-feishu-20260427-0208.test.py`
+
+Validation:
+- `python3 tests/stock-watch-feishu-20260427-0208.test.py`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-08: User reported full snapshot rows are all numeric and hard to scan; identified the formatter in `scripts/stock-watch-feishu-20260427-0208.py`.
+- 2026-05-08: Added direction/magnitude display rows and grouped output: alerts first, then remaining down/up/flat rows sorted by move severity.
+- 2026-05-08: Added regression coverage for a mixed snapshot with one large-down alert, one change-point alert, one ordinary loser, and one gainer.
+
+Validation status:
+- passed
+  - `python3 tests/stock-watch-feishu-20260427-0208.test.py`: passed, 6 tests.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. It emitted the existing `LC_ALL` locale warning but exited 0.
+
+Review status:
+- passed 2026-05-08: scope stayed within Milestone 77. The diff is presentation-only for the watch script, preserves the read-only API polling path and push gating, and adds focused coverage for grouped Feishu snapshot output. No blocking regression or contract issue found.
+
+Risks / Notes / Handoff:
+- Completed as a presentation-only change. The script remains read-only and continues using `stock-analysis-api/scripts/poll_realtime_quotes.py`.
+
+---
+
 # Codex Feishu Process / Body Presentation
 
 ## Goal

@@ -188,6 +188,106 @@ def ratio_to_pct(value) -> str:
         return "--"
 
 
+def parse_change_pct(value) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return 0.0
+
+
+def number_to_text(value) -> str:
+    if value in (None, ""):
+        return "--"
+    try:
+        text = f"{float(value):.3f}".rstrip("0").rstrip(".")
+        return text or "0"
+    except Exception:
+        return str(value)
+
+
+def move_badge(change_pct: float) -> tuple[str, str]:
+    if change_pct >= ABS_MOVE_THRESHOLD:
+        return "🔥", "大涨"
+    if change_pct > 0:
+        return "🟢", "上涨"
+    if change_pct <= -ABS_MOVE_THRESHOLD:
+        return "🔴", "大跌"
+    if change_pct < 0:
+        return "🟠", "下跌"
+    return "⚪", "平盘"
+
+
+def format_snapshot_row(
+    *,
+    symbol: str,
+    name: str,
+    price,
+    change_pct: float,
+    reasons: list[str],
+) -> str:
+    icon, label = move_badge(change_pct)
+    price_text = number_to_text(price)
+    pct_text = ratio_to_pct(change_pct)
+    if reasons:
+        return (
+            f"🚨 {symbol} {name} {price_text} {pct_text} "
+            f"{icon} {label}｜{'；'.join(reasons)}"
+        )
+    return f"{icon} {symbol} {name} {price_text} {pct_text} {label}"
+
+
+def append_snapshot_section(
+    lines: list[str],
+    title: str,
+    rows: list[dict],
+) -> None:
+    if not rows:
+        return
+    lines.append(title)
+    lines.extend(f"- {row['line']}" for row in rows)
+
+
+def format_snapshot_lines(rows: list[dict], *, ok: int, total: int) -> list[str]:
+    alert_rows = sorted(
+        [row for row in rows if row["is_alert"]],
+        key=lambda row: abs(row["change_pct"]),
+        reverse=True,
+    )
+    remaining_rows = [row for row in rows if not row["is_alert"]]
+    down_rows = sorted(
+        [row for row in remaining_rows if row["change_pct"] < 0],
+        key=lambda row: row["change_pct"],
+    )
+    up_rows = sorted(
+        [row for row in remaining_rows if row["change_pct"] > 0],
+        key=lambda row: row["change_pct"],
+        reverse=True,
+    )
+    flat_rows = sorted(
+        [row for row in remaining_rows if row["change_pct"] == 0],
+        key=lambda row: row["symbol"],
+    )
+
+    up_count = sum(1 for row in rows if row["change_pct"] > 0)
+    down_count = sum(1 for row in rows if row["change_pct"] < 0)
+    big_move_count = sum(1 for row in rows if abs(row["change_pct"]) >= ABS_MOVE_THRESHOLD)
+    alert_count = len(alert_rows)
+    other_prefix = "其他" if alert_rows else ""
+
+    lines = [
+        (
+            f"盯盘全量快照：成功 {ok}/{total}"
+            f"｜上涨 {up_count}｜下跌 {down_count}"
+            f"｜大幅 {big_move_count}｜异动 {alert_count}"
+        )
+    ]
+    append_snapshot_section(lines, f"🚨 异动 {len(alert_rows)}", alert_rows)
+    append_snapshot_section(lines, f"📉 {other_prefix}下跌 {len(down_rows)}", down_rows)
+    append_snapshot_section(lines, f"📈 {other_prefix}上涨 {len(up_rows)}", up_rows)
+    append_snapshot_section(lines, f"⚪ {other_prefix}平盘 {len(flat_rows)}", flat_rows)
+    return lines
+
+
 def quote_map(payload: dict) -> dict[str, dict]:
     result = {}
     for item in payload.get("items", []):
@@ -252,7 +352,7 @@ def main() -> int:
     if isinstance(state.get("alert_keys"), list):
         previous_alert_keys = {str(key) for key in state.get("alert_keys", [])}
 
-    rows: list[tuple[bool, str]] = []
+    rows: list[dict] = []
     current_alert_keys: set[str] = set()
     for symbol in SYMBOLS:
         item = current.get(symbol)
@@ -263,10 +363,7 @@ def main() -> int:
         name = info.get("name") or symbol
         price = quote.get("price")
         change_pct = quote.get("change_pct")
-        try:
-            cp = float(change_pct)
-        except Exception:
-            cp = 0.0
+        cp = parse_change_pct(change_pct)
         reasons = []
         if abs(cp) >= ABS_MOVE_THRESHOLD:
             current_alert_keys.add(f"abs_move:{symbol}")
@@ -282,10 +379,20 @@ def main() -> int:
                 reasons.append(f"较上次变化 {((cp - prev_cp) * 100):+.2f}pct")
         except Exception:
             pass
-        if reasons:
-            rows.append((True, f"🚨 {symbol} {name} {price} {ratio_to_pct(cp)}：{'；'.join(reasons)}"))
-        else:
-            rows.append((False, f"{symbol} {name} {price} {ratio_to_pct(cp)}"))
+        rows.append(
+            {
+                "symbol": symbol,
+                "change_pct": cp,
+                "is_alert": bool(reasons),
+                "line": format_snapshot_row(
+                    symbol=symbol,
+                    name=name,
+                    price=price,
+                    change_pct=cp,
+                    reasons=reasons,
+                ),
+            }
+        )
 
     should_emit = should_emit_push(
         previous_alert_keys=previous_alert_keys,
@@ -307,12 +414,8 @@ def main() -> int:
     if not should_emit:
         return 0
 
-    alert_count = sum(1 for is_alert, _ in rows if is_alert)
     ok = len(current)
-    lines = [
-        f"盯盘全量快照：成功 {ok}/{len(SYMBOLS)}，异动 {alert_count}",
-        *[f"- {line}" for _, line in rows],
-    ]
+    lines = format_snapshot_lines(rows, ok=ok, total=len(SYMBOLS))
     print("\n".join(lines))
     return 0
 

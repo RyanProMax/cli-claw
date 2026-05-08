@@ -37,6 +37,21 @@ def payload(change_pct: float = 0.0) -> dict:
     return {"summary": {"ok": len(items), "failed": 0}, "items": items}
 
 
+def payload_from(rows: list[tuple[str, str, float, float]]) -> dict:
+    return {
+        "summary": {"ok": len(rows), "failed": 0},
+        "items": [
+            {
+                "requested_symbol": symbol,
+                "status": "ok",
+                "info": {"symbol": symbol, "name": name},
+                "quote_data": {"price": price, "change_pct": change_pct},
+            }
+            for symbol, name, price, change_pct in rows
+        ],
+    }
+
+
 class StockWatchPushGatingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -95,6 +110,49 @@ class StockWatchPushGatingTest(unittest.TestCase):
         output = self.run_script("2026-04-27T09:50:00+08:00", payload(0.03))
 
         self.assertEqual(output, "")
+
+    def test_snapshot_groups_alerts_and_direction_sections(self) -> None:
+        self.module.SYMBOLS = ["002466", "300757", "300033", "603228"]
+        self.run_script(
+            "2026-04-27T09:40:00+08:00",
+            payload_from(
+                [
+                    ("002466", "天齐锂业", 78.0, -0.018),
+                    ("300757", "罗博特科", 508.0, 0.0128),
+                    ("300033", "同花顺", 247.0, -0.005),
+                    ("603228", "景旺电子", 74.0, 0.0),
+                ]
+            ),
+        )
+
+        output = self.run_script(
+            "2026-04-27T09:50:00+08:00",
+            payload_from(
+                [
+                    ("002466", "天齐锂业", 76.52, -0.0321),
+                    ("300757", "罗博特科", 508.0, -0.0045),
+                    ("300033", "同花顺", 243.04, -0.017),
+                    ("603228", "景旺电子", 74.73, 0.0067),
+                ]
+            ),
+        )
+
+        self.assertIn("上涨 1｜下跌 3｜大幅 1｜异动 2", output)
+        self.assertIn("🚨 异动 2", output)
+        self.assertIn("📉 其他下跌 1", output)
+        self.assertIn("📈 其他上涨 1", output)
+        self.assertIn(
+            "🚨 002466 天齐锂业 76.52 -3.21% 🔴 大跌｜涨跌幅 -3.21%",
+            output,
+        )
+        self.assertIn(
+            "🚨 300757 罗博特科 508 -0.45% 🟠 下跌｜较上次变化 -1.73pct",
+            output,
+        )
+        self.assertIn("🟠 300033 同花顺 243.04 -1.70% 下跌", output)
+        self.assertIn("🟢 603228 景旺电子 74.73 +0.67% 上涨", output)
+        self.assertLess(output.index("🚨 异动 2"), output.index("📉 其他下跌 1"))
+        self.assertLess(output.index("📉 其他下跌 1"), output.index("📈 其他上涨 1"))
 
 
 if __name__ == "__main__":
