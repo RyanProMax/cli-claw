@@ -34,8 +34,61 @@ export function classifyStreamPresentationTextChannel(
   runtimeIdentity?: StreamRuntimeIdentity | null,
 ): StreamPresentationTextChannel | null {
   if (event.eventType !== 'text_delta') return null;
-  if (runtimeIdentity?.agentType === 'codex') return 'commentary';
   return 'answer';
+}
+
+function appendCodexAssistantMessageText(
+  current: StreamPresentationTextState,
+  event: Pick<StreamEvent, 'eventType' | 'text' | 'messageUuid' | 'runtimeIdentity'>,
+): StreamPresentationTextState {
+  const streamAppended = appendStreamTextDelta(
+    current.streamText || '',
+    event,
+    current.lastStreamMessageUuid,
+  );
+  let next: StreamPresentationTextState = {
+    ...current,
+    streamText: streamAppended.text,
+    lastStreamMessageUuid: streamAppended.lastMessageUuid,
+  };
+
+  const nextMessageUuid = event.messageUuid;
+  const previousAnswerMessageUuid = next.lastAnswerMessageUuid;
+  const startsNewAssistantMessage = Boolean(
+    nextMessageUuid &&
+      previousAnswerMessageUuid &&
+      nextMessageUuid !== previousAnswerMessageUuid,
+  );
+
+  if (startsNewAssistantMessage && next.answerText.trim()) {
+    const demoted = appendStreamTextDelta(
+      next.commentaryText,
+      {
+        ...event,
+        text: next.answerText,
+        messageUuid: previousAnswerMessageUuid,
+      },
+      next.lastCommentaryMessageUuid,
+    );
+    next = {
+      ...next,
+      answerText: '',
+      lastAnswerMessageUuid: undefined,
+      commentaryText: demoted.text,
+      lastCommentaryMessageUuid: demoted.lastMessageUuid,
+    };
+  }
+
+  const answerAppended = appendStreamTextDelta(
+    next.answerText,
+    event,
+    next.lastAnswerMessageUuid,
+  );
+  return {
+    ...next,
+    answerText: answerAppended.text,
+    lastAnswerMessageUuid: answerAppended.lastMessageUuid,
+  };
 }
 
 export function appendStreamPresentationText(
@@ -53,6 +106,10 @@ export function appendStreamPresentationText(
   );
   if (!channel || !event.text) {
     return current;
+  }
+
+  if (channel === 'answer' && resolvedRuntimeIdentity?.agentType === 'codex') {
+    return appendCodexAssistantMessageText(current, event);
   }
 
   const streamAppended = appendStreamTextDelta(

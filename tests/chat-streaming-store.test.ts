@@ -154,7 +154,7 @@ describe('chat streaming store', () => {
     expect(next?.partialText).toBe('first update\n\nsecond update');
   });
 
-  test('keeps codex text_delta process narration in commentaryText and out of partialText', () => {
+  test('keeps the latest Codex assistant message in partialText and demotes earlier messages to commentaryText', () => {
     useChatStore.setState((state) => ({
       ...state,
       groups: {
@@ -200,8 +200,8 @@ describe('chat streaming store', () => {
     flushAnimationFrames();
 
     const next = useChatStore.getState().streaming['web:proj-home'];
-    expect(next?.commentaryText).toBe('先收集上下文\n\n最终结论');
-    expect(next?.partialText).toBe('');
+    expect(next?.commentaryText).toBe('先收集上下文');
+    expect(next?.partialText).toBe('最终结论');
   });
 
   test('clears orphaned streaming residue on restore when backend no longer has an active runner', async () => {

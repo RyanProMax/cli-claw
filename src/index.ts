@@ -436,7 +436,15 @@ export function feedStreamEventToCard(
         if (channel === 'commentary') {
           session.appendCommentary(presentationText.commentaryText);
         } else {
-          session.append(presentationText.answerText);
+          if (
+            se.runtimeIdentity?.agentType === 'codex' &&
+            presentationText.commentaryText.trim()
+          ) {
+            session.appendCommentary(presentationText.commentaryText);
+          }
+          if (presentationText.answerText) {
+            session.append(presentationText.answerText);
+          }
         }
       }
       break;

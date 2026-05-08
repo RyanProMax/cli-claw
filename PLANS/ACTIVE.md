@@ -14,6 +14,55 @@
 
 ## Milestones
 
+### Milestone 82
+
+Objective:
+- Restore Codex live answer classification by treating the current `agent_message_chunk` / `text_delta` message as the answer candidate and demoting earlier assistant messages to the unified Thinking lane.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `shared/stream-presentation.ts`
+- `src/index.ts`
+- `tests/stream-presentation.test.ts`
+- `tests/chat-streaming-store.test.ts`
+
+Validation:
+- `npm test -- --run tests/stream-presentation.test.ts tests/chat-streaming-store.test.ts tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-08: User reported the previous fix over-classified正文 into Thinking and then truncated it. Root cause: our ACP adapter preserved Codex `agent_thought_chunk` separately, but shared presentation collapsed every Codex `agent_message_chunk` / `text_delta` into commentary.
+- 2026-05-08: Added RED coverage for Codex message-id boundary behavior: latest assistant message should be `answerText`, older assistant messages should move to `commentaryText` / Thinking.
+- 2026-05-08: Implemented Codex message-id aware presentation accumulation: current assistant message stays in answer/body, and prior assistant messages demote to the unified Thinking lane.
+
+Validation status:
+- failed as expected 2026-05-08:
+  - `npm test -- --run tests/stream-presentation.test.ts tests/chat-streaming-store.test.ts` failed because Codex `text_delta` still routed entirely to `commentaryText` and Feishu/Web did not receive the latest assistant message as body.
+- passed focused 2026-05-08:
+  - `npm run build:shared`: passed.
+  - `npm test -- --run tests/stream-presentation.test.ts tests/chat-streaming-store.test.ts`: passed, 15 tests.
+- passed full 2026-05-08:
+  - `npm test -- --run tests/stream-presentation.test.ts tests/chat-streaming-store.test.ts tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts`: passed, 85 tests. Existing Feishu CardKit mock fallback logs appeared.
+  - `npm run typecheck`: passed.
+  - `npm run build`: passed. Existing Vite chunk-size warning appeared.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. Existing `LC_ALL` locale warning appeared and the script requested semantic review.
+
+Review status:
+- passed 2026-05-08: scope stayed inside Milestone 82. The diff restores ingress-time Codex thought/message separation, keeps final visibility filtering from Milestone 81 intact, updates Feishu/Web streaming tests, and refreshes the runtime presentation contract.
+
+Risks / Notes / Handoff:
+- Runtime code changed; after commit, apply with the normal safe restart path.
+- Final visibility filtering from Milestone 81 remains in place for process-only finals and structured report prefixes.
+
 ### Milestone 81
 
 Objective:

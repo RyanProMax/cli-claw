@@ -35,7 +35,7 @@ describe('stream presentation', () => {
     );
   });
 
-  test('routes Codex text_delta presentation stream into commentaryText, not answerText', () => {
+  test('keeps the latest Codex assistant message as the answer candidate and demotes earlier messages to Thinking', () => {
     const first = appendStreamPresentationText(
       createEmptyStreamPresentationTextState(),
       {
@@ -100,24 +100,26 @@ describe('stream presentation', () => {
     );
 
     expect(first).toMatchObject({
-      answerText: '',
-      commentaryText: '先收集上下文',
-      lastCommentaryMessageUuid: 'msg-1',
+      answerText: '先收集上下文',
+      commentaryText: '',
+      lastAnswerMessageUuid: 'msg-1',
     });
     expect(second).toMatchObject({
-      answerText: '',
-      commentaryText: '先收集上下文\n\n最终结论',
-      lastCommentaryMessageUuid: 'msg-2',
+      answerText: '最终结论',
+      commentaryText: '先收集上下文',
+      lastAnswerMessageUuid: 'msg-2',
+      lastCommentaryMessageUuid: 'msg-1',
     });
     expect(third).toMatchObject({
-      answerText: '',
-      commentaryText: '先收集上下文\n\n最终结论\n\n- 已完成',
+      answerText: '最终结论\n\n- 已完成',
+      commentaryText: '先收集上下文',
       streamText: '先收集上下文\n\n最终结论\n\n- 已完成',
-      lastCommentaryMessageUuid: 'msg-2',
+      lastAnswerMessageUuid: 'msg-2',
+      lastCommentaryMessageUuid: 'msg-1',
     });
   });
 
-  test('streams Codex text_delta only into the Feishu Thinking lane', () => {
+  test('streams the latest Codex assistant message to Feishu body and older messages to Thinking', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -147,8 +149,8 @@ describe('stream presentation', () => {
         },
       } as any,
       {
-        answerText: '',
-        commentaryText: '先收集上下文\n\n最终结论',
+        answerText: '最终结论',
+        commentaryText: '先收集上下文',
         streamText: '先收集上下文\n\n最终结论',
       },
     );
@@ -159,10 +161,8 @@ describe('stream presentation', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     });
-    expect(session.appendCommentary).toHaveBeenCalledWith(
-      '先收集上下文\n\n最终结论',
-    );
-    expect(session.append).not.toHaveBeenCalled();
+    expect(session.appendCommentary).toHaveBeenCalledWith('先收集上下文');
+    expect(session.append).toHaveBeenCalledWith('最终结论');
   });
 
   test('never streams stale Codex presentation answerText into Feishu cards', () => {
@@ -207,7 +207,7 @@ describe('stream presentation', () => {
     );
   });
 
-  test('does not stream a Codex process preamble as the live answer before an answer boundary appears', () => {
+  test('streams a single Codex assistant message as the live answer candidate until final visibility resolves it', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -237,14 +237,14 @@ describe('stream presentation', () => {
         },
       } as any,
       {
-        answerText: '',
-        commentaryText: '我会先检查卡片实现',
+        answerText: '我会先检查卡片实现',
+        commentaryText: '',
         streamText: '我会先检查卡片实现',
       },
     );
 
-    expect(session.append).not.toHaveBeenCalled();
-    expect(session.appendCommentary).toHaveBeenCalledWith('我会先检查卡片实现');
+    expect(session.append).toHaveBeenCalledWith('我会先检查卡片实现');
+    expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 
   test('does not stream an ambiguous one-character Codex preamble prefix into Feishu cards', () => {
@@ -277,14 +277,14 @@ describe('stream presentation', () => {
         },
       } as any,
       {
-        answerText: '',
-        commentaryText: '我',
+        answerText: '我',
+        commentaryText: '',
         streamText: '我',
       },
     );
 
-    expect(session.append).not.toHaveBeenCalled();
-    expect(session.appendCommentary).toHaveBeenCalledWith('我');
+    expect(session.append).toHaveBeenCalledWith('我');
+    expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 
   test('does not sync presentation commentary to terminal Feishu cards by default', () => {

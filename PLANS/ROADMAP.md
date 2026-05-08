@@ -50,7 +50,7 @@
   - Feishu streaming card presentation lanes and fallback rules live in `docs/RUNTIME.md`.
   - Final visible reply filtering lives in `reply-visibility` and is documented in `docs/RUNTIME.md`.
 - Recent progress:
-  - 2026-05-08: Codex `text_delta` is now routed to `commentaryText` / “过程” instead of answer/`partialText`; Feishu process text is sentence-split in its own panel while terminal raw final remains the only main-body answer source.
+  - 2026-05-08: Codex ACP thought/message events are classified at ingress: `agent_thought_chunk` stays in `Thinking`, the current `agent_message_chunk` / `text_delta` is the live body candidate, and older assistant messageIds are demoted into `Thinking`.
   - 2026-05-08: Feishu/Web merged Codex process/commentary with model thinking into a single `Thinking` section; there is no separate “过程” panel, and process-only terminal finals stay out of正文.
   - 2026-05-08: Fixed a Codex `/research` regression where long process narration plus a structured report title was classified entirely as `Thinking`; strong report titles now split the preamble into `Thinking` and keep the report正文 visible.
 - Next action:
