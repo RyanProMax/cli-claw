@@ -120,11 +120,48 @@ Risks / Notes / Handoff:
 ## Done when
 
 - The scheduled stock-watch script keeps the same read-only API polling path and push gating.
-- Snapshot output starts with concise counts for success,上涨,下跌,大幅, and异动.
+- Snapshot output starts with concise counts for success, `📈`, `📉`, and `🚨`; large move `⚡` stays on affected rows only.
 - Output groups rows so alerts are first, then remaining down/up/flat items sorted by move severity.
 - Focused tests, diff check, review, and commit pass.
 
 ## Milestones
+
+### Milestone 83
+
+Objective:
+- Restore the stock-watch snapshot Markdown contract: bold titles, `📈/📉` direction emoji, `🚨` alert emoji, and row-level `⚡` for large moves only.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `scripts/stock-watch-feishu-20260427-0208.py`
+- `tests/stock-watch-feishu-20260427-0208.test.py`
+
+Validation:
+- `python3 tests/stock-watch-feishu-20260427-0208.test.py`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-08: User reported the previous formatter regressed the requested snapshot contract by dropping `📈/📉/🚨`, moving alert semantics to `⚡`, and losing bold titles.
+- 2026-05-08: Added RED coverage for the exact requested snapshot template with bold headings, `📈/📉` counts, `🚨` alert counts/rows, and row-level `⚡` only for large moves.
+- 2026-05-08: Updated the formatter so direction emoji always leads each row, alert rows end with `🚨`, section headings are bold, and the first line uses `📈/📉/🚨` counts.
+
+Validation status:
+- failed as expected 2026-05-08:
+  - `python3 tests/stock-watch-feishu-20260427-0208.test.py` failed before the formatter change because output still used bare counts and `⚡` as the alert marker.
+- passed 2026-05-08:
+  - `python3 tests/stock-watch-feishu-20260427-0208.test.py`: passed, 7 tests.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. Existing `LC_ALL` locale warning appeared and the script requested semantic review.
+
+Review status:
+- passed 2026-05-08: scope stayed within Milestone 83. The diff is presentation-only, locks the exact requested stock-watch Markdown contract in tests, and preserves polling, read-only API usage, thresholds, push gating, and state persistence.
+
+Risks / Notes / Handoff:
+- Presentation-only change; polling, read-only API access, thresholds, push gating, and state persistence must stay unchanged.
 
 ### Milestone 80
 

@@ -93,15 +93,15 @@ class StockWatchPushGatingTest(unittest.TestCase):
 
         output = self.run_script("2026-04-27T10:10:00+08:00", payload(0.0))
 
-        self.assertIn("盯盘快照：成功 2/2｜0｜0｜⚡0｜0", output)
+        self.assertIn("**盯盘快照：成功 2/2｜📈0｜📉0｜🚨0**", output)
 
     def test_new_alert_pushes_before_30_minute_heartbeat(self) -> None:
         self.run_script("2026-04-27T09:40:00+08:00", payload(0.0))
 
         output = self.run_script("2026-04-27T09:50:00+08:00", payload(0.03))
 
-        self.assertIn("⚡ 603228", output)
-        self.assertIn("⚡ 300033", output)
+        self.assertIn("📈⚡ 603228", output)
+        self.assertIn("📈⚡ 300033", output)
 
     def test_persistent_alert_is_silent_until_heartbeat(self) -> None:
         self.run_script("2026-04-27T09:40:00+08:00", payload(0.03))
@@ -136,27 +136,27 @@ class StockWatchPushGatingTest(unittest.TestCase):
             ),
         )
 
-        self.assertIn("盯盘快照：成功 4/4｜1｜3｜⚡1｜2", output)
-        self.assertIn("异动 2 家", output)
-        self.assertIn("下跌 1 家", output)
-        self.assertIn("上涨 1 家", output)
+        self.assertIn("**盯盘快照：成功 4/4｜📈1｜📉3｜🚨2**", output)
+        self.assertIn("**🚨 异动 2 家**", output)
+        self.assertIn("**📉 下跌 1 家**", output)
+        self.assertIn("**📈 上涨 1 家**", output)
         self.assertIn(
-            "⚡ 002466 天齐锂业 76.52 -3.21%｜下跌幅度超 2%",
+            "📉⚡ 002466 天齐锂业 76.52 -3.21%｜下跌幅度超 2% 🚨",
             output,
         )
         self.assertIn(
-            "⚡ 300757 罗博特科 508 -0.45%｜较上次回落 1.73 个百分点",
+            "📉 300757 罗博特科 508 -0.45%｜较上次回落 1.73 个百分点 🚨",
             output,
         )
-        self.assertIn("-  300033 同花顺 243.04 -1.70%", output)
-        self.assertIn("-  603228 景旺电子 74.73 +0.67%", output)
+        self.assertIn("- 📉 300033 同花顺 243.04 -1.70%", output)
+        self.assertIn("- 📈 603228 景旺电子 74.73 +0.67%", output)
         self.assertNotIn("大跌", output)
         self.assertNotIn("大涨", output)
         self.assertNotIn("其他", output)
         self.assertNotIn("平盘", output)
         self.assertNotIn("涨跌幅", output)
-        self.assertLess(output.index("异动 2 家"), output.index("下跌 1 家"))
-        self.assertLess(output.index("下跌 1 家"), output.index("上涨 1 家"))
+        self.assertLess(output.index("🚨 异动 2 家"), output.index("📉 下跌 1 家"))
+        self.assertLess(output.index("📉 下跌 1 家"), output.index("📈 上涨 1 家"))
 
     def test_snapshot_matches_user_template_exactly(self) -> None:
         self.module.SYMBOLS = [
@@ -223,24 +223,24 @@ class StockWatchPushGatingTest(unittest.TestCase):
             output,
             "\n".join(
                 [
-                    "盯盘快照：成功 14/14｜4｜9｜⚡2｜2",
-                    " 异动 2 家",
-                    "- ⚡ 002466 天齐锂业 76.28 -3.52%｜下跌幅度超 2%",
-                    "- ⚡ 300757 罗博特科 522.46 +2.38%｜上涨幅度超 2%",
-                    " 下跌 8 家",
-                    "-  300014 亿纬锂能 70.52 -1.80%",
-                    "-  513180 恒生科技ETF华夏 0.645 -1.38%",
-                    "-  300827 上能电气 38.09 -1.22%",
-                    "-  588320 双创50增强ETF广发 1.821 -1.14%",
-                    "-  300033 同花顺 244.65 -1.05%",
-                    "-  159952 创业ETF 2.313 -0.86%",
-                    "-  159919 沪深300 5.09 -0.61%",
-                    "-  002983 芯瑞达 23.46 -0.26%",
-                    " 上涨 3 家",
-                    "-  512100 中证1000ETF南方 3.509 +0.46%",
-                    "-  300274 阳光电源 139.98 +0.34%",
-                    "-  603228 景旺电子 74.3 +0.09%",
-                    "➖ 平盘 1 家",
+                    "**盯盘快照：成功 14/14｜📈4｜📉9｜🚨2**",
+                    "**🚨 异动 2 家**",
+                    "- 📉⚡ 002466 天齐锂业 76.28 -3.52%｜下跌幅度超 2% 🚨",
+                    "- 📈⚡ 300757 罗博特科 522.46 +2.38%｜上涨幅度超 2% 🚨",
+                    "**📉 下跌 8 家**",
+                    "- 📉 300014 亿纬锂能 70.52 -1.80%",
+                    "- 📉 513180 恒生科技ETF华夏 0.645 -1.38%",
+                    "- 📉 300827 上能电气 38.09 -1.22%",
+                    "- 📉 588320 双创50增强ETF广发 1.821 -1.14%",
+                    "- 📉 300033 同花顺 244.65 -1.05%",
+                    "- 📉 159952 创业ETF 2.313 -0.86%",
+                    "- 📉 159919 沪深300 5.09 -0.61%",
+                    "- 📉 002983 芯瑞达 23.46 -0.26%",
+                    "**📈 上涨 3 家**",
+                    "- 📈 512100 中证1000ETF南方 3.509 +0.46%",
+                    "- 📈 300274 阳光电源 139.98 +0.34%",
+                    "- 📈 603228 景旺电子 74.3 +0.09%",
+                    "**➖ 平盘 1 家**",
                     "- ➖ 513110 纳指ETF华泰柏瑞 2.315 +0.00%",
                 ]
             ),

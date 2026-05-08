@@ -218,6 +218,14 @@ def format_change_point_reason(delta: float) -> str:
     return f"较上次{direction} {abs(delta) * 100:.2f} 个百分点"
 
 
+def direction_emoji(change_pct: float) -> str:
+    if change_pct > 0:
+        return "📈"
+    if change_pct < 0:
+        return "📉"
+    return "➖"
+
+
 def format_snapshot_row(
     *,
     symbol: str,
@@ -228,11 +236,12 @@ def format_snapshot_row(
 ) -> str:
     price_text = number_to_text(price)
     pct_text = ratio_to_pct(change_pct)
+    prefix = direction_emoji(change_pct)
+    if abs(change_pct) >= ABS_MOVE_THRESHOLD:
+        prefix += "⚡"
     if reasons:
-        return f"⚡ {symbol} {name} {price_text} {pct_text}｜{'；'.join(reasons)}"
-    if change_pct == 0:
-        return f"➖ {symbol} {name} {price_text} {pct_text}"
-    return f" {symbol} {name} {price_text} {pct_text}"
+        return f"{prefix} {symbol} {name} {price_text} {pct_text}｜{'；'.join(reasons)} 🚨"
+    return f"{prefix} {symbol} {name} {price_text} {pct_text}"
 
 
 def append_snapshot_section(
@@ -269,20 +278,19 @@ def format_snapshot_lines(rows: list[dict], *, ok: int, total: int) -> list[str]
 
     up_count = sum(1 for row in rows if row["change_pct"] > 0)
     down_count = sum(1 for row in rows if row["change_pct"] < 0)
-    big_move_count = sum(1 for row in rows if abs(row["change_pct"]) >= ABS_MOVE_THRESHOLD)
     alert_count = len(alert_rows)
 
     lines = [
         (
-            f"盯盘快照：成功 {ok}/{total}"
-            f"｜{up_count}｜{down_count}"
-            f"｜⚡{big_move_count}｜{alert_count}"
+            f"**盯盘快照：成功 {ok}/{total}"
+            f"｜📈{up_count}｜📉{down_count}"
+            f"｜🚨{alert_count}**"
         )
     ]
-    append_snapshot_section(lines, f" 异动 {len(alert_rows)} 家", alert_rows)
-    append_snapshot_section(lines, f" 下跌 {len(down_rows)} 家", down_rows)
-    append_snapshot_section(lines, f" 上涨 {len(up_rows)} 家", up_rows)
-    append_snapshot_section(lines, f"➖ 平盘 {len(flat_rows)} 家", flat_rows)
+    append_snapshot_section(lines, f"**🚨 异动 {len(alert_rows)} 家**", alert_rows)
+    append_snapshot_section(lines, f"**📉 下跌 {len(down_rows)} 家**", down_rows)
+    append_snapshot_section(lines, f"**📈 上涨 {len(up_rows)} 家**", up_rows)
+    append_snapshot_section(lines, f"**➖ 平盘 {len(flat_rows)} 家**", flat_rows)
     return lines
 
 
