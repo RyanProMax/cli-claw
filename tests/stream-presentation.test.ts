@@ -117,7 +117,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('streams Codex text_delta only into the Feishu process panel', () => {
+  test('streams Codex text_delta only into the Feishu Thinking lane', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -300,7 +300,7 @@ describe('stream presentation', () => {
     expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 
-  test('clears duplicate Codex process panel when terminal visibility has no commentary', () => {
+  test('clears duplicate Codex Thinking commentary when terminal visibility has no commentary', () => {
     const session = {
       appendCommentary: vi.fn(),
       appendThinking: vi.fn(),
@@ -319,7 +319,7 @@ describe('stream presentation', () => {
     expect(session.appendThinking).not.toHaveBeenCalled();
   });
 
-  test('syncs explicit visible commentary to terminal Feishu process panel', () => {
+  test('syncs explicit visible commentary to terminal Feishu Thinking lane', () => {
     const session = {
       appendCommentary: vi.fn(),
       appendThinking: vi.fn(),

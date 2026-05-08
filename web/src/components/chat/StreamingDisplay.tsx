@@ -61,6 +61,21 @@ const TASK_STATUS_LABELS: Record<string, string> = {
   error: '出错',
 };
 
+function mergeThinkingAndCommentary(
+  thinkingText?: string,
+  commentaryText?: string,
+): string {
+  const thinking = (thinkingText ?? '').trim();
+  const commentary = (commentaryText ?? '').trim();
+  if (!thinking) return commentary;
+  if (!commentary || commentary === thinking) return thinking;
+  return `${thinking}\n\n${commentary}`;
+}
+
+function truncateTail(text: string, maxLength: number, tailLength: number): string {
+  return text.length > maxLength ? '...' + text.slice(-tailLength) : text;
+}
+
 /** Collapsible block for a single Task Agent — visually consistent with the Thinking block. */
 function TaskAgentBlock({ agent, groupJid }: { agent: AgentInfo; groupJid: string }) {
   const streaming = useChatStore(s => s.agentStreaming[agent.id]);
@@ -97,6 +112,11 @@ function TaskAgentBlock({ agent, groupJid }: { agent: AgentInfo; groupJid: strin
   const textColor = isRunning ? 'text-blue-700 dark:text-blue-300' : agent.status === 'error' ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300';
   const chevronColor = isRunning ? 'text-blue-400 dark:text-blue-500' : agent.status === 'error' ? 'text-red-400 dark:text-red-500' : 'text-emerald-400 dark:text-emerald-500';
   const contentBorderColor = isRunning ? 'border-blue-100 dark:border-blue-800/50' : agent.status === 'error' ? 'border-red-100 dark:border-red-800/50' : 'border-emerald-100 dark:border-emerald-800/50';
+  const agentThinkingText = streaming
+    ? mergeThinkingAndCommentary(streaming.thinkingText, streaming.commentaryText)
+    : '';
+  const agentThinkingDisplay = truncateTail(agentThinkingText, 2000, 1500);
+  const showAgentThinking = Boolean(streaming && (streaming.isThinking || agentThinkingText));
 
   return (
     <div className={`mb-3 rounded-xl border ${borderColor} ${bgColor} overflow-hidden`}>
@@ -126,15 +146,31 @@ function TaskAgentBlock({ agent, groupJid }: { agent: AgentInfo; groupJid: strin
           {/* Live streaming state (running) */}
           {isRunning && streaming && (
             <>
-              {streaming.isThinking && (
-                <p className="text-[13px] text-blue-500 dark:text-blue-400 italic flex items-center gap-1">
-                  思考中
-                  <span className="flex gap-0.5 ml-0.5">
-                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-1 h-1 bg-blue-400 rounded-full animate-bounce" />
-                  </span>
-                </p>
+              {showAgentThinking && (
+                <div className="rounded-lg border border-slate-200/80 bg-slate-50/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-200">
+                  <div className="mb-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Thinking
+                    {streaming.isThinking && (
+                      <span className="flex gap-0.5 ml-0.5">
+                        <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                        <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                        <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce" />
+                      </span>
+                    )}
+                  </div>
+                  {agentThinkingDisplay ? (
+                    <MarkdownRenderer
+                      content={agentThinkingDisplay}
+                      groupJid={groupJid}
+                      variant="chat"
+                      streaming
+                    />
+                  ) : (
+                    <p className="text-[13px] italic text-slate-500 dark:text-slate-400">
+                      Thinking...
+                    </p>
+                  )}
+                </div>
               )}
               {streaming.activeTools.length > 0 && (
                 <div className="space-y-1.5">
@@ -145,21 +181,6 @@ function TaskAgentBlock({ agent, groupJid }: { agent: AgentInfo; groupJid: strin
                       localElapsed={localElapsed[tool.toolUseId]}
                     />
                   ))}
-                </div>
-              )}
-              {streaming.commentaryText && (
-                <div className="rounded-lg border border-slate-200/80 bg-slate-50/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700/60 dark:bg-slate-900/40 dark:text-slate-200">
-                  <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    过程
-                  </div>
-                  <MarkdownRenderer
-                    content={streaming.commentaryText.length > 2000
-                      ? '...' + streaming.commentaryText.slice(-1500)
-                      : streaming.commentaryText}
-                    groupJid={groupJid}
-                    variant="chat"
-                    streaming
-                  />
                 </div>
               )}
               {streaming.partialText && (
@@ -212,6 +233,12 @@ function StreamingContent({
   const askUserTools = streaming.activeTools.filter(
     t => t.toolName === 'AskUserQuestion' && t.toolInput
   );
+  const unifiedThinkingText = mergeThinkingAndCommentary(
+    streaming.thinkingText,
+    streaming.commentaryText,
+  );
+  const displayedThinkingText = truncateTail(unifiedThinkingText, 3000, 2000);
+  const showThinkingBlock = Boolean(unifiedThinkingText) || streaming.isThinking;
 
   return (
     <>
@@ -226,8 +253,8 @@ function StreamingContent({
         </div>
       )}
 
-      {/* Reasoning block */}
-      {streaming.thinkingText && (
+      {/* Thinking block */}
+      {showThinkingBlock && (
         <div className="mb-3 rounded-xl border border-amber-200/60 dark:border-amber-800/40 bg-amber-50/40 dark:bg-amber-950/30 overflow-hidden">
           <button
             onClick={() => setThinkingExpanded(!thinkingExpanded)}
@@ -237,7 +264,7 @@ function StreamingContent({
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
             </svg>
             <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
-              {streaming.isThinking ? 'Reasoning...' : 'Reasoning'}
+              {streaming.isThinking ? 'Thinking...' : 'Thinking'}
             </span>
             {streaming.isThinking && (
               <span className="flex gap-0.5 ml-0.5">
@@ -257,9 +284,20 @@ function StreamingContent({
             <div
               ref={thinkingRef}
               onScroll={handleThinkingScroll}
-              className="px-3 pb-3 text-sm text-amber-900/70 dark:text-amber-200/70 whitespace-pre-wrap break-words max-h-64 overflow-y-auto border-t border-amber-100 dark:border-amber-800/50"
+              className="px-3 pb-3 text-sm text-amber-900/70 dark:text-amber-200/70 break-words max-h-64 overflow-y-auto border-t border-amber-100 dark:border-amber-800/50"
             >
-              {streaming.thinkingText}
+              {displayedThinkingText ? (
+                <MarkdownRenderer
+                  content={displayedThinkingText}
+                  groupJid={groupJid}
+                  variant="chat"
+                  streaming
+                />
+              ) : (
+                <p className="italic text-amber-700/70 dark:text-amber-200/70">
+                  Thinking...
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -300,25 +338,6 @@ function StreamingContent({
                 {item.text}
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Process commentary */}
-      {streaming.commentaryText && (
-        <div className="mb-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 dark:border-slate-700/60 dark:bg-slate-900/40">
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            过程
-          </div>
-          <div className="max-w-none overflow-hidden [&>div>*:first-child]:!mt-0">
-            <MarkdownRenderer
-              content={streaming.commentaryText.length > 3000
-                ? '...' + streaming.commentaryText.slice(-2000)
-                : streaming.commentaryText}
-              groupJid={groupJid}
-              variant="chat"
-              streaming
-            />
           </div>
         </div>
       )}
@@ -442,7 +461,7 @@ export function StreamingDisplay({ groupJid, isWaiting, senderName: senderNamePr
     if (!thinkingExpanded || !thinkingRef.current || userScrolledRef.current) return;
     const el = thinkingRef.current;
     el.scrollTop = el.scrollHeight;
-  }, [streaming?.thinkingText, thinkingExpanded]);
+  }, [streaming?.thinkingText, streaming?.commentaryText, thinkingExpanded]);
 
   // Reset on group change
   useEffect(() => {

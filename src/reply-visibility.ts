@@ -93,12 +93,18 @@ function normalizeReplyText(value: string | null | undefined): string {
   return typeof value === 'string' ? value.replace(/\r\n?/g, '\n').trim() : '';
 }
 
-function looksLikeProcessCommentaryPrefix(prefix: string): boolean {
-  const normalized = prefix.trim();
-  if (!normalized || normalized.length > 500) return false;
+function startsLikeProcessCommentary(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return false;
   return /^(我(先|会|按|来|继续|已经|正在|把)|先|接下来|当前|正在|已|I(?:'ll| will| am|’ll)\b)/i.test(
     normalized,
   );
+}
+
+function looksLikeProcessCommentaryPrefix(prefix: string): boolean {
+  const normalized = prefix.trim();
+  if (normalized.length > 500) return false;
+  return startsLikeProcessCommentary(normalized);
 }
 
 function splitLeadingCodexCommentary(
@@ -155,6 +161,13 @@ export function resolveVisibleReplyParts(
     commentaryText &&
     normalizedRawText === commentaryText
   ) {
+    if (startsLikeProcessCommentary(commentaryText)) {
+      return {
+        visibleText: '',
+        commentaryText,
+        droppedPresentationAnswer,
+      };
+    }
     return {
       visibleText: sanitizedRawText,
       commentaryText: '',

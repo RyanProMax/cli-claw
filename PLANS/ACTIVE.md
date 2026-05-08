@@ -13,6 +13,54 @@
 
 ## Milestones
 
+### Milestone 80
+
+Objective:
+- Collapse Codex `Thinking` and `过程` presentation into one Thinking lane, and classify terminal process preambles before rendering so the answer body only contains the actual reply.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `src/reply-visibility.ts`
+- `src/feishu-streaming-card.ts`
+- `src/index.ts`
+- `web/src/components/chat/StreamingDisplay.tsx`
+- `tests/reply-visibility.test.ts`
+- `tests/stream-presentation.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+- `tests/chat-streaming-store.test.ts`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/chat-streaming-store.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-08: User clarified the desired model: classify events as they arrive instead of guessing the last assistant message, and merge `Thinking` and `过程` into one user-facing Thinking concept.
+- 2026-05-08: Added RED coverage for process-only terminal finals, long duplicate process finals, and Feishu cards rendering Codex commentary in `Thinking` without a separate `过程` panel.
+- 2026-05-08: Implemented the merged lane: Feishu/Web now render `thinkingText` plus Codex `commentaryText` in one `Thinking` section; process-only terminal finals stay in commentary with an empty-body completion fallback; actual answer suffixes still render as正文.
+
+Validation status:
+- passed
+  - `npm test -- --run tests/reply-visibility.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts tests/chat-streaming-store.test.ts`: passed, 84 tests. Existing Feishu test client fallback logs appeared but tests passed.
+  - `npm run typecheck`: passed.
+  - `npm run build`: passed. Existing Vite chunk-size warning appeared.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. Existing `LC_ALL` locale warning appeared but exited 0.
+
+Review status:
+- passed 2026-05-08: scope stayed within Milestone 80 after adding `PLANS/ROADMAP.md` for the durable presentation-contract update. The diff removes the separate user-facing process panel, keeps tool steps separate, preserves Codex `text_delta` outside answer buffers, and adds terminal-final classification coverage for both short and long process-only outputs.
+
+Risks / Notes / Handoff:
+- Keep tool steps as a separate execution trace. The merge applies to model thinking/process/commentary text, not tool-call step history.
+- Runtime and Web code changed; after commit, apply with the normal safe restart path.
+
 ### Milestone 79
 
 Objective:

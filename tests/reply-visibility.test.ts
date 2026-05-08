@@ -104,19 +104,23 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('keeps the original text when the final payload is commentary-only', () => {
+  test('classifies a process-only Codex terminal final as commentary, not answer body', () => {
     expect(
-      resolveVisibleReplyText(
+      resolveVisibleReplyParts(
         '我会先检查飞书渲染链路。',
         {
           commentaryText: '我会先检查飞书渲染链路。',
         },
         { agentType: 'codex' },
       ),
-    ).toBe('我会先检查飞书渲染链路。');
+    ).toEqual({
+      visibleText: '',
+      commentaryText: '我会先检查飞书渲染链路。',
+      droppedPresentationAnswer: false,
+    });
   });
 
-  test('drops duplicate Codex commentary when terminal final equals the streamed text', () => {
+  test('keeps duplicate Codex process text in commentary when terminal final equals the streamed text', () => {
     const rawText = [
       '我会先检查飞书渲染链路。',
       '已完成修复：过程面板不再重复正文。',
@@ -131,9 +135,53 @@ describe('resolveVisibleReplyText', () => {
         { agentType: 'codex' },
       ),
     ).toEqual({
-      visibleText: rawText,
-      commentaryText: '',
+      visibleText: '',
+      commentaryText: rawText,
       droppedPresentationAnswer: false,
+    });
+  });
+
+  test('keeps long duplicate Codex process text in commentary instead of falling back to the body', () => {
+    const rawText = [
+      '我会先系统性打印 Codex 输出流并归类每个事件。',
+      '当前观察到 text_delta 连续携带执行说明。'.repeat(80),
+      '验证完成后再更新卡片渲染合同。',
+    ].join('\n');
+
+    expect(
+      resolveVisibleReplyParts(
+        rawText,
+        {
+          commentaryText: rawText,
+        },
+        { agentType: 'codex' },
+      ),
+    ).toEqual({
+      visibleText: '',
+      commentaryText: rawText,
+      droppedPresentationAnswer: false,
+    });
+  });
+
+  test('splits Codex implementation narration before the actual user-facing answer', () => {
+    const processText = [
+      '我已经按这个问题做了修复，根因就是 Codex 的同一份 text_delta 累计文本既被直播到了“过程”，结束时又作为 terminal final 写进正文。',
+      '现在终态会判断两者是否完全相同：相同就清空“过程”，只保留正文；只有真的能剥离出独立过程前缀时，才放进“过程”。',
+      '我再确认一下重启是否已经应用。',
+    ].join('\n');
+    const rawText = `${processText}\n你说得对，这是概念混了。`;
+
+    expect(
+      resolveVisibleReplyParts(
+        rawText,
+        {
+          commentaryText: processText,
+        },
+        { agentType: 'codex' },
+      ),
+    ).toEqual({
+      visibleText: '你说得对，这是概念混了。',
+      commentaryText: processText,
     });
   });
 

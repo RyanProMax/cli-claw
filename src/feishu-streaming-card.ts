@@ -710,9 +710,28 @@ function formatCommentaryPanelBody(body: string): string {
   return formattedLines.join('\n').trim();
 }
 
+function buildUnifiedThinkingPanelBody(aux: AuxiliaryState): string {
+  const chunks: string[] = [];
+  const thinkingText = aux.thinkingText.trim();
+  const commentaryText = aux.commentaryText.trim();
+
+  if (thinkingText) {
+    chunks.push(thinkingText);
+  }
+  if (commentaryText && commentaryText !== thinkingText) {
+    chunks.push(formatCommentaryPanelBody(commentaryText));
+  }
+
+  const merged = chunks.filter(Boolean).join('\n\n');
+  const maxChars = Math.max(MAX_THINKING_CHARS, MAX_COMMENTARY_CHARS);
+  return merged.length > maxChars
+    ? '...' + merged.slice(-(maxChars - 3))
+    : merged;
+}
+
 /**
  * Build auxiliary markdown elements for the streaming card.
- * Returns elements to insert before the main text content so process panels
+ * Returns elements to insert before the main text content so auxiliary panels
  * stay at the top instead of jumping below the final answer on completion.
  */
 function buildAuxiliaryElements(aux: AuxiliaryState): {
@@ -765,20 +784,20 @@ function buildAuxiliaryElementsForState(
     );
   }
 
-  // ② Thinking
-  if (aux.thinkingText) {
-    const truncated =
-      aux.thinkingText.length > MAX_THINKING_CHARS
-        ? '...' + aux.thinkingText.slice(-(MAX_THINKING_CHARS - 3))
-        : aux.thinkingText;
+  // ② Thinking. Codex commentary/process text is the same user-facing
+  // auxiliary lane as model thinking; only the answer lane renders正文.
+  const thinkingPanelBody = buildUnifiedThinkingPanelBody(aux);
+  const hasActiveThinking =
+    aux.isThinking || Boolean(aux.commentaryText.trim());
+  if (thinkingPanelBody) {
     auxiliaryElements.push(
       buildCollapsiblePanel(
-        aux.isThinking ? '💭 Thinking...' : '💭 Thinking',
-        truncated.slice(0, MAX_ELEMENT_CHARS),
+        '💭 Thinking',
+        thinkingPanelBody.slice(0, MAX_ELEMENT_CHARS),
         isStreamingLayout,
       ),
     );
-  } else if (aux.isThinking) {
+  } else if (hasActiveThinking) {
     auxiliaryElements.push(
       buildCollapsiblePanel('💭 Thinking...', 'Thinking...', isStreamingLayout),
     );
@@ -791,21 +810,6 @@ function buildAuxiliaryElementsForState(
       content: `⏳ ${aux.systemStatus}`.slice(0, MAX_ELEMENT_CHARS),
       text_size: 'notation',
     });
-  }
-
-  // ④ Process commentary
-  if (aux.commentaryText) {
-    const truncated =
-      aux.commentaryText.length > MAX_COMMENTARY_CHARS
-        ? '...' + aux.commentaryText.slice(-(MAX_COMMENTARY_CHARS - 3))
-        : aux.commentaryText;
-    auxiliaryElements.push(
-      buildCollapsiblePanel(
-        state === 'streaming' ? '💬 过程...' : '💬 过程',
-        formatCommentaryPanelBody(truncated).slice(0, MAX_ELEMENT_CHARS),
-        isStreamingLayout,
-      ),
-    );
   }
 
   // ⑤ Hook Status
@@ -1920,7 +1924,11 @@ export class StreamingCardController {
   appendCommentary(text: string): void {
     if (this.isTerminal()) return;
     this.commentaryText = text;
-    this.thinking = false;
+    if (text.trim()) {
+      this.thinking = true;
+    } else if (!this.thinkingText.trim()) {
+      this.thinking = false;
+    }
     this.stateVersion++;
     if (this.state === 'idle') {
       this.state = 'creating';
