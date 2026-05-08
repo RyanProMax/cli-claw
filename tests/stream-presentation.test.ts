@@ -244,9 +244,7 @@ describe('stream presentation', () => {
     );
 
     expect(session.append).not.toHaveBeenCalled();
-    expect(session.appendCommentary).toHaveBeenCalledWith(
-      '我会先检查卡片实现',
-    );
+    expect(session.appendCommentary).toHaveBeenCalledWith('我会先检查卡片实现');
   });
 
   test('does not stream an ambiguous one-character Codex preamble prefix into Feishu cards', () => {
@@ -302,7 +300,26 @@ describe('stream presentation', () => {
     expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 
-  test('syncs explicit visible commentary to terminal Feishu thinking panel', () => {
+  test('clears duplicate Codex process panel when terminal visibility has no commentary', () => {
+    const session = {
+      appendCommentary: vi.fn(),
+      appendThinking: vi.fn(),
+    } as any;
+
+    syncTerminalPresentationTextToCard(
+      session,
+      {
+        answerText: '',
+        commentaryText: 'terminal final duplicated in streaming commentary',
+      },
+      '',
+    );
+
+    expect(session.appendCommentary).toHaveBeenCalledWith('');
+    expect(session.appendThinking).not.toHaveBeenCalled();
+  });
+
+  test('syncs explicit visible commentary to terminal Feishu process panel', () => {
     const session = {
       appendCommentary: vi.fn(),
       appendThinking: vi.fn(),
@@ -317,7 +334,9 @@ describe('stream presentation', () => {
       '当前终态 commentary',
     );
 
-    expect(session.appendThinking).toHaveBeenCalledWith('当前终态 commentary');
-    expect(session.appendCommentary).not.toHaveBeenCalled();
+    expect(session.appendCommentary).toHaveBeenCalledWith(
+      '当前终态 commentary',
+    );
+    expect(session.appendThinking).not.toHaveBeenCalled();
   });
 });

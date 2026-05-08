@@ -116,6 +116,27 @@ describe('resolveVisibleReplyText', () => {
     ).toBe('我会先检查飞书渲染链路。');
   });
 
+  test('drops duplicate Codex commentary when terminal final equals the streamed text', () => {
+    const rawText = [
+      '我会先检查飞书渲染链路。',
+      '已完成修复：过程面板不再重复正文。',
+    ].join('\n\n');
+
+    expect(
+      resolveVisibleReplyParts(
+        rawText,
+        {
+          commentaryText: rawText,
+        },
+        { agentType: 'codex' },
+      ),
+    ).toEqual({
+      visibleText: rawText,
+      commentaryText: '',
+      droppedPresentationAnswer: false,
+    });
+  });
+
   test('does not rewrite non-Codex replies', () => {
     expect(
       resolveVisibleReplyText(

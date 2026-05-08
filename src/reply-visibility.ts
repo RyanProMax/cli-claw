@@ -153,6 +153,18 @@ export function resolveVisibleReplyParts(
   if (
     normalizedRawText &&
     commentaryText &&
+    normalizedRawText === commentaryText
+  ) {
+    return {
+      visibleText: sanitizedRawText,
+      commentaryText: '',
+      droppedPresentationAnswer,
+    };
+  }
+
+  if (
+    normalizedRawText &&
+    commentaryText &&
     normalizedRawText !== commentaryText &&
     normalizedRawText.startsWith(commentaryText)
   ) {

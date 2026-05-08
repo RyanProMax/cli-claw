@@ -13,6 +13,48 @@
 
 ## Milestones
 
+### Milestone 79
+
+Objective:
+- Stop Feishu completed cards from showing the same Codex accumulated text in both `过程` and正文 when terminal final equals the streamed presentation text.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `docs/RUNTIME.md`
+- `src/reply-visibility.ts`
+- `src/index.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/stream-presentation.test.ts`
+
+Validation:
+- `npm test -- --run tests/reply-visibility.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-08: User reported completed Feishu card renders identical Codex text in the `过程` panel and main body. Host run log confirms Codex `text_delta` accumulated the same text that later arrived as terminal `success.result`.
+- 2026-05-08: Added RED coverage for terminal final equal to streaming commentary and for terminal card sync clearing stale process commentary.
+- 2026-05-08: Implemented final visibility de-duplication: when Codex raw/final equals streaming `commentaryText`, `reply-visibility` keeps raw/final as正文 and returns empty commentary. Terminal card sync now clears the existing `过程` panel for empty commentary, or replaces it with the explicit visible commentary when a real process prefix is detected.
+
+Validation status:
+- passed
+  - `npm test -- --run tests/reply-visibility.test.ts tests/stream-presentation.test.ts tests/feishu-streaming-card.test.ts`: passed, 76 tests. Existing Feishu test client fallback logs appeared but tests passed.
+  - `npm run typecheck`: passed.
+  - `npm run build`: passed. Existing Vite chunk-size warning appeared.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. Existing `LC_ALL` locale warning appeared but exited 0.
+
+Review status:
+- passed 2026-05-08: scope stayed within Milestone 79. The fix is at final visibility/card synchronization, preserves raw/final as the only正文 source, clears duplicate process presentation at completion, and keeps real inferred commentary in the process lane.
+
+Risks / Notes / Handoff:
+- Runtime code changed; after commit, apply with the normal safe restart path.
+
 ### Milestone 78
 
 Objective:

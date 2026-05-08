@@ -528,12 +528,19 @@ export function feedStreamEventToCard(
 
 export function syncTerminalPresentationTextToCard(
   session: StreamingCardController,
-  _presentationText: StreamPresentationTextState,
+  presentationText: StreamPresentationTextState,
   commentaryTextOverride?: string,
 ): void {
+  if (commentaryTextOverride === undefined) return;
+
   const commentaryText = commentaryTextOverride ?? '';
   if (commentaryText.trim()) {
-    session.appendThinking(commentaryText);
+    session.appendCommentary(commentaryText);
+    return;
+  }
+
+  if (presentationText.commentaryText.trim()) {
+    session.appendCommentary('');
   }
 }
 
