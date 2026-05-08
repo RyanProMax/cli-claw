@@ -1,16 +1,67 @@
-# Codex Runtime Compact Error Recognition
+# Codex Feishu Process / Body Presentation
 
 ## Goal
 
-- Recognize Codex remote context-compression failures, especially `unknown_parameter` on `safety_identifier`, and show a concise recovery message instead of raw JSON in Feishu/Web outputs.
+- Keep Codex process narration out of Feishu/Web answer bodies by routing `text_delta` presentation streams into a dedicated process/commentary lane, with readable process formatting in Feishu cards.
 
 ## Done when
 
-- Codex runtime formatting maps the screenshot-style remote compact error to a stable Chinese operator-facing message.
-- Raw `Internal error` / `unknown_parameter` / compact JSON does not leak into visible replies.
+- Raw Codex stream logs and local code paths show `text_delta` is treated as process/presentation text, not canonical answer text.
+- Feishu cards render Codex process text in a separate process panel, not in the main body; long process text is segmented instead of one dense paragraph.
+- Web streaming snapshots and disk recovery buffers do not store Codex process narration in `partialText`.
 - Focused tests, build/typecheck as needed, `git diff --check`, and `./scripts/review.sh` pass.
 
 ## Milestones
+
+### Milestone 76
+
+Objective:
+- Fix Codex `text_delta` presentation routing so process narration is never accumulated as answer body, and improve Feishu process panel readability for long Codex narration.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `shared/stream-presentation.ts`
+- `src/index.ts`
+- `src/feishu-streaming-card.ts`
+- `web/src/components/chat/StreamingDisplay.tsx`
+- `tests/stream-presentation.test.ts`
+- `tests/chat-streaming-store.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm test -- --run tests/stream-presentation.test.ts tests/chat-streaming-store.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-08: User reported Feishu card still mixes正文 and过程, with Codex process narration rendered as a dense main-body paragraph.
+- 2026-05-08: Raw host logs confirm Codex emits process narration as token-level `text_delta` events, e.g. separate deltas for `我` / `会` / `用` / backticked skill names, followed by tool events and `Context compacted`; these deltas carry runtime identity but no stable answer/process message boundary.
+- 2026-05-08: Root cause found in shared presentation routing: `shared/stream-presentation.ts` still classifies every `text_delta` as `answer`, so Codex process text enters `answerText` and then propagates to Web snapshots, streaming buffers, terminal visibility heuristics, and fallback paths even though the Feishu card feed already avoids direct Codex live answer appends.
+- 2026-05-08: Implemented source-level routing: Codex `text_delta` now accumulates only in `commentaryText`; Feishu feeds that lane into the “过程” collapsible panel; Web streaming labels the same lane as “过程”; Feishu process panel text is sentence-split for dense Chinese narration.
+
+Validation status:
+- failed as expected 2026-05-08:
+  - `npm test -- --run tests/stream-presentation.test.ts tests/chat-streaming-store.test.ts tests/feishu-streaming-card.test.ts` failed before implementation because Codex `text_delta` still entered `answerText`, Feishu did not call `appendCommentary`, and the process panel still used the old label/raw paragraph body.
+- passed 2026-05-08:
+  - `npm test -- --run tests/stream-presentation.test.ts tests/chat-streaming-store.test.ts tests/feishu-streaming-card.test.ts`
+  - `npm test -- --run tests/reply-visibility.test.ts tests/streaming-turn-boundary.test.ts tests/restart-recovery.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-08: scope stayed within Milestone 76; the diff changes only presentation routing/rendering, docs, and focused tests. Codex terminal raw final remains the only answer source; Codex `text_delta` now stays out of answer buffers and renders as a separate process lane. No blocking hygiene, validation, or contract issue found.
+
+Risks / Notes / Handoff:
+- Preserve the terminal raw final as the only canonical Codex answer. Codex `text_delta` may be displayed as process/commentary, but must not become `answerText` or override final visible text.
 
 ### Milestone 75
 

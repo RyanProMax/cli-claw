@@ -429,14 +429,6 @@ export function feedStreamEventToCard(
   switch (se.eventType) {
     case 'text_delta':
       if (se.text) {
-        if (se.runtimeIdentity?.agentType === 'codex') {
-          // Codex ACP text_delta is a presentation stream, not the canonical
-          // final answer. When a runtime session is reused it can replay or
-          // merge older transcript text before the final raw answer arrives.
-          // Feishu cards therefore stream tools/thinking/status live, and write
-          // body text only from the terminal raw final.
-          break;
-        }
         const channel = classifyStreamPresentationTextChannel(
           se,
           se.runtimeIdentity,

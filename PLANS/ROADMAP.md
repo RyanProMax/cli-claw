@@ -49,6 +49,8 @@
 - Durable contract:
   - Feishu streaming card presentation lanes and fallback rules live in `docs/RUNTIME.md`.
   - Final visible reply filtering lives in `reply-visibility` and is documented in `docs/RUNTIME.md`.
+- Recent progress:
+  - 2026-05-08: Codex `text_delta` is now routed to `commentaryText` / “过程” instead of answer/`partialText`; Feishu process text is sentence-split in its own panel while terminal raw final remains the only main-body answer source.
 - Next action:
   - Monitor real Feishu turns for stale steps, missing live body, or process preambles entering the main body.
   - Harden `send_message` visible-tool policy so tool-sent content follows the same answer/commentary boundary.

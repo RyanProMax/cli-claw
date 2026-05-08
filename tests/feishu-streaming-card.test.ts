@@ -406,7 +406,7 @@ describe('StreamingCardController footer caching', () => {
       chatId: 'chat-test',
     });
 
-    controller.appendCommentary('先收集上下文');
+    controller.appendCommentary('先收集上下文。然后执行测试。最后总结。');
     controller.append('最终结论');
 
     await vi.waitFor(() => {
@@ -420,7 +420,7 @@ describe('StreamingCardController footer caching', () => {
     const commentaryPanel = lastCard?.body?.elements?.find(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '💬 Commentary...',
+        element?.header?.title?.content === '💬 过程...',
     );
     const mainMarkdown = lastCard?.body?.elements?.find(
       (element: any) =>
@@ -433,7 +433,7 @@ describe('StreamingCardController footer caching', () => {
       elements: [
         {
           tag: 'markdown',
-          content: '先收集上下文',
+          content: '先收集上下文。\n然后执行测试。\n最后总结。',
           text_size: 'notation',
         },
       ],
@@ -480,7 +480,7 @@ describe('StreamingCardController footer caching', () => {
     const commentaryIndex = elements.findIndex(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '💬 Commentary',
+        element?.header?.title?.content === '💬 过程',
     );
     const thinkingIndex = elements.findIndex(
       (element: any) =>
@@ -542,7 +542,7 @@ describe('StreamingCardController footer caching', () => {
     const statusNote = (controller as any).buildStreamingStatusNote();
 
     expect(panelTitles).toContain('💭 Thinking');
-    expect(panelTitles).toContain('💬 Commentary...');
+    expect(panelTitles).toContain('💬 过程...');
     expect(JSON.stringify(elements)).toContain('分析输入');
     expect(JSON.stringify(elements)).toContain('工具检查');
     expect(mainMarkdown?.content).toBe('最终正文');
@@ -584,7 +584,7 @@ describe('StreamingCardController footer caching', () => {
     const commentaryIndex = elements.findIndex(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '💬 Commentary...',
+        element?.header?.title?.content === '💬 过程...',
     );
 
     expect(stepsIndex).toBeGreaterThanOrEqual(0);
@@ -1548,7 +1548,7 @@ describe('StreamingCardController footer caching', () => {
     const commentaryPanel = (finalCard?.body?.elements ?? []).find(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '💬 Commentary',
+        element?.header?.title?.content === '💬 过程',
     );
 
     expect(finalCardJson).toContain('已处理');
@@ -1609,7 +1609,7 @@ describe('StreamingCardController footer caching', () => {
     const commentaryPanel = (finalCard?.body?.elements ?? []).find(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '💬 Commentary',
+        element?.header?.title?.content === '💬 过程',
     );
     const mainMarkdown = (finalCard?.body?.elements ?? []).find(
       (element: any) =>
@@ -1730,7 +1730,7 @@ describe('StreamingCardController footer caching', () => {
     const commentaryPanel = (finalCard?.body?.elements ?? []).find(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '💬 Commentary',
+        element?.header?.title?.content === '💬 过程',
     );
 
     expect(markdownContents).toContain('*已完成*');

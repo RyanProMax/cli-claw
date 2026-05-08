@@ -34,56 +34,8 @@ export function classifyStreamPresentationTextChannel(
   runtimeIdentity?: StreamRuntimeIdentity | null,
 ): StreamPresentationTextChannel | null {
   if (event.eventType !== 'text_delta') return null;
-  void runtimeIdentity;
+  if (runtimeIdentity?.agentType === 'codex') return 'commentary';
   return 'answer';
-}
-
-function appendCodexPresentationText(
-  current: StreamPresentationTextState,
-  event: Pick<StreamEvent, 'text' | 'messageUuid'>,
-): StreamPresentationTextState {
-  const incomingMessageUuid = event.messageUuid || current.lastAnswerMessageUuid;
-  const crossedMessageBoundary =
-    !!current.answerText &&
-    !!current.lastAnswerMessageUuid &&
-    !!event.messageUuid &&
-    current.lastAnswerMessageUuid !== event.messageUuid;
-
-  if (crossedMessageBoundary) {
-    const commentaryAppended = appendStreamTextDelta(
-      current.commentaryText,
-      {
-        text: current.answerText,
-        messageUuid: current.lastAnswerMessageUuid,
-      },
-      current.lastCommentaryMessageUuid,
-    );
-    const answerAppended = appendStreamTextDelta(
-      '',
-      event,
-      undefined,
-    );
-    return {
-      ...current,
-      answerText: answerAppended.text,
-      commentaryText: commentaryAppended.text,
-      lastAnswerMessageUuid:
-        answerAppended.lastMessageUuid || incomingMessageUuid || undefined,
-      lastCommentaryMessageUuid: commentaryAppended.lastMessageUuid,
-    };
-  }
-
-  const answerAppended = appendStreamTextDelta(
-    current.answerText,
-    event,
-    current.lastAnswerMessageUuid,
-  );
-  return {
-    ...current,
-    answerText: answerAppended.text,
-    lastAnswerMessageUuid:
-      answerAppended.lastMessageUuid || incomingMessageUuid || undefined,
-  };
 }
 
 export function appendStreamPresentationText(
@@ -113,10 +65,6 @@ export function appendStreamPresentationText(
     streamText: streamAppended.text,
     lastStreamMessageUuid: streamAppended.lastMessageUuid,
   };
-
-  if (resolvedRuntimeIdentity?.agentType === 'codex') {
-    return appendCodexPresentationText(currentWithStreamText, event);
-  }
 
   if (channel === 'commentary') {
     const appended = appendStreamTextDelta(

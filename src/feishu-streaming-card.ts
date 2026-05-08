@@ -675,6 +675,41 @@ function buildCollapsiblePanel(
   };
 }
 
+function formatCommentaryPanelBody(body: string): string {
+  const normalized = body.replace(/\r\n?/g, '\n').trim();
+  if (!normalized) return '';
+
+  let inFence = false;
+  const lines = normalized.split('\n');
+  const formattedLines: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      inFence = !inFence;
+      formattedLines.push(line);
+      continue;
+    }
+    if (
+      inFence ||
+      !trimmed ||
+      /^([-*+]\s+|\d+\.\s+|#{1,6}\s+|\|)/.test(trimmed)
+    ) {
+      formattedLines.push(line);
+      continue;
+    }
+
+    formattedLines.push(
+      ...trimmed
+        .replace(/([。！？；])\s*(?=\S)/gu, '$1\n')
+        .split('\n')
+        .map((segment) => segment.trim())
+        .filter(Boolean),
+    );
+  }
+
+  return formattedLines.join('\n').trim();
+}
+
 /**
  * Build auxiliary markdown elements for the streaming card.
  * Returns elements to insert before the main text content so process panels
@@ -758,7 +793,7 @@ function buildAuxiliaryElementsForState(
     });
   }
 
-  // ④ Commentary
+  // ④ Process commentary
   if (aux.commentaryText) {
     const truncated =
       aux.commentaryText.length > MAX_COMMENTARY_CHARS
@@ -766,8 +801,8 @@ function buildAuxiliaryElementsForState(
         : aux.commentaryText;
     auxiliaryElements.push(
       buildCollapsiblePanel(
-        state === 'streaming' ? '💬 Commentary...' : '💬 Commentary',
-        truncated.slice(0, MAX_ELEMENT_CHARS),
+        state === 'streaming' ? '💬 过程...' : '💬 过程',
+        formatCommentaryPanelBody(truncated).slice(0, MAX_ELEMENT_CHARS),
         isStreamingLayout,
       ),
     );
