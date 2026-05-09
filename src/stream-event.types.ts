@@ -4,6 +4,7 @@
  */
 
 export type {
+  StreamAssistantMessagePhase,
   StreamEvent,
   StreamEventType,
   StreamRuntimeIdentity,

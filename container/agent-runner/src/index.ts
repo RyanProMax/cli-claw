@@ -57,6 +57,7 @@ import { readCodexCliConfig } from './codex-config.js';
 import {
   appendCodexFinalTurnChunk,
   buildCodexAcpLaunchArgs,
+  extractCodexAssistantMessagePhase,
   formatCodexRuntimeError,
   mergeRuntimeIdentityState,
   shouldEmitCodexSessionUpdate,
@@ -1420,6 +1421,8 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
               typeof update.content.text === 'string'
                 ? update.content.text
                 : null;
+            const assistantMessagePhase =
+              extractCodexAssistantMessagePhase(update);
             if (chunkText) {
               const visibleChunkText =
                 stripCodexRuntimeDiagnosticPrefix(chunkText);
@@ -1435,6 +1438,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                     typeof update.messageId === 'string'
                       ? update.messageId
                       : undefined,
+                  assistantMessagePhase,
                 },
                 activeTurnMessageUuid,
               );
@@ -1448,6 +1452,9 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                   ...baseEvent,
                   eventType: 'text_delta',
                   text: visibleChunkText,
+                  ...(assistantMessagePhase
+                    ? { assistantMessagePhase }
+                    : {}),
                 },
               });
             }

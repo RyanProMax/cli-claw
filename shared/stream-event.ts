@@ -30,6 +30,8 @@ export interface StreamRuntimeIdentity {
   supportsReasoningEffort?: boolean | null;
 }
 
+export type StreamAssistantMessagePhase = 'commentary' | 'final_answer';
+
 export interface StreamEvent {
   eventType: StreamEventType;
   /** Correlates all stream events for a single user turn. */
@@ -40,6 +42,8 @@ export interface StreamEvent {
   messageCursor?: { timestamp: string; id?: string };
   /** SDK message uuid if known. */
   messageUuid?: string;
+  /** Codex assistant item phase, when the runtime exposes one. */
+  assistantMessagePhase?: StreamAssistantMessagePhase;
   /** Reserved — whether this event was synthesized locally rather than emitted directly by SDK semantics. */
   isSynthetic?: boolean;
   text?: string;

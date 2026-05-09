@@ -4015,6 +4015,8 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                     streamText.length > 0
                       ? streamText.slice(0, 160)
                       : undefined,
+                  assistantMessagePhase:
+                    streamEvent.assistantMessagePhase ?? null,
                   answerLength: streamingPresentationText.answerText.length,
                   commentaryLength:
                     streamingPresentationText.commentaryText.length,

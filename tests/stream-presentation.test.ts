@@ -42,6 +42,7 @@ describe('stream presentation', () => {
         eventType: 'text_delta',
         text: '先收集上下文',
         messageUuid: 'msg-1',
+        assistantMessagePhase: 'commentary',
         runtimeIdentity: {
           agentType: 'codex',
           model: 'gpt-5.4',
@@ -63,6 +64,7 @@ describe('stream presentation', () => {
         eventType: 'text_delta',
         text: '最终结论',
         messageUuid: 'msg-2',
+        assistantMessagePhase: 'final_answer',
         runtimeIdentity: {
           agentType: 'codex',
           model: 'gpt-5.4',
@@ -84,6 +86,7 @@ describe('stream presentation', () => {
         eventType: 'text_delta',
         text: '\n\n- 已完成',
         messageUuid: 'msg-2',
+        assistantMessagePhase: 'final_answer',
         runtimeIdentity: {
           agentType: 'codex',
           model: 'gpt-5.4',
@@ -119,13 +122,14 @@ describe('stream presentation', () => {
     });
   });
 
-  test('classifies obvious Codex progress preambles as Thinking even without a message boundary', () => {
+  test('classifies Codex commentary phase as Thinking even without a message boundary', () => {
     const state = appendStreamPresentationText(
       createEmptyStreamPresentationTextState(),
       {
         eventType: 'text_delta',
-        text: '我会先把 roadmap 迁到 PLAN/ROADMAP.md，并修正文档引用。',
+        text: '这是一段没有固定前缀的中间状态。',
         messageUuid: 'msg-progress',
+        assistantMessagePhase: 'commentary',
         runtimeIdentity: {
           agentType: 'codex',
           model: 'gpt-5.5',
@@ -143,9 +147,40 @@ describe('stream presentation', () => {
 
     expect(state).toMatchObject({
       answerText: '',
-      commentaryText: '我会先把 roadmap 迁到 PLAN/ROADMAP.md，并修正文档引用。',
-      streamText: '我会先把 roadmap 迁到 PLAN/ROADMAP.md，并修正文档引用。',
+      commentaryText: '这是一段没有固定前缀的中间状态。',
+      streamText: '这是一段没有固定前缀的中间状态。',
       lastCommentaryMessageUuid: 'msg-progress',
+    });
+  });
+
+  test('classifies Codex final-answer phase as body even when the text looks like progress', () => {
+    const state = appendStreamPresentationText(
+      createEmptyStreamPresentationTextState(),
+      {
+        eventType: 'text_delta',
+        text: '我会先给出结论：已完成。',
+        messageUuid: 'msg-final',
+        assistantMessagePhase: 'final_answer',
+        runtimeIdentity: {
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'xhigh',
+          supportsReasoningEffort: true,
+        },
+      },
+      {
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        reasoningEffort: 'xhigh',
+        supportsReasoningEffort: true,
+      },
+    );
+
+    expect(state).toMatchObject({
+      answerText: '我会先给出结论：已完成。',
+      commentaryText: '',
+      streamText: '我会先给出结论：已完成。',
+      lastAnswerMessageUuid: 'msg-final',
     });
   });
 
@@ -171,6 +206,7 @@ describe('stream presentation', () => {
         eventType: 'text_delta',
         text: '最终结论',
         messageUuid: 'msg-2',
+        assistantMessagePhase: 'final_answer',
         runtimeIdentity: {
           agentType: 'codex',
           model: 'gpt-5.4',
@@ -237,7 +273,7 @@ describe('stream presentation', () => {
     );
   });
 
-  test('streams a single Codex progress preamble into Thinking instead of the main body', () => {
+  test('streams a single Codex commentary phase into Thinking instead of the main body', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -257,8 +293,9 @@ describe('stream presentation', () => {
       session,
       {
         eventType: 'text_delta',
-        text: '我会先检查卡片实现',
+        text: '没有固定前缀的中间状态',
         messageUuid: 'msg-preamble',
+        assistantMessagePhase: 'commentary',
         runtimeIdentity: {
           agentType: 'codex',
           model: 'gpt-5.4',
@@ -268,13 +305,15 @@ describe('stream presentation', () => {
       } as any,
       {
         answerText: '',
-        commentaryText: '我会先检查卡片实现',
-        streamText: '我会先检查卡片实现',
+        commentaryText: '没有固定前缀的中间状态',
+        streamText: '没有固定前缀的中间状态',
       },
     );
 
     expect(session.append).not.toHaveBeenCalled();
-    expect(session.appendCommentary).toHaveBeenCalledWith('我会先检查卡片实现');
+    expect(session.appendCommentary).toHaveBeenCalledWith(
+      '没有固定前缀的中间状态',
+    );
   });
 
   test('does not stream an ambiguous one-character Codex preamble prefix into Feishu cards', () => {

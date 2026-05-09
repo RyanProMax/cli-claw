@@ -1,3 +1,77 @@
+# Codex Feishu Phase-Based Presentation Regression
+
+## Goal
+
+- Replace Codex Feishu/Web answer-vs-Thinking routing heuristics with the formal Codex assistant `phase` contract.
+- Propagate `commentary` / `final_answer` from Codex ACP runner events into `StreamEvent`, streaming presentation, terminal final accumulation, Feishu cards, and Web consumers.
+- Keep text-pattern filtering only for internal-context leak guards and narrow structured report fallback, not for normal Codex process/final classification.
+
+## Done when
+
+- Local evidence from Codex JSONL transcripts and codex-acp runtime metadata is reflected in code comments/docs.
+- `phase: "commentary"` always renders into the unified `Thinking` lane, regardless of natural-language prefix.
+- `phase: "final_answer"` always renders into正文 and is the only source accumulated into Codex terminal final output.
+- Existing message-id fallback remains only for legacy/no-phase runtimes and is not based on Chinese/English prefix matching.
+- Focused tests, typecheck/build, diff check, review, commit, and safe restart pass.
+
+## Milestones
+
+### Milestone 85
+
+Objective:
+- Wire Codex assistant `phase` through the runner and presentation pipeline, replacing the Milestone 84 prefix classifier.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `shared/stream-event.ts`
+- `shared/stream-presentation.ts`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `container/agent-runner/src/index.ts`
+- `src/reply-visibility.ts`
+- `web/src/stores/chat.ts`
+- `tests/chat-streaming-store.test.ts`
+- `tests/codex-session-runtime.test.ts`
+- `tests/stream-presentation.test.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm run build:shared`
+- `npm test -- --run tests/codex-session-runtime.test.ts tests/stream-presentation.test.ts tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts tests/chat-streaming-store.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-09: User rejected natural-language prefix matching as too tricky. Local Codex transcript evidence shows formal `phase` values: `commentary` for process updates and `final_answer` for the completion reply. codex-acp runtime metadata also contains `AgentMessageEvent phase`, `commentary`, and `final_answer`.
+- 2026-05-09: Current gap identified: `container/agent-runner/src/index.ts` drops the Codex phase when converting ACP `agent_message_chunk` to Cli Claw `text_delta`, so downstream Feishu/Web presentation had no formal field to use.
+- 2026-05-09: Added `assistantMessagePhase` to `StreamEvent`, propagated Codex ACP phase through runner stdout, removed normal prefix-based routing from shared presentation, and preserved phase through Web rAF buffering.
+- 2026-05-09: Codex terminal final accumulation now ignores `commentary` phase chunks and accumulates `final_answer` phase chunks only; legacy no-phase messageUuid fallback remains.
+
+Validation status:
+- passed 2026-05-09:
+  - `npm run build:shared`: passed.
+  - `npm test -- --run tests/codex-session-runtime.test.ts tests/stream-presentation.test.ts tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts tests/chat-streaming-store.test.ts`: passed, 106 tests. Existing Feishu CardKit fallback mock logs appeared.
+  - `npm run typecheck`: passed.
+  - `npm run build`: passed. Existing Vite chunk-size warning appeared.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. Existing `LC_ALL` locale warning appeared and the script requested semantic review.
+
+Review status:
+- passed 2026-05-09: manual semantic review found the normal Codex process/final boundary now uses formal phase fields, not natural-language prefixes. Remaining text-based logic is limited to internal-context leak guards and narrow structured-report fallback documented in `docs/RUNTIME.md`.
+
+Risks / Notes / Handoff:
+- Milestone 84's prefix-based classifier is superseded by this milestone and must be removed from normal presentation routing.
+- If an older Codex ACP build omits phase metadata, the legacy messageUuid boundary fallback may still protect basic multi-message behavior, but it must not parse natural-language prefixes.
+
+---
+
 # Codex Feishu Thinking Preamble Regression
 
 ## Goal

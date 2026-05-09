@@ -185,14 +185,11 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('infers a generic Codex progress preamble before the final completion summary', () => {
-    const processText = [
-      '我会先把 roadmap 迁到 `PLAN/ROADMAP.md` 并修正文档引用，然后从路线图第一阶段开始做最小闭环的 P0 契约层。',
-      '我会用 TDD 方式推进 P0：先迁移路径，再写失败测试锁住 Alpha/Strategy contract 的 JSON 安全、审批默认值和状态边界，最后补最小实现。',
-      '下面开始 P0：先用测试定义 `AlphaCandidate`、`AlphaEvaluation`、`StrategyProposal/Version` 的最小稳定契约。',
+  test('uses the already-clean Codex terminal final after phase-based runner filtering', () => {
+    const commentaryText = [
+      '我会先把 roadmap 迁到 `PLAN/ROADMAP.md` 并修正文档引用。',
       'Context compacted',
-      '我继续从上次的 P0 合同层收口：先把 roadmap 路径和文档同步干净，再跑相关回归，最后按仓库规则提交。',
-      '最终回归和 whitespace 检查都过了。现在按 API 仓库规则提交，提交内容聚焦在 roadmap 路径统一和 P0 Alpha/策略治理 contract。',
+      '我继续从上次的 P0 合同层收口。',
     ].join('\n');
     const finalText = [
       '已完成并提交到 API 仓库：`fe7887a Add alpha governance contracts`。',
@@ -205,16 +202,17 @@ describe('resolveVisibleReplyText', () => {
 
     expect(
       resolveVisibleReplyParts(
-        `${processText}\n${finalText}`,
+        finalText,
         {
-          answerText: `${processText}\n${finalText}`,
-          commentaryText: '',
+          answerText: finalText,
+          commentaryText,
         },
         { agentType: 'codex' },
       ),
     ).toEqual({
       visibleText: finalText,
-      commentaryText: processText,
+      commentaryText,
+      droppedPresentationAnswer: true,
     });
   });
 

@@ -351,7 +351,11 @@ function restoreStreamingFromSession(chatJid: string): StreamingState | null {
  * into a single state update.
  */
 interface PendingDelta {
-  texts: Array<{ text: string; messageUuid?: string }>;
+  texts: Array<{
+    text: string;
+    messageUuid?: string;
+    assistantMessagePhase?: StreamEvent['assistantMessagePhase'];
+  }>;
   thinkings: string[];
   raf: number;
   turnId?: string;
@@ -487,6 +491,7 @@ function flushPendingDelta(
               eventType: 'text_delta',
               text: item.text,
               messageUuid: item.messageUuid,
+              assistantMessagePhase: item.assistantMessagePhase,
             },
             toPresentationRuntimeIdentity(
               entry.runtimeIdentity ?? prev.runtimeIdentity,
@@ -538,6 +543,7 @@ function flushPendingDelta(
               eventType: 'text_delta',
               text: item.text,
               messageUuid: item.messageUuid,
+              assistantMessagePhase: item.assistantMessagePhase,
             },
             toPresentationRuntimeIdentity(
               entry.runtimeIdentity ?? prev.runtimeIdentity,
@@ -1498,6 +1504,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           entry.texts.push({
             text: event.text || '',
             messageUuid: event.messageUuid,
+            assistantMessagePhase: event.assistantMessagePhase,
           });
         }
         else entry.thinkings.push(event.text || '');
@@ -1515,6 +1522,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         entry.texts.push({
           text: event.text || '',
           messageUuid: event.messageUuid,
+          assistantMessagePhase: event.assistantMessagePhase,
         });
       }
       else entry.thinkings.push(event.text || '');

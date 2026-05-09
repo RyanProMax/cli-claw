@@ -53,7 +53,7 @@
   - 2026-05-08: Codex ACP thought/message events are classified at ingress: `agent_thought_chunk` stays in `Thinking`, the current `agent_message_chunk` / `text_delta` is the live body candidate, and older assistant messageIds are demoted into `Thinking`.
   - 2026-05-08: Feishu/Web merged Codex process/commentary with model thinking into a single `Thinking` section; there is no separate “过程” panel, and process-only terminal finals stay out of正文.
   - 2026-05-08: Fixed a Codex `/research` regression where long process narration plus a structured report title was classified entirely as `Thinking`; strong report titles now split the preamble into `Thinking` and keep the report正文 visible.
-  - 2026-05-09: Reopened and fixed the same-message/no-commentary variant: obvious Codex progress preambles such as `我会先...` / `我继续...` now stream into `Thinking`, and terminal finals with generic completion summaries like `已完成并提交...` strip the preamble before正文.
+  - 2026-05-09: Reopened the same-message/no-commentary variant after local Codex transcript review showed formal assistant `phase` values. Codex `phase: "commentary"` now routes to unified `Thinking`, and `phase: "final_answer"` routes to正文 / terminal final output; natural-language progress-prefix classification is no longer the normal presentation contract.
 - Next action:
   - Monitor real Feishu turns for stale steps, missing live body, or process preambles entering the main body.
   - Harden `send_message` visible-tool policy so tool-sent content follows the same answer/commentary boundary.

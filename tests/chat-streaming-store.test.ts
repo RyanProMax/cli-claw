@@ -204,6 +204,58 @@ describe('chat streaming store', () => {
     expect(next?.partialText).toBe('最终结论');
   });
 
+  test('preserves Codex assistant phase through buffered Web text deltas', () => {
+    useChatStore.setState((state) => ({
+      ...state,
+      groups: {
+        'web:proj-home': {
+          name: 'Proj Home',
+          folder: 'proj-home',
+          added_at: '2026-04-22T10:00:00.000Z',
+          agent_type: 'codex',
+        },
+      },
+      waiting: {
+        'web:proj-home': true,
+      },
+    }));
+
+    useChatStore.getState().handleStreamEvent('web:proj-home', {
+      eventType: 'text_delta',
+      text: '没有固定前缀的中间状态',
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      messageUuid: 'msg-1',
+      assistantMessagePhase: 'commentary',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'gpt-5.4',
+        reasoningEffort: 'high',
+        supportsReasoningEffort: true,
+      },
+    });
+    useChatStore.getState().handleStreamEvent('web:proj-home', {
+      eventType: 'text_delta',
+      text: '最终结论',
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      messageUuid: 'msg-1',
+      assistantMessagePhase: 'final_answer',
+      runtimeIdentity: {
+        agentType: 'codex',
+        model: 'gpt-5.4',
+        reasoningEffort: 'high',
+        supportsReasoningEffort: true,
+      },
+    });
+
+    flushAnimationFrames();
+
+    const next = useChatStore.getState().streaming['web:proj-home'];
+    expect(next?.commentaryText).toBe('没有固定前缀的中间状态');
+    expect(next?.partialText).toBe('最终结论');
+  });
+
   test('clears orphaned streaming residue on restore when backend no longer has an active runner', async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ groups: [] } as any);
     sessionStorageMock.setItem(

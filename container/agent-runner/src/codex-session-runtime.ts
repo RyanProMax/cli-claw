@@ -17,6 +17,8 @@ export interface CodexTurnAccumulator {
   lastMessageUuid?: string;
 }
 
+export type CodexAssistantMessagePhase = 'commentary' | 'final_answer';
+
 export interface CodexRuntimeErrorFormatOptions {
   isCodexRuntime?: boolean;
 }
@@ -270,10 +272,20 @@ export function appendCodexTurnChunk(
 
 export function appendCodexFinalTurnChunk(
   currentText: string,
-  chunk: { text?: string | null; messageUuid?: string | null },
+  chunk: {
+    text?: string | null;
+    messageUuid?: string | null;
+    assistantMessagePhase?: CodexAssistantMessagePhase | null;
+  },
   previousMessageUuid?: string,
 ): CodexTurnAccumulator {
   const deltaText = typeof chunk.text === 'string' ? chunk.text : '';
+  if (chunk.assistantMessagePhase === 'commentary') {
+    return {
+      text: currentText,
+      lastMessageUuid: previousMessageUuid,
+    };
+  }
   if (!deltaText) {
     return {
       text: currentText,
@@ -298,4 +310,50 @@ export function appendCodexFinalTurnChunk(
     text: currentText + deltaText,
     lastMessageUuid: nextMessageUuid || undefined,
   };
+}
+
+export function normalizeCodexAssistantMessagePhase(
+  value: unknown,
+): CodexAssistantMessagePhase | undefined {
+  if (value === 'commentary' || value === 'final_answer') return value;
+  return undefined;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readNestedPhase(
+  record: Record<string, unknown> | undefined,
+  keys: string[],
+): CodexAssistantMessagePhase | undefined {
+  let current: unknown = record;
+  for (const key of keys) {
+    const currentRecord = readRecord(current);
+    if (!currentRecord) return undefined;
+    current = currentRecord[key];
+  }
+  return normalizeCodexAssistantMessagePhase(current);
+}
+
+export function extractCodexAssistantMessagePhase(
+  update: unknown,
+): CodexAssistantMessagePhase | undefined {
+  const record = readRecord(update);
+  if (!record) return undefined;
+  const candidates: Array<string[]> = [
+    ['phase'],
+    ['_meta', 'phase'],
+    ['metadata', 'phase'],
+    ['content', 'phase'],
+    ['content', '_meta', 'phase'],
+    ['content', 'metadata', 'phase'],
+  ];
+  for (const keys of candidates) {
+    const phase = readNestedPhase(record, keys);
+    if (phase) return phase;
+  }
+  return undefined;
 }

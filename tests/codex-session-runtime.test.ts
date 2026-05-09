@@ -5,10 +5,12 @@ import {
   appendCodexTurnChunk,
   buildCodexAcpConfigOverrides,
   buildCodexAcpLaunchArgs,
+  extractCodexAssistantMessagePhase,
   formatCodexRuntimeError,
   isCodexContextWindowError,
   isCodexRemoteCompactParameterError,
   mergeRuntimeIdentityState,
+  normalizeCodexAssistantMessagePhase,
   shouldEmitCodexSessionUpdate,
   stripCodexRuntimeDiagnosticPrefix,
 } from '../container/agent-runner/src/codex-session-runtime.ts';
@@ -184,6 +186,55 @@ describe('codex ACP runtime overrides', () => {
       text: '当前回复。',
       lastMessageUuid: 'msg-1',
     });
+  });
+
+  test('does not accumulate Codex commentary phase into terminal final output', () => {
+    const commentary = appendCodexFinalTurnChunk('', {
+      text: '我会先检查当前链路。',
+      messageUuid: 'msg-commentary',
+      assistantMessagePhase: 'commentary',
+    });
+    const final = appendCodexFinalTurnChunk(
+      commentary.text,
+      {
+        text: '最终结论。',
+        messageUuid: 'msg-final',
+        assistantMessagePhase: 'final_answer',
+      },
+      commentary.lastMessageUuid,
+    );
+
+    expect(commentary).toEqual({
+      text: '',
+      lastMessageUuid: undefined,
+    });
+    expect(final).toEqual({
+      text: '最终结论。',
+      lastMessageUuid: 'msg-final',
+    });
+  });
+
+  test('extracts Codex assistant phase from ACP update metadata fields', () => {
+    expect(normalizeCodexAssistantMessagePhase('commentary')).toBe(
+      'commentary',
+    );
+    expect(normalizeCodexAssistantMessagePhase('final_answer')).toBe(
+      'final_answer',
+    );
+    expect(normalizeCodexAssistantMessagePhase('answer')).toBeUndefined();
+    expect(extractCodexAssistantMessagePhase({ phase: 'commentary' })).toBe(
+      'commentary',
+    );
+    expect(
+      extractCodexAssistantMessagePhase({
+        content: { _meta: { phase: 'final_answer' } },
+      }),
+    ).toBe('final_answer');
+    expect(
+      extractCodexAssistantMessagePhase({
+        content: { type: 'text', text: '我会先检查当前链路。' },
+      }),
+    ).toBeUndefined();
   });
 
   test('strips Codex model metadata diagnostics from assistant chunks', () => {
