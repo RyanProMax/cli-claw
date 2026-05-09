@@ -42,7 +42,11 @@ export interface StreamEvent {
   messageCursor?: { timestamp: string; id?: string };
   /** SDK message uuid if known. */
   messageUuid?: string;
-  /** Codex assistant item phase, when the runtime exposes one. */
+  /**
+   * Codex assistant item phase, when known.
+   * This is a transport alias for the native Codex `phase` value and must not
+   * be inferred from natural-language text.
+   */
   assistantMessagePhase?: StreamAssistantMessagePhase;
   /** Reserved — whether this event was synthesized locally rather than emitted directly by SDK semantics. */
   isSynthetic?: boolean;
