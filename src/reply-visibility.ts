@@ -101,6 +101,22 @@ function startsLikeProcessCommentary(value: string): boolean {
   );
 }
 
+function countProcessNarrationMarkers(value: string): number {
+  return (
+    value.match(
+      /Context compacted|我会|我先|我继续|我再|接下来|现在|当前|红测|绿测|测试|验证|回归|diff|formatter|提交|跑|补|检查|确认/giu,
+    ) ?? []
+  ).length;
+}
+
+function looksLikeCodexProcessNarrationPrefix(prefix: string): boolean {
+  const normalized = prefix.trim();
+  if (!startsLikeProcessCommentary(normalized)) return false;
+  if (normalized.length <= 500) return true;
+  if (/Context compacted/i.test(normalized)) return true;
+  return countProcessNarrationMarkers(normalized) >= 3;
+}
+
 function looksLikeProcessCommentaryPrefix(prefix: string): boolean {
   const normalized = prefix.trim();
   if (normalized.length > 500) return false;
@@ -118,6 +134,24 @@ function splitLeadingCodexCommentary(
 ): ResolvedVisibleReplyParts | null {
   const normalizedRawText = normalizeReplyText(rawText);
   if (!normalizedRawText) return null;
+
+  const genericCompletionMatch =
+    /(^|\n|[。！？.!?]\s*)((?:已完成并提交|已完成并推送|已提交到|已推送到|已落地并提交|本次做了|本轮完成|完成内容[:：]|验证已通过[:：]?))/u.exec(
+      normalizedRawText,
+    );
+  if (genericCompletionMatch && genericCompletionMatch.index > 0) {
+    const bodyStart =
+      genericCompletionMatch.index + genericCompletionMatch[1].length;
+    const commentaryText = normalizedRawText.slice(0, bodyStart).trim();
+    const visibleText = normalizedRawText.slice(bodyStart).trim();
+    if (
+      commentaryText &&
+      visibleText &&
+      looksLikeCodexProcessNarrationPrefix(commentaryText)
+    ) {
+      return { visibleText, commentaryText };
+    }
+  }
 
   const headingMatch =
     /(^|\n|[。！？.!?]\s*)((?:#{1,6}\s+\S)|(?:\*\*(?:\/research｜|港股 IPO 池｜)[^*\n]+\*\*))/u.exec(

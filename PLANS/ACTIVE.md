@@ -1,3 +1,68 @@
+# Codex Feishu Thinking Preamble Regression
+
+## Goal
+
+- Restore the Feishu/Web presentation contract where Codex progress/process narration renders in the unified `Thinking` lane, not the main answer body.
+- Fix the terminal final path so a raw Codex final that concatenates process updates with a final completion summary strips the process preamble into `Thinking`.
+
+## Done when
+
+- Regression tests cover the screenshot pattern: multiple "我会/我继续/现在..." progress updates before a final completion summary.
+- Live stream presentation classifies process-like Codex text into commentary/Thinking at ingress instead of temporarily showing it as正文.
+- Terminal final visibility can split a generic implementation-progress preamble even when `presentationText.commentaryText` was missing or incomplete.
+- `docs/RUNTIME.md` records the generic preamble boundary.
+- Focused tests, typecheck/build, diff check, review, commit, and safe restart pass.
+
+## Milestones
+
+### Milestone 84
+
+Objective:
+- Fix Codex process preamble classification for Feishu cards without changing tool step rendering, runtime sessions, or non-Codex reply behavior.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `shared/stream-presentation.ts`
+- `src/reply-visibility.ts`
+- `tests/stream-presentation.test.ts`
+- `tests/reply-visibility.test.ts`
+- `tests/feishu-streaming-card.test.ts`
+
+Validation:
+- `npm run build:shared`
+- `npm test -- --run tests/stream-presentation.test.ts tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-09: User provided a Feishu screenshot where the first visible paragraph starts with "我会先把 roadmap..." and continues with process updates before the actual completion summary. This proves Milestone 82 still misses same-message or no-commentary Codex progress chunks.
+- 2026-05-09: Added RED coverage for same-message Codex progress preambles entering `Thinking` at stream time and for terminal raw finals that concatenate progress narration with `已完成并提交...` completion summaries.
+- 2026-05-09: Implemented conservative Codex progress-prefix classification in `shared/stream-presentation.ts` and generic completion-summary preamble stripping in `src/reply-visibility.ts`.
+
+Validation status:
+- passed 2026-05-09:
+  - `npm run build:shared`: passed.
+  - `npm test -- --run tests/stream-presentation.test.ts tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts`: passed, 81 tests. Existing Feishu CardKit fallback mock logs appeared.
+  - `npm run typecheck`: passed.
+  - `npm run build`: passed. Existing Vite chunk-size warning appeared.
+  - `git diff --check`: passed.
+  - `./scripts/review.sh`: passed. Existing `LC_ALL` locale warning appeared and the script requested semantic review.
+
+Review status:
+- passed 2026-05-09: scope stayed inside Milestone 84. The diff preserves tool steps, runtime session boundaries, non-Codex behavior, and structured report handling while adding a narrow Codex progress/commentary boundary and tests for the reported Feishu screenshot pattern.
+
+Risks / Notes / Handoff:
+- Keep the classifier conservative enough that clean short answers are still visible. The fix should target multi-step process narration and obvious progress preambles, not arbitrary Chinese first-person final replies.
+
+---
+
 # Codex Feishu Final Body Visibility Regression
 
 ## Goal

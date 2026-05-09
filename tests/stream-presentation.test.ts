@@ -100,9 +100,9 @@ describe('stream presentation', () => {
     );
 
     expect(first).toMatchObject({
-      answerText: '先收集上下文',
-      commentaryText: '',
-      lastAnswerMessageUuid: 'msg-1',
+      answerText: '',
+      commentaryText: '先收集上下文',
+      lastCommentaryMessageUuid: 'msg-1',
     });
     expect(second).toMatchObject({
       answerText: '最终结论',
@@ -116,6 +116,36 @@ describe('stream presentation', () => {
       streamText: '先收集上下文\n\n最终结论\n\n- 已完成',
       lastAnswerMessageUuid: 'msg-2',
       lastCommentaryMessageUuid: 'msg-1',
+    });
+  });
+
+  test('classifies obvious Codex progress preambles as Thinking even without a message boundary', () => {
+    const state = appendStreamPresentationText(
+      createEmptyStreamPresentationTextState(),
+      {
+        eventType: 'text_delta',
+        text: '我会先把 roadmap 迁到 PLAN/ROADMAP.md，并修正文档引用。',
+        messageUuid: 'msg-progress',
+        runtimeIdentity: {
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'xhigh',
+          supportsReasoningEffort: true,
+        },
+      },
+      {
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        reasoningEffort: 'xhigh',
+        supportsReasoningEffort: true,
+      },
+    );
+
+    expect(state).toMatchObject({
+      answerText: '',
+      commentaryText: '我会先把 roadmap 迁到 PLAN/ROADMAP.md，并修正文档引用。',
+      streamText: '我会先把 roadmap 迁到 PLAN/ROADMAP.md，并修正文档引用。',
+      lastCommentaryMessageUuid: 'msg-progress',
     });
   });
 
@@ -207,7 +237,7 @@ describe('stream presentation', () => {
     );
   });
 
-  test('streams a single Codex assistant message as the live answer candidate until final visibility resolves it', () => {
+  test('streams a single Codex progress preamble into Thinking instead of the main body', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -237,14 +267,14 @@ describe('stream presentation', () => {
         },
       } as any,
       {
-        answerText: '我会先检查卡片实现',
-        commentaryText: '',
+        answerText: '',
+        commentaryText: '我会先检查卡片实现',
         streamText: '我会先检查卡片实现',
       },
     );
 
-    expect(session.append).toHaveBeenCalledWith('我会先检查卡片实现');
-    expect(session.appendCommentary).not.toHaveBeenCalled();
+    expect(session.append).not.toHaveBeenCalled();
+    expect(session.appendCommentary).toHaveBeenCalledWith('我会先检查卡片实现');
   });
 
   test('does not stream an ambiguous one-character Codex preamble prefix into Feishu cards', () => {

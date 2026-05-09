@@ -30,16 +30,38 @@ export function resolveStreamPresentationRuntimeIdentity(
 }
 
 export function classifyStreamPresentationTextChannel(
-  event: Pick<StreamEvent, 'eventType'>,
+  event: Pick<StreamEvent, 'eventType' | 'text'>,
   runtimeIdentity?: StreamRuntimeIdentity | null,
 ): StreamPresentationTextChannel | null {
   if (event.eventType !== 'text_delta') return null;
+  if (
+    runtimeIdentity?.agentType === 'codex' &&
+    looksLikeCodexProgressPreamble(event.text)
+  ) {
+    return 'commentary';
+  }
   return 'answer';
+}
+
+function looksLikeCodexProgressPreamble(
+  value: string | null | undefined,
+): boolean {
+  const normalized =
+    typeof value === 'string' ? value.replace(/\r\n?/g, '\n').trim() : '';
+  if (!normalized) return false;
+  if (/^Context compacted\b/i.test(normalized)) return true;
+
+  return /^(?:我(?:会先|先|继续|再|正在|把)|先(?:把|读|看|检查|跑|补|按|收集|确认|整理)|接下来|现在(?:我|先|开始|跑|补|做|按)|当前(?:我|先|正在)|红测|绿测|测试|验证|回归|最终(?:回归|验证|检查)|文档.*(?:同步|补齐).*现在)/u.test(
+    normalized,
+  );
 }
 
 function appendCodexAssistantMessageText(
   current: StreamPresentationTextState,
-  event: Pick<StreamEvent, 'eventType' | 'text' | 'messageUuid' | 'runtimeIdentity'>,
+  event: Pick<
+    StreamEvent,
+    'eventType' | 'text' | 'messageUuid' | 'runtimeIdentity'
+  >,
 ): StreamPresentationTextState {
   const streamAppended = appendStreamTextDelta(
     current.streamText || '',
@@ -56,8 +78,8 @@ function appendCodexAssistantMessageText(
   const previousAnswerMessageUuid = next.lastAnswerMessageUuid;
   const startsNewAssistantMessage = Boolean(
     nextMessageUuid &&
-      previousAnswerMessageUuid &&
-      nextMessageUuid !== previousAnswerMessageUuid,
+    previousAnswerMessageUuid &&
+    nextMessageUuid !== previousAnswerMessageUuid,
   );
 
   if (startsNewAssistantMessage && next.answerText.trim()) {
@@ -93,7 +115,10 @@ function appendCodexAssistantMessageText(
 
 export function appendStreamPresentationText(
   current: StreamPresentationTextState,
-  event: Pick<StreamEvent, 'eventType' | 'text' | 'messageUuid' | 'runtimeIdentity'>,
+  event: Pick<
+    StreamEvent,
+    'eventType' | 'text' | 'messageUuid' | 'runtimeIdentity'
+  >,
   runtimeIdentity?: StreamRuntimeIdentity | null,
 ): StreamPresentationTextState {
   const resolvedRuntimeIdentity = resolveStreamPresentationRuntimeIdentity(
