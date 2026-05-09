@@ -1635,10 +1635,15 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
         });
         const transcriptTurn =
           resolveCodexTranscriptTurn(transcriptCheckpoint);
+        const codexPhaseSource = activeSawAssistantMessagePhase
+          ? 'acp'
+          : transcriptTurn
+            ? 'transcript'
+            : 'none';
+        log(
+          `Codex assistant phase source: source=${codexPhaseSource}, acp=${activeSawAssistantMessagePhase}, transcriptCommentary=${transcriptTurn?.commentaryText.length ?? 0}, transcriptFinal=${transcriptTurn?.finalAnswerText.length ?? 0}, transcriptPath=${transcriptTurn?.transcriptPath || 'unknown'}`,
+        );
         if (transcriptTurn) {
-          log(
-            `Codex transcript phase resolution: commentary=${transcriptTurn.commentaryText.length}, final=${transcriptTurn.finalAnswerText.length}, path=${transcriptTurn.transcriptPath || 'unknown'}`,
-          );
           if (
             transcriptTurn.commentaryText &&
             !activeSawAssistantMessagePhase
