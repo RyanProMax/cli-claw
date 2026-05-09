@@ -57,9 +57,11 @@ import { readCodexCliConfig } from './codex-config.js';
 import {
   appendCodexFinalTurnChunk,
   buildCodexAcpLaunchArgs,
+  createCodexTranscriptCheckpoint,
   extractCodexAssistantMessagePhase,
   formatCodexRuntimeError,
   mergeRuntimeIdentityState,
+  resolveCodexTranscriptTurn,
   shouldEmitCodexSessionUpdate,
   stripCodexRuntimeDiagnosticPrefix,
 } from './codex-session-runtime.js';
@@ -1345,6 +1347,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
 
   let activeTurnText = '';
   let activeTurnMessageUuid: string | undefined;
+  let activeSawAssistantMessagePhase = false;
   let activeCodexTurnId = containerInput.turnId;
   let activeCodexMessageCursor: { timestamp: string; id?: string } | undefined;
   let liveCodexPromptActive = false;
@@ -1423,6 +1426,9 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
                 : null;
             const assistantMessagePhase =
               extractCodexAssistantMessagePhase(update);
+            if (assistantMessagePhase) {
+              activeSawAssistantMessagePhase = true;
+            }
             if (chunkText) {
               const visibleChunkText =
                 stripCodexRuntimeDiagnosticPrefix(chunkText);
@@ -1597,6 +1603,7 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
       clearInterruptRequested();
       activeTurnText = '';
       activeTurnMessageUuid = undefined;
+      activeSawAssistantMessagePhase = false;
       activeCodexTurnId = containerInput.turnId;
       activeCodexMessageCursor = containerInput.messageCursor;
       emitTurnInitEvent(sessionId, activeCodexTurnId, activeCodexMessageCursor);
@@ -1619,10 +1626,45 @@ async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
 
       try {
         liveCodexPromptActive = true;
+        const transcriptCheckpoint = sessionId
+          ? createCodexTranscriptCheckpoint(sessionId)
+          : null;
         await connection.prompt({
           sessionId,
           prompt: codexPromptBlocks(prompt, promptImages),
         });
+        const transcriptTurn =
+          resolveCodexTranscriptTurn(transcriptCheckpoint);
+        if (transcriptTurn) {
+          log(
+            `Codex transcript phase resolution: commentary=${transcriptTurn.commentaryText.length}, final=${transcriptTurn.finalAnswerText.length}, path=${transcriptTurn.transcriptPath || 'unknown'}`,
+          );
+          if (
+            transcriptTurn.commentaryText &&
+            !activeSawAssistantMessagePhase
+          ) {
+            writeOutput({
+              status: 'stream',
+              result: null,
+              newSessionId: sessionId,
+              streamEvent: {
+                eventType: 'text_delta',
+                text: transcriptTurn.commentaryText,
+                assistantMessagePhase: 'commentary',
+                isSynthetic: true,
+                turnId: activeCodexTurnId,
+                sessionId,
+                ...(activeCodexMessageCursor
+                  ? { messageCursor: activeCodexMessageCursor }
+                  : {}),
+              },
+            });
+          }
+          if (transcriptTurn.finalAnswerText) {
+            activeTurnText = transcriptTurn.finalAnswerText;
+            activeTurnMessageUuid = undefined;
+          }
+        }
       } finally {
         liveCodexPromptActive = false;
         clearInterval(cancelWatcher);

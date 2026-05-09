@@ -1,5 +1,49 @@
 # Codex Feishu Phase-Based Presentation Regression
 
+## Milestone 86 Follow-up
+
+Objective:
+- Use the Codex native JSONL transcript as the authoritative phase source when `codex-acp` streaming chunks omit assistant `phase`.
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/RUNTIME.md`
+- `container/agent-runner/src/codex-session-runtime.ts`
+- `container/agent-runner/src/index.ts`
+- `tests/codex-session-runtime.test.ts`
+
+Validation:
+- `npm test -- --run tests/codex-session-runtime.test.ts tests/stream-presentation.test.ts tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts tests/chat-streaming-store.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `git diff --check`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Progress:
+- 2026-05-09: Real Feishu output still lacked Thinking. Root cause: `phase` is present in Codex native JSONL transcript, but the ACP `agent_message_chunk` stream did not expose it, so Milestone 85's ACP-only extraction could not classify the live/final text.
+- 2026-05-09: Added current-turn Codex transcript checkpointing in the runner. When ACP chunks omit phase, the runner reads appended native JSONL `event_msg.payload.phase` records after `connection.prompt()` and emits `commentary` into unified Thinking while replacing terminal final text with `final_answer`.
+- 2026-05-09: Regression coverage caught a byte/code-unit mismatch in transcript checkpoint offsets with Chinese text. Fixed transcript slicing to use `Buffer.subarray(byteOffset)` so commentary is not skipped in non-ASCII JSONL.
+
+Validation status:
+- passed 2026-05-09:
+  - `npm test -- --run tests/codex-session-runtime.test.ts tests/stream-presentation.test.ts tests/reply-visibility.test.ts tests/feishu-streaming-card.test.ts tests/chat-streaming-store.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `git diff --check`
+  - `./scripts/review.sh`
+
+Review status:
+- passed 2026-05-09: scope stayed within Milestone 86; Codex phase classification now uses structured `phase` fields from ACP when available, and native transcript `event_msg.payload.phase` as the fallback when ACP omits it. No natural-language prefix classifier was reintroduced. Current-turn checkpointing avoids replaying old transcript records, and byte-offset slicing is covered for Chinese JSONL content.
+
+Risks / Notes / Handoff:
+- This must remain field-based: exact transcript `phase` values are authoritative. Do not reintroduce natural-language prefix classification.
+
+---
+
 ## Goal
 
 - Replace Codex Feishu/Web answer-vs-Thinking routing heuristics with the formal Codex assistant `phase` contract.

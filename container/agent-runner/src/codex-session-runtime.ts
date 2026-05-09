@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 export interface RequestedCodexRuntime {
   model?: string | null;
   reasoningEffort?: string | null;
@@ -18,6 +21,27 @@ export interface CodexTurnAccumulator {
 }
 
 export type CodexAssistantMessagePhase = 'commentary' | 'final_answer';
+
+export interface CodexTranscriptCheckpoint {
+  sessionId: string;
+  transcriptPath?: string;
+  offset: number;
+  startedAtIso: string;
+  sessionsDir?: string;
+}
+
+export interface CodexTranscriptPhaseMessage {
+  phase: CodexAssistantMessagePhase;
+  text: string;
+  timestamp?: string;
+}
+
+export interface CodexTranscriptTurnResolution {
+  transcriptPath?: string;
+  messages: CodexTranscriptPhaseMessage[];
+  commentaryText: string;
+  finalAnswerText: string;
+}
 
 export interface CodexRuntimeErrorFormatOptions {
   isCodexRuntime?: boolean;
@@ -356,4 +380,171 @@ export function extractCodexAssistantMessagePhase(
     if (phase) return phase;
   }
   return undefined;
+}
+
+function defaultCodexSessionsDir(): string | undefined {
+  const homeDir = process.env.HOME;
+  if (!homeDir) return undefined;
+  return path.join(homeDir, '.codex', 'sessions');
+}
+
+export function findCodexTranscriptPath(
+  sessionId: string | null | undefined,
+  sessionsDir = defaultCodexSessionsDir(),
+): string | undefined {
+  const normalizedSessionId = normalizeText(sessionId);
+  if (!normalizedSessionId || !sessionsDir) return undefined;
+  if (!fs.existsSync(sessionsDir)) return undefined;
+
+  const visit = (dir: string, depth: number): string | undefined => {
+    if (depth > 6) return undefined;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return undefined;
+    }
+
+    const files = entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+    for (const name of files) {
+      if (name.includes(normalizedSessionId) && name.endsWith('.jsonl')) {
+        return path.join(dir, name);
+      }
+    }
+
+    const dirs = entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse();
+    for (const name of dirs) {
+      const found = visit(path.join(dir, name), depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  };
+
+  return visit(sessionsDir, 0);
+}
+
+export function createCodexTranscriptCheckpoint(
+  sessionId: string,
+  options: { now?: Date; sessionsDir?: string } = {},
+): CodexTranscriptCheckpoint {
+  const transcriptPath = findCodexTranscriptPath(
+    sessionId,
+    options.sessionsDir,
+  );
+  let offset = 0;
+  if (transcriptPath) {
+    try {
+      offset = fs.statSync(transcriptPath).size;
+    } catch {
+      offset = 0;
+    }
+  }
+  return {
+    sessionId,
+    transcriptPath,
+    offset,
+    startedAtIso: (options.now ?? new Date()).toISOString(),
+    sessionsDir: options.sessionsDir,
+  };
+}
+
+export function extractCodexTranscriptPhaseMessagesFromJsonl(
+  jsonlText: string,
+  options: { startedAtIso?: string } = {},
+): CodexTranscriptPhaseMessage[] {
+  const messages: CodexTranscriptPhaseMessage[] = [];
+  const startedAtMs = options.startedAtIso
+    ? Date.parse(options.startedAtIso)
+    : Number.NaN;
+
+  for (const line of jsonlText.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let record: unknown;
+    try {
+      record = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const item = readRecord(record);
+    const payload = readRecord(item?.payload);
+    if (item?.type !== 'event_msg' || payload?.type !== 'agent_message') {
+      continue;
+    }
+
+    const timestamp =
+      typeof item.timestamp === 'string' ? item.timestamp : undefined;
+    if (timestamp && Number.isFinite(startedAtMs)) {
+      const timestampMs = Date.parse(timestamp);
+      if (Number.isFinite(timestampMs) && timestampMs < startedAtMs) continue;
+    }
+
+    const phase = normalizeCodexAssistantMessagePhase(payload.phase);
+    const text = typeof payload.message === 'string' ? payload.message : '';
+    if (!phase || !text.trim()) continue;
+    messages.push({ phase, text, timestamp });
+  }
+
+  return messages;
+}
+
+function joinTranscriptPhaseText(
+  messages: CodexTranscriptPhaseMessage[],
+  phase: CodexAssistantMessagePhase,
+): string {
+  return messages
+    .filter((message) => message.phase === phase)
+    .map((message) => message.text.trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+}
+
+export function buildCodexTranscriptTurnResolution(
+  messages: CodexTranscriptPhaseMessage[],
+  transcriptPath?: string,
+): CodexTranscriptTurnResolution {
+  return {
+    transcriptPath,
+    messages,
+    commentaryText: joinTranscriptPhaseText(messages, 'commentary'),
+    finalAnswerText: joinTranscriptPhaseText(messages, 'final_answer'),
+  };
+}
+
+export function resolveCodexTranscriptTurn(
+  checkpoint: CodexTranscriptCheckpoint | null | undefined,
+): CodexTranscriptTurnResolution | null {
+  if (!checkpoint) return null;
+  const transcriptPath =
+    checkpoint.transcriptPath ||
+    findCodexTranscriptPath(checkpoint.sessionId, checkpoint.sessionsDir);
+  if (!transcriptPath) return null;
+
+  let content = '';
+  try {
+    const full = fs.readFileSync(transcriptPath);
+    const offset =
+      checkpoint.offset > 0 && checkpoint.offset < full.byteLength
+        ? checkpoint.offset
+        : 0;
+    content = full.subarray(offset).toString('utf8');
+  } catch {
+    return null;
+  }
+
+  const messages = extractCodexTranscriptPhaseMessagesFromJsonl(content, {
+    startedAtIso: checkpoint.offset > 0 ? undefined : checkpoint.startedAtIso,
+  });
+  if (messages.length === 0) return null;
+  return buildCodexTranscriptTurnResolution(messages, transcriptPath);
 }

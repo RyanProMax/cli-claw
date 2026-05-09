@@ -1,16 +1,24 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, test } from 'vitest';
 
 import {
   appendCodexFinalTurnChunk,
   appendCodexTurnChunk,
+  createCodexTranscriptCheckpoint,
+  buildCodexTranscriptTurnResolution,
   buildCodexAcpConfigOverrides,
   buildCodexAcpLaunchArgs,
+  extractCodexTranscriptPhaseMessagesFromJsonl,
   extractCodexAssistantMessagePhase,
   formatCodexRuntimeError,
   isCodexContextWindowError,
   isCodexRemoteCompactParameterError,
   mergeRuntimeIdentityState,
   normalizeCodexAssistantMessagePhase,
+  resolveCodexTranscriptTurn,
   shouldEmitCodexSessionUpdate,
   stripCodexRuntimeDiagnosticPrefix,
 } from '../container/agent-runner/src/codex-session-runtime.ts';
@@ -235,6 +243,128 @@ describe('codex ACP runtime overrides', () => {
         content: { type: 'text', text: '我会先检查当前链路。' },
       }),
     ).toBeUndefined();
+  });
+
+  test('extracts native Codex transcript phase messages without response-item duplicates', () => {
+    const jsonl = [
+      JSON.stringify({
+        timestamp: '2026-05-09T07:34:07.443Z',
+        type: 'event_msg',
+        payload: {
+          type: 'agent_message',
+          message: '没有固定前缀的中间状态。',
+          phase: 'commentary',
+        },
+      }),
+      JSON.stringify({
+        timestamp: '2026-05-09T07:34:07.444Z',
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: '重复副本。' }],
+          phase: 'commentary',
+        },
+      }),
+      JSON.stringify({
+        timestamp: '2026-05-09T07:34:44.211Z',
+        type: 'event_msg',
+        payload: {
+          type: 'agent_message',
+          message: '最终结论。',
+          phase: 'final_answer',
+        },
+      }),
+    ].join('\n');
+
+    const messages = extractCodexTranscriptPhaseMessagesFromJsonl(jsonl, {
+      startedAtIso: '2026-05-09T07:34:00.000Z',
+    });
+    const resolution = buildCodexTranscriptTurnResolution(
+      messages,
+      '/tmp/session.jsonl',
+    );
+
+    expect(messages).toEqual([
+      {
+        phase: 'commentary',
+        text: '没有固定前缀的中间状态。',
+        timestamp: '2026-05-09T07:34:07.443Z',
+      },
+      {
+        phase: 'final_answer',
+        text: '最终结论。',
+        timestamp: '2026-05-09T07:34:44.211Z',
+      },
+    ]);
+    expect(resolution).toEqual({
+      transcriptPath: '/tmp/session.jsonl',
+      messages,
+      commentaryText: '没有固定前缀的中间状态。',
+      finalAnswerText: '最终结论。',
+    });
+  });
+
+  test('resolves native Codex transcript phases after the prompt checkpoint only', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sessions-'));
+    try {
+      const sessionId = 'test-session-123';
+      const transcriptDir = path.join(tempDir, '2026', '05', '09');
+      fs.mkdirSync(transcriptDir, { recursive: true });
+      const transcriptPath = path.join(
+        transcriptDir,
+        `rollout-2026-05-09T07-30-00-${sessionId}.jsonl`,
+      );
+      fs.writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          timestamp: '2026-05-09T07:29:59.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'agent_message',
+            phase: 'final_answer',
+            message: '旧轮次正文。',
+          },
+        })}\n`,
+      );
+
+      const checkpoint = createCodexTranscriptCheckpoint(sessionId, {
+        now: new Date('2026-05-09T07:30:00.000Z'),
+        sessionsDir: tempDir,
+      });
+
+      fs.appendFileSync(
+        transcriptPath,
+        [
+          JSON.stringify({
+            timestamp: '2026-05-09T07:30:01.000Z',
+            type: 'event_msg',
+            payload: {
+              type: 'agent_message',
+              phase: 'commentary',
+              message: '本轮过程。',
+            },
+          }),
+          JSON.stringify({
+            timestamp: '2026-05-09T07:30:02.000Z',
+            type: 'event_msg',
+            payload: {
+              type: 'agent_message',
+              phase: 'final_answer',
+              message: '本轮正文。',
+            },
+          }),
+        ].join('\n') + '\n',
+      );
+
+      expect(resolveCodexTranscriptTurn(checkpoint)).toMatchObject({
+        transcriptPath,
+        commentaryText: '本轮过程。',
+        finalAnswerText: '本轮正文。',
+      });
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('strips Codex model metadata diagnostics from assistant chunks', () => {
