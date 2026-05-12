@@ -52,6 +52,38 @@ def payload_from(rows: list[tuple[str, str, float, float]]) -> dict:
     }
 
 
+def market_index_payload() -> dict:
+    return {
+        "status": "ok",
+        "data": [
+            {
+                "code": "SH.000001",
+                "price": 4214.49,
+                "prev_close": 4225.02,
+                "raw": {"index_raise_count": 577, "index_fall_count": 1612},
+            },
+            {
+                "code": "SZ.399006",
+                "price": 3934.88,
+                "prev_close": 3928.97,
+                "raw": {"index_raise_count": 26, "index_fall_count": 74},
+            },
+            {
+                "code": "SH.000688",
+                "price": 1723.78,
+                "prev_close": 1716.69,
+                "raw": {"index_raise_count": 21, "index_fall_count": 28},
+            },
+            {
+                "code": "HK.800000",
+                "price": 26342.1,
+                "prev_close": 26406.84,
+                "raw": {"index_raise_count": 37, "index_fall_count": 49},
+            },
+        ],
+    }
+
+
 class StockWatchPushGatingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -61,6 +93,7 @@ class StockWatchPushGatingTest(unittest.TestCase):
         self.module.STATE_PATH = Path(self.tmp.name) / "state.json"
         self.module.CALENDAR_PATH = Path(self.tmp.name) / "calendar.json"
         self.module.should_poll = lambda now: True
+        self.module.poll_market_indices = lambda: None
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -157,6 +190,27 @@ class StockWatchPushGatingTest(unittest.TestCase):
         self.assertNotIn("涨跌幅", output)
         self.assertLess(output.index("🚨 异动 2 家"), output.index("📉 下跌 1 家"))
         self.assertLess(output.index("📉 下跌 1 家"), output.index("📈 上涨 1 家"))
+
+    def test_snapshot_includes_market_index_section_when_available(self) -> None:
+        self.module.poll_market_indices = market_index_payload
+
+        output = self.run_script("2026-04-27T09:40:00+08:00", payload(0.0))
+
+        self.assertIn("**大盘指数**", output)
+        self.assertIn("- 📉 上证 4214.49 -0.25%｜涨577 跌1612", output)
+        self.assertIn("- 📈 创业板 3934.88 +0.15%｜涨26 跌74", output)
+        self.assertIn("- 📈 科创50 1723.78 +0.41%｜涨21 跌28", output)
+        self.assertIn("- 📉 恒生 26342.1 -0.25%｜涨37 跌49", output)
+        self.assertLess(output.index("**大盘指数**"), output.index("**➖ 平盘 2 家**"))
+
+    def test_snapshot_keeps_stock_snapshot_when_market_index_fetch_fails(self) -> None:
+        self.module.poll_market_indices = lambda: {"status": "failed", "error": "opend down"}
+
+        output = self.run_script("2026-04-27T09:40:00+08:00", payload(0.0))
+
+        self.assertIn("**盯盘快照：成功 2/2｜📈0｜📉0｜🚨0**", output)
+        self.assertIn("**大盘指数**", output)
+        self.assertIn("- 暂不可用", output)
 
     def test_snapshot_matches_user_template_exactly(self) -> None:
         self.module.SYMBOLS = [

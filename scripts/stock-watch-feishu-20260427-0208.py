@@ -17,6 +17,14 @@ SYMBOLS = [
     "300757", "002466", "512100", "159919", "159952",
     "300827", "300014", "300274",
 ]
+MARKET_INDICES = [
+    {"code": "SH.000001", "name": "上证"},
+    {"code": "SZ.399001", "name": "深成指"},
+    {"code": "SZ.399006", "name": "创业板"},
+    {"code": "SH.000688", "name": "科创50"},
+    {"code": "HK.800000", "name": "恒生"},
+    {"code": "HK.800700", "name": "恒科"},
+]
 STATE_DIR = Path.home() / ".cli-claw" / "stock-watch"
 STATE_PATH = STATE_DIR / f"{WATCH_ID}.json"
 CALENDAR_PATH = STATE_DIR / "cn-trade-calendar.json"
@@ -69,6 +77,34 @@ def poll() -> dict:
     if completed.returncode != 0:
         raise RuntimeError((completed.stderr or completed.stdout).strip() or f"exit {completed.returncode}")
     return json.loads(completed.stdout)
+
+
+def poll_market_indices() -> dict:
+    codes = ",".join(index["code"] for index in MARKET_INDICES)
+    command = [PYTHON, "scripts/futu_market_data.py", "snapshot", "--codes", codes, "--json"]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=API_ROOT,
+            env=load_env(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+        )
+    except Exception as exc:
+        return {"status": "failed", "error": str(exc), "data": []}
+    if completed.returncode != 0:
+        error = (completed.stderr or completed.stdout).strip()
+        return {
+            "status": "failed",
+            "error": error or f"exit {completed.returncode}",
+            "data": [],
+        }
+    try:
+        return json.loads(completed.stdout)
+    except Exception as exc:
+        return {"status": "failed", "error": f"parse_failed: {exc}", "data": []}
 
 
 def current_beijing_time() -> datetime:
@@ -226,6 +262,17 @@ def direction_emoji(change_pct: float) -> str:
     return "➖"
 
 
+def parse_market_index_change_pct(item: dict) -> float:
+    price = item.get("price")
+    prev_close = item.get("prev_close")
+    try:
+        if prev_close in (None, "", 0):
+            return 0.0
+        return (float(price) - float(prev_close)) / float(prev_close)
+    except Exception:
+        return 0.0
+
+
 def format_snapshot_row(
     *,
     symbol: str,
@@ -244,6 +291,43 @@ def format_snapshot_row(
     return f"{prefix} {symbol} {name} {price_text} {pct_text}"
 
 
+def format_market_index_row(item: dict, display_name: str) -> str:
+    cp = parse_market_index_change_pct(item)
+    price_text = number_to_text(item.get("price"))
+    pct_text = ratio_to_pct(cp)
+    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+    raise_count = raw.get("index_raise_count")
+    fall_count = raw.get("index_fall_count")
+    breadth = ""
+    if raise_count not in (None, "") and fall_count not in (None, ""):
+        try:
+            breadth = f"｜涨{int(float(raise_count))} 跌{int(float(fall_count))}"
+        except Exception:
+            breadth = ""
+    return f"{direction_emoji(cp)} {display_name} {price_text} {pct_text}{breadth}"
+
+
+def format_market_index_lines(payload: dict | None) -> list[str]:
+    if not payload:
+        return []
+    if payload.get("status") != "ok":
+        return ["**大盘指数**", "- 暂不可用"]
+
+    item_by_code = {
+        str(item.get("code") or "").upper(): item
+        for item in payload.get("data", [])
+    }
+    rows = []
+    for index in MARKET_INDICES:
+        item = item_by_code.get(index["code"])
+        if not item:
+            continue
+        rows.append(f"- {format_market_index_row(item, index['name'])}")
+    if not rows:
+        return ["**大盘指数**", "- 暂不可用"]
+    return ["**大盘指数**", *rows]
+
+
 def append_snapshot_section(
     lines: list[str],
     title: str,
@@ -255,7 +339,13 @@ def append_snapshot_section(
     lines.extend(f"- {row['line']}" for row in rows)
 
 
-def format_snapshot_lines(rows: list[dict], *, ok: int, total: int) -> list[str]:
+def format_snapshot_lines(
+    rows: list[dict],
+    *,
+    ok: int,
+    total: int,
+    market_index_payload: dict | None = None,
+) -> list[str]:
     alert_rows = sorted(
         [row for row in rows if row["is_alert"]],
         key=lambda row: abs(row["change_pct"]),
@@ -287,6 +377,7 @@ def format_snapshot_lines(rows: list[dict], *, ok: int, total: int) -> list[str]
             f"｜🚨{alert_count}**"
         )
     ]
+    lines.extend(format_market_index_lines(market_index_payload))
     append_snapshot_section(lines, f"**🚨 异动 {len(alert_rows)} 家**", alert_rows)
     append_snapshot_section(lines, f"**📉 下跌 {len(down_rows)} 家**", down_rows)
     append_snapshot_section(lines, f"**📈 上涨 {len(up_rows)} 家**", up_rows)
@@ -420,8 +511,14 @@ def main() -> int:
     if not should_emit:
         return 0
 
+    market_index_payload = poll_market_indices()
     ok = len(current)
-    lines = format_snapshot_lines(rows, ok=ok, total=len(SYMBOLS))
+    lines = format_snapshot_lines(
+        rows,
+        ok=ok,
+        total=len(SYMBOLS),
+        market_index_payload=market_index_payload,
+    )
     print("\n".join(lines))
     return 0
 
