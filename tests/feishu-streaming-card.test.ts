@@ -491,7 +491,7 @@ describe('StreamingCardController footer caching', () => {
     const stepsIndex = elements.findIndex(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '1 steps',
+        element?.header?.title?.content === '🧰 1 steps',
     );
 
     expect(bodyIndex).toBeGreaterThanOrEqual(0);
@@ -625,7 +625,7 @@ describe('StreamingCardController footer caching', () => {
     const streamingStepsIndex = streamingElements.findIndex(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === 'Working on it (1 steps)',
+        element?.header?.title?.content === '🧰 Working on it (1 steps)',
     );
 
     expect(streamingStepsIndex).toBeGreaterThanOrEqual(0);
@@ -643,7 +643,7 @@ describe('StreamingCardController footer caching', () => {
     const completedStepsIndex = completedElements.findIndex(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '1 steps',
+        element?.header?.title?.content === '🧰 1 steps',
     );
 
     expect(completedStepsIndex).toBeGreaterThanOrEqual(0);
@@ -676,7 +676,7 @@ describe('StreamingCardController footer caching', () => {
     const streamingElements = updatedCards.at(-1)?.body?.elements ?? [];
     expect(streamingElements[0]?.tag).toBe('collapsible_panel');
     expect(streamingElements[0]?.header?.title?.content).toBe(
-      'Working on it (1 steps)',
+      '🧰 Working on it (1 steps)',
     );
     expect(streamingElements[1]?.header?.title?.content).toBe('💭 Thinking');
 
@@ -684,7 +684,7 @@ describe('StreamingCardController footer caching', () => {
 
     const completedElements = updatedCards.at(-1)?.body?.elements ?? [];
     expect(completedElements[0]?.tag).toBe('collapsible_panel');
-    expect(completedElements[0]?.header?.title?.content).toBe('1 steps');
+    expect(completedElements[0]?.header?.title?.content).toBe('🧰 1 steps');
     expect(completedElements[1]?.header?.title?.content).toBe('💭 Thinking');
 
     controller.dispose();
@@ -706,15 +706,15 @@ describe('StreamingCardController footer caching', () => {
       '**🔗 来源**',
       '- Futu/OpenD `get_ipo_list(HK)`，2026-05-05。',
     ];
-    const card = buildStaticReplyCard(
-      reportLines.join('\n'),
-    ) as any;
+    const card = buildStaticReplyCard(reportLines.join('\n')) as any;
 
     const reportMarkdown = (card?.body?.elements ?? []).filter(
       (element: any) =>
         element?.tag === 'markdown' && element?.text_size === 'normal_text',
     );
-    const reportContents = reportMarkdown.map((element: any) => element.content);
+    const reportContents = reportMarkdown.map(
+      (element: any) => element.content,
+    );
 
     expect(reportContents).toEqual(reportLines);
     expect(reportContents.join('\n')).not.toContain('<br>');
@@ -745,7 +745,9 @@ describe('StreamingCardController footer caching', () => {
       (element: any) =>
         element?.tag === 'markdown' && element?.text_size === 'normal_text',
     );
-    const reportContents = reportMarkdown.map((element: any) => element.content);
+    const reportContents = reportMarkdown.map(
+      (element: any) => element.content,
+    );
 
     expect(reportContents).toEqual(reportLines);
     expect(reportContents.join('\n')).not.toContain('<br>');
@@ -1546,7 +1548,7 @@ describe('StreamingCardController footer caching', () => {
     const stepsPanel = (finalCard?.body?.elements ?? []).find(
       (element: any) =>
         element?.tag === 'collapsible_panel' &&
-        element?.header?.title?.content === '1 steps',
+        element?.header?.title?.content === '🧰 1 steps',
     );
 
     expect(finalCardJson).toContain('已处理');

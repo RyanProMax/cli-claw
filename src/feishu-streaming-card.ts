@@ -729,6 +729,15 @@ function buildUnifiedThinkingPanelBody(aux: AuxiliaryState): string {
     : merged;
 }
 
+function formatStepsPanelTitle(
+  stepCount: number,
+  isStreamingLayout: boolean,
+): string {
+  return isStreamingLayout
+    ? `🧰 Working on it (${stepCount} steps)`
+    : `🧰 ${stepCount} steps`;
+}
+
 /**
  * Build auxiliary markdown elements for the streaming card.
  * Returns elements to insert before the main text content so auxiliary panels
@@ -775,9 +784,7 @@ function buildAuxiliaryElementsForState(
     });
     auxiliaryElements.push(
       buildCollapsiblePanel(
-        isStreamingLayout
-          ? `Working on it (${display.length} steps)`
-          : `${display.length} steps`,
+        formatStepsPanelTitle(display.length, isStreamingLayout),
         lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
         isStreamingLayout,
       ),
