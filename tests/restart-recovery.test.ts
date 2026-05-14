@@ -1489,7 +1489,7 @@ describe('restart recovery cursor handling', () => {
     ).not.toContain('港股 IPO');
   });
 
-  test('startup recovery sends a static IM fallback for direct Feishu final replies', async () => {
+  test('startup recovery does not duplicate direct Feishu final replies when streaming card completes', async () => {
     vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
     const {
       loadRouterStateForTests,
@@ -1569,6 +1569,95 @@ describe('restart recovery cursor handling', () => {
     await expect(processGroupMessages('feishu:oc_test')).resolves.toBe(true);
 
     expect(imMocks.sessions.some((session) => session.finalText)).toBe(true);
+    expect(imMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  test('startup recovery sends a static IM fallback when Feishu streaming card completion fails', async () => {
+    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    const {
+      loadRouterStateForTests,
+      processGroupMessages,
+      recoverPendingMessagesForTests,
+    } = await loadIndexModule();
+    const db = await import('../src/db.ts');
+
+    const previousCursor = {
+      timestamp: '2026-05-14T06:40:00.000Z',
+      id: 'previous-feishu-message',
+    };
+    const currentCursor = {
+      timestamp: '2026-05-14T06:49:47.380Z',
+      id: 'current-feishu-message',
+    };
+
+    db.initDatabase();
+    db.setRegisteredGroup('feishu:oc_test', {
+      name: 'Feishu',
+      folder: 'main',
+      added_at: '2026-05-14T06:00:00.000Z',
+      executionMode: 'host',
+      activation_mode: 'auto',
+    });
+    db.ensureChatExists('feishu:oc_test');
+    db.storeMessageDirect(
+      currentCursor.id,
+      'feishu:oc_test',
+      'ou_user',
+      'User',
+      '那你触发呀，为什么一定要我确认',
+      currentCursor.timestamp,
+      false,
+      { sourceJid: 'feishu:oc_test' },
+    );
+    db.setRouterState(
+      'last_agent_timestamp',
+      JSON.stringify({ 'feishu:oc_test': currentCursor }),
+    );
+    db.setRouterState(
+      'last_committed_cursor',
+      JSON.stringify({ 'feishu:oc_test': previousCursor }),
+    );
+
+    runnerMocks.runHostAgent.mockImplementation(
+      async (_group, _input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'stream',
+          streamEvent: {
+            eventType: 'init',
+            messageCursor: currentCursor,
+            runtimeIdentity: { agentType: 'codex' },
+          },
+        } as never);
+        const currentSession = imMocks.sessions.at(-1);
+        if (currentSession) {
+          currentSession.complete = vi
+            .fn()
+            .mockRejectedValue(new Error('card completion failed'));
+        }
+        await onOutput?.({
+          status: 'stream',
+          streamEvent: {
+            eventType: 'text_delta',
+            text: '已经触发了',
+            runtimeIdentity: { agentType: 'codex' },
+          },
+        } as never);
+        await onOutput?.({
+          status: 'success',
+          result: '已触发并完成重启。',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'completed',
+          runtimeIdentity: { agentType: 'codex' },
+        } as never);
+        return { status: 'success' };
+      },
+    );
+
+    loadRouterStateForTests();
+    recoverPendingMessagesForTests();
+    await expect(processGroupMessages('feishu:oc_test')).resolves.toBe(true);
+
+    expect(imMocks.sessions.some((session) => session.finalText)).toBe(false);
     expect(imMocks.sendMessage).toHaveBeenCalledWith(
       'feishu:oc_test',
       '已触发并完成重启。',
