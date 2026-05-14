@@ -4644,8 +4644,14 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 directImReply &&
                 replySourceImJid !== null &&
                 replySourceImJid !== chatJid;
+              // After process restart, the recovered streaming card route is
+              // best-effort. Always keep a static IM fallback for the final
+              // direct Feishu reply so completion cannot become DB/Web-only.
+              const recoveredDirectImTurn = isRecovery && directImReply;
               const skipImSend =
-                (streamingCardHandledIM && directImReply) ||
+                (streamingCardHandledIM &&
+                  directImReply &&
+                  !recoveredDirectImTurn) ||
                 routeSwitchedAway ||
                 routeCleared;
               // When the container stays alive and processes multiple IPC messages,
