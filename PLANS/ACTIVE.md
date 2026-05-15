@@ -1,21 +1,22 @@
-# Active Task: Stock Loop Progress Notification
+# Active Task: Loop Status And Startup
 
 ## Current Goal
 
-- Make the independent stock-analysis task-chain loop report progress back into the current Feishu conversation.
-- Reuse the existing Cli Claw scheduled script IM delivery path instead of adding a second Feishu sender in the stock API.
+- Add `market_loop` and `maintenance_loop` runtime state to `/status`.
+- Start both loops through existing persisted scheduled task mechanisms without adding a second Feishu sender.
 
 ## Current Milestone
 
 Objective:
-- Add a host-side notifier script that reads stock-analysis task-chain state, emits a concise progress summary for hourly/daily reports or failures, and stays silent for ordinary internal subtask completions.
-- Register the notifier as a Cli Claw script scheduled task for the current Feishu chat.
-- Keep the existing stock-analysis launchd loop unchanged for execution; this task only bridges visibility back to IM.
+- Show market loop status from the live stock-analysis task-chain DB and Cli Claw notifier task.
+- Show maintenance loop status from a dedicated Cli Claw scheduled task heartbeat.
+- Register/start the maintenance loop heartbeat task for the current Feishu chat.
+- Include Codex 7d usage guard status so operators can see when loops should pause.
 
 Validation:
-- Run the notifier once against the live stock-analysis SQLite DB and confirm it prints the recent progress summary.
-- Run the notifier a second time and confirm it is silent when there are no new completions.
-- Register/verify the scheduled task in `~/.cli-claw/db/messages.db`.
+- Run `/status` formatter path or an equivalent unit-level helper check and confirm both loop lines are present.
+- Register/verify the maintenance loop scheduled task in `~/.cli-claw/db/messages.db`.
+- Run maintenance loop heartbeat once and confirm it updates local state without noisy output.
 - `git diff --check`
 
 Status:
@@ -23,21 +24,21 @@ Status:
 
 Validation status:
 - passed 2026-05-15:
-  - `node scripts/stock-loop-progress-notifier.mjs --force --state-file=/private/tmp/stock-loop-progress-notifier-test.json --max-items=5`: printed recent loop progress.
-  - Second notifier run with the same state file: silent, confirming duplicate suppression.
-  - Default notifier run after an ordinary `paper_trade` completion: silent, confirming it will not push every internal 5-minute subtask.
-  - Registered `stock-loop-progress-notifier` in `~/.cli-claw/db/messages.db` for `feishu:oc_98f0bb60f284627bf20f9386704f8c82`.
-  - Scheduler executed the task: first run sent 8 recent completions; second run was silent and marked `Completed`.
-  - Natural hourly-report run at `2026-05-15T07:19:40Z`: sent the hourly progress summary; the following tick was silent.
-  - `node --check scripts/stock-loop-progress-notifier.mjs`: passed.
-  - `prettier --check scripts/stock-loop-progress-notifier.mjs`: passed.
+  - Registered `maintenance-loop-heartbeat` in `~/.cli-claw/db/messages.db` for `feishu:oc_98f0bb60f284627bf20f9386704f8c82`.
+  - Ran `node scripts/maintenance-loop-heartbeat.mjs --emit`: heartbeat state updated.
+  - Scheduler naturally ran `maintenance-loop-heartbeat`: silent `Completed` run, no duplicate Feishu output.
+  - Equivalent `/status` formatter check against live DB/state printed both `market_loop` and `maintenance_loop` lines plus `usage_guard`.
+  - `npm run typecheck:backend`: passed.
+  - `npm run build:backend`: passed.
+  - `node --check scripts/maintenance-loop-heartbeat.mjs && node --check scripts/stock-loop-progress-notifier.mjs`: passed.
+  - `prettier --check src/loop-status.ts src/index.ts scripts/maintenance-loop-heartbeat.mjs`: passed.
   - `git diff --check`: passed.
+  - Safe restart requested via `node dist/cli.js restart`; new backend PID `58057`, `/api/health` returned `healthy`.
 
 Review status:
-- passed 2026-05-15: change is visibility-only. The stock-analysis launchd worker remains the single execution loop, and the notifier only reads `task_chain.sqlite`, writes a local notification cursor, and uses the existing Cli Claw scheduled-script IM path. Default push cadence is report-worthy progress, not every internal chain step.
+- passed 2026-05-15: change is read-only status presentation plus a silent heartbeat task. It does not add a second Feishu sender, does not mutate stock-analysis state, and keeps market loop execution separate from maintenance loop visibility.
 
 ## Notes
 
-- 2026-05-15 root cause: the stock-analysis loop is running independently through launchd and records progress in `.cache/task_chain.sqlite`; Cli Claw has no scheduled script task reading that state, so no Feishu progress message is produced.
-- `src/task-scheduler.ts` already sends non-empty script stdout to IM via `deps.sendMessage(...)`; the notifier should use that existing path and avoid direct Feishu API calls.
-- Installed scheduled task id: `stock-loop-progress-notifier`, interval: `60000ms`.
+- `market_loop` currently maps to stock-analysis `task_chain.sqlite` plus the `stock-loop-progress-notifier` Cli Claw scheduled task.
+- `maintenance_loop` starts as a separate heartbeat/sentinel task. Full self-iteration execution remains separate from market loop and must later gain implement/review/regression workers.

@@ -55,6 +55,7 @@ import {
   getRegisteredGroup,
   getRecentImMessageLifecycleEvents,
   getRecentImMessageLifecycleIssueEvents,
+  getTaskRunLogs,
   getUserById,
   getLatestInterruptedPartialMessageSince,
   getMessagesSince,
@@ -255,6 +256,7 @@ import {
 import { verifyPairingCode } from './telegram-pairing.js';
 import { executeSessionReset } from './commands.js';
 import { getCodexUsageSnapshot } from './usage-command.js';
+import { formatLoopStatusSection } from './loop-status.js';
 import { mergeRuntimeIdentity } from './runtime-identity.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
 import {
@@ -2479,6 +2481,10 @@ function handleStatusCommand(chatJid: string): string {
       cwd: process.cwd(),
     },
   );
+  const loopStatus = formatLoopStatusSection({
+    taskReader: { getTaskById, getTaskRunLogs },
+    codexUsage: getCodexUsageSnapshot(),
+  });
 
   const lifecycleStatus = chatJid.startsWith('feishu:')
     ? `\n${formatImLifecycleStatus(
@@ -2495,7 +2501,7 @@ function handleStatusCommand(chatJid: string): string {
       )}`
     : '';
 
-  return `${systemStatus}${lifecycleStatus}`;
+  return `${systemStatus}${loopStatus}${lifecycleStatus}`;
 }
 
 function isSelfIterationAdmin(chatJid: string): boolean {
