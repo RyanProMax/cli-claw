@@ -172,12 +172,6 @@ function latestCursor(rows) {
   };
 }
 
-function isAfterCursor(row, cursor) {
-  if (!cursor?.updatedAt) return true;
-  if (row.updated_at > cursor.updatedAt) return true;
-  return row.updated_at === cursor.updatedAt && row.id > (cursor.taskId || '');
-}
-
 function fetchRows(db, state, args) {
   if (args.force || !state.lastCompletedCursor?.updatedAt) {
     const rows = db
@@ -195,19 +189,28 @@ function fetchRows(db, state, args) {
     return rows;
   }
 
-  return db
+  const rows = db
     .prepare(
       `
       SELECT id, task_type, status, due_at, result_json, error, updated_at
       FROM task_chain_tasks
       WHERE status NOT IN ('pending', 'running')
-      ORDER BY updated_at ASC
-      LIMIT 50
+        AND (
+          updated_at > ?
+          OR (updated_at = ? AND id > ?)
+        )
+      ORDER BY updated_at DESC
+      LIMIT ?
     `,
     )
-    .all()
-    .filter((row) => isAfterCursor(row, state.lastCompletedCursor))
-    .slice(-args.maxItems);
+    .all(
+      state.lastCompletedCursor.updatedAt,
+      state.lastCompletedCursor.updatedAt,
+      state.lastCompletedCursor.taskId || '',
+      args.maxItems,
+    );
+
+  return rows.reverse();
 }
 
 function fetchPending(db) {
