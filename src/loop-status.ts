@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 
+import Database from './sqlite-compat.js';
 import type { ScheduledTask, TaskRunLog } from './types.js';
 import type { UsageProviderResult } from './usage-command.js';
 
@@ -31,6 +31,13 @@ type MaintenanceState = {
   last_tick_at?: string;
   phase?: string;
   current_focus?: string;
+};
+
+type SqliteDatabase = {
+  prepare: (sql: string) => { get: () => unknown };
+  pragma?: (sql: string) => void;
+  exec?: (sql: string) => void;
+  close?: () => void;
 };
 
 export interface LoopStatusOptions {
@@ -70,10 +77,20 @@ function readMarketLoopRows(dbPath: string): {
   if (!fs.existsSync(dbPath)) {
     return { latest: null, next: null, error: 'task_chain_db_missing' };
   }
-  let db: Database.Database | null = null;
+  let db: SqliteDatabase | null = null;
   try {
-    db = new Database(dbPath, { readonly: true, fileMustExist: true });
-    db.pragma('busy_timeout = 1000');
+    const isBunRuntime = typeof (globalThis as any).Bun !== 'undefined';
+    db = new Database(
+      dbPath,
+      isBunRuntime
+        ? { readonly: true, create: false }
+        : { readonly: true, fileMustExist: true },
+    ) as SqliteDatabase;
+    if (typeof db.pragma === 'function') {
+      db.pragma('busy_timeout = 1000');
+    } else {
+      db.exec?.('PRAGMA busy_timeout = 1000');
+    }
     const latest =
       (db
         .prepare(
@@ -100,10 +117,9 @@ function readMarketLoopRows(dbPath: string): {
         .get() as TaskChainRow | undefined) ?? null;
     return { latest, next };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { latest: null, next: null, error: message };
+    return { latest: null, next: null, error: 'task_chain_read_failed' };
   } finally {
-    db?.close();
+    db?.close?.();
   }
 }
 
@@ -151,7 +167,7 @@ export function formatLoopStatusSection(options: LoopStatusOptions): string {
 
   const marketLoopStatus =
     marketRows.error !== undefined
-      ? `error (${marketRows.error})`
+      ? `degraded (${marketRows.error})`
       : notifierTask?.status === 'active'
         ? 'active'
         : 'degraded';

@@ -7,7 +7,10 @@
 
 const isBun = typeof (globalThis as any).Bun !== 'undefined';
 
-let DatabaseConstructor: new (path: string) => any;
+let DatabaseConstructor: new (
+  path: string,
+  options?: Record<string, unknown>,
+) => any;
 
 if (isBun) {
   // 动态字符串阻止 tsc 尝试解析 bun:sqlite 模块
