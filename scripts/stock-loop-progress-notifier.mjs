@@ -16,6 +16,7 @@ const TASK_LABELS = {
   kol_scan: 'KOL观点扫描',
   sector_review: '板块复盘',
   strategy_analysis: '策略分析',
+  strategy_iteration: '策略迭代',
   daily_report: '每日复盘',
   daily_summary: '日终汇总',
 };
@@ -26,6 +27,7 @@ const REPORT_TASK_TYPES = new Set([
   'kol_scan',
   'sector_review',
   'strategy_analysis',
+  'strategy_iteration',
   'daily_report',
   'daily_summary',
 ]);
@@ -147,6 +149,10 @@ function describeTask(row) {
   if (row.task_type === 'strategy_analysis') {
     const summary = result.summary || {};
     return `策略分析完成，待审核 ${summary.human_review_ready ?? 0}，需迭代 ${summary.needs_iteration ?? 0}`;
+  }
+  if (row.task_type === 'strategy_iteration') {
+    const summary = result.summary || {};
+    return `策略迭代完成，待审核 ${summary.human_review_ready ?? 0}，需迭代 ${summary.needs_iteration ?? 0}`;
   }
   if (row.task_type === 'daily_report') {
     return '已生成每日复盘，包含操作、持仓、市场观点和纠偏 review';

@@ -103,6 +103,7 @@ function formatTaskType(value: string): string {
     kol_scan: 'KOL 观点扫描',
     sector_review: '板块复盘',
     strategy_analysis: '策略分析',
+    strategy_iteration: '策略迭代',
   };
   return map[value] ?? value.replaceAll('_', ' ');
 }
