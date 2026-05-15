@@ -108,6 +108,20 @@ class StockWatchPushGatingTest(unittest.TestCase):
             self.assertEqual(self.module.main(), 0)
         return output.getvalue().strip()
 
+    def test_default_watchlist_matches_current_selection(self) -> None:
+        self.assertEqual(
+            load_module().SYMBOLS,
+            [
+                "603228",
+                "513180",
+                "588320",
+                "300757",
+                "512100",
+                "300827",
+                "300442",
+            ],
+        )
+
     def test_first_run_pushes_full_snapshot_and_records_last_push(self) -> None:
         output = self.run_script("2026-04-27T09:40:00+08:00", payload(0.0))
 

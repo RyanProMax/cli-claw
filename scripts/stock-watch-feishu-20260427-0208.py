@@ -13,9 +13,13 @@ WATCH_ID = "stock-watch-feishu-20260427-0208"
 API_ROOT = Path("/Users/ryan/projects/stock-analysis-api")
 PYTHON = "/Users/ryan/projects/stock-analysis-api/.venv/bin/python"
 SYMBOLS = [
-    "603228", "300033", "513110", "002983", "513180", "588320",
-    "300757", "002466", "512100", "159919", "159952",
-    "300827", "300014", "300274",
+    "603228",
+    "513180",
+    "588320",
+    "300757",
+    "512100",
+    "300827",
+    "300442",
 ]
 MARKET_INDICES = [
     {"code": "SH.000001", "name": "上证"},
