@@ -1,20 +1,21 @@
-# Active Task: Stock Watch Script Timeout
+# Active Task: Stock Loop Progress Notification
 
 ## Current Goal
 
-- Fix the Feishu stock-watch scheduled script timeout during A-share market hours.
-- Address the quote polling hot path instead of only increasing scheduler timeout.
+- Make the independent stock-analysis task-chain loop report progress back into the current Feishu conversation.
+- Reuse the existing Cli Claw scheduled script IM delivery path instead of adding a second Feishu sender in the stock API.
 
 ## Current Milestone
 
 Objective:
-- Make `poll_realtime_quotes.py` avoid slow per-symbol Tushare Pro metadata/quotation calls when the legacy realtime quote path can provide the watch snapshot data quickly.
-- Keep the existing JSON contract and snapshot formatting stable.
+- Add a host-side notifier script that reads stock-analysis task-chain state, emits a concise progress summary for hourly/daily reports or failures, and stays silent for ordinary internal subtask completions.
+- Register the notifier as a Cli Claw script scheduled task for the current Feishu chat.
+- Keep the existing stock-analysis launchd loop unchanged for execution; this task only bridges visibility back to IM.
 
 Validation:
-- `pytest tests/test_realtime_quote_polling_cli.py`
-- `python3 tests/stock-watch-feishu-20260427-0208.test.py`
-- Live forced market-time run of `scripts/stock-watch-feishu-20260427-0208.py` completes well below the 60s scheduler timeout.
+- Run the notifier once against the live stock-analysis SQLite DB and confirm it prints the recent progress summary.
+- Run the notifier a second time and confirm it is silent when there are no new completions.
+- Register/verify the scheduled task in `~/.cli-claw/db/messages.db`.
 - `git diff --check`
 
 Status:
@@ -22,17 +23,21 @@ Status:
 
 Validation status:
 - passed 2026-05-15:
-  - API RED test reproduced missing `--fast-realtime` before implementation.
-  - `pytest tests/test_realtime_quote_polling_cli.py`: 6 passed.
-  - `python3 tests/stock-watch-feishu-20260427-0208.test.py`: 11 passed.
-  - Live forced market-time run with network access returned `成功 14/14` and completed below the 60s scheduler timeout.
-  - `git diff --check`: passed for `cli-claw` and `stock-analysis-api`.
+  - `node scripts/stock-loop-progress-notifier.mjs --force --state-file=/private/tmp/stock-loop-progress-notifier-test.json --max-items=5`: printed recent loop progress.
+  - Second notifier run with the same state file: silent, confirming duplicate suppression.
+  - Default notifier run after an ordinary `paper_trade` completion: silent, confirming it will not push every internal 5-minute subtask.
+  - Registered `stock-loop-progress-notifier` in `~/.cli-claw/db/messages.db` for `feishu:oc_98f0bb60f284627bf20f9386704f8c82`.
+  - Scheduler executed the task: first run sent 8 recent completions; second run was silent and marked `Completed`.
+  - Natural hourly-report run at `2026-05-15T07:19:40Z`: sent the hourly progress summary; the following tick was silent.
+  - `node --check scripts/stock-loop-progress-notifier.mjs`: passed.
+  - `prettier --check scripts/stock-loop-progress-notifier.mjs`: passed.
+  - `git diff --check`: passed.
 
 Review status:
-- passed 2026-05-15: fix targets the quote polling hot path. Normal full-mode `poll_realtime_quotes.py` contract remains unchanged; `--fast-realtime` is opt-in and the Feishu stock-watch script is the only caller changed to use it. Subprocess timeouts are now bounded below the scheduler's 60s timeout so failures can return controlled script errors instead of outer scheduler kills.
+- passed 2026-05-15: change is visibility-only. The stock-analysis launchd worker remains the single execution loop, and the notifier only reads `task_chain.sqlite`, writes a local notification cursor, and uses the existing Cli Claw scheduled-script IM path. Default push cadence is report-worthy progress, not every internal chain step.
 
 ## Notes
 
-- 2026-05-15 root cause: `stock-watch-feishu-20260427-0208` times out after market open because the script calls `stock-analysis-api/scripts/poll_realtime_quotes.py` for 14 symbols; the API service queries slow/empty Tushare Pro `stock_basic` / `etf_basic` and `quotation` serially before falling back to fast legacy realtime quotes.
-- Outer scheduler timeout is 60s while the inner polling subprocess timeout is 90s, so the scheduler kills the script before it can return a useful error.
-- Implemented API `--fast-realtime` mode and updated the stock-watch script to use it with bounded quote/index subprocess timeouts.
+- 2026-05-15 root cause: the stock-analysis loop is running independently through launchd and records progress in `.cache/task_chain.sqlite`; Cli Claw has no scheduled script task reading that state, so no Feishu progress message is produced.
+- `src/task-scheduler.ts` already sends non-empty script stdout to IM via `deps.sendMessage(...)`; the notifier should use that existing path and avoid direct Feishu API calls.
+- Installed scheduled task id: `stock-loop-progress-notifier`, interval: `60000ms`.
