@@ -92,6 +92,7 @@ class StockWatchPushGatingTest(unittest.TestCase):
         self.module.STATE_DIR = Path(self.tmp.name)
         self.module.STATE_PATH = Path(self.tmp.name) / "state.json"
         self.module.CALENDAR_PATH = Path(self.tmp.name) / "calendar.json"
+        self.original_poll_market_indices = self.module.poll_market_indices
         self.module.should_poll = lambda now: True
         self.module.poll_market_indices = lambda: None
 
@@ -211,6 +212,51 @@ class StockWatchPushGatingTest(unittest.TestCase):
         self.assertIn("**盯盘快照：成功 2/2｜📈0｜📉0｜🚨0**", output)
         self.assertIn("**大盘指数**", output)
         self.assertIn("- 暂不可用", output)
+
+    def test_poll_uses_fast_realtime_and_bounded_timeout(self) -> None:
+        calls = []
+
+        class Completed:
+            returncode = 0
+            stdout = json.dumps(payload(0.0), ensure_ascii=False)
+            stderr = ""
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return Completed()
+
+        self.module.subprocess.run = fake_run
+
+        result = self.module.poll()
+
+        self.assertEqual(result["summary"]["ok"], 2)
+        self.assertEqual(len(calls), 1)
+        command, kwargs = calls[0]
+        self.assertIn("--fast-realtime", command)
+        self.assertEqual(kwargs["timeout"], self.module.QUOTE_POLL_TIMEOUT_SECONDS)
+        self.assertLess(kwargs["timeout"], 60)
+
+    def test_market_index_timeout_is_bounded(self) -> None:
+        calls = []
+
+        class Completed:
+            returncode = 0
+            stdout = json.dumps({"status": "ok", "data": []}, ensure_ascii=False)
+            stderr = ""
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return Completed()
+
+        self.module.subprocess.run = fake_run
+        self.module.poll_market_indices = self.original_poll_market_indices
+
+        result = self.module.poll_market_indices()
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1]["timeout"], self.module.MARKET_INDEX_TIMEOUT_SECONDS)
+        self.assertLess(calls[0][1]["timeout"], 60)
 
     def test_snapshot_matches_user_template_exactly(self) -> None:
         self.module.SYMBOLS = [

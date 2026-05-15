@@ -31,6 +31,8 @@ CALENDAR_PATH = STATE_DIR / "cn-trade-calendar.json"
 CHANGE_POINT_THRESHOLD = 0.015
 ABS_MOVE_THRESHOLD = 0.02
 HEARTBEAT_PUSH_INTERVAL_SECONDS = 30 * 60
+QUOTE_POLL_TIMEOUT_SECONDS = 45
+MARKET_INDEX_TIMEOUT_SECONDS = 10
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 CN_MARKET_SESSIONS = (
     (time(9, 30), time(11, 30)),
@@ -64,7 +66,13 @@ def load_env() -> dict[str, str]:
 
 
 def poll() -> dict:
-    command = [PYTHON, "scripts/poll_realtime_quotes.py", "--symbols", ",".join(SYMBOLS)]
+    command = [
+        PYTHON,
+        "scripts/poll_realtime_quotes.py",
+        "--symbols",
+        ",".join(SYMBOLS),
+        "--fast-realtime",
+    ]
     completed = subprocess.run(
         command,
         cwd=API_ROOT,
@@ -72,7 +80,7 @@ def poll() -> dict:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=90,
+        timeout=QUOTE_POLL_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         raise RuntimeError((completed.stderr or completed.stdout).strip() or f"exit {completed.returncode}")
@@ -90,7 +98,7 @@ def poll_market_indices() -> dict:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=60,
+            timeout=MARKET_INDEX_TIMEOUT_SECONDS,
         )
     except Exception as exc:
         return {"status": "failed", "error": str(exc), "data": []}
