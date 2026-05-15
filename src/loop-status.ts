@@ -97,9 +97,12 @@ function formatTaskType(value: string): string {
     paper_trade: '模拟交易',
     position_review: '持仓复核',
     hourly_report: '小时汇报',
+    post_market_research: '盘后研究入口',
     daily_report: '每日复盘',
     news_scan: '新闻热点扫描',
     kol_scan: 'KOL 观点扫描',
+    sector_review: '板块复盘',
+    strategy_analysis: '策略分析',
   };
   return map[value] ?? value.replaceAll('_', ' ');
 }
