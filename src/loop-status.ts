@@ -61,6 +61,66 @@ function formatTime(value: string | null | undefined): string {
   }).format(date);
 }
 
+function formatEmpty(value = '无'): string {
+  return value;
+}
+
+function formatLoopRunState(value: string): string {
+  const map: Record<string, string> = {
+    active: '运行中',
+    degraded: '降级',
+    active_no_heartbeat: '运行中（等待心跳）',
+    not_started: '未启动',
+  };
+  return map[value] ?? value;
+}
+
+function formatTaskStatus(value: string): string {
+  const map: Record<string, string> = {
+    active: '运行中',
+    paused: '已暂停',
+    completed: '已完成',
+    parsing: '解析中',
+    pending: '待执行',
+    running: '执行中',
+    success: '成功',
+    error: '失败',
+  };
+  return map[value] ?? value;
+}
+
+function formatTaskType(value: string): string {
+  const map: Record<string, string> = {
+    market_observe: '行情观察',
+    alpha_mine: 'Alpha 挖掘',
+    judge_review: '评委复核',
+    paper_trade: '模拟交易',
+    position_review: '持仓复核',
+    hourly_report: '小时汇报',
+    daily_report: '每日复盘',
+    news_scan: '新闻热点扫描',
+    kol_scan: 'KOL 观点扫描',
+  };
+  return map[value] ?? value.replaceAll('_', ' ');
+}
+
+function formatMarketError(value: string): string {
+  const map: Record<string, string> = {
+    task_chain_db_missing: '任务链数据库未找到',
+    task_chain_read_failed: '任务链读取失败',
+  };
+  return map[value] ?? value;
+}
+
+function formatFocus(value: string): string {
+  const map: Record<string, string> = {
+    'market-aware loop policy, usage guard, self-iteration workers':
+      '市场感知调度、用量护栏、自迭代 workers',
+    pending: '待初始化',
+  };
+  return map[value] ?? value;
+}
+
 function readJsonFile<T>(filePath: string): T | null {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
@@ -127,20 +187,20 @@ function formatScheduledTaskStatus(
   task: ScheduledTask | undefined,
   logs: TaskRunLog[],
 ): string {
-  if (!task) return 'not_registered';
+  if (!task) return '未注册';
   const latestLog = logs[0];
-  const latestError = latestLog?.error ? ` error=${latestLog.error}` : '';
-  return `${task.status}, last=${formatTime(task.last_run)}, next=${formatTime(task.next_run)}${latestError}`;
+  const latestError = latestLog?.error ? `，错误=${latestLog.error}` : '';
+  return `${formatTaskStatus(task.status)}，上次=${formatTime(task.last_run)}，下次=${formatTime(task.next_run)}${latestError}`;
 }
 
 function formatUsageGuard(codexUsage: UsageProviderResult | null): string {
   if (!codexUsage?.available) {
-    return `unknown (${codexUsage?.reason ?? 'usage_unavailable'})`;
+    return `未知（${codexUsage?.reason ?? '用量不可读'}）`;
   }
   const remaining = codexUsage.secondaryRemainingPct;
-  if (remaining === undefined) return 'unknown (7d unavailable)';
-  if (remaining < 30) return `paused_required, 7d=${remaining}%`;
-  return `ok, 7d=${remaining}%`;
+  if (remaining === undefined) return '未知（7d 不可读）';
+  if (remaining < 30) return `需要暂停，7d=${remaining}%`;
+  return `正常，7d=${remaining}%`;
 }
 
 export function formatLoopStatusSection(options: LoopStatusOptions): string {
@@ -167,36 +227,39 @@ export function formatLoopStatusSection(options: LoopStatusOptions): string {
 
   const marketLoopStatus =
     marketRows.error !== undefined
-      ? `degraded (${marketRows.error})`
+      ? `${formatLoopRunState('degraded')}（${formatMarketError(marketRows.error)}）`
       : notifierTask?.status === 'active'
-        ? 'active'
-        : 'degraded';
+        ? formatLoopRunState('active')
+        : formatLoopRunState('degraded');
   const marketNext = marketRows.next
-    ? `${marketRows.next.task_type} ${marketRows.next.status} ${formatTime(marketRows.next.due_at)}`
-    : 'none';
+    ? `${formatTaskType(marketRows.next.task_type)} ${formatTaskStatus(marketRows.next.status)} ${formatTime(marketRows.next.due_at)}`
+    : formatEmpty();
   const marketLatest = marketRows.latest
-    ? `${marketRows.latest.task_type} ${marketRows.latest.status} ${formatTime(marketRows.latest.updated_at)}`
-    : 'none';
+    ? `${formatTaskType(marketRows.latest.task_type)} ${formatTaskStatus(marketRows.latest.status)} ${formatTime(marketRows.latest.updated_at)}`
+    : formatEmpty();
 
   const maintenanceLoopStatus =
     maintenanceTask?.status === 'active' && maintenanceState
-      ? 'active'
+      ? formatLoopRunState('active')
       : maintenanceTask?.status === 'active'
-        ? 'active_no_heartbeat'
-        : 'not_started';
+        ? formatLoopRunState('active_no_heartbeat')
+        : formatLoopRunState('not_started');
   const maintenanceHeartbeat = maintenanceState?.last_tick_at
     ? formatTime(maintenanceState.last_tick_at)
-    : 'none';
-  const maintenanceFocus = maintenanceState?.current_focus || 'pending';
+    : formatEmpty();
+  const maintenanceFocus = formatFocus(
+    maintenanceState?.current_focus || 'pending',
+  );
 
   return [
     '',
-    '🔁 Loop',
+    '',
+    '🔁 循环状态',
     '━━━━━━━━━━',
-    `📈 market_loop: ${marketLoopStatus} | next=${marketNext} | last=${marketLatest}`,
-    `   notifier: ${formatScheduledTaskStatus(notifierTask, notifierLogs)}`,
-    `🛠️ maintenance_loop: ${maintenanceLoopStatus} | heartbeat=${maintenanceHeartbeat} | focus=${maintenanceFocus}`,
-    `   scheduler: ${formatScheduledTaskStatus(maintenanceTask, maintenanceLogs)}`,
-    `🛡️ usage_guard: ${formatUsageGuard(options.codexUsage)}`,
+    `📈 市场策略循环：${marketLoopStatus}｜下一步=${marketNext}｜最近=${marketLatest}`,
+    `   进展通知：${formatScheduledTaskStatus(notifierTask, notifierLogs)}`,
+    `🛠️ 自迭代维护循环：${maintenanceLoopStatus}｜心跳=${maintenanceHeartbeat}｜当前重点=${maintenanceFocus}`,
+    `   调度器：${formatScheduledTaskStatus(maintenanceTask, maintenanceLogs)}`,
+    `🛡️ 用量护栏：${formatUsageGuard(options.codexUsage)}`,
   ].join('\n');
 }
