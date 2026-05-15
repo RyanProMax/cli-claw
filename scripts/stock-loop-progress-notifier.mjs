@@ -11,9 +11,24 @@ const TASK_LABELS = {
   judge_review: '评委Review',
   paper_trade: '模拟交易',
   hourly_report: '小时报告',
+  post_market_research: '盘后研究入口',
+  news_scan: '新闻热点扫描',
+  kol_scan: 'KOL观点扫描',
+  sector_review: '板块复盘',
+  strategy_analysis: '策略分析',
+  daily_report: '每日复盘',
   daily_summary: '日终汇总',
 };
-const REPORT_TASK_TYPES = new Set(['hourly_report', 'daily_summary']);
+const REPORT_TASK_TYPES = new Set([
+  'hourly_report',
+  'post_market_research',
+  'news_scan',
+  'kol_scan',
+  'sector_review',
+  'strategy_analysis',
+  'daily_report',
+  'daily_summary',
+]);
 
 function parseArgs(argv) {
   const args = {
@@ -107,6 +122,34 @@ function describeTask(row) {
       ? summary.risk_events.length
       : 0;
     return `任务 ${summary.tasks_total ?? 0}，模拟下单 ${summary.simulated_orders ?? 0}，风险 ${riskEvents}`;
+  }
+  if (row.task_type === 'post_market_research') {
+    return '已进入盘后新闻/KOL/板块/策略分析链路';
+  }
+  if (row.task_type === 'news_scan') {
+    if (result.status === 'collected') {
+      return `搜索引擎扫描完成，成功 ${result.result_count ?? 0}/${Array.isArray(result.queries) ? result.queries.length : 0}`;
+    }
+    return `新闻扫描降级：${result.reason || row.error || 'unknown'}`;
+  }
+  if (row.task_type === 'kol_scan') {
+    if (result.status === 'agent_required') {
+      return 'KOL skill 已完成预检，等待 Agent 执行报告生成';
+    }
+    if (result.status === 'collected') {
+      return `KOL 情报已生成，正文 ${result.content_chars ?? 0} 字符`;
+    }
+    return `KOL 扫描降级：${result.reason || row.error || 'unknown'}`;
+  }
+  if (row.task_type === 'sector_review') {
+    return '板块观点已汇总，等待策略分析消费';
+  }
+  if (row.task_type === 'strategy_analysis') {
+    const summary = result.summary || {};
+    return `策略分析完成，待审核 ${summary.human_review_ready ?? 0}，需迭代 ${summary.needs_iteration ?? 0}`;
+  }
+  if (row.task_type === 'daily_report') {
+    return '已生成每日复盘，包含操作、持仓、市场观点和纠偏 review';
   }
   if (row.task_type === 'daily_summary') {
     return '生成当日操作、持仓和板块观点汇总';
@@ -247,12 +290,20 @@ function main() {
   try {
     const rows = fetchRows(db, state, args);
     if (!rows.length) return;
-    if (!hasReportableProgress(rows, args)) return;
+    const cursor = latestCursor(rows);
+    if (!hasReportableProgress(rows, args)) {
+      if (cursor) {
+        writeJsonFile(args.stateFile, {
+          lastCompletedCursor: cursor,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return;
+    }
 
     const pendingRows = fetchPending(db);
     const hourlySummary = fetchLatestHourlySummary(db);
     const output = buildOutput(rows, pendingRows, hourlySummary);
-    const cursor = latestCursor(rows);
     if (cursor) {
       writeJsonFile(args.stateFile, {
         lastCompletedCursor: cursor,
