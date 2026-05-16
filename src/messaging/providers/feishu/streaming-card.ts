@@ -1,0 +1,2975 @@
+/**
+ * Feishu Streaming Card Controller
+ *
+ * Three-level degradation chain:
+ *   Level 0: Streaming mode — cardElement.content() with native typewriter effect (70ms/char)
+ *   Level 1: CardKit v1 — card.update() full JSON replacement (≥1000ms interval)
+ *   Level 2: Legacy — im.message.create + im.message.patch
+ *
+ * Features:
+ * - Native typewriter effect via Feishu streaming_mode (Level 0)
+ * - Dual-track flushing: text (300ms) / auxiliary (800ms) in streaming mode
+ * - Auto-degradation on API failures (streaming → v1 → legacy)
+ * - Code-block-safe text splitting (no truncation inside fenced code blocks)
+ * - Schema 2.0 card format with body.elements
+ * - Multi-card support for extremely long outputs (auto-split at ~45 elements)
+ * - 100K character single-element support in streaming mode
+ */
+import * as lark from '@larksuiteoapi/node-sdk';
+import { createHash } from 'crypto';
+import { logger } from '../../../core/logger.js';
+import {
+  normalizeStreamingMarkdown,
+  optimizeMarkdownStyle,
+} from './markdown-style.js';
+import {
+  formatAssistantCardFooter,
+  type AssistantFooterTokenUsage,
+} from '../../../presentation/assistant-meta-footer.js';
+import type { RuntimeIdentity } from '../../../domain/types.js';
+import {
+  getDefaultModelPreset,
+  getDefaultReasoningEffortPreset,
+  getDefaultSpeedTierPreset,
+  getModelPresetOptions,
+  getReasoningEffortOptions,
+  getSpeedTierOptions,
+  supportsReasoningEffort,
+  supportsSpeedTier,
+  type RuntimePresetOption,
+} from '../../../core/runtime/command-registry.js';
+import { formatToolStepLine } from '../../../presentation/tool-step-display.js';
+
+// ─── Types ────────────────────────────────────────────────────
+
+type StreamingState =
+  | 'idle'
+  | 'creating'
+  | 'streaming'
+  | 'completed'
+  | 'aborted'
+  | 'error';
+
+export interface StreamingCardOptions {
+  /** Lark SDK client instance */
+  client: lark.Client;
+  /** Chat ID to send the card to */
+  chatId: string;
+  /** Reply to this message ID (optional) */
+  replyToMsgId?: string;
+  /** Called when the card is created or streaming fails */
+  onFallback?: () => void;
+  /** Called when the initial card is created and messageId is available */
+  onCardCreated?: (messageId: string) => void;
+  /** Called when the card reaches a terminal state (completed / aborted). */
+  onTerminal?: () => void;
+}
+
+// ─── Code-Block-Safe Splitting ───────────────────────────────
+
+interface CodeBlockRange {
+  open: number;
+  close: number;
+  lang: string;
+}
+
+/**
+ * Scan text for fenced code block ranges (``` ... ```).
+ */
+function findCodeBlockRanges(text: string): CodeBlockRange[] {
+  const ranges: CodeBlockRange[] = [];
+  const regex = /^```(\w*)\s*$/gm;
+  let match: RegExpExecArray | null;
+  let openMatch: RegExpExecArray | null = null;
+  let openLang = '';
+
+  while ((match = regex.exec(text)) !== null) {
+    if (!openMatch) {
+      openMatch = match;
+      openLang = match[1] || '';
+    } else {
+      ranges.push({
+        open: openMatch.index,
+        close: match.index + match[0].length,
+        lang: openLang,
+      });
+      openMatch = null;
+      openLang = '';
+    }
+  }
+
+  // Unclosed code block — treat from open to end of text
+  if (openMatch) {
+    ranges.push({
+      open: openMatch.index,
+      close: text.length,
+      lang: openLang,
+    });
+  }
+
+  return ranges;
+}
+
+/**
+ * Check if a position falls inside any code block range.
+ * Returns the range if found, null otherwise.
+ */
+function findContainingBlock(
+  pos: number,
+  ranges: CodeBlockRange[],
+): CodeBlockRange | null {
+  for (const r of ranges) {
+    if (pos > r.open && pos < r.close) return r;
+  }
+  return null;
+}
+
+/**
+ * Split text respecting fenced code block boundaries.
+ * Unlike splitAtParagraphs(), this never truncates inside a code block
+ * without properly closing/reopening the fence.
+ */
+function splitCodeBlockSafe(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > maxLen) {
+    // Recompute ranges on current remaining text each iteration.
+    // This handles synthetic reopeners correctly since all positions
+    // are relative to `remaining`, not the original text.
+    const ranges = findCodeBlockRanges(remaining);
+
+    // Find a split point around maxLen
+    let idx = remaining.lastIndexOf('\n\n', maxLen);
+    if (idx < maxLen * 0.3) idx = remaining.lastIndexOf('\n', maxLen);
+    if (idx < maxLen * 0.3) idx = maxLen;
+
+    const block = findContainingBlock(idx, ranges);
+
+    if (block) {
+      // Split point is inside a code block
+      if (block.open > 0 && block.open > maxLen * 0.3) {
+        // Retreat to just before the code block opening
+        const retreatIdx = remaining.lastIndexOf('\n', block.open);
+        idx = retreatIdx > maxLen * 0.3 ? retreatIdx : block.open;
+        chunks.push(remaining.slice(0, idx).trimEnd());
+        remaining = remaining.slice(idx).replace(/^\n+/, '');
+      } else {
+        // Block starts too early to retreat — split inside but close/reopen fence
+        const chunk = remaining.slice(0, idx).trimEnd() + '\n```';
+        chunks.push(chunk);
+        const reopener = '```' + block.lang + '\n';
+        remaining = reopener + remaining.slice(idx).replace(/^\n/, '');
+      }
+    } else {
+      chunks.push(remaining.slice(0, idx).trimEnd());
+      remaining = remaining.slice(idx).replace(/^\n+/, '');
+    }
+  }
+
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
+const CARD_MD_LIMIT = 4000;
+const CARD_SIZE_LIMIT = 25 * 1024; // Feishu limit ~30KB, 5KB safety margin
+
+// ─── Legacy Card Builder (Fallback) ──────────────────────────
+
+function splitAtParagraphs(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > maxLen) {
+    let idx = remaining.lastIndexOf('\n\n', maxLen);
+    if (idx < maxLen * 0.3) idx = remaining.lastIndexOf('\n', maxLen);
+    if (idx < maxLen * 0.3) idx = maxLen;
+    chunks.push(remaining.slice(0, idx).trim());
+    remaining = remaining.slice(idx).trim();
+  }
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
+function extractTitleAndBody(text: string): { title: string; body: string } {
+  const lines = text.split('\n');
+  let title = '';
+  let bodyStartIdx = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    if (/^#{1,3}\s+/.test(lines[i])) {
+      title = lines[i].replace(/^#+\s*/, '').trim();
+      bodyStartIdx = i + 1;
+    }
+    break;
+  }
+
+  const body = lines.slice(bodyStartIdx).join('\n').trim();
+
+  if (!title) {
+    const firstLine = (lines.find((l) => l.trim()) || '')
+      .replace(/[*_`#\[\]]/g, '')
+      .trim();
+    title =
+      firstLine.length > 40
+        ? firstLine.slice(0, 37) + '...'
+        : firstLine || 'Reply';
+  }
+
+  return { title, body };
+}
+
+// ─── Shared Card Content Builder ─────────────────────────────
+
+interface CardContentResult {
+  title: string;
+  contentElements: Array<Record<string, unknown>>;
+}
+
+type CardBodySegment =
+  | { type: 'markdown'; content: string }
+  | { type: 'details'; title: string; body: string };
+
+interface CardContentOptions {
+  formatMarkdown?: (text: string) => string;
+  emptyContentFallback?: string;
+}
+
+function buildMarkdownElement(content: string): Record<string, unknown> {
+  return {
+    tag: 'markdown',
+    content,
+    text_size: 'normal_text',
+  };
+}
+
+const DETAILS_BLOCK_RE =
+  /<details>\s*<summary>([\s\S]*?)<\/summary>\s*([\s\S]*?)\s*<\/details>/gi;
+
+function sanitizeTitleCandidate(value: string): string {
+  return value
+    .replace(/<[^>]+>/g, '')
+    .replace(/[*_`#\[\]]/g, '')
+    .trim();
+}
+
+function parseCardBodySegments(content: string): CardBodySegment[] {
+  const segments: CardBodySegment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  DETAILS_BLOCK_RE.lastIndex = 0;
+
+  while ((match = DETAILS_BLOCK_RE.exec(content)) !== null) {
+    const leading = content.slice(lastIndex, match.index);
+    if (leading.trim()) {
+      segments.push({ type: 'markdown', content: leading.trim() });
+    }
+
+    const summary = sanitizeTitleCandidate(match[1] || '') || 'Details';
+    const body = (match[2] || '').trim();
+    segments.push({
+      type: 'details',
+      title: summary,
+      body,
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  const trailing = content.slice(lastIndex);
+  if (trailing.trim()) {
+    segments.push({ type: 'markdown', content: trailing.trim() });
+  }
+
+  return segments;
+}
+
+function resolveCardTitle(
+  extractedTitle: string,
+  segments: CardBodySegment[],
+): string {
+  const sanitizedExtracted = sanitizeTitleCandidate(extractedTitle);
+  if (
+    sanitizedExtracted &&
+    !/^\/?details$/i.test(sanitizedExtracted) &&
+    !/^summary$/i.test(sanitizedExtracted)
+  ) {
+    return extractedTitle;
+  }
+
+  for (const segment of segments) {
+    if (segment.type !== 'markdown') continue;
+    const firstLine = segment.content
+      .split('\n')
+      .map((line) => sanitizeTitleCandidate(line))
+      .find((line) => line && line !== '---');
+    if (firstLine) {
+      return firstLine.length > 40 ? `${firstLine.slice(0, 37)}...` : firstLine;
+    }
+  }
+
+  return 'Reply';
+}
+
+function stripOuterBold(line: string): string {
+  return line.replace(/^\*\*([^*\n]+)\*\*$/, '$1').trim();
+}
+
+function normalizeCompactReportLine(line: string): string {
+  return stripOuterBold(line)
+    .replace(/^[-*+]\s+/, '')
+    .trim();
+}
+
+function isCompactReportTitle(line: string): boolean {
+  return /^港股 IPO 池\s*[｜|]\s*\d{4}-\d{2}-\d{2}$/.test(
+    normalizeCompactReportLine(line),
+  );
+}
+
+function isCompactReportSection(line: string): boolean {
+  return /^(?:💡\s*关键结论|📌\s*优先级|🔗\s*来源)$/.test(
+    normalizeCompactReportLine(line),
+  );
+}
+
+function isCompactReportRankLine(line: string): boolean {
+  return /^(?:🟢|🟡|⚪)\s*\d+\s*[｜|]/u.test(normalizeCompactReportLine(line));
+}
+
+function isCompactReportFieldLine(line: string): boolean {
+  return /^(?:📍|💰|🛡️?|📈|⚠️?|🔗)\s/u.test(normalizeCompactReportLine(line));
+}
+
+function shouldRenderAsCompactReport(lines: string[]): boolean {
+  if (lines.length < 4) return false;
+  return (
+    lines.some(isCompactReportTitle) &&
+    lines.some(isCompactReportSection) &&
+    lines.some(isCompactReportRankLine) &&
+    lines.some(isCompactReportFieldLine)
+  );
+}
+
+function buildCompactReportElements(
+  content: string,
+  splitFn: (text: string, maxLen: number) => string[],
+): Array<Record<string, unknown>> | null {
+  const lines = content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!shouldRenderAsCompactReport(lines)) return null;
+
+  const elements: Array<Record<string, unknown>> = [];
+  for (const line of lines) {
+    const chunks =
+      line.length > CARD_MD_LIMIT ? splitFn(line, CARD_MD_LIMIT) : [line];
+    for (const chunk of chunks) {
+      const trimmed = chunk.trim();
+      if (!trimmed) continue;
+      elements.push(buildMarkdownElement(trimmed));
+    }
+  }
+
+  return elements.length > 0 ? elements : null;
+}
+
+function appendMarkdownElements(
+  elements: Array<Record<string, unknown>>,
+  content: string,
+  splitFn: (text: string, maxLen: number) => string[],
+): void {
+  const compactReportElements = buildCompactReportElements(content, splitFn);
+  if (compactReportElements) {
+    elements.push(...compactReportElements);
+    return;
+  }
+
+  if (content.length > CARD_MD_LIMIT) {
+    for (const chunk of splitFn(content, CARD_MD_LIMIT)) {
+      elements.push(buildMarkdownElement(chunk));
+    }
+    return;
+  }
+
+  elements.push(buildMarkdownElement(content));
+}
+
+/**
+ * Build the content elements shared by both Legacy and Schema 2.0 card builders.
+ * Splits long text, handles `---` section dividers, and extracts the title.
+ * Also upgrades markdown-embedded <details> blocks into native Feishu
+ * collapsible panels when building static/completed cards.
+ */
+function buildCardContent(
+  text: string,
+  splitFn: (text: string, maxLen: number) => string[],
+  overrideTitle?: string,
+  options: CardContentOptions = {},
+): CardContentResult {
+  const { title: extractedTitle, body } = extractTitleAndBody(text);
+  const rawContent = body || text.trim();
+  const segments = parseCardBodySegments(rawContent);
+  const title = overrideTitle || resolveCardTitle(extractedTitle, segments);
+  const elements: Array<Record<string, unknown>> = [];
+  const formatMarkdown = options.formatMarkdown || ((value: string) => value);
+  const emptyContentFallback = options.emptyContentFallback ?? '...';
+
+  const markdownSegments: CardBodySegment[] =
+    segments.length > 0
+      ? segments
+      : [{ type: 'markdown', content: rawContent }];
+
+  for (const segment of markdownSegments) {
+    if (segment.type === 'details') {
+      elements.push(buildCollapsiblePanel(segment.title, segment.body, false));
+      continue;
+    }
+
+    const contentToRender = formatMarkdown(segment.content);
+    if (!contentToRender) continue;
+
+    appendMarkdownElements(elements, contentToRender, splitFn);
+  }
+
+  if (elements.length === 0) {
+    const fallbackContent = formatMarkdown(text.trim() || emptyContentFallback);
+    if (fallbackContent) {
+      appendMarkdownElements(elements, fallbackContent, splitFn);
+    }
+  }
+
+  return { title, contentElements: elements };
+}
+
+// ─── Interrupt Button Element ────────────────────────────────
+
+/** Schema 1.0: `action` container wrapping a button (used by legacy message.patch path) */
+const INTERRUPT_BUTTON = {
+  tag: 'action',
+  actions: [
+    {
+      tag: 'button',
+      text: { tag: 'plain_text', content: '⏹ 中断回复' },
+      type: 'danger',
+      value: { action: 'interrupt_stream' },
+    },
+  ],
+} as const;
+
+/** Schema 2.0: standalone button (CardKit rejects `tag: 'action'` in v2 cards) */
+const INTERRUPT_BUTTON_V2 = {
+  tag: 'button',
+  text: { tag: 'plain_text', content: '⏹ 中断回复' },
+  type: 'danger',
+  value: { action: 'interrupt_stream' },
+} as const;
+
+function buildRuntimeSelectElement(options: {
+  action: 'set_runtime_model' | 'set_runtime_effort' | 'set_runtime_speed';
+  placeholder: string;
+  choices: Array<{ value: string; label: string }>;
+  initialOption?: string | null;
+}): Record<string, unknown> {
+  const hasInitialOption = options.choices.some(
+    (choice) => choice.value === options.initialOption,
+  );
+  return {
+    tag: 'select_static',
+    placeholder: {
+      tag: 'plain_text',
+      content: options.placeholder,
+    },
+    value: {
+      action: options.action,
+    },
+    ...(hasInitialOption ? { initial_option: options.initialOption } : {}),
+    options: options.choices.map((choice) => ({
+      text: {
+        tag: 'plain_text',
+        content: choice.label,
+      },
+      value: choice.value,
+    })),
+  };
+}
+
+function buildRuntimeSelectionElements(options: {
+  agentType: 'claude' | 'openai';
+  runtimeIdentity?: RuntimeIdentity | null;
+  modelChoices?: RuntimePresetOption[];
+}): Record<string, unknown>[] {
+  const runtimeIdentity = options.runtimeIdentity;
+  const agentType = options.agentType;
+  if (runtimeIdentity?.agentType && runtimeIdentity.agentType !== agentType) {
+    return [];
+  }
+
+  const currentModel =
+    runtimeIdentity?.model?.trim() || getDefaultModelPreset(agentType);
+  const elements = [
+    buildRuntimeSelectElement({
+      action: 'set_runtime_model',
+      placeholder: `模型: ${currentModel}`,
+      choices: options.modelChoices ?? getModelPresetOptions(agentType),
+      initialOption: currentModel,
+    }),
+  ];
+
+  if (supportsReasoningEffort(agentType)) {
+    const currentEffort =
+      runtimeIdentity?.reasoningEffort?.trim() ||
+      getDefaultReasoningEffortPreset(agentType);
+    elements.push(
+      buildRuntimeSelectElement({
+        action: 'set_runtime_effort',
+        placeholder: currentEffort
+          ? `思考强度: ${currentEffort}`
+          : '选择思考强度',
+        choices: getReasoningEffortOptions(),
+        initialOption: currentEffort,
+      }),
+    );
+  }
+
+  if (supportsSpeedTier(agentType)) {
+    const currentSpeedTier =
+      runtimeIdentity?.speedTier?.trim() ||
+      getDefaultSpeedTierPreset(agentType);
+    elements.push(
+      buildRuntimeSelectElement({
+        action: 'set_runtime_speed',
+        placeholder: currentSpeedTier
+          ? `速度: ${currentSpeedTier}`
+          : '选择速度',
+        choices: getSpeedTierOptions(),
+        initialOption: currentSpeedTier,
+      }),
+    );
+  }
+
+  return elements;
+}
+
+function buildSchema2SelectionRow(
+  element: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    tag: 'column_set',
+    flex_mode: 'stretch',
+    horizontal_spacing: '8px',
+    columns: [
+      {
+        tag: 'column',
+        width: 'weighted',
+        weight: 1,
+        vertical_align: 'center',
+        elements: [element],
+      },
+    ],
+  };
+}
+
+function buildSchema2RuntimeControlRow(options: {
+  runtimeIdentity?: RuntimeIdentity | null;
+  includeInterrupt?: boolean;
+  interruptElementId?: string;
+}): Record<string, unknown> | null {
+  if (!options.includeInterrupt) return null;
+
+  return {
+    tag: 'column_set',
+    flex_mode: 'stretch',
+    horizontal_spacing: '8px',
+    columns: [
+      {
+        tag: 'column',
+        width: 'auto',
+        vertical_align: 'center',
+        elements: [
+          {
+            ...INTERRUPT_BUTTON_V2,
+            ...(options.interruptElementId
+              ? { element_id: options.interruptElementId }
+              : {}),
+          },
+        ],
+      },
+    ],
+  };
+}
+
+// ─── Streaming Mode Constants ─────────────────────────────────
+
+const ELEMENT_IDS = {
+  AUX_BEFORE: 'aux_before',
+  MAIN_CONTENT: 'main_content',
+  AUX_AFTER: 'aux_after',
+  INTERRUPT_BTN: 'interrupt_btn',
+  STATUS_NOTE: 'status_note',
+} as const;
+
+const STREAMING_CONFIG = {
+  print_frequency_ms: { default: 50 },
+  print_step: { default: 2 },
+  print_strategy: 'fast' as const,
+};
+
+const MAX_STREAMING_CONTENT = 100000; // cardElement.content() supports 100K chars
+
+// ─── Tool Progress & Elapsed Helpers ─────────────────────────
+
+/** Extended tool call state with timing and parameter summary */
+interface ToolCallState {
+  name: string;
+  status: 'running' | 'complete' | 'error';
+  startTime: number;
+  toolInputSummary?: string;
+}
+
+// ─── Auxiliary State & Builder ────────────────────────────────
+
+const MAX_THINKING_CHARS = 800;
+const MAX_COMMENTARY_CHARS = 1600;
+const MAX_RECENT_EVENTS = 5;
+const MAX_TODO_DISPLAY = 10;
+const MAX_TOOL_SUMMARY_CHARS = 60;
+const MAX_ELEMENT_CHARS = 4000;
+
+export interface AuxiliaryState {
+  thinkingText: string;
+  commentaryText: string;
+  isThinking: boolean;
+  toolCalls: Map<string, ToolCallState>;
+  systemStatus: string | null;
+  activeHook: { hookName: string; hookEvent: string } | null;
+  todos: Array<{ id: string; content: string; status: string }> | null;
+  recentEvents: Array<{ text: string }>;
+}
+
+function buildCollapsiblePanel(
+  title: string,
+  body: string,
+  expanded = false,
+): Record<string, unknown> {
+  return {
+    tag: 'collapsible_panel',
+    expanded,
+    border: { color: 'grey-300', corner_radius: '6px' },
+    header: {
+      title: {
+        tag: 'plain_text',
+        text_color: 'grey',
+        text_size: 'notation',
+        content: title,
+      },
+      icon: { tag: 'standard_icon', token: 'right_outlined', color: 'grey' },
+      icon_position: 'right',
+      icon_expanded_angle: 90,
+    },
+    elements: [{ tag: 'markdown', content: body, text_size: 'notation' }],
+  };
+}
+
+function formatCommentaryPanelBody(body: string): string {
+  const normalized = body.replace(/\r\n?/g, '\n').trim();
+  if (!normalized) return '';
+
+  let inFence = false;
+  const lines = normalized.split('\n');
+  const formattedLines: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      inFence = !inFence;
+      formattedLines.push(line);
+      continue;
+    }
+    if (
+      inFence ||
+      !trimmed ||
+      /^([-*+]\s+|\d+\.\s+|#{1,6}\s+|\|)/.test(trimmed)
+    ) {
+      formattedLines.push(line);
+      continue;
+    }
+
+    formattedLines.push(
+      ...trimmed
+        .replace(/([。！？；])\s*(?=\S)/gu, '$1\n')
+        .split('\n')
+        .map((segment) => segment.trim())
+        .filter(Boolean),
+    );
+  }
+
+  return formattedLines.join('\n').trim();
+}
+
+function buildUnifiedThinkingPanelBody(aux: AuxiliaryState): string {
+  const chunks: string[] = [];
+  const thinkingText = aux.thinkingText.trim();
+  const commentaryText = aux.commentaryText.trim();
+
+  if (thinkingText) {
+    chunks.push(thinkingText);
+  }
+  if (commentaryText && commentaryText !== thinkingText) {
+    chunks.push(formatCommentaryPanelBody(commentaryText));
+  }
+
+  const merged = chunks.filter(Boolean).join('\n\n');
+  const maxChars = Math.max(MAX_THINKING_CHARS, MAX_COMMENTARY_CHARS);
+  return merged.length > maxChars
+    ? '...' + merged.slice(-(maxChars - 3))
+    : merged;
+}
+
+function formatStepsPanelTitle(
+  stepCount: number,
+  isStreamingLayout: boolean,
+): string {
+  return isStreamingLayout
+    ? `🧰 Working on it (${stepCount} steps)`
+    : `🧰 ${stepCount} steps`;
+}
+
+/**
+ * Build auxiliary markdown elements for the streaming card.
+ * Returns elements to insert before the main text content so auxiliary panels
+ * stay at the top instead of jumping below the final answer on completion.
+ */
+function buildAuxiliaryElements(aux: AuxiliaryState): {
+  before: Array<Record<string, unknown>>;
+  after: Array<Record<string, unknown>>;
+} {
+  return buildAuxiliaryElementsForState(aux, 'streaming');
+}
+
+function buildAuxiliaryElementsForState(
+  aux: AuxiliaryState,
+  state: 'streaming' | 'completed' | 'aborted' | 'frozen',
+): {
+  before: Array<Record<string, unknown>>;
+  after: Array<Record<string, unknown>>;
+} {
+  const before: Array<Record<string, unknown>> = [];
+  const after: Array<Record<string, unknown>> = [];
+  const isStreamingLayout = state === 'streaming';
+  const auxiliaryElements = before;
+
+  // ① Tool calls. Preserve the whole per-turn tool trace; the controller is
+  // scoped to a single turn, so retaining completed tools here does not leak
+  // across future messages.
+  const running: Array<[string, ToolCallState]> = [];
+  const completed: Array<[string, ToolCallState]> = [];
+  for (const [id, tc] of aux.toolCalls) {
+    if (tc.status === 'running') running.push([id, tc]);
+    else completed.push([id, tc]);
+  }
+  const display = [...running, ...completed];
+
+  if (display.length > 0) {
+    const lines = display.map(([, tc]) => {
+      const summary = tc.toolInputSummary
+        ? tc.toolInputSummary.length > MAX_TOOL_SUMMARY_CHARS
+          ? tc.toolInputSummary.slice(0, MAX_TOOL_SUMMARY_CHARS) + '...'
+          : tc.toolInputSummary
+        : undefined;
+      return formatToolStepLine(tc.name, summary);
+    });
+    auxiliaryElements.push(
+      buildCollapsiblePanel(
+        formatStepsPanelTitle(display.length, isStreamingLayout),
+        lines.join('\n').slice(0, MAX_ELEMENT_CHARS),
+        isStreamingLayout,
+      ),
+    );
+  }
+
+  // ② Thinking. Runtime commentary/process text is the same user-facing
+  // auxiliary lane as model thinking; only the answer lane renders正文.
+  const thinkingPanelBody = buildUnifiedThinkingPanelBody(aux);
+  const hasActiveThinking =
+    aux.isThinking || Boolean(aux.commentaryText.trim());
+  if (thinkingPanelBody) {
+    auxiliaryElements.push(
+      buildCollapsiblePanel(
+        '💭 Thinking',
+        thinkingPanelBody.slice(0, MAX_ELEMENT_CHARS),
+        isStreamingLayout,
+      ),
+    );
+  } else if (hasActiveThinking) {
+    auxiliaryElements.push(
+      buildCollapsiblePanel('💭 Thinking...', 'Thinking...', isStreamingLayout),
+    );
+  }
+
+  // ③ System Status
+  if (aux.systemStatus) {
+    auxiliaryElements.push({
+      tag: 'markdown',
+      content: `⏳ ${aux.systemStatus}`.slice(0, MAX_ELEMENT_CHARS),
+      text_size: 'notation',
+    });
+  }
+
+  // ⑤ Hook Status
+  if (aux.activeHook) {
+    auxiliaryElements.push({
+      tag: 'markdown',
+      content: `🔗 Hook: ${aux.activeHook.hookName || aux.activeHook.hookEvent}`,
+      text_size: 'notation',
+    });
+  }
+
+  // ⑤ Todo Progress
+  if (aux.todos && aux.todos.length > 0) {
+    const total = aux.todos.length;
+    const done = aux.todos.filter((t) => t.status === 'completed').length;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const header = `📋 **${done}/${total} (${pct}%)**`;
+    const items = aux.todos.slice(0, MAX_TODO_DISPLAY).map((t) => {
+      const icon =
+        t.status === 'completed'
+          ? '✅'
+          : t.status === 'in_progress'
+            ? '⏳'
+            : '○';
+      return `${icon} ${t.content}`;
+    });
+    const extra =
+      total > MAX_TODO_DISPLAY ? `\n... +${total - MAX_TODO_DISPLAY} 项` : '';
+    auxiliaryElements.push({
+      tag: 'markdown',
+      content: `${header}\n${items.join('\n')}${extra}`.slice(
+        0,
+        MAX_ELEMENT_CHARS,
+      ),
+      text_size: 'notation',
+    });
+  }
+
+  return { before, after };
+}
+
+// ─── Legacy Card Builder (Fallback) ──────────────────────────
+
+function buildStreamingCard(
+  text: string,
+  state: 'streaming' | 'completed' | 'aborted',
+  footerNote?: string,
+  runtimeIdentity?: RuntimeIdentity | null,
+): object {
+  const { title, contentElements: elements } = buildCardContent(
+    text,
+    splitAtParagraphs,
+    undefined,
+    {
+      emptyContentFallback: state === 'completed' ? '*已完成*' : undefined,
+    },
+  );
+
+  const noteMap = {
+    streaming: '⏳ 生成中...',
+    completed: '',
+    aborted: '⚠️ 已中断',
+  };
+  const headerTemplate = {
+    streaming: 'wathet',
+    completed: 'indigo',
+    aborted: 'orange',
+  };
+
+  if (noteMap[state]) {
+    elements.push({
+      tag: 'note',
+      elements: [{ tag: 'plain_text', content: noteMap[state] }],
+    });
+  }
+
+  if (state === 'streaming') {
+    elements.push(INTERRUPT_BUTTON);
+  }
+
+  if (footerNote) {
+    elements.push({
+      tag: 'note',
+      elements: [{ tag: 'plain_text', content: footerNote }],
+    });
+  }
+
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      title: { tag: 'plain_text', content: title },
+      template: headerTemplate[state],
+    },
+    elements,
+  };
+}
+
+// ─── Schema 2.0 Card Builder ─────────────────────────────────
+
+type Schema2State = 'streaming' | 'completed' | 'aborted' | 'frozen';
+
+const SCHEMA2_NOTE_MAP: Record<Schema2State, string> = {
+  streaming: '⏳ 生成中...',
+  completed: '',
+  aborted: '⚠️ 已中断',
+  frozen: '',
+};
+
+function buildSchema2Card(
+  text: string,
+  state: Schema2State,
+  titlePrefix = '',
+  overrideTitle?: string,
+  auxiliaryState?: AuxiliaryState,
+  footerNote?: string,
+  runtimeIdentity?: RuntimeIdentity | null,
+): object {
+  const { title, contentElements } = buildCardContent(
+    text,
+    splitCodeBlockSafe,
+    overrideTitle,
+    {
+      emptyContentFallback:
+        state === 'completed'
+          ? '*已完成*'
+          : state === 'streaming'
+            ? ''
+            : undefined,
+      formatMarkdown:
+        state === 'streaming'
+          ? undefined
+          : (value) =>
+              optimizeMarkdownStyle(normalizeStreamingMarkdown(value), 2),
+    },
+  );
+  const displayTitle = titlePrefix ? `${titlePrefix}${title}` : title;
+
+  // Build final elements array with auxiliary sections
+  const elements: Array<Record<string, unknown>> = [];
+
+  if (auxiliaryState) {
+    const { before, after } = buildAuxiliaryElementsForState(
+      auxiliaryState,
+      state,
+    );
+    elements.push(...before);
+    elements.push(...contentElements);
+    elements.push(...after);
+  } else {
+    elements.push(...contentElements);
+  }
+
+  if (SCHEMA2_NOTE_MAP[state]) {
+    elements.push({
+      tag: 'markdown',
+      content: SCHEMA2_NOTE_MAP[state],
+      text_size: 'notation',
+    });
+  }
+
+  const runtimeControlRow = buildSchema2RuntimeControlRow({
+    runtimeIdentity,
+    includeInterrupt: state === 'streaming',
+  });
+  if (runtimeControlRow) {
+    elements.push(runtimeControlRow);
+  }
+
+  if (footerNote) {
+    elements.push({
+      tag: 'markdown',
+      content: '---',
+      text_size: 'notation',
+    });
+    elements.push({
+      tag: 'markdown',
+      content: `*${footerNote}*`,
+      text_size: 'notation',
+    });
+  }
+
+  return {
+    schema: '2.0',
+    config: {
+      wide_screen_mode: true,
+      summary: { content: displayTitle },
+    },
+    body: { elements },
+  };
+}
+
+export function buildStaticReplyCard(
+  text: string,
+  options: {
+    footerNote?: string;
+    runtimeIdentity?: RuntimeIdentity | null;
+  } = {},
+): object {
+  return buildSchema2Card(
+    text,
+    'completed',
+    '',
+    undefined,
+    undefined,
+    options.footerNote,
+    options.runtimeIdentity,
+  );
+}
+
+export function buildRuntimeSelectionCard(options: {
+  agentType: 'claude' | 'openai';
+  runtimeIdentity?: RuntimeIdentity | null;
+  modelChoices?: RuntimePresetOption[];
+}): object {
+  const label = options.agentType === 'openai' ? 'OpenAI' : 'Claude';
+  const selectElements = buildRuntimeSelectionElements(options);
+
+  if (selectElements.length === 0) {
+    return buildStaticReplyCard(
+      `# 运行时切换\n\n当前工作区不支持 /${options.agentType} 配置。`,
+      { runtimeIdentity: options.runtimeIdentity },
+    );
+  }
+
+  return {
+    schema: '2.0',
+    config: {
+      wide_screen_mode: true,
+      summary: { content: `配置 ${label}` },
+    },
+    body: {
+      elements: [
+        {
+          tag: 'markdown',
+          content: `请选择要调整的 ${label} 配置。`,
+          text_size: 'normal_text',
+        },
+        ...selectElements.map((selectElement) =>
+          buildSchema2SelectionRow(selectElement),
+        ),
+      ],
+    },
+  };
+}
+
+// ─── Usage Note Formatter ─────────────────────────────────────
+
+// ─── Streaming Mode Card Builder ──────────────────────────────
+
+function buildStreamingModeCard(
+  initialText: string,
+  runtimeIdentity?: RuntimeIdentity | null,
+): object {
+  const { title } = extractTitleAndBody(initialText);
+  const displayTitle = title || '...';
+  return {
+    schema: '2.0',
+    config: {
+      wide_screen_mode: true,
+      summary: { content: displayTitle },
+      streaming_mode: true,
+      streaming_config: STREAMING_CONFIG,
+    },
+    body: {
+      elements: [
+        {
+          tag: 'markdown',
+          content: '',
+          element_id: ELEMENT_IDS.AUX_BEFORE,
+          text_size: 'notation',
+        },
+        {
+          tag: 'markdown',
+          content: initialText || '...',
+          element_id: ELEMENT_IDS.MAIN_CONTENT,
+          text_size: 'normal_text',
+        },
+        {
+          tag: 'markdown',
+          content: '',
+          element_id: ELEMENT_IDS.AUX_AFTER,
+          text_size: 'notation',
+        },
+        {
+          tag: 'markdown',
+          content: '⏳ 生成中...',
+          element_id: ELEMENT_IDS.STATUS_NOTE,
+          text_size: 'notation',
+        },
+        buildSchema2RuntimeControlRow({
+          runtimeIdentity,
+          includeInterrupt: true,
+          interruptElementId: ELEMENT_IDS.INTERRUPT_BTN,
+        }) || {
+          tag: 'markdown',
+          content: '',
+          text_size: 'notation',
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Serialize auxiliary element array into a single markdown string.
+ * Reuses output from buildAuxiliaryElements().
+ */
+function serializeAuxContent(elements: Array<Record<string, unknown>>): string {
+  return elements
+    .map((e) => (e as { content?: string }).content || '')
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+// ─── Flush Controller ─────────────────────────────────────────
+
+class FlushController {
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private lastFlushTime = 0;
+  private lastFlushedLength = 0;
+  private pendingFlush: (() => Promise<void>) | null = null;
+
+  /** Minimum interval between flushes (ms) */
+  private readonly minInterval: number;
+  /** Minimum text change to trigger a flush (chars) */
+  private readonly minDelta: number;
+
+  constructor(minInterval = 1200, minDelta = 50) {
+    this.minInterval = minInterval;
+    this.minDelta = minDelta;
+  }
+
+  /**
+   * Schedule a flush. If a flush is already pending, replace it.
+   * The flush function will be called after the minimum interval.
+   */
+  schedule(currentLength: number, flushFn: () => Promise<void>): void {
+    // Check text change threshold
+    if (currentLength - this.lastFlushedLength < this.minDelta) {
+      // Still schedule in case no more text comes (ensure eventual flush)
+      if (!this.timer) {
+        this.pendingFlush = flushFn;
+        this.timer = setTimeout(() => {
+          this.timer = null;
+          this.executeFlush();
+        }, this.minInterval);
+      } else {
+        this.pendingFlush = flushFn;
+      }
+      return;
+    }
+
+    // Enough text change — schedule or execute
+    this.pendingFlush = flushFn;
+    const elapsed = Date.now() - this.lastFlushTime;
+    if (elapsed >= this.minInterval) {
+      // Can flush immediately
+      this.clearTimer();
+      this.executeFlush();
+    } else if (!this.timer) {
+      // Schedule for remaining interval
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        this.executeFlush();
+      }, this.minInterval - elapsed);
+    }
+    // else: timer already running, will pick up pendingFlush
+  }
+
+  /** Force flush immediately (for complete/abort) */
+  async forceFlush(flushFn: () => Promise<void>): Promise<void> {
+    this.clearTimer();
+    this.pendingFlush = flushFn;
+    await this.executeFlush();
+  }
+
+  private async executeFlush(): Promise<void> {
+    const fn = this.pendingFlush;
+    this.pendingFlush = null;
+    if (!fn) return;
+    this.lastFlushTime = Date.now();
+    try {
+      await fn();
+    } catch (err) {
+      logger.debug({ err }, 'FlushController: flush failed');
+    }
+  }
+
+  markFlushed(length: number): void {
+    this.lastFlushedLength = length;
+  }
+
+  private clearTimer(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+  }
+
+  dispose(): void {
+    this.clearTimer();
+    this.pendingFlush = null;
+  }
+}
+
+// ─── CardKit Backend ──────────────────────────────────────────
+
+function quickHash(data: string): string {
+  return createHash('md5').update(data).digest('hex');
+}
+
+class CardKitBackend {
+  private cardId: string | null = null;
+  private _messageId: string | null = null;
+  private sequence = 0;
+  private lastContentHash = '';
+  private readonly client: lark.Client;
+
+  constructor(client: lark.Client) {
+    this.client = client;
+  }
+
+  get messageId(): string | null {
+    return this._messageId;
+  }
+
+  /**
+   * Create a CardKit card instance.
+   * Returns the card_id for subsequent updates.
+   */
+  async createCard(cardJson: object): Promise<string> {
+    const resp = await this.client.cardkit.v1.card.create({
+      data: {
+        type: 'card_json',
+        data: JSON.stringify(cardJson),
+      },
+    });
+
+    const cardId = resp?.data?.card_id;
+    if (!cardId) {
+      const code = (resp as any)?.code;
+      const msg = (resp as any)?.msg;
+      throw new Error(
+        `CardKit card.create returned no card_id (code=${code}, msg=${msg})`,
+      );
+    }
+
+    this.cardId = cardId;
+    this.sequence = 1;
+    this.lastContentHash = quickHash(JSON.stringify(cardJson));
+    logger.debug({ cardId }, 'CardKit card created');
+    return cardId;
+  }
+
+  /**
+   * Send the card as a message (referencing card_id).
+   * Returns the message_id.
+   */
+  async sendCard(chatId: string, replyToMsgId?: string): Promise<string> {
+    if (!this.cardId) {
+      throw new Error('Cannot sendCard before createCard');
+    }
+    void replyToMsgId;
+
+    const content = JSON.stringify({
+      type: 'card',
+      data: { card_id: this.cardId },
+    });
+
+    const resp = await this.client.im.v1.message.create({
+      params: { receive_id_type: 'chat_id' },
+      data: {
+        receive_id: chatId,
+        msg_type: 'interactive',
+        content,
+      },
+    });
+
+    const messageId = resp?.data?.message_id;
+    if (!messageId) {
+      throw new Error('No message_id in sendCard response');
+    }
+
+    this._messageId = messageId;
+    return messageId;
+  }
+
+  /**
+   * Update the card via CardKit card.update with sequence-based optimistic locking.
+   * Skips if content hash is unchanged.
+   */
+  async updateCard(cardJson: object): Promise<void> {
+    if (!this.cardId) return;
+
+    const dataStr = JSON.stringify(cardJson);
+    const hash = quickHash(dataStr);
+    if (hash === this.lastContentHash) return; // no change
+
+    this.sequence++;
+    await this.client.cardkit.v1.card.update({
+      path: { card_id: this.cardId },
+      data: {
+        card: { type: 'card_json', data: dataStr },
+        sequence: this.sequence,
+      },
+    });
+
+    this.lastContentHash = hash;
+  }
+
+  /**
+   * Adopt an existing card_id + messageId (for degradation from streaming mode).
+   */
+  adoptCard(cardId: string, messageId: string, sequence: number): void {
+    this.cardId = cardId;
+    this._messageId = messageId;
+    this.sequence = sequence;
+  }
+}
+
+// ─── Streaming Mode Backend ───────────────────────────────────
+
+class StreamingModeBackend {
+  private cardId: string | null = null;
+  private _messageId: string | null = null;
+  private sequence = 0;
+  private lastMainHash = '';
+  private lastAuxBeforeHash = '';
+  private lastAuxAfterHash = '';
+  private lastStatusNoteHash = '';
+  private readonly client: lark.Client;
+
+  constructor(client: lark.Client) {
+    this.client = client;
+  }
+
+  get messageId(): string | null {
+    return this._messageId;
+  }
+
+  getCardId(): string | null {
+    return this.cardId;
+  }
+
+  getSequence(): number {
+    return this.sequence;
+  }
+
+  private nextSequence(): number {
+    return ++this.sequence;
+  }
+
+  /**
+   * Create a CardKit card instance with streaming_mode enabled.
+   */
+  async createCard(cardJson: object): Promise<string> {
+    const resp = await this.client.cardkit.v1.card.create({
+      data: {
+        type: 'card_json',
+        data: JSON.stringify(cardJson),
+      },
+    });
+
+    const cardId = resp?.data?.card_id;
+    if (!cardId) {
+      const code = (resp as any)?.code;
+      const msg = (resp as any)?.msg;
+      throw new Error(
+        `Streaming card.create returned no card_id (code=${code}, msg=${msg})`,
+      );
+    }
+
+    this.cardId = cardId;
+    this.sequence = 1;
+    logger.debug({ cardId }, 'Streaming mode card created');
+    return cardId;
+  }
+
+  /**
+   * Send the card as a message. Returns message_id.
+   */
+  async sendCard(chatId: string, replyToMsgId?: string): Promise<string> {
+    if (!this.cardId) throw new Error('Cannot sendCard before createCard');
+    void replyToMsgId;
+
+    const content = JSON.stringify({
+      type: 'card',
+      data: { card_id: this.cardId },
+    });
+
+    const resp = await this.client.im.v1.message.create({
+      params: { receive_id_type: 'chat_id' },
+      data: { receive_id: chatId, msg_type: 'interactive', content },
+    });
+
+    const messageId = resp?.data?.message_id;
+    if (!messageId)
+      throw new Error('No message_id in streaming sendCard response');
+
+    this._messageId = messageId;
+    return messageId;
+  }
+
+  /**
+   * Stream text content via cardElement.content() — platform renders typewriter effect.
+   * MD5 dedup to avoid redundant pushes.
+   * Auto-retries once on streaming timeout/closed errors.
+   */
+  async streamContent(text: string): Promise<void> {
+    if (!this.cardId) return;
+
+    // Truncate at 100K char limit (hint at end, slice adjusted for hint length)
+    const truncHint = `\n\n> ⚠️ 输出已截断（超过 ${MAX_STREAMING_CONTENT} 字符）`;
+    const normalizedText = normalizeStreamingMarkdown(text);
+    const content =
+      normalizedText.length > MAX_STREAMING_CONTENT
+        ? normalizedText.slice(0, MAX_STREAMING_CONTENT - truncHint.length) +
+          truncHint
+        : normalizedText;
+
+    const hash = quickHash(content);
+    if (hash === this.lastMainHash) return;
+
+    try {
+      await this.client.cardkit.v1.cardElement.content({
+        path: { card_id: this.cardId, element_id: ELEMENT_IDS.MAIN_CONTENT },
+        data: { content, sequence: this.nextSequence() },
+      });
+      this.lastMainHash = hash;
+    } catch (err: any) {
+      const code = err?.code ?? err?.response?.data?.code;
+      // 200850 = streaming timeout, 300309 = streaming closed
+      if (code === 200850 || code === 300309) {
+        logger.info(
+          { code, cardId: this.cardId },
+          'Streaming mode expired, re-enabling',
+        );
+        await this.enableStreamingMode();
+        // Retry once
+        await this.client.cardkit.v1.cardElement.content({
+          path: { card_id: this.cardId, element_id: ELEMENT_IDS.MAIN_CONTENT },
+          data: { content, sequence: this.nextSequence() },
+        });
+        this.lastMainHash = hash;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Update an auxiliary markdown element via cardElement.update() — instant replacement.
+   * Supports AUX_BEFORE, AUX_AFTER, and STATUS_NOTE; each is hash-deduped independently.
+   */
+  async updateAuxiliary(
+    elementId:
+      | typeof ELEMENT_IDS.AUX_BEFORE
+      | typeof ELEMENT_IDS.AUX_AFTER
+      | typeof ELEMENT_IDS.STATUS_NOTE,
+    content: string,
+  ): Promise<void> {
+    if (!this.cardId) return;
+
+    const hash = quickHash(content);
+    const hashField =
+      elementId === ELEMENT_IDS.AUX_BEFORE
+        ? 'lastAuxBeforeHash'
+        : elementId === ELEMENT_IDS.AUX_AFTER
+          ? 'lastAuxAfterHash'
+          : 'lastStatusNoteHash';
+    if (hash === this[hashField]) return;
+
+    const element = JSON.stringify({
+      tag: 'markdown',
+      content,
+      element_id: elementId,
+      text_size: 'notation',
+    });
+
+    await this.client.cardkit.v1.cardElement.update({
+      path: { card_id: this.cardId, element_id: elementId },
+      data: { element, sequence: this.nextSequence() },
+    });
+    this[hashField] = hash;
+  }
+
+  /**
+   * Enable streaming mode via card.settings().
+   */
+  async enableStreamingMode(): Promise<void> {
+    if (!this.cardId) return;
+    await this.client.cardkit.v1.card.settings({
+      path: { card_id: this.cardId },
+      data: {
+        settings: JSON.stringify({
+          config: {
+            streaming_mode: true,
+            streaming_config: STREAMING_CONFIG,
+          },
+        }),
+        sequence: this.nextSequence(),
+      },
+    });
+  }
+
+  /**
+   * Disable streaming mode via card.settings().
+   */
+  async disableStreamingMode(): Promise<void> {
+    if (!this.cardId) return;
+    await this.client.cardkit.v1.card.settings({
+      path: { card_id: this.cardId },
+      data: {
+        settings: JSON.stringify({
+          config: { streaming_mode: false },
+        }),
+        sequence: this.nextSequence(),
+      },
+    });
+  }
+
+  /**
+   * Full card update (used for final state after disabling streaming).
+   */
+  async updateCardFull(cardJson: object): Promise<void> {
+    if (!this.cardId) return;
+    await this.client.cardkit.v1.card.update({
+      path: { card_id: this.cardId },
+      data: {
+        card: { type: 'card_json', data: JSON.stringify(cardJson) },
+        sequence: this.nextSequence(),
+      },
+    });
+  }
+}
+
+// ─── Multi-Card Manager ───────────────────────────────────────
+
+class MultiCardManager {
+  private cards: CardKitBackend[] = [];
+  private readonly client: lark.Client;
+  private readonly chatId: string;
+  private readonly replyToMsgId?: string;
+  private readonly onCardCreated?: (messageId: string) => void;
+  private cardIndex = 0;
+  private readonly MAX_ELEMENTS = 45; // safety margin (Feishu limit ~50)
+
+  constructor(
+    client: lark.Client,
+    chatId: string,
+    replyToMsgId?: string,
+    onCardCreated?: (messageId: string) => void,
+  ) {
+    this.client = client;
+    this.chatId = chatId;
+    this.replyToMsgId = replyToMsgId;
+    this.onCardCreated = onCardCreated;
+  }
+
+  getCardCount(): number {
+    return this.cards.length;
+  }
+
+  /**
+   * Create the first card and send it as a message.
+   * Returns the initial messageId.
+   */
+  async initialize(
+    initialText: string,
+    auxiliaryState?: AuxiliaryState,
+    runtimeIdentity?: RuntimeIdentity | null,
+  ): Promise<string> {
+    const card = new CardKitBackend(this.client);
+    const cardJson = buildSchema2Card(
+      initialText,
+      'streaming',
+      '',
+      undefined,
+      auxiliaryState,
+      undefined,
+      runtimeIdentity,
+    );
+    await card.createCard(cardJson);
+    const messageId = await card.sendCard(this.chatId, this.replyToMsgId);
+    this.cards.push(card);
+    this.cardIndex = 0;
+    return messageId;
+  }
+
+  /**
+   * Adopt an existing card (for degradation from streaming mode, avoids creating a new message).
+   */
+  adoptExistingCard(card: CardKitBackend): void {
+    this.cards.push(card);
+    this.cardIndex = 0;
+  }
+
+  /**
+   * Commit content: update the current card, auto-splitting if needed.
+   */
+  async commitContent(
+    text: string,
+    state: 'streaming' | 'completed' | 'aborted',
+    auxiliaryState?: AuxiliaryState,
+    footerNote?: string,
+    runtimeIdentity?: RuntimeIdentity | null,
+  ): Promise<void> {
+    const titlePrefix = this.cardIndex > 0 ? '(续) ' : '';
+
+    // Estimate element count: content + auxiliary + fixed elements
+    const { contentElements } = buildCardContent(text, splitCodeBlockSafe);
+    const auxCount = auxiliaryState
+      ? (() => {
+          const { before, after } = buildAuxiliaryElementsForState(
+            auxiliaryState,
+            state,
+          );
+          return before.length + after.length;
+        })()
+      : 0;
+    const runtimeControlCount = buildSchema2RuntimeControlRow({
+      runtimeIdentity,
+      includeInterrupt: state === 'streaming',
+    })
+      ? 1
+      : 0;
+    const fixedCount =
+      runtimeControlCount + // runtime controls
+      (SCHEMA2_NOTE_MAP[state] ? 1 : 0) + // note
+      (footerNote ? 2 : 0); // divider + footer
+    const totalElements = contentElements.length + auxCount + fixedCount;
+
+    if (totalElements > this.MAX_ELEMENTS && state === 'streaming') {
+      // Need to split: freeze current card and create a new one
+      await this.splitToNewCard(text, runtimeIdentity);
+      return;
+    }
+
+    // Normal update on current card
+    const currentCard = this.cards[this.cards.length - 1];
+    if (!currentCard) return;
+
+    const cardJson = buildSchema2Card(
+      text,
+      state,
+      titlePrefix,
+      undefined,
+      auxiliaryState,
+      footerNote,
+      runtimeIdentity,
+    );
+
+    // Byte size check (Feishu limit ~30KB, use 25KB safety margin)
+    const cardSize = Buffer.byteLength(JSON.stringify(cardJson), 'utf-8');
+    if (cardSize > CARD_SIZE_LIMIT && state === 'streaming') {
+      await this.splitToNewCard(text, runtimeIdentity);
+      return;
+    }
+
+    await currentCard.updateCard(cardJson);
+  }
+
+  /**
+   * Split content across cards when element limit is reached.
+   */
+  private async splitToNewCard(
+    text: string,
+    runtimeIdentity?: RuntimeIdentity | null,
+  ): Promise<void> {
+    const currentCard = this.cards[this.cards.length - 1];
+    if (!currentCard) return;
+
+    // Extract title once so all sub-cards share the same title
+    const { title: consistentTitle } = extractTitleAndBody(text);
+
+    // Determine how much content the current card can hold
+    const maxChunksPerCard = this.MAX_ELEMENTS - 3; // reserve for fixed elements
+    const chunks = splitCodeBlockSafe(text, CARD_MD_LIMIT);
+
+    // Content for the current (frozen) card
+    const frozenChunks = chunks.slice(0, maxChunksPerCard);
+    const frozenText = frozenChunks.join('\n\n');
+    const titlePrefix = this.cardIndex > 0 ? '(续) ' : '';
+
+    // Freeze current card with consistent title
+    const frozenCard = buildSchema2Card(
+      frozenText,
+      'frozen',
+      titlePrefix,
+      consistentTitle,
+      undefined,
+      undefined,
+      runtimeIdentity,
+    );
+    await currentCard.updateCard(frozenCard);
+
+    // Create new card for remaining content
+    this.cardIndex++;
+    const newTitlePrefix = '(续) ';
+    const remainingChunks = chunks.slice(maxChunksPerCard);
+    const remainingText = remainingChunks.join('\n\n');
+
+    const newCard = new CardKitBackend(this.client);
+    const newCardJson = buildSchema2Card(
+      remainingText || '...',
+      'streaming',
+      newTitlePrefix,
+      consistentTitle,
+      undefined,
+      undefined,
+      runtimeIdentity,
+    );
+    await newCard.createCard(newCardJson);
+    // New card is sent as a fresh message (not reply)
+    const newMessageId = await newCard.sendCard(this.chatId);
+    this.cards.push(newCard);
+
+    // Register the new card's messageId for interrupt button routing
+    this.onCardCreated?.(newMessageId);
+  }
+
+  getAllMessageIds(): string[] {
+    return this.cards
+      .map((c) => c.messageId)
+      .filter((id): id is string => id !== null);
+  }
+
+  getLatestMessageId(): string | null {
+    for (let i = this.cards.length - 1; i >= 0; i--) {
+      if (this.cards[i].messageId) return this.cards[i].messageId;
+    }
+    return null;
+  }
+}
+
+// ─── Streaming Card Controller ────────────────────────────────
+
+export class StreamingCardController {
+  private state: StreamingState = 'idle';
+  private messageId: string | null = null;
+  private accumulatedText = '';
+  private flushCtrl: FlushController;
+  private patchFailCount = 0;
+  private maxPatchFailures = 2;
+  private readonly client: lark.Client;
+  private readonly chatId: string;
+  private readonly replyToMsgId?: string;
+  private readonly onFallback?: () => void;
+  private readonly onCardCreated?: (messageId: string) => void;
+  private readonly onTerminal?: () => void;
+
+  // CardKit mode
+  private useCardKit = false;
+  private multiCard: MultiCardManager | null = null;
+
+  // Streaming mode (Level 0)
+  private streamingBackend: StreamingModeBackend | null = null;
+  private textFlushCtrl: FlushController | null = null;
+  private auxFlushCtrl: FlushController | null = null;
+  private lastAuxSnapshot = '';
+
+  // Streaming state
+  private thinking = false;
+  private thinkingText = '';
+  private commentaryText = '';
+  private toolCalls = new Map<string, ToolCallState>();
+  private startTime = 0;
+  private backendMode: 'streaming' | 'v1' | 'legacy' = 'v1';
+
+  // Auxiliary display state
+  private systemStatus: string | null = null;
+  private activeHook: { hookName: string; hookEvent: string } | null = null;
+  private todos: Array<{ id: string; content: string; status: string }> | null =
+    null;
+  private recentEvents: Array<{ text: string }> = [];
+  private stateVersion = 0;
+  private footerRuntimeIdentity: RuntimeIdentity | null = null;
+  private footerTokenUsage: AssistantFooterTokenUsage | null = null;
+
+  constructor(opts: StreamingCardOptions) {
+    this.client = opts.client;
+    this.chatId = opts.chatId;
+    this.replyToMsgId = opts.replyToMsgId;
+    this.onFallback = opts.onFallback;
+    this.onCardCreated = opts.onCardCreated;
+    this.onTerminal = opts.onTerminal;
+    this.flushCtrl = new FlushController();
+  }
+
+  get currentState(): StreamingState {
+    return this.state;
+  }
+
+  get currentMessageId(): string | null {
+    if (this.streamingBackend) return this.streamingBackend.messageId;
+    if (this.multiCard) return this.multiCard.getLatestMessageId();
+    return this.messageId;
+  }
+
+  isActive(): boolean {
+    return this.state === 'streaming' || this.state === 'creating';
+  }
+
+  /**
+   * Get all messageIds across all cards (for multi-card cleanup).
+   */
+  getAllMessageIds(): string[] {
+    if (this.streamingBackend?.messageId)
+      return [this.streamingBackend.messageId];
+    if (this.multiCard) return this.multiCard.getAllMessageIds();
+    return this.messageId ? [this.messageId] : [];
+  }
+
+  /**
+   * Whether the controller has reached a terminal state. Subsequent
+   * incoming events (thinking, tools, hooks) must be ignored so the
+   * aborted/completed card doesn't get visually rewound.
+   */
+  private isTerminal(): boolean {
+    return (
+      this.state === 'completed' ||
+      this.state === 'aborted' ||
+      this.state === 'error'
+    );
+  }
+
+  /**
+   * Signal that the agent is in thinking state (before text arrives).
+   */
+  setThinking(): void {
+    if (this.isTerminal()) return;
+    this.thinking = true;
+    if (this.state === 'idle') {
+      // Create card immediately with thinking placeholder
+      this.state = 'creating';
+      this.createInitialCard().catch((err) => {
+        logger.warn(
+          { err, chatId: this.chatId },
+          'Streaming card: initial create failed (thinking), will use fallback',
+        );
+        this.state = 'error';
+        this.onFallback?.();
+      });
+    }
+  }
+
+  /**
+   * Signal that a tool has started executing.
+   */
+  startTool(toolId: string, toolName: string): void {
+    if (this.isTerminal()) return;
+    this.toolCalls.set(toolId, {
+      name: toolName,
+      status: 'running',
+      startTime: Date.now(),
+    });
+    this.stateVersion++;
+    if (this.createInitialCardFromIdle('tool')) return;
+    if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  /**
+   * Signal that a tool has finished executing.
+   */
+  endTool(toolId: string, isError: boolean): void {
+    if (this.isTerminal()) return;
+    const tc = this.toolCalls.get(toolId);
+    if (tc) {
+      tc.status = isError ? 'error' : 'complete';
+      this.stateVersion++;
+      if (this.state === 'streaming') {
+        this.backendMode === 'streaming'
+          ? this.scheduleAuxFlush()
+          : this.schedulePatch();
+      }
+    }
+  }
+
+  /**
+   * Append thinking text (accumulated, tail-truncated at MAX_THINKING_CHARS).
+   */
+  appendThinking(text: string): void {
+    if (this.isTerminal()) return;
+    this.thinkingText += text;
+    if (this.thinkingText.length > MAX_THINKING_CHARS) {
+      this.thinkingText =
+        '...' + this.thinkingText.slice(-(MAX_THINKING_CHARS - 3));
+    }
+    this.thinking = true;
+    this.stateVersion++;
+    if (this.state === 'idle') {
+      this.state = 'creating';
+      this.createInitialCard().catch((err) => {
+        logger.warn(
+          { err, chatId: this.chatId },
+          'Streaming card: initial create failed (thinking), will use fallback',
+        );
+        this.state = 'error';
+        this.onFallback?.();
+      });
+    } else if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  appendCommentary(text: string): void {
+    if (this.isTerminal()) return;
+    this.commentaryText = text;
+    if (text.trim()) {
+      this.thinking = true;
+    } else if (!this.thinkingText.trim()) {
+      this.thinking = false;
+    }
+    this.stateVersion++;
+    if (this.state === 'idle') {
+      this.state = 'creating';
+      this.createInitialCard().catch((err) => {
+        logger.warn(
+          { err, chatId: this.chatId },
+          'Streaming card: initial create failed (commentary), will use fallback',
+        );
+        this.state = 'error';
+        this.onFallback?.();
+      });
+    } else if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  /**
+   * Set or clear system status text (e.g. "上下文压缩中").
+   */
+  setSystemStatus(status: string | null): void {
+    if (this.isTerminal()) return;
+    this.systemStatus = status;
+    this.stateVersion++;
+    if (status && this.createInitialCardFromIdle('system_status')) return;
+    if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  /**
+   * Set or clear active hook state.
+   */
+  setHook(hook: { hookName: string; hookEvent: string } | null): void {
+    if (this.isTerminal()) return;
+    this.activeHook = hook;
+    this.stateVersion++;
+    if (hook && this.createInitialCardFromIdle('hook')) return;
+    if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  /**
+   * Set the todo list for progress panel display.
+   */
+  setTodos(
+    todos: Array<{ id: string; content: string; status: string }>,
+  ): void {
+    if (this.isTerminal()) return;
+    this.todos = todos;
+    this.stateVersion++;
+    if (todos.length > 0 && this.createInitialCardFromIdle('todos')) return;
+    if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  /**
+   * Push a recent event to the call trace log (FIFO, max MAX_RECENT_EVENTS).
+   * Does NOT trigger schedulePatch — piggybacks on other events.
+   */
+  pushRecentEvent(text: string): void {
+    this.recentEvents.push({ text });
+    if (this.recentEvents.length > MAX_RECENT_EVENTS) {
+      this.recentEvents = this.recentEvents.slice(-MAX_RECENT_EVENTS);
+    }
+  }
+
+  setRuntimeIdentity(identity?: RuntimeIdentity | null): void {
+    const nextIdentity = identity ?? null;
+    const unchanged =
+      this.footerRuntimeIdentity?.agentType === nextIdentity?.agentType &&
+      this.footerRuntimeIdentity?.model === nextIdentity?.model &&
+      this.footerRuntimeIdentity?.reasoningEffort ===
+        nextIdentity?.reasoningEffort &&
+      this.footerRuntimeIdentity?.speedTier === nextIdentity?.speedTier &&
+      this.footerRuntimeIdentity?.supportsReasoningEffort ===
+        nextIdentity?.supportsReasoningEffort;
+    if (unchanged) return;
+    this.footerRuntimeIdentity = nextIdentity;
+    this.stateVersion++;
+    if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleAuxFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  /**
+   * Update a tool's input summary (displayed as parameter hint).
+   */
+  updateToolSummary(toolId: string, summary: string): void {
+    if (this.isTerminal()) return;
+    const tc = this.toolCalls.get(toolId);
+    if (tc) {
+      tc.toolInputSummary = summary;
+      this.stateVersion++;
+      if (this.state === 'streaming') {
+        this.backendMode === 'streaming'
+          ? this.scheduleAuxFlush()
+          : this.schedulePatch();
+      }
+    }
+  }
+
+  /**
+   * Get tool info by ID (for building call trace text).
+   */
+  getToolInfo(toolId: string): { name: string } | undefined {
+    const tc = this.toolCalls.get(toolId);
+    return tc ? { name: tc.name } : undefined;
+  }
+
+  /**
+   * Append text to the streaming card.
+   * Creates the card on first call, then patches on subsequent calls.
+   */
+  append(text: string): void {
+    if (this.isTerminal()) return;
+    this.accumulatedText = text;
+    this.thinking = false; // Text arrived, no longer just thinking
+
+    if (this.state === 'idle') {
+      this.state = 'creating';
+      this.createInitialCard().catch((err) => {
+        logger.warn(
+          { err, chatId: this.chatId },
+          'Streaming card: initial create failed, will use fallback',
+        );
+        this.state = 'error';
+        this.onFallback?.();
+      });
+      return;
+    }
+
+    if (this.state === 'streaming') {
+      this.backendMode === 'streaming'
+        ? this.scheduleTextFlush()
+        : this.schedulePatch();
+    }
+    // If 'creating', the text will be picked up after creation completes
+  }
+
+  /**
+   * Complete the streaming card with final text.
+   */
+  async complete(finalText: string): Promise<void> {
+    await this.finalize(finalText, 'completed');
+  }
+
+  /**
+   * Complete the streaming card using the current accumulated body text.
+   * Used by cleanup paths where the task finished successfully but there is
+   * no new visible final reply to replace the streamed content.
+   */
+  async completeWithCurrentText(): Promise<void> {
+    await this.finalize(this.accumulatedText, 'completed');
+  }
+
+  /**
+   * Finalize the streaming card in an error / aborted state while preserving
+   * the final text as the visible body content.
+   */
+  async fail(finalText: string): Promise<void> {
+    await this.finalize(finalText, 'aborted');
+  }
+
+  private async finalize(
+    finalText: string,
+    finalState: 'completed' | 'aborted',
+  ): Promise<void> {
+    if (this.state !== 'streaming' && this.state !== 'creating') return;
+
+    const prevState = this.state;
+    this.settleAuxiliaryState({
+      dropThinkingText: finalState === 'aborted',
+    });
+    this.accumulatedText = finalText;
+    this.state = finalState;
+    this.flushCtrl.dispose();
+    this.textFlushCtrl?.dispose();
+    this.auxFlushCtrl?.dispose();
+
+    try {
+      if (this.backendMode === 'streaming' && this.streamingBackend) {
+        await this.finalizeStreamingCard(finalState);
+      } else if (this.messageId || this.multiCard) {
+        await this.patchCard(finalState);
+      }
+      this.onTerminal?.();
+    } catch (err) {
+      // Revert state so abort() doesn't bail on the terminal-state check
+      this.state = prevState;
+      throw err;
+    }
+  }
+
+  /**
+   * Patch a finalized card to append a usage note at the bottom.
+   * Called AFTER complete()/fail() because agent-runner may emit usage after
+   * the visible final text has already been rendered.
+   */
+  async patchUsageNote(usage: {
+    inputTokens: number;
+    outputTokens: number;
+    costUSD: number;
+    durationMs: number;
+    numTurns: number;
+    primaryUsagePct?: number | null;
+    secondaryUsagePct?: number | null;
+    primaryRemainingPct?: number | null;
+    secondaryRemainingPct?: number | null;
+  }): Promise<void> {
+    const nextUsage: AssistantFooterTokenUsage = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      costUSD: usage.costUSD,
+      durationMs: usage.durationMs,
+      numTurns: usage.numTurns,
+      primaryUsagePct: usage.primaryUsagePct ?? null,
+      secondaryUsagePct: usage.secondaryUsagePct ?? null,
+      primaryRemainingPct: usage.primaryRemainingPct ?? null,
+      secondaryRemainingPct: usage.secondaryRemainingPct ?? null,
+    };
+    const unchanged =
+      this.footerTokenUsage?.inputTokens === nextUsage.inputTokens &&
+      this.footerTokenUsage?.outputTokens === nextUsage.outputTokens &&
+      this.footerTokenUsage?.costUSD === nextUsage.costUSD &&
+      this.footerTokenUsage?.durationMs === nextUsage.durationMs &&
+      this.footerTokenUsage?.numTurns === nextUsage.numTurns &&
+      this.footerTokenUsage?.primaryUsagePct === nextUsage.primaryUsagePct &&
+      this.footerTokenUsage?.secondaryUsagePct ===
+        nextUsage.secondaryUsagePct &&
+      this.footerTokenUsage?.primaryRemainingPct ===
+        nextUsage.primaryRemainingPct &&
+      this.footerTokenUsage?.secondaryRemainingPct ===
+        nextUsage.secondaryRemainingPct;
+    if (unchanged) return;
+    this.footerTokenUsage = nextUsage;
+
+    // Some runtimes emit usage before the final completed/aborted card patch.
+    // Cache the usage immediately so complete()/finalize() can still render
+    // the footer on the finished card.
+    if (this.state !== 'completed' && this.state !== 'aborted') return;
+
+    const finalState = this.state;
+
+    try {
+      if (this.backendMode === 'streaming' && this.streamingBackend) {
+        const cardJson = buildSchema2Card(
+          this.accumulatedText,
+          finalState,
+          '',
+          undefined,
+          this.getAuxiliaryState(),
+          this.getFooterNote(),
+          this.footerRuntimeIdentity,
+        );
+        // Skip if card was split during finalization — rebuilding a single card
+        // would overwrite the first card with full text while continuation cards remain.
+        const cardSize = Buffer.byteLength(JSON.stringify(cardJson), 'utf-8');
+        if (cardSize > CARD_SIZE_LIMIT) return;
+        await this.streamingBackend.updateCardFull(cardJson);
+      } else if (this.messageId || this.multiCard) {
+        // For CardKit v1 / legacy: skip if multiCard has split content
+        if (this.multiCard && this.multiCard.getCardCount() > 1) return;
+        await this.patchCard(finalState);
+      }
+    } catch (err) {
+      logger.debug(
+        { err, chatId: this.chatId },
+        'Streaming card: patchUsageNote failed (non-fatal)',
+      );
+    }
+  }
+
+  /**
+   * Abort the streaming card (e.g., user interrupted).
+   */
+  async abort(reason?: string): Promise<void> {
+    if (this.state === 'completed' || this.state === 'aborted') return;
+
+    const wasActive = this.isActive();
+    this.settleAuxiliaryState({ dropThinkingText: true });
+    this.state = 'aborted';
+    this.flushCtrl.dispose();
+    this.textFlushCtrl?.dispose();
+    this.auxFlushCtrl?.dispose();
+
+    if (reason) {
+      if (this.accumulatedText.trim()) {
+        this.accumulatedText += `\n\n---\n*${reason}*`;
+      } else {
+        this.accumulatedText = reason;
+      }
+    }
+
+    if (
+      this.backendMode === 'streaming' &&
+      this.streamingBackend &&
+      wasActive
+    ) {
+      try {
+        await this.finalizeStreamingCard('aborted');
+      } catch (err) {
+        logger.debug(
+          { err, chatId: this.chatId },
+          'Streaming card: abort finalize failed',
+        );
+      }
+    } else if ((this.messageId || this.multiCard) && wasActive) {
+      try {
+        await this.patchCard('aborted');
+      } catch (err) {
+        logger.debug(
+          { err, chatId: this.chatId },
+          'Streaming card: abort patch failed',
+        );
+      }
+    }
+
+    this.onTerminal?.();
+  }
+
+  dispose(): void {
+    this.flushCtrl.dispose();
+    this.textFlushCtrl?.dispose();
+    this.auxFlushCtrl?.dispose();
+  }
+
+  // ─── Internal Methods ──────────────────────────────────
+
+  private createInitialCardFromIdle(reason: string): boolean {
+    if (this.state !== 'idle') return false;
+    this.state = 'creating';
+    this.createInitialCard().catch((err) => {
+      logger.warn(
+        { err, chatId: this.chatId, reason },
+        'Streaming card: initial create failed, will use fallback',
+      );
+      this.state = 'error';
+      this.onFallback?.();
+    });
+    return true;
+  }
+
+  private async createInitialCard(): Promise<void> {
+    const initialText = this.accumulatedText;
+    // Prefer full-card updates so the Feishu card structure matches runclaw's
+    // collapsible thinking/tool panels during streaming.
+    try {
+      this.multiCard = new MultiCardManager(
+        this.client,
+        this.chatId,
+        this.replyToMsgId,
+        this.onCardCreated,
+      );
+      const messageId = await this.multiCard.initialize(
+        initialText,
+        this.getAuxiliaryState(),
+        this.footerRuntimeIdentity,
+      );
+
+      this.messageId = messageId;
+      this.backendMode = 'v1';
+      this.useCardKit = true;
+      this.startTime = Date.now();
+      // CardKit v1 mode: 1000ms interval, bump failure tolerance
+      this.flushCtrl.dispose();
+      this.flushCtrl = new FlushController(1000, 50);
+      this.maxPatchFailures = 3;
+
+      logger.debug(
+        { chatId: this.chatId, messageId, mode: 'cardkit-v1' },
+        'Streaming card created via CardKit v1',
+      );
+    } catch (v1Err) {
+      logger.info(
+        { err: v1Err, chatId: this.chatId },
+        'CardKit full-update unavailable, falling back to message.patch',
+      );
+      this.multiCard = null;
+      this.useCardKit = false;
+      this.backendMode = 'legacy';
+      this.startTime = Date.now();
+
+      await this.createLegacyCard(initialText);
+      return;
+    }
+
+    // Handle state changes during await (same logic for both paths)
+    this.finishCardCreation();
+  }
+
+  private async createLegacyCard(initialText: string): Promise<void> {
+    const card = buildSchema2Card(
+      initialText,
+      'streaming',
+      '',
+      undefined,
+      this.getAuxiliaryState(),
+      undefined,
+      this.footerRuntimeIdentity,
+    );
+    const content = JSON.stringify(card);
+
+    try {
+      const resp = await this.client.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: this.chatId,
+          msg_type: 'interactive',
+          content,
+        },
+      });
+
+      this.messageId = resp?.data?.message_id || null;
+      if (!this.messageId) {
+        throw new Error('No message_id in response');
+      }
+
+      logger.debug(
+        { chatId: this.chatId, messageId: this.messageId, mode: 'legacy' },
+        'Streaming card created via legacy path',
+      );
+
+      this.finishCardCreation();
+    } catch (err) {
+      this.state = 'error';
+      throw err;
+    }
+  }
+
+  private finishCardCreation(): void {
+    // Check if state changed while we were awaiting the API call.
+    if (this.state !== 'creating') {
+      const finalState = this.state as 'completed' | 'aborted';
+      logger.debug(
+        { chatId: this.chatId, messageId: this.messageId, finalState },
+        'Streaming card created but state already changed, patching to final',
+      );
+      if (this.backendMode === 'streaming' && this.streamingBackend) {
+        this.finalizeStreamingCard(finalState).catch((err) => {
+          logger.debug(
+            { err, chatId: this.chatId },
+            'Failed to finalize streaming card after late creation',
+          );
+        });
+      } else {
+        this.patchCard(finalState).catch((err) => {
+          logger.debug(
+            { err, chatId: this.chatId },
+            'Failed to patch to final state after late creation',
+          );
+        });
+      }
+      return;
+    }
+
+    this.state = 'streaming';
+    if (this.messageId) {
+      this.onCardCreated?.(this.messageId);
+    }
+
+    // If text or auxiliary state changed while creating, schedule a flush/patch.
+    if (
+      this.accumulatedText.length > 3 ||
+      this.thinkingText.length > 0 ||
+      this.commentaryText.length > 0 ||
+      this.toolCalls.size > 0 ||
+      this.systemStatus !== null ||
+      this.activeHook !== null ||
+      (this.todos?.length ?? 0) > 0
+    ) {
+      this.backendMode === 'streaming'
+        ? this.scheduleTextFlush()
+        : this.schedulePatch();
+    }
+  }
+
+  private schedulePatch(): void {
+    if (this.patchFailCount >= this.maxPatchFailures) {
+      logger.info(
+        { chatId: this.chatId, useCardKit: this.useCardKit },
+        'Streaming card: too many patch failures, falling back',
+      );
+      this.state = 'error';
+      this.flushCtrl.dispose();
+      this.onFallback?.();
+      return;
+    }
+
+    // Use effectiveLength so FlushController detects non-text state changes
+    // (thinking, tool status, system status, etc.)
+    const effectiveLength =
+      this.accumulatedText.length + this.stateVersion * 1000;
+    this.flushCtrl.schedule(effectiveLength, async () => {
+      await this.patchCard('streaming');
+    });
+  }
+
+  private getFooterNote(): string | undefined {
+    const recordedDuration = this.footerTokenUsage?.durationMs;
+    const hasRecordedDuration =
+      typeof recordedDuration === 'number' && recordedDuration > 0;
+    const tokenUsage = hasRecordedDuration
+      ? this.footerTokenUsage
+      : this.startTime > 0
+        ? {
+            ...this.footerTokenUsage,
+            durationMs: Math.max(0, Date.now() - this.startTime),
+          }
+        : this.footerTokenUsage;
+
+    return (
+      formatAssistantCardFooter({
+        runtimeIdentity: this.footerRuntimeIdentity,
+        tokenUsage,
+      }) || undefined
+    );
+  }
+
+  private settleAuxiliaryState(
+    options: {
+      dropThinkingText?: boolean;
+      dropCommentaryText?: boolean;
+      dropToolCalls?: boolean;
+    } = {},
+  ): void {
+    this.thinking = false;
+    if (options.dropThinkingText) {
+      this.thinkingText = '';
+    }
+    if (options.dropCommentaryText) {
+      this.commentaryText = '';
+    }
+    this.systemStatus = null;
+    this.activeHook = null;
+    if (options.dropToolCalls) {
+      this.toolCalls.clear();
+      return;
+    }
+    for (const toolCall of this.toolCalls.values()) {
+      if (toolCall.status === 'running') {
+        toolCall.status = 'complete';
+      }
+    }
+  }
+
+  private getAuxiliaryState(): AuxiliaryState {
+    return {
+      thinkingText: this.thinkingText,
+      commentaryText: this.commentaryText,
+      isThinking: this.thinking,
+      toolCalls: this.toolCalls,
+      systemStatus: this.systemStatus,
+      activeHook: this.activeHook,
+      todos: this.todos,
+      recentEvents: this.recentEvents,
+    };
+  }
+
+  // ─── Streaming Mode Methods ──────────────────────────────
+
+  /**
+   * Schedule a text content flush for streaming mode.
+   * Falls back to schedulePatch() if streaming backend is not available.
+   */
+  private scheduleTextFlush(): void {
+    if (!this.streamingBackend || !this.textFlushCtrl) {
+      this.schedulePatch();
+      return;
+    }
+
+    this.textFlushCtrl.schedule(this.accumulatedText.length, async () => {
+      try {
+        await this.streamingBackend!.streamContent(this.accumulatedText);
+        this.textFlushCtrl!.markFlushed(this.accumulatedText.length);
+        this.patchFailCount = 0;
+      } catch (err) {
+        this.patchFailCount++;
+        logger.debug(
+          {
+            err,
+            chatId: this.chatId,
+            failCount: this.patchFailCount,
+            mode: 'streaming',
+          },
+          'Streaming content push failed',
+        );
+        if (this.patchFailCount >= this.maxPatchFailures) {
+          this.degradeToV1();
+        }
+      }
+    });
+  }
+
+  /**
+   * Schedule an auxiliary content flush for streaming mode.
+   * Falls back to schedulePatch() if streaming backend is not available.
+   */
+  private scheduleAuxFlush(): void {
+    if (!this.streamingBackend || !this.auxFlushCtrl) {
+      this.schedulePatch();
+      return;
+    }
+
+    this.auxFlushCtrl.schedule(this.stateVersion * 1000, async () => {
+      // Recalculate aux state inside callback to avoid stale closures
+      const auxState = this.getAuxiliaryState();
+      const { before, after } = buildAuxiliaryElements(auxState);
+      const auxBefore = serializeAuxContent(before);
+      const auxAfter = serializeAuxContent(after);
+      const statusNote = this.buildStreamingStatusNote();
+      const snapshot = auxBefore + '||' + auxAfter + '||' + statusNote;
+      if (snapshot === this.lastAuxSnapshot) return;
+
+      try {
+        await this.streamingBackend!.updateAuxiliary(
+          ELEMENT_IDS.AUX_BEFORE,
+          auxBefore,
+        );
+        await this.streamingBackend!.updateAuxiliary(
+          ELEMENT_IDS.AUX_AFTER,
+          auxAfter,
+        );
+        await this.streamingBackend!.updateAuxiliary(
+          ELEMENT_IDS.STATUS_NOTE,
+          statusNote,
+        );
+        this.lastAuxSnapshot = snapshot;
+      } catch (err) {
+        // Auxiliary update failures do NOT count toward degradation
+        logger.debug(
+          { err, chatId: this.chatId, mode: 'streaming' },
+          'Streaming auxiliary update failed (non-critical)',
+        );
+      }
+    });
+  }
+
+  /**
+   * Build the footer line shown below the control row during streaming.
+   * Combines the "生成中..." indicator with the live elapsed time / model / effort
+   * so the user can see progress without waiting for completion.
+   */
+  private buildStreamingStatusNote(): string {
+    const footer = this.getFooterNote();
+    const base = '⏳ 生成中...';
+    return footer ? `${base} · ${footer}` : base;
+  }
+
+  /**
+   * Degrade from streaming mode to v1 full-update mode.
+   */
+  private degradeToV1(): void {
+    logger.warn(
+      { chatId: this.chatId },
+      'Streaming mode: degrading to v1 full-update',
+    );
+
+    // Save card_id and sequence from streaming backend before clearing
+    const existingCardId = this.streamingBackend!.getCardId();
+    const existingSeq = this.streamingBackend!.getSequence();
+
+    // Try to disable streaming mode gracefully (fire and forget)
+    this.streamingBackend?.disableStreamingMode().catch(() => {});
+
+    this.backendMode = 'v1';
+    this.streamingBackend = null;
+    this.textFlushCtrl?.dispose();
+    this.textFlushCtrl = null;
+    this.auxFlushCtrl?.dispose();
+    this.auxFlushCtrl = null;
+    this.patchFailCount = 0;
+
+    // Set up v1 flush controller
+    this.flushCtrl.dispose();
+    this.flushCtrl = new FlushController(1000, 50);
+
+    // Adopt the existing streaming card into a CardKitBackend (reuses card_id, no new message)
+    const adoptedCard = new CardKitBackend(this.client);
+    adoptedCard.adoptCard(existingCardId!, this.messageId!, existingSeq);
+
+    this.multiCard = new MultiCardManager(
+      this.client,
+      this.chatId,
+      this.replyToMsgId,
+      this.onCardCreated,
+    );
+    this.multiCard.adoptExistingCard(adoptedCard);
+
+    // Schedule an immediate patch to sync the current state
+    this.schedulePatch();
+  }
+
+  /**
+   * Finalize a streaming card: disable streaming mode, then set final state.
+   */
+  private async finalizeStreamingCard(
+    finalState: 'completed' | 'aborted',
+  ): Promise<void> {
+    const backend = this.streamingBackend!;
+    let primaryError: unknown = null;
+
+    try {
+      // 1. Disable streaming mode (allows header/button changes)
+      await backend.disableStreamingMode();
+
+      // 2. Build final card with optimizeMarkdownStyle
+      const footerNote = this.getFooterNote();
+      const auxiliaryState = this.getAuxiliaryState();
+      const cardJson = buildSchema2Card(
+        this.accumulatedText,
+        finalState,
+        '',
+        undefined,
+        auxiliaryState,
+        footerNote,
+        this.footerRuntimeIdentity,
+      );
+      const cardSize = Buffer.byteLength(JSON.stringify(cardJson), 'utf-8');
+
+      if (cardSize <= CARD_SIZE_LIMIT) {
+        // 3a. Single card fits
+        await backend.updateCardFull(cardJson);
+      } else {
+        // 3b. Too large for single card — split on finalize
+        await this.splitOnFinalize(finalState);
+      }
+    } catch (err) {
+      primaryError = err;
+      logger.debug(
+        { err, chatId: this.chatId },
+        'Streaming finalize failed, trying truncated fallback',
+      );
+      // Fallback: truncate and try once more
+      try {
+        const truncated = this.accumulatedText.slice(0, 20000);
+        const fallbackCard = buildSchema2Card(
+          truncated + '\n\n> ⚠️ 输出已截断',
+          finalState,
+          '',
+          undefined,
+          this.getAuxiliaryState(),
+          this.getFooterNote(),
+          this.footerRuntimeIdentity,
+        );
+        await backend.updateCardFull(fallbackCard);
+      } catch (fallbackErr) {
+        logger.debug(
+          { err: fallbackErr, chatId: this.chatId },
+          'Streaming finalize truncated fallback also failed',
+        );
+        throw fallbackErr instanceof Error
+          ? fallbackErr
+          : primaryError instanceof Error
+            ? primaryError
+            : new Error(String(fallbackErr));
+      }
+    }
+  }
+
+  /**
+   * Split content into multiple cards on finalize (only when streaming card content exceeds CARD_SIZE_LIMIT).
+   * The first card (existing streaming card) gets frozen, subsequent cards are new.
+   */
+  private async splitOnFinalize(
+    finalState: 'completed' | 'aborted',
+  ): Promise<void> {
+    const backend = this.streamingBackend!;
+    const { title } = extractTitleAndBody(this.accumulatedText);
+    const chunks = splitCodeBlockSafe(this.accumulatedText, CARD_MD_LIMIT);
+    const footerNote = this.getFooterNote();
+    const auxiliaryState = this.getAuxiliaryState();
+
+    // How many chunks fit in the first card?
+    const MAX_ELEMENTS_PER_CARD = 45;
+    const fixedElements = 2; // note + margin
+    const maxChunksFirst = MAX_ELEMENTS_PER_CARD - fixedElements;
+
+    const firstChunks = chunks.slice(0, maxChunksFirst);
+    const firstText = firstChunks.join('\n\n');
+
+    // Use finalState if all content fits in the first card, otherwise freeze
+    const firstCardState =
+      chunks.length <= maxChunksFirst ? finalState : 'frozen';
+    const frozenCard = buildSchema2Card(
+      firstText,
+      firstCardState,
+      '',
+      title,
+      auxiliaryState,
+      chunks.length <= maxChunksFirst ? footerNote : undefined,
+      this.footerRuntimeIdentity,
+    );
+    await backend.updateCardFull(frozenCard);
+
+    // Create continuation cards
+    let remaining = chunks.slice(maxChunksFirst);
+    let includeAuxiliaryInContinuation = false;
+    while (remaining.length > 0) {
+      const batch = remaining.slice(0, maxChunksFirst);
+      remaining = remaining.slice(maxChunksFirst);
+      const batchText = batch.join('\n\n');
+      const state = remaining.length === 0 ? finalState : 'frozen';
+      const contCard = new CardKitBackend(this.client);
+      const contCardJson = buildSchema2Card(
+        batchText,
+        state,
+        '(续) ',
+        title,
+        includeAuxiliaryInContinuation ? auxiliaryState : undefined,
+        remaining.length === 0 ? footerNote : undefined,
+        this.footerRuntimeIdentity,
+      );
+      await contCard.createCard(contCardJson);
+      const newMsgId = await contCard.sendCard(this.chatId);
+      this.onCardCreated?.(newMsgId);
+      includeAuxiliaryInContinuation = false;
+    }
+  }
+
+  private async patchCard(
+    displayState: 'streaming' | 'completed' | 'aborted',
+    footerNote?: string,
+  ): Promise<void> {
+    if (this.useCardKit && this.multiCard) {
+      // CardKit v1 path — pass auxiliary state for rich display
+      const auxState = this.getAuxiliaryState();
+      try {
+        await this.multiCard.commitContent(
+          this.accumulatedText,
+          displayState,
+          auxState,
+          footerNote || this.getFooterNote(),
+          this.footerRuntimeIdentity,
+        );
+        this.flushCtrl.markFlushed(this.accumulatedText.length);
+        this.patchFailCount = 0;
+      } catch (err) {
+        this.patchFailCount++;
+        logger.debug(
+          {
+            err,
+            chatId: this.chatId,
+            failCount: this.patchFailCount,
+            mode: 'cardkit',
+          },
+          'CardKit card update failed',
+        );
+        throw err;
+      }
+    } else {
+      // Legacy message.patch path
+      if (!this.messageId) return;
+
+      const card = buildSchema2Card(
+        this.accumulatedText,
+        displayState,
+        '',
+        undefined,
+        this.getAuxiliaryState(),
+        footerNote || this.getFooterNote(),
+        this.footerRuntimeIdentity,
+      );
+      const content = JSON.stringify(card);
+
+      try {
+        await this.client.im.v1.message.patch({
+          path: { message_id: this.messageId },
+          data: { content },
+        });
+        this.flushCtrl.markFlushed(this.accumulatedText.length);
+        this.patchFailCount = 0;
+      } catch (err) {
+        this.patchFailCount++;
+        logger.debug(
+          {
+            err,
+            chatId: this.chatId,
+            failCount: this.patchFailCount,
+            mode: 'legacy',
+          },
+          'Streaming card patch failed',
+        );
+        throw err;
+      }
+    }
+  }
+}
+
+// ─── MessageId → ChatJid Mapping ─────────────────────────────
+// Reverse lookup for card callback: given a Feishu messageId from a button click,
+// find which chatJid (streaming session) it belongs to.
+
+const messageIdToChatJid = new Map<string, string>();
+
+/**
+ * Register a messageId → chatJid mapping for card callback routing.
+ */
+export function registerMessageIdMapping(
+  messageId: string,
+  chatJid: string,
+): void {
+  messageIdToChatJid.set(messageId, chatJid);
+}
+
+/**
+ * Resolve a chatJid from a Feishu messageId.
+ */
+export function resolveJidByMessageId(messageId: string): string | undefined {
+  return messageIdToChatJid.get(messageId);
+}
+
+/**
+ * Remove a messageId mapping.
+ */
+export function unregisterMessageId(messageId: string): void {
+  messageIdToChatJid.delete(messageId);
+}
+
+// ─── Streaming Session Registry ───────────────────────────────
+// Global registry for tracking active streaming sessions.
+// Used by shutdown hooks to abort all active sessions.
+
+const activeSessions = new Map<string, StreamingCardController>();
+
+/**
+ * Register a streaming session for a chatJid.
+ * Replaces any existing session for the same chatJid.
+ */
+export function registerStreamingSession(
+  chatJid: string,
+  session: StreamingCardController,
+): void {
+  const existing = activeSessions.get(chatJid);
+  if (existing) {
+    for (const msgId of existing.getAllMessageIds()) {
+      unregisterMessageId(msgId);
+    }
+  }
+  if (existing && existing.isActive()) {
+    // Abort (not just dispose) so the old card shows "已中断" instead of stuck "生成中..."
+    existing.abort('新的回复已开始').catch(() => {});
+  }
+  activeSessions.set(chatJid, session);
+}
+
+/**
+ * Remove a streaming session from the registry.
+ * Also cleans up all messageId → chatJid mappings (including multi-card).
+ */
+export function unregisterStreamingSession(chatJid: string): void {
+  const session = activeSessions.get(chatJid);
+  if (session) {
+    for (const msgId of session.getAllMessageIds()) {
+      unregisterMessageId(msgId);
+    }
+  }
+  activeSessions.delete(chatJid);
+}
+
+/**
+ * Get the active streaming session for a chatJid.
+ */
+export function getStreamingSession(
+  chatJid: string,
+): StreamingCardController | undefined {
+  return activeSessions.get(chatJid);
+}
+
+export function abortStreamingSessionsForChatJid(
+  chatJid: string,
+  reason = '新的回复已开始',
+): void {
+  const scopedPrefix = `${chatJid}#`;
+  for (const [sessionJid, session] of activeSessions.entries()) {
+    if (sessionJid !== chatJid && !sessionJid.startsWith(scopedPrefix)) {
+      continue;
+    }
+    if (!session.isActive()) continue;
+    session.abort(reason).catch((err) => {
+      logger.debug(
+        { err, chatJid: sessionJid, baseChatJid: chatJid },
+        'Failed to abort scoped streaming session for chat',
+      );
+    });
+  }
+}
+
+/**
+ * Check if there's an active streaming session for a chatJid.
+ */
+export function hasActiveStreamingSession(chatJid: string): boolean {
+  const session = activeSessions.get(chatJid);
+  return session?.isActive() ?? false;
+}
+
+/**
+ * Abort all active streaming sessions.
+ * Called during graceful shutdown.
+ */
+export async function abortAllStreamingSessions(
+  reason = '服务维护中',
+): Promise<void> {
+  const promises: Promise<void>[] = [];
+  for (const [chatJid, session] of activeSessions.entries()) {
+    if (session.isActive()) {
+      promises.push(
+        session.abort(reason).catch((err) => {
+          logger.debug(
+            { err, chatJid },
+            'Failed to abort streaming session during shutdown',
+          );
+        }),
+      );
+    }
+  }
+  await Promise.allSettled(promises);
+  // Clean up messageId → chatJid mappings before clearing sessions
+  for (const session of activeSessions.values()) {
+    for (const msgId of session.getAllMessageIds()) {
+      unregisterMessageId(msgId);
+    }
+  }
+  activeSessions.clear();
+  logger.info({ count: promises.length }, 'All streaming sessions aborted');
+}

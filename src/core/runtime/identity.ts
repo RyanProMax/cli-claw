@@ -1,4 +1,4 @@
-import type { RuntimeIdentity } from '../../types.js';
+import type { RuntimeIdentity } from '../../domain/types.js';
 
 function normalizeText(value: string | null | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;

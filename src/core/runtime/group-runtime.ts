@@ -5,13 +5,13 @@ import {
   normalizeSpeedTierPreset,
   supportsReasoningEffort,
   supportsSpeedTier,
-} from '../../runtime-command-registry.js';
+} from './command-registry.js';
 import type {
   AgentType,
   ExecutionMode,
   RegisteredGroup,
   RuntimeIdentity,
-} from '../../types.js';
+} from '../../domain/types.js';
 import { resolveEffectiveHostWorkspaceCwd } from '../workspace/host-cwd.js';
 
 function normalizeRuntimeText(value: string | null | undefined): string | null {

@@ -9,18 +9,18 @@ import {
   GROUPS_DIR,
   SCHEDULER_POLL_INTERVAL,
   TIMEZONE,
-} from '../../config.js';
+} from '../../core/config.js';
 import {
   getClaudeProviderConfig,
   getOpenAiRuntimeDefaults,
   getSystemSettings,
-} from '../../runtime-config.js';
+} from '../../core/runtime/config.js';
 import {
   ContainerOutput,
   runContainerAgent,
   runHostAgent,
   writeTasksSnapshot,
-} from '../../container-runner.js';
+} from '../runner/container-runner.js';
 import {
   addGroupMember,
   getAllTasks,
@@ -38,17 +38,24 @@ import {
   updateChatName,
   updateTaskAfterRun,
   updateTaskWorkspace,
-} from '../../db.js';
+} from '../../storage/db.js';
 import { GroupQueue } from '../queue/group-queue.js';
 import { resolveEffectiveHostWorkspaceCwd } from '../../core/workspace/host-cwd.js';
-import { logger } from '../../logger.js';
-import { resolveTaskOwner } from '../../task-utils.js';
+import { logger } from '../../core/logger.js';
+import { resolveTaskOwner } from '../task-utils.js';
 import { resolveEffectiveRuntimeIdentity } from '../../core/runtime/group-runtime.js';
-import { removeFlowArtifacts } from '../../file-manager.js';
-import { hasScriptCapacity, runScript } from '../../script-runner.js';
-import type { StreamEvent } from '../../stream-event.types.js';
-import { ExecutionMode, RegisteredGroup, ScheduledTask } from '../../types.js';
-import { checkBillingAccessFresh, isBillingEnabled } from '../../billing.js';
+import { removeFlowArtifacts } from '../../core/workspace/file-manager.js';
+import { hasScriptCapacity, runScript } from '../script-runner.js';
+import type { StreamEvent } from '../../presentation/stream-event.types.js';
+import {
+  ExecutionMode,
+  RegisteredGroup,
+  ScheduledTask,
+} from '../../domain/types.js';
+import {
+  checkBillingAccessFresh,
+  isBillingEnabled,
+} from '../../core/billing.js';
 import { formatUserFacingRuntimeError } from '../runner/output-parser.js';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 

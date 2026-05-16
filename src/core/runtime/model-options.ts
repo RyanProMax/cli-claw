@@ -2,7 +2,7 @@ import {
   getModelPresetOptions,
   type RuntimeAgentType,
   type RuntimePresetOption,
-} from '../../runtime-command-registry.js';
+} from './command-registry.js';
 
 export type RuntimeModelOptionsSource = 'preset';
 

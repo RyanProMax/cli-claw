@@ -25,9 +25,9 @@ import {
   WEB_PORT,
   isDockerAvailable,
   updateWeChatNoProxy,
-} from './config.js';
-import { LAUNCH_CWD, resolveAppPath } from './app-root.js';
-import { interruptibleSleep } from './message-notifier.js';
+} from './core/config.js';
+import { LAUNCH_CWD, resolveAppPath } from './core/app-root.js';
+import { interruptibleSleep } from './messaging/notifier.js';
 import {
   AvailableGroup,
   ContainerInput,
@@ -36,7 +36,7 @@ import {
   runHostAgent,
   writeGroupsSnapshot,
   writeTasksSnapshot,
-} from './container-runner.js';
+} from './agent/runner/container-runner.js';
 import {
   closeDatabase,
   createTask,
@@ -98,14 +98,14 @@ import {
   cleanupOldDailyUsage,
   cleanupOldBillingAuditLog,
   insertUsageRecord,
-} from './db.js';
+} from './storage/db.js';
 // feishu.js deprecated exports are no longer needed; imManager handles all connections
-import { imManager } from './im-manager.js';
+import { imManager } from './messaging/manager.js';
 import {
   getChannelType,
   extractChatId,
   type OutboundMessageMeta,
-} from './im-channel.js';
+} from './messaging/channel.js';
 import {
   buildRuntimeSelectionCard,
   registerStreamingSession,
@@ -115,24 +115,24 @@ import {
   registerMessageIdMapping,
   getStreamingSession,
   StreamingCardController,
-} from './feishu-streaming-card.js';
+} from './messaging/providers/feishu/streaming-card.js';
 import {
   resolveVisibleReplyParts,
   type ResolvedVisibleReplyParts,
-} from './reply-visibility.js';
-import { type AssistantFooterTokenUsage } from './assistant-meta-footer.js';
+} from './presentation/reply-visibility.js';
+import { type AssistantFooterTokenUsage } from './presentation/assistant-meta-footer.js';
 import {
   recordDeadLetteredLifecycleForPendingMessages,
   recordDirectImDeliveryLifecycleForMessages,
   recordLifecycleForMessages,
   recordStreamStartedLifecycleForMessages,
-} from './im-message-lifecycle.js';
+} from './messaging/lifecycle.js';
 import {
   buildProvisionalTokenUsage,
   normalizeFooterUsageForCurrentTurn,
   normalizeStreamingStatusText,
   serializeAssistantTokenUsage,
-} from './streaming-runtime-meta.js';
+} from './presentation/streaming-runtime-meta.js';
 import {
   formatImLifecycleStatus,
   formatSelfCheckResult,
@@ -144,7 +144,7 @@ import {
   resolveBoundChatTarget,
   resolveLocationInfo,
   type WorkspaceInfo,
-} from './im-command-utils.js';
+} from './messaging/command-utils.js';
 import {
   applyRuntimeWorkspaceSelection,
   executeRuntimeWorkspaceCommand,
@@ -159,17 +159,17 @@ import {
   formatSkillCommandHelpLines,
   resolveSkillCommandRoots,
   type SkillCommandDiscoveryResult,
-} from './skill-command-dispatch.js';
-import { encodeImSlashRewriteMessage } from './im-slash-command.js';
+} from './skills/command-dispatch.js';
+import { encodeImSlashRewriteMessage } from './messaging/slash-command.js';
 import {
   formatUnknownRuntimeCommandReply,
   parseRuntimeCommand,
   parseSlashCommandCandidate,
-} from './runtime-command-registry.js';
-import { createImNewWorkspaceGroup } from './im-new-workspace.js';
+} from './core/runtime/command-registry.js';
+import { createImNewWorkspaceGroup } from './messaging/new-workspace.js';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 import { resolveManagedSelfRestartCommand } from '../shared/dist/service-restart-guard.js';
-import { invalidateSessionCache, getWebDeps } from './web-context.js';
+import { invalidateSessionCache, getWebDeps } from './web/context.js';
 import {
   getFeishuProviderConfigWithSource,
   getTelegramProviderConfig,
@@ -185,14 +185,14 @@ import {
   saveUserFeishuConfig,
   saveUserTelegramConfig,
   updateAllSessionCredentials,
-} from './runtime-config.js';
+} from './core/runtime/config.js';
 import type {
   FeishuConnectConfig,
   TelegramConnectConfig,
   QQConnectConfig,
   WeChatConnectConfig,
   DingTalkConnectConfig,
-} from './im-manager.js';
+} from './messaging/manager.js';
 import { GroupQueue } from './agent/queue/group-queue.js';
 import { startSchedulerLoop, triggerTaskNow } from './agent/scheduler/index.js';
 import {
@@ -204,7 +204,7 @@ import {
   isBillingEnabled,
   getUserConcurrentContainerLimit,
   reconcileMonthlyUsage,
-} from './billing.js';
+} from './core/billing.js';
 import {
   AgentStatus,
   MessageCursor,
@@ -214,12 +214,12 @@ import {
   RuntimeIdentity,
   StreamEvent,
   SubAgent,
-} from './types.js';
-import { logger } from './logger.js';
+} from './domain/types.js';
+import { logger } from './core/logger.js';
 import {
   getRuntimeBuildLogFields,
   getRuntimeBuildStatus,
-} from './runtime-build.js';
+} from './core/runtime/build.js';
 import {
   buildEffectiveGroupFromHomeSibling,
   normalizeAgentType,
@@ -229,13 +229,13 @@ import {
   materializeHostWorkspaceDefaultCwd,
   validateHostWorkspaceCwd,
 } from './core/workspace/host-cwd.js';
-import { resolveTaskOwner } from './task-utils.js';
+import { resolveTaskOwner } from './agent/task-utils.js';
 import {
   ensureAgentDirectories,
   stripAgentInternalTags,
   stripVirtualJidSuffix,
-} from './utils.js';
-import { normalizeImageAttachments } from './message-attachments.js';
+} from './core/utils.js';
+import { normalizeImageAttachments } from './messaging/attachments.js';
 import {
   startWebServer,
   broadcastToWebClients,
@@ -249,17 +249,17 @@ import {
   shutdownWebServer,
   getActiveStreamingTexts,
   clearStreamingSnapshot,
-} from './web.js';
+} from './web/app.js';
 import {
   installSkillForUser,
   deleteSkillForUser,
   syncHostSkillsForUser,
-} from './routes/skills.js';
-import { verifyPairingCode } from './telegram-pairing.js';
+} from './web/routes/skills.js';
+import { verifyPairingCode } from './messaging/providers/telegram-pairing.js';
 import { executeSessionReset } from './commands.js';
-import { formatLoopStatusSection } from './loop-status.js';
+import { formatLoopStatusSection } from './presentation/loop-status.js';
 import { mergeRuntimeIdentity } from './core/runtime/identity.js';
-import { runSelfCheck, type SelfCheckResult } from './self-check.js';
+import { runSelfCheck, type SelfCheckResult } from './core/self/self-check.js';
 import {
   hasPendingSelfRestartForChat,
   findPendingSelfRestartNotifications,
@@ -269,12 +269,12 @@ import {
   requestSelfRestart,
   resolveLaunchdServiceNameFromEnv,
   writeCurrentBackendRestartState,
-} from './self-restart.js';
+} from './core/self/self-restart.js';
 import {
   inferStartupLaunchSpecFromProcess,
   type StartupLaunchSpec,
-} from './startup-launch.js';
-import { compactMessagesForAgent } from './context-compaction.js';
+} from './core/self/startup-launch.js';
+import { compactMessagesForAgent } from './agent/runner/context-compaction.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const execFileAsync = promisify(execFile);

@@ -9,27 +9,24 @@ import {
   supportsReasoningEffort,
   supportsSpeedTier,
   type RuntimeCommandEntrypoint,
-} from '../../runtime-command-registry.js';
+} from './command-registry.js';
 import {
   getAvailableRuntimeModelCatalog,
   getAvailableRuntimeModelPresets,
   normalizeAvailableRuntimeModelPreset,
 } from './model-options.js';
-import {
-  getClaudeProviderConfig,
-  getOpenAiRuntimeDefaults,
-} from '../../runtime-config.js';
+import { getClaudeProviderConfig, getOpenAiRuntimeDefaults } from './config.js';
 import {
   buildEffectiveGroupFromHomeSibling,
   resolveEffectiveRuntimeIdentity,
 } from './group-runtime.js';
-import { logger } from '../../logger.js';
+import { logger } from '../logger.js';
 import { resetWorkspaceRuntimeState } from '../../agent/runner/workspace-reset.js';
 import type {
   AgentType,
   RegisteredGroup,
   RuntimeIdentity,
-} from '../../types.js';
+} from '../../domain/types.js';
 
 export interface RuntimeCommandAgentLike {
   id: string;

@@ -7,125 +7,89 @@
 ```text
 .
 ├── src/
-│   ├── cli.ts                      # npm 二进制入口；分发 start / help / version
 │   ├── index.ts                    # backend bootstrap；消息轮询、执行调度、流式输出汇总
-│   ├── app-root.ts                 # 安装位置 / 包根路径 / 启动目录解析
-│   ├── web.ts                      # Hono 应用、WebSocket、静态资源托管
-│   ├── db.ts                       # SQLite 数据层、用户/工作区/消息/任务持久化
-│   ├── group-queue.ts              # 会话并发控制、重试、排队与后台任务优先级
-│   ├── container-runner.ts         # Docker / host 执行、卷挂载、Agent 生命周期
-│   ├── group-runtime.ts            # 工作区 runtime 继承与边界约束
-│   ├── host-workspace-cwd.ts       # host 工作区 effective cwd 校验、物化与解析
-│   ├── runtime-config.ts           # Provider / IM / 系统配置、密文存储、环境变量合成
-│   ├── runtime-build.ts            # 运行进程与已加载 dist 的 build 指纹
-│   ├── startup-launch.ts           # 自重启/守护复用的启动命令解析与校验
-│   ├── self-check.ts               # 服务自迭代 shadow start 与健康检查
-│   ├── self-restart.ts             # 自重启 intent、watchdog 调度与执行逻辑
-│   ├── self-restart-watchdog.ts    # 独立 watchdog CLI 入口
-│   ├── runtime-identity.ts         # 实际运行时 agent / model / effort 元数据
-│   ├── file-manager.ts             # 文件读写边界、系统路径保护、路径安全
-│   ├── task-scheduler.ts           # 定时任务调度、执行日志与独立任务工作区解析
-│   ├── skill-command-dispatch.ts   # skill command 声明发现、冲突检查与 executor 执行
-│   ├── runtime-usage.ts            # 按 runtime 读取当前 usage snapshot，并派生 footer 元数据
-│   ├── im-manager.ts               # per-user IM 连接池
-│   ├── feishu.ts                   # 飞书接入与消息适配
-│   ├── telegram.ts                 # Telegram 接入与消息适配
-│   ├── qq.ts                       # QQ 接入与消息适配
-│   ├── dingtalk.ts                 # 钉钉接入与消息适配
-│   ├── wechat.ts                   # 企业微信接入与消息适配
-│   ├── im-slash-command.ts         # IM slash command 解析；支持直接回复或改写为普通消息
-│   ├── message-attachments.ts      # 图片 / 文件附件规范化
-│   ├── agent-output-parser.ts      # runner 输出解析与结果收尾
-│   ├── assistant-meta-footer.ts    # 响应基础 footer 与 remaining usage 条件追加
-│   └── routes/
-│       ├── auth.ts                 # 登录、注册、会话、用户资料
-│       ├── groups.ts               # 工作区 CRUD、消息、运行时设置、共享成员
-│       ├── files.ts                # 工作区文件管理
-│       ├── tasks.ts                # 定时任务与执行日志
-│       ├── config.ts               # Provider、IM、外观、系统设置
-│       ├── mcp-servers.ts          # 用户级 MCP Server 配置
-│       ├── workspace-config.ts     # 工作区 .claude/ 配置、技能、MCP 元数据
-│       ├── skills.ts               # 技能浏览、安装、管理
-│       ├── agents.ts               # Agent 定义与管理接口
-│       ├── agent-definitions.ts    # 用户级 ~/.agents/agents 定义管理路由
-│       ├── usage.ts                # 用量与计费相关接口
-│       ├── billing.ts              # 账单与套餐接口
-│       ├── browse.ts               # 浏览器 / 网页能力相关接口
-│       ├── monitor.ts              # 监控与运行状态接口
-│       ├── bug-report.ts           # 问题反馈入口
-│       └── admin.ts                # 用户、邀请码、审计日志
+│   ├── cli.ts                      # npm 二进制入口；分发 start / help / version
+│   ├── reset-admin.ts              # 管理员密码重置入口
+│   ├── self-restart-watchdog.ts    # 自重启 watchdog 子进程入口
+│   ├── pty-worker.cjs              # terminal worker，保留 CommonJS
+│   ├── agent/
+│   │   ├── queue/group-queue.ts     # 会话并发控制、重试、排队与后台任务优先级
+│   │   ├── runner/
+│   │   │   ├── container-runner.ts  # Docker / host 执行、卷挂载、Agent 生命周期
+│   │   │   ├── output-parser.ts     # runner 输出解析、错误格式化与 run log
+│   │   │   ├── workspace-reset.ts   # runtime session 清理与工作区重置
+│   │   │   ├── context-compaction.ts# 消息上下文压缩
+│   │   │   └── sdk-query.ts         # SDK 查询封装
+│   │   ├── scheduler/index.ts       # 定时任务调度、执行日志与任务工作区
+│   │   ├── script-runner.ts         # script task 执行
+│   │   └── task-utils.ts            # task owner / task workspace helper
+│   ├── core/
+│   │   ├── app-root.ts              # 安装位置 / 包根路径 / 启动目录解析
+│   │   ├── auth.ts                  # Web 用户认证 helper
+│   │   ├── billing.ts               # 套餐、额度与账单 helper
+│   │   ├── config.ts                # 全局路径、端口、运行环境配置
+│   │   ├── logger.ts                # pino logger
+│   │   ├── permissions.ts           # 权限模板与权限判断
+│   │   ├── schemas.ts               # API 输入 schema
+│   │   ├── utils.ts                 # backend 通用工具
+│   │   ├── runtime/                 # agent/runtime 选择、配置、用量与 Codex CLI 登录态
+│   │   ├── self/                    # self-check、startup launch、自重启实现
+│   │   └── workspace/               # host cwd、mount allowlist、文件管理安全边界
+│   ├── storage/
+│   │   ├── db.ts                    # SQLite 数据层 facade；后续再拆 repositories
+│   │   └── sqlite-compat.ts         # better-sqlite3 兼容加载
+│   ├── domain/
+│   │   └── types.ts                 # 后端共享 domain 类型
+│   ├── messaging/
+│   │   ├── channel.ts               # IM channel factory
+│   │   ├── manager.ts               # per-user IM 连接池
+│   │   ├── notifier.ts              # 新消息通知与中断等待
+│   │   ├── lifecycle.ts             # IM 消息 lifecycle 记录
+│   │   ├── slash-command.ts         # IM slash command 解析与改写
+│   │   ├── command-utils.ts         # IM command 共享工具
+│   │   ├── attachments.ts           # 图片 / 文件附件规范化
+│   │   ├── downloader.ts            # IM 文件下载
+│   │   ├── image-detector.ts        # 图片 MIME 探测
+│   │   ├── new-workspace.ts         # IM 创建工作区 helper
+│   │   └── providers/               # Feishu / Telegram / QQ / DingTalk / WeChat adapters
+│   ├── presentation/
+│   │   ├── assistant-meta-footer.ts # footer 格式化与 remaining usage 规则
+│   │   ├── reply-visibility.ts      # final/tool/send_message 可见文本裁剪
+│   │   ├── stream-event.types.ts    # backend stream event re-export
+│   │   ├── streaming-runtime-meta.ts# streaming card runtime meta
+│   │   ├── loop-status.ts           # 循环任务状态展示
+│   │   └── tool-step-display.ts     # tool step 文本展示
+│   ├── web/
+│   │   ├── app.ts                   # Hono 应用、WebSocket、静态资源托管
+│   │   ├── context.ts               # Web deps、会话、权限、工作区访问 helper
+│   │   ├── middleware/auth.ts       # Web auth middleware
+│   │   ├── terminal-manager.ts      # terminal sessions
+│   │   └── routes/                  # HTTP API routes
+│   ├── skills/
+│   │   ├── command-dispatch.ts      # skill command 发现、冲突检查与 executor 执行
+│   │   └── utils.ts                 # skill 路径与元数据 helper
+│   └── mcp/
+│       └── utils.ts                 # 用户级 MCP Server 配置读取
+├── tests/
+│   ├── unit/                        # 单模块行为，少 mock 或局部 mock
+│   ├── integration/                 # 跨模块链路，mock 外部网络/进程边界
+│   ├── contracts/                   # CLI/package/runtime/OpenAI 请求协议等外部契约
+│   └── scripts/                     # ops / stock 等脚本测试
 ├── web/
-│   └── src/
-│       ├── pages/
-│       │   ├── ChatPage.tsx        # 主聊天页，串联消息、工作区、面板和 runtime 设置
-│       │   ├── SettingsPage.tsx    # 系统 / 用户设置入口
-│       │   ├── TasksPage.tsx       # 定时任务管理
-│       │   ├── SkillsPage.tsx      # 技能管理
-│       │   ├── McpServersPage.tsx  # MCP Server 配置
-│       │   ├── UsagePage.tsx       # 用量与成本查看
-│       │   ├── BillingPage.tsx     # 套餐与计费查看
-│       │   ├── MonitorPage.tsx     # 系统监控页
-│       │   └── UsersPage.tsx       # 管理员用户页
-│       ├── components/
-│       │   ├── chat/               # 聊天区、工作区菜单、消息与输入框
-│       │   ├── layout/             # 侧边栏、壳层、页面布局
-│       │   ├── common/             # 通用品牌、加载态、状态组件
-│       │   ├── groups/             # 工作区管理
-│       │   ├── settings/           # 设置面板
-│       │   ├── tasks/              # 任务相关 UI
-│       │   ├── skills/             # 技能相关 UI
-│       │   ├── monitor/            # 监控 UI
-│       │   ├── billing/            # 计费 UI
-│       │   ├── mcp-servers/        # MCP Server UI
-│       │   ├── users/              # 管理员用户 UI
-│       │   └── ui/                 # 基础设计系统组件
-│       ├── stores/
-│       │   ├── chat.ts             # 聊天状态、消息同步、流式更新
-│       │   └── groups.ts           # 工作区状态
-│       ├── lib/
-│       │   ├── workspace-runtime.ts    # agent_type / execution_mode 约束
-│       │   ├── assistantMetaFooter.ts  # Web 端 footer 文本拼装
-│       │   └── messageHistoryCursor.ts # 历史消息稳定游标
-│       └── styles/
-│           └── globals.css         # 全局主题、字体、滚动条与基础样式
+│   └── src/                         # React frontend
 ├── container/
-│   └── agent-runner/
-│       └── src/
-│           ├── index.ts            # query 循环、流式事件、上下文压缩与 runtime 会话恢复
-│           ├── mcp-tools.ts        # 内置 MCP 工具定义
-│           ├── stream-processor.ts # StreamEvent 汇总与工具状态跟踪
-│           ├── agent-definitions.ts# 预定义子 Agent
-│           ├── codex-config.ts     # Codex model / effort 配置解析
-│           └── types.ts            # runner 侧共享类型
-├── shared/
-│   ├── stream-event.ts             # 前后端与 runner 共用的 StreamEvent 定义
-│   ├── stream-presentation.ts      # 多端共享的流式展示语义；把 answer / commentary 文本槽与 messageUuid 续写规则集中到一处
-│   └── assistant-meta-footer.ts    # 多端共享 footer 格式化与 remaining usage 规则
-├── PLANS/
-│   ├── ROADMAP.md                  # 跨轮次长期迭代跟进清单
-│   ├── ACTIVE.md                   # 当前轮临时执行计划；milestone / validation / handoff 单一真相源
-│   └── _TEMPLATE.md                # 复杂任务计划模板；新一轮执行时复制为 ACTIVE.md
-├── RUNBOOKS/
-│   ├── Implement.md                # 主 agent 实施循环、验证与 repair loop 约定
-│   ├── Review.md                   # Review gate 清单
-│   ├── SelfIteration.md            # 通过 Cli Claw 迭代自身的安全自检流程
-│   └── Handoff.md                  # 阻塞 / 换线程 / 跨会话交接模板
-├── scripts/
-│   ├── validate.sh                 # 统一验证入口；串联测试、类型检查与构建
-│   ├── review.sh                   # 机械化 review 辅助；语义审查仍按 RUNBOOKS/Review.md
-│   └── release-check.sh            # npm publish 前本地发布检查入口
-├── ops/
-│   └── install-launch-agent.sh     # 本机 launchd LaunchAgent 安装/状态/卸载入口
-├── .agents/
-│   ├── reader.md                   # 只读探索子角色
-│   ├── implementer.md              # 窄写入实施子角色
-│   ├── tester.md                   # 验证 / 复现子角色
-│   └── reviewer.md                 # 差异审查子角色
-└── docs/
-    ├── ARCHITECTURE.md             # 系统分层与核心数据流
-    ├── RUNTIME.md                  # Claude / Codex 运行时矩阵与约束
-    ├── MEMORY.md                   # 记忆机制、上下文保留与增长边界
-    ├── MODULE.md                   # 模块索引
-    ├── ENGINEERING.md              # 开发规范、验证与提交流程
-    └── COMMAND.md                  # 当前支持的命令与入口差异
+│   └── agent-runner/                # 容器内 agent runner
+├── shared/                          # 前后端与 runner 共用纯函数/类型
+├── PLANS/                           # 当前计划、长期 roadmap 与计划模板
+├── RUNBOOKS/                        # 实施、review、自迭代、handoff 操作规范
+├── scripts/                         # repo 级验证、review、release 脚本
+├── ops/                             # 本机 launchd / 运维辅助
+└── docs/                            # 架构、运行时、模块、命令文档
 ```
+
+## 维护约定
+
+- 顶层 `src/` 只放服务入口、CLI 入口和运行方式要求的特殊文件。
+- 新后端代码必须落到拥有该职责的目录；不要新增长期存在的顶层实现文件。
+- 大文件 `src/index.ts`、`src/storage/db.ts`、`src/web/app.ts`、`src/core/runtime/config.ts` 后续拆分时应按行为边界拆，不在无关功能 PR 中顺手重排。
+- 测试文件路径应反映测试意图：`unit`、`integration`、`contracts`、`scripts`，而不是历史源文件名平铺。

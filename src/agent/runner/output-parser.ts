@@ -7,9 +7,9 @@ import path from 'path';
 import type { Readable } from 'stream';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 
-import { getSystemSettings } from '../../runtime-config.js';
-import { logger } from '../../logger.js';
-import type { ContainerOutput } from '../../container-runner.js';
+import { getSystemSettings } from '../../core/runtime/config.js';
+import { logger } from '../../core/logger.js';
+import type { ContainerOutput } from './container-runner.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 export const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';

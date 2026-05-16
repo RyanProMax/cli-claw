@@ -1,14 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { DATA_DIR } from '../../config.js';
+import { DATA_DIR } from '../../core/config.js';
 import {
   deletePrimaryRuntimeSessions,
   deleteSession,
   getJidsByFolder,
   listAgentsByJid,
-} from '../../db.js';
-import type { RegisteredGroup } from '../../types.js';
+} from '../../storage/db.js';
+import type { RegisteredGroup } from '../../domain/types.js';
 
 export function clearSessionJsonlFiles(folder: string, agentId?: string): void {
   const claudeDir = agentId

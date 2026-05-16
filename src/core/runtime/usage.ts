@@ -1,10 +1,10 @@
-import { getClaudeUsageSnapshot } from '../../claude-oauth-usage.js';
+import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
 import {
   parseAssistantTokenUsage,
   type AssistantFooterTokenUsage,
-} from '../../assistant-meta-footer.js';
-import type { RuntimeIdentity } from '../../types.js';
-import type { UsageProviderResult } from '../../usage-command.js';
+} from '../../presentation/assistant-meta-footer.js';
+import type { RuntimeIdentity } from '../../domain/types.js';
+import type { UsageProviderResult } from './usage-command.js';
 
 export type RuntimeUsageFooterMeta = Pick<
   AssistantFooterTokenUsage,

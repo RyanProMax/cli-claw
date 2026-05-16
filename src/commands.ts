@@ -11,10 +11,10 @@ import {
   getJidsByFolder,
   storeMessageDirect,
   ensureChatExists,
-} from './db.js';
-import { DATA_DIR } from './config.js';
-import { logger } from './logger.js';
-import type { NewMessage, MessageCursor } from './types.js';
+} from './storage/db.js';
+import { DATA_DIR } from './core/config.js';
+import { logger } from './core/logger.js';
+import type { NewMessage, MessageCursor } from './domain/types.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 

@@ -1,46 +1,40 @@
 # Source Layout
 
-This directory is organized by runtime responsibility. Prefer adding new code inside the matching module instead of adding more top-level files.
+Backend source is organized by product responsibility. New code should go into the matching module instead of adding another top-level file.
+
+## Top-Level Entrypoints
+
+- `index.ts` starts the backend service and wires the major modules together.
+- `cli.ts` is the published `cli-claw` command entrypoint.
+- `reset-admin.ts` is an operator utility entrypoint.
+- `self-restart-watchdog.ts` is the child process entrypoint used by managed restarts.
+- `pty-worker.cjs` is the CommonJS worker used by terminal execution.
 
 ## Modules
 
 - `agent/`
-  - runner, queue, scheduler, and process output handling.
-  - Use this for code that starts agents, serializes work, parses runner output, or executes scheduled tasks.
+  - Agent execution, queueing, scheduled task execution, runner output parsing, host/container dispatch, and script execution.
 - `core/`
-  - runtime configuration, workspace helpers, permissions, and app-level primitives.
-  - Use this for shared backend logic that is not tied to a specific IM provider or route.
-- `data/`
-  - database connection, schema, migrations, and repositories.
-  - `db.ts` may remain a facade while repositories are split.
+  - App primitives: config, auth, permissions, schemas, logging, billing, self-check/restart, runtime settings, and workspace security helpers.
 - `domain/`
-  - shared backend domain types.
-  - Move broad types here when breaking up `types.ts`.
-- `im/`
-  - IM provider adapters, channel registry, slash commands, lifecycle tracking, and provider-specific message handling.
+  - Shared backend domain types. `types.ts` remains broad for now and should be split gradually by domain.
+- `mcp/`
+  - MCP configuration helpers used by runner and routes.
+- `messaging/`
+  - IM/message layer: provider adapters, channel registry, slash commands, downloads, attachments, lifecycle tracking, notifications, and provider-specific formatting.
+- `presentation/`
+  - Shared user-visible response formatting: assistant footer, reply visibility, stream event types, streaming runtime metadata, loop status, and tool step display.
+- `skills/`
+  - Skill discovery, validation, command dispatch, and skill utility functions.
+- `storage/`
+  - SQLite connection, schema, migrations, and persistence facade. `db.ts` is intentionally still a facade until repositories are split.
 - `web/`
-  - HTTP app assembly, route helpers, WebSocket state, and web-only message handling.
+  - Hono app assembly, WebSocket state/context, auth middleware, HTTP routes, and terminal manager.
 
-## Current Migration State
+## Rules For Future Changes
 
-The refactor is intentionally incremental. Some legacy top-level files still exist while their responsibilities are moved into modules.
-
-Current moduleized files:
-
-- `agent/runner/output-parser.ts`
-- `agent/runner/workspace-reset.ts`
-- `agent/queue/group-queue.ts`
-- `agent/scheduler/index.ts`
-- `core/runtime/command-handler.ts`
-- `core/runtime/group-runtime.ts`
-- `core/runtime/identity.ts`
-- `core/runtime/model-options.ts`
-- `core/runtime/usage.ts`
-- `core/workspace/host-cwd.ts`
-
-When moving a file:
-
-1. Move the implementation into the target module.
-2. Rewrite imports directly to the new path.
-3. Avoid old-path compatibility facades unless a build break cannot be resolved in the same pass.
-4. Run `npm run typecheck` before moving the next batch.
+1. Put new files in the module that owns the behavior.
+2. Prefer direct imports from the owning module path; do not add legacy compatibility facades for moved files.
+3. Keep root files limited to runtime entrypoints.
+4. When moving files, rewrite imports in the same change and run `npm run typecheck` before continuing.
+5. Split large facade files only when changing their behavior; do not mix broad internal splits with unrelated feature work.

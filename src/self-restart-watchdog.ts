@@ -1,8 +1,8 @@
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 
-import { logger } from './logger.js';
-import { runSelfRestartWatchdog } from './self-restart.js';
+import { logger } from './core/logger.js';
+import { runSelfRestartWatchdog } from './core/self/self-restart.js';
 
 async function main(): Promise<void> {
   const intentPath = process.argv[2];

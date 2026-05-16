@@ -2,12 +2,12 @@ import { ChildProcess, exec, execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { DATA_DIR } from '../../config.js';
-import { killProcessTree } from '../../container-runner.js';
-import { getTaskById } from '../../db.js';
-import { getSystemSettings } from '../../runtime-config.js';
-import { logger } from '../../logger.js';
-import type { MessageCursor } from '../../types.js';
+import { DATA_DIR } from '../../core/config.js';
+import { killProcessTree } from '../runner/container-runner.js';
+import { getTaskById } from '../../storage/db.js';
+import { getSystemSettings } from '../../core/runtime/config.js';
+import { logger } from '../../core/logger.js';
+import type { MessageCursor } from '../../domain/types.js';
 export type SendMessageResult = 'sent' | 'no_active';
 
 interface QueuedTask {

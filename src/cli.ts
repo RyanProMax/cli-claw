@@ -6,8 +6,8 @@ import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 import {
   createCliStartLaunchSpec,
   type StartupLaunchSpec,
-} from './startup-launch.js';
-import { requestSelfRestartFromSavedState } from './self-restart.js';
+} from './core/self/startup-launch.js';
+import { requestSelfRestartFromSavedState } from './core/self/self-restart.js';
 
 type CliCommand = 'start' | 'restart' | 'version' | 'help';
 

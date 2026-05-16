@@ -1,11 +1,11 @@
-import { generateUserId, hashPassword } from './auth.js';
+import { generateUserId, hashPassword } from './core/auth.js';
 import {
   initDatabase,
   getUserByUsername,
   createUser,
   updateUserFields,
   deleteUserSessionsByUserId,
-} from './db.js';
+} from './storage/db.js';
 
 async function main(): Promise<void> {
   initDatabase();
