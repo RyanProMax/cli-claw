@@ -1,50 +1,54 @@
-# Active Task: Stock Loop Progress Notifier Cursor
+# Active Task: Stock Strategy Iteration Gate
 
 ## Current Goal
 
-- Fix stock loop progress notifications so completed market/news/KOL/strategy tasks are reported after the task-chain history grows beyond the notifier page size.
-- Keep the change scoped to notifier cursor semantics; do not change loop execution or Feishu delivery policy.
+- Stop the stock task-chain from treating collector prechecks as completed strategy iteration input.
+- Make the loop pause strategy iteration when KOL intelligence still requires an Agent-produced report, so market/news scans are not presented as a working self-iteration chain before strategy evidence exists.
+- Keep the change scoped to scheduling semantics and reporting contracts; do not add public API, approve / activate strategies, or touch live trading paths.
 
 ## Current Milestone
 
 Objective:
-- Move incremental task selection into SQL so the notifier reads rows after `lastCompletedCursor`, instead of reading the oldest 50 completed tasks and filtering in memory.
-- Add regression coverage for a cursor that is older than the newest rows but outside the first page of completed history.
-- Verify the live notifier emits the missed progress and advances its cursor.
+- Add a regression showing `kol_scan` with `agent_required` must not schedule `strategy_iteration`.
+- Change task-chain scheduling so `strategy_iteration` is only queued after actionable KOL intelligence is collected and no main post-market drain task is pending.
+- Update the stock-analysis docs/plan to record the new gate and current blocker.
 
 Allowed scope:
-- `scripts/stock-loop-progress-notifier.mjs`
-- focused tests for the notifier script
-- this active plan
+- `/Users/ryan/projects/stock-analysis-api/src/services/task_chain_service.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_task_chain_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/docs/architecture.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/task-chain-worker.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `PLANS/ROADMAP.md`
+- `PLANS/ACTIVE.md`
 
 Validation:
-- Reproduce the pre-fix no-output condition with the live task-chain state.
-- Run the new notifier regression test.
-- Run `git diff --check`.
-- Run the review helper if the targeted validation passes.
+- Run the focused task-chain regression test.
+- Run `uv run pytest tests/test_task_chain_cli.py`.
+- Run `git diff --check` in both affected repositories.
+- Run the repo review helper where available.
 
 Status:
 - done
 
 Validation status:
-- passed 2026-05-15:
-  - Reproduced the live no-output condition before the fix: the notifier state cursor stayed at `2026-05-15T13:36:48.970486+00:00` while newer `news_scan` / `strategy_iteration` tasks existed.
-  - `npm test -- tests/stock-loop-progress-notifier.test.ts`: passed.
-  - Live task-chain dry run with a temporary state file emitted 6 missed items and advanced the temp cursor to `2026-05-15T14:18:39.085319+00:00`.
-  - Real scheduled notifier run at `2026-05-15T14:29:11Z` sent the missed Feishu progress message and advanced `.cli-claw/stock-loop-progress-notifier.json`.
-  - `npx prettier --check scripts/stock-loop-progress-notifier.mjs tests/stock-loop-progress-notifier.test.ts PLANS/ACTIVE.md`: passed.
-  - `git diff --check`: passed.
-  - `./scripts/review.sh`: passed mechanical checks and requested semantic review.
+- passed 2026-05-16:
+  - Reproduced the pre-fix failure with `uv run pytest tests/test_task_chain_cli.py::test_kol_scan_does_not_treat_assistant_prompt_as_final_report tests/test_task_chain_cli.py::test_kol_scan_with_final_report_can_trigger_strategy_iteration`: `agent_required` KOL still scheduled `strategy_iteration`.
+  - Focused regression after fix: same command passed, 2 tests.
+  - `uv run pytest tests/test_task_chain_cli.py`: passed, 13 tests.
+  - `/Users/ryan/projects/stock-analysis-api`: `git diff --check` passed.
+  - `/Users/ryan/projects/cli-claw`: `git diff --check` passed.
+  - `/Users/ryan/projects/cli-claw`: `./scripts/review.sh` passed mechanical checks and requested semantic review.
 
 Review status:
-- passed 2026-05-15: scoped to notifier cursor selection plus a focused regression test; no loop execution semantics, Feishu delivery policy, or stock-analysis task-chain behavior changed.
+- passed 2026-05-16: diff stays within the active scope; `kol_scan agent_required` no longer advances strategy iteration, collected KOL output still can unblock it, no public API / approval / activation / live trading path changed, and owner docs plus roadmap are synchronized.
 
 ## Notes
 
-- Root cause found 2026-05-15: `fetchRows()` queried `ORDER BY updated_at ASC LIMIT 50` and only then applied `isAfterCursor()` in JS. The live task-chain has 56 completed rows, so the query returned only old rows and never saw the completed `news_scan` / `strategy_iteration` rows after the cursor.
+- Root cause found 2026-05-16: live task-chain runs repeatedly completed `kol_scan` with `status=agent_required` because `stock-kol-intel` returned an assistant prompt, not final KOL intelligence. `_execute_task()` still scheduled `strategy_iteration`, so the loop reran alpha research while consuming placeholder KOL input and while the strategy registry had no active strategy versions.
 
 ## Handoff
 
-- The stock loop is running and progress notifications resumed.
-- Latest verified emitted progress included `news_scan`, `kol_scan`, and `strategy_iteration`.
-- Next loop capability gap remains separate: KOL scan still records `agent_required` because `stock-kol-intel` returns an Agent prompt, not the final report.
+- Completed. The task-chain source invoked by launchd will pick up the scheduling gate on the next `uv run python scripts/task_chain.py ... tick` invocation.
+- Current live task-chain pending state has only a future `market_observe`; no stale `strategy_iteration` is pending.
+- Follow-up tracked in `PLANS/ROADMAP.md`: Cli Claw still needs an Agent handoff to turn `stock-kol-intel` `agent_required` prompts into final KOL reports.
