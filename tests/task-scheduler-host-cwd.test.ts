@@ -256,6 +256,11 @@ describe('task scheduler host cwd forwarding', () => {
     });
 
     expect(getRunningTaskIds()).toContain('task-finalizing');
+    expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
+      'task-finalizing',
+      null,
+      'ok',
+    );
     releaseHostAgent();
     await running;
     expect(getRunningTaskIds()).not.toContain('task-finalizing');

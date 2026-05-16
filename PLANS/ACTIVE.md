@@ -11,7 +11,7 @@
 Objective:
 - Add a regression for host scheduled agent tasks whose runtime returns a login/setup failure as a textual result.
 - Classify those runtime-failure results as task errors in `task_run_logs` and `last_result`.
-- Keep a task in `runningTaskIds` until `runTask()` has updated `scheduled_tasks`, even if the run log was already finalized by a streamed terminal output.
+- Finalize the `scheduled_tasks` row as soon as terminal output finalizes the run log, while still keeping the task in `runningTaskIds` until the agent process exits.
 - Record the real stock handoff probe outcome and next operator step.
 
 Allowed scope:
@@ -35,7 +35,7 @@ Validation status:
 - passed 2026-05-16:
   - Reproduced the failing scheduler regression with `npm test -- tests/task-scheduler-host-cwd.test.ts`: a host agent result `Not logged in · Please run /login` was logged as `status='success'`.
   - After the first fix and restart, a real retry logged the Codex login result as `error`, but also exposed that `runningTaskIds` is cleared before once-task finalization, allowing the due task to be re-enqueued while the first run is still closing.
-  - Reproduced the early-running-guard failure with `npm test -- tests/task-scheduler-host-cwd.test.ts`: `getRunningTaskIds()` was empty after terminal output finalized the run log but before `runTask()` updated the scheduled task row.
+  - Reproduced the early-running-guard/finalization failure with `npm test -- tests/task-scheduler-host-cwd.test.ts`: terminal output finalized the run log before the scheduled task row was updated, and `getRunningTaskIds()` was already empty.
   - `npm test -- tests/task-scheduler-host-cwd.test.ts`: passed, 5 tests.
   - `npm run typecheck:backend`: passed.
   - `./scripts/review.sh`: passed mechanical checks and confirmed semantic review is required before marking done.
@@ -44,12 +44,12 @@ Validation status:
 Review status:
 - passed 2026-05-16:
   - Scope check: edits stay within the active milestone scope.
-  - Objective check: scheduled agent textual login/setup failures are now classified as task errors, and tasks stay in `runningTaskIds` until `runTask()` has finalized the scheduled task row.
+  - Objective check: scheduled agent textual login/setup failures are now classified as task errors; terminal output finalizes both the run log and scheduled task row; tasks stay in `runningTaskIds` until the agent process exits.
   - Pattern-fit check: the fix stays inside scheduler bookkeeping/classification logic and reuses existing runtime-error formatting.
   - Test and validation check: focused scheduler regression, backend typecheck, mechanical review, and whitespace diff check passed.
   - Hygiene check: no placeholder markers, debug logging, or temporary code found in the changed milestone files.
   - Docs check: no owner-doc contract changed; roadmap is updated with the real probe and scheduler guard progress.
-  - Regression/contract check: script tasks and normal agent successes are unchanged; once-task duplicate enqueue is reduced by keeping the running guard until final task update.
+  - Regression/contract check: script tasks and normal agent successes are unchanged; once-task duplicate enqueue is reduced by finalizing the task row promptly and keeping the running guard until process exit.
 
 ## Notes
 
@@ -78,4 +78,4 @@ Suspected cause:
 - `runTask()` previously treated `ContainerOutput.status='success'` with textual runtime errors as success, and `finalizeRunLog()` also cleared `runningTaskIds` before `updateTaskAfterRun()`.
 
 Next step:
-- Commit and restart Cli Claw so the scheduler picks up the running-guard fix, then retry or requeue the stock handoff task after Codex login is available.
+- Commit and restart Cli Claw so the scheduler picks up the finalization fix, then retry or requeue the stock handoff task after Codex login is available.

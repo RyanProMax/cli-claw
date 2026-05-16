@@ -404,6 +404,19 @@ export async function runTask(
   // duration_ms should measure actual work time, not include idle wait.
   let lastOutputTime = startTime;
   let runLogFinalized = false;
+  let taskAfterRunFinalized = false;
+
+  const finalizeTaskAfterRun = () => {
+    if (taskAfterRunFinalized) return;
+    taskAfterRunFinalized = true;
+    const nextRun = options?.manualRun ? task.next_run : computeNextRun(task);
+    const resultSummary = error
+      ? `Error: ${error}`
+      : result
+        ? result.slice(0, 200)
+        : 'Completed';
+    updateTaskAfterRun(task.id, nextRun, resultSummary);
+  };
 
   const finalizeRunLog = () => {
     if (runLogFinalized) return;
@@ -419,6 +432,7 @@ export async function runTask(
     // freeing the queue slot for the next run.
     if (idleTimer) clearTimeout(idleTimer);
     deps.queue.closeStdin(effectiveJid);
+    finalizeTaskAfterRun();
   };
 
   // Use persistent session for task workspace
@@ -548,15 +562,7 @@ export async function runTask(
     finalizeRunLog();
   }
 
-  // manualRun: preserve original next_run schedule
-  const nextRun = options?.manualRun ? task.next_run : computeNextRun(task);
-
-  const resultSummary = error
-    ? `Error: ${error}`
-    : result
-      ? result.slice(0, 200)
-      : 'Completed';
-  updateTaskAfterRun(task.id, nextRun, resultSummary);
+  finalizeTaskAfterRun();
 
   // Auto-cleanup once-task workspace after completion
   if (
