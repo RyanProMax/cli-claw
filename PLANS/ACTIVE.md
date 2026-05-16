@@ -40,6 +40,7 @@ Validation status:
   - `npm run typecheck:backend`: passed.
   - `./scripts/review.sh`: passed mechanical checks and confirmed semantic review is required before marking done.
   - `git diff --check`: passed.
+  - Live retry after restart: latest `stock-handoff-7a966070-7522-4eb1-90c4-a41682bf3fa1` run logged `status=error` with `Codex CLI 未登录。请先在服务器上执行：codex login`; `scheduled_tasks.status=completed`, `next_run=NULL`, and no additional run appeared in the next scheduler cycle.
 
 Review status:
 - passed 2026-05-16:
@@ -78,4 +79,4 @@ Suspected cause:
 - `runTask()` previously treated `ContainerOutput.status='success'` with textual runtime errors as success, and `finalizeRunLog()` also cleared `runningTaskIds` before `updateTaskAfterRun()`.
 
 Next step:
-- Commit and restart Cli Claw so the scheduler picks up the finalization fix, then retry or requeue the stock handoff task after Codex login is available.
+- Fix the scheduled-task workspace Codex login/readiness issue, then retry or requeue the pending stock handoff so the agent can claim it and write the KOL report through `handoff complete`.
