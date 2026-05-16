@@ -76,9 +76,10 @@ Changed files:
 Last failure summary:
 - Extra full-suite attempt failed in the existing Feishu E2E stale-payload assertion:
   `tests/feishu-e2e.test.ts > does not write Codex replayed presentation text into real Feishu streaming cards for the current cursor`.
+- Operational follow-up 2026-05-16: real bridge run against `/Users/ryan/projects/stock-analysis-api/.cache/task_chain.sqlite` and `~/.cli-claw/db/messages.db` returned `created=0`, `skipped_existing=0`, `ignored=0`; current stock handoff queue is empty.
 
 Suspected cause:
 - Existing Feishu presentation/current-cursor regression or fixture issue; not caused by the stock bridge diff.
 
 Next step:
-- Run the bridge against the real stock task-chain DB, confirm the created Cli Claw scheduled agent task is picked up, then add execution-log sweep / retry handling for tasks that fail before calling stock `handoff fail`.
+- Wait for or generate the next pending stock handoff, rerun the bridge, confirm the created Cli Claw scheduled agent task is picked up, then add execution-log sweep / retry handling for tasks that fail before calling stock `handoff fail`.

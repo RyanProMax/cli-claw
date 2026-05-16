@@ -92,8 +92,9 @@
   - Cli Claw presentation and Agent execution boundaries should stay aligned with `docs/RUNTIME.md`.
 - Recent progress:
   - 2026-05-16: Added `scripts/stock-handoff-agent-bridge.mjs`, which creates deterministic `execution_type=agent`, `schedule_type=once` tasks from stock P1b handoffs without pre-claiming them; the scheduled agent claims the exact handoff id at runtime before complete/fail. The bridge supports stock SQLite input and exported JSON fixtures, and is covered for deterministic task creation plus idempotency.
+  - 2026-05-16: Ran the bridge against the real stock task-chain DB and Cli Claw DB; it returned `created=0`, `skipped_existing=0`, `ignored=0` because the stock handoff queue is currently empty.
 - Next action:
-  - Run the bridge against the real stock task-chain DB and verify the scheduled agent writes a final KOL report back through `handoff complete`.
+  - Wait for or generate the next pending stock handoff, rerun the bridge, and verify the scheduled agent writes a final KOL report back through `handoff complete`.
   - Add execution-log sweep / retry handling for scheduled agent tasks that fail before calling stock `handoff fail`.
 
 ### P2 RM-2026-04-25-07 Codex Runtime Health And Model Guardrails
