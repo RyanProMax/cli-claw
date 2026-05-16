@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import {
   Agent,
-  run,
+  Runner,
   type AgentInputItem,
+  type ModelProvider,
   type ModelSettings,
 } from '@openai/agents';
 import type {
@@ -193,6 +194,7 @@ async function runOpenAiTurn(
   prompt: string,
   images: Array<{ data: string; mimeType?: string }> | undefined,
   sessionId: string | undefined,
+  modelProvider: ModelProvider,
   deps: OpenAiAgentRuntimeDeps,
 ): Promise<{
   sessionId: string;
@@ -205,6 +207,7 @@ async function runOpenAiTurn(
   deps.setLatestSessionId(currentSessionId);
 
   const abortController = new AbortController();
+  const runner = new Runner({ modelProvider });
   let interrupted = false;
   let closed = false;
   const cancelWatcher = setInterval(() => {
@@ -225,7 +228,7 @@ async function runOpenAiTurn(
   );
 
   try {
-    const result = await run(agent, buildInputItems(prompt, images), {
+    const result = await runner.run(agent, buildInputItems(prompt, images), {
       stream: true,
       session,
       signal: abortController.signal,
@@ -276,7 +279,7 @@ export async function runOpenAiAgentLoop(
   containerInput: ContainerInput,
   deps: OpenAiAgentRuntimeDeps,
 ): Promise<void> {
-  configureCodexCliOpenAiProvider();
+  const modelProvider = configureCodexCliOpenAiProvider();
 
   let sessionId = containerInput.sessionId;
   deps.setLatestSessionId(sessionId);
@@ -349,6 +352,7 @@ export async function runOpenAiAgentLoop(
       prompt,
       promptImages,
       sessionId,
+      modelProvider,
       deps,
     );
     sessionId = turnResult.sessionId;

@@ -2,7 +2,8 @@ import { OpenAIProvider, setDefaultModelProvider } from '@openai/agents';
 import { OpenAI } from 'openai/index.js';
 
 const CODEX_BACKEND_BASE_URL =
-  process.env.CLI_CLAW_CODEX_BASE_URL || 'https://chatgpt.com/backend-api/codex';
+  process.env.CLI_CLAW_CODEX_BASE_URL ||
+  'https://chatgpt.com/backend-api/codex';
 
 function normalizeText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -11,9 +12,14 @@ function normalizeText(value: string | null | undefined): string | null {
 }
 
 function base64UrlDecode(value: string): string {
-  const padded = value.padEnd(value.length + ((4 - (value.length % 4)) % 4), '=');
-  return Buffer.from(padded.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
-    .toString('utf8');
+  const padded = value.padEnd(
+    value.length + ((4 - (value.length % 4)) % 4),
+    '=',
+  );
+  return Buffer.from(
+    padded.replace(/-/g, '+').replace(/_/g, '/'),
+    'base64',
+  ).toString('utf8');
 }
 
 export function getChatGptAccountIdFromToken(
@@ -22,7 +28,10 @@ export function getChatGptAccountIdFromToken(
   const payload = accessToken.split('.')[1];
   if (!payload) return null;
   try {
-    const claims = JSON.parse(base64UrlDecode(payload)) as Record<string, unknown>;
+    const claims = JSON.parse(base64UrlDecode(payload)) as Record<
+      string,
+      unknown
+    >;
     const authClaim = claims['https://api.openai.com/auth'];
     if (!authClaim || typeof authClaim !== 'object') return null;
     return normalizeText(
@@ -35,7 +44,9 @@ export function getChatGptAccountIdFromToken(
   }
 }
 
-export function buildCodexCliHeaders(accessToken: string): Record<string, string> {
+export function buildCodexCliHeaders(
+  accessToken: string,
+): Record<string, string> {
   const accountId =
     normalizeText(process.env.CLI_CLAW_CODEX_ACCOUNT_ID) ??
     getChatGptAccountIdFromToken(accessToken);
@@ -46,7 +57,7 @@ export function buildCodexCliHeaders(accessToken: string): Record<string, string
   };
 }
 
-export function configureCodexCliOpenAiProvider(): void {
+export function configureCodexCliOpenAiProvider(): OpenAIProvider {
   const accessToken = normalizeText(process.env.CLI_CLAW_CODEX_ACCESS_TOKEN);
   if (!accessToken) {
     throw new Error(
@@ -60,10 +71,10 @@ export function configureCodexCliOpenAiProvider(): void {
     defaultHeaders: buildCodexCliHeaders(accessToken),
   });
 
-  setDefaultModelProvider(
-    new OpenAIProvider({
-      openAIClient: client,
-      useResponses: true,
-    }),
-  );
+  const provider = new OpenAIProvider({
+    openAIClient: client,
+    useResponses: true,
+  });
+  setDefaultModelProvider(provider);
+  return provider;
 }
