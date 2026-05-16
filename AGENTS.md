@@ -2,7 +2,7 @@
 
 > 本文负责：仓库入口、必读顺序、复杂任务执行底线、执行协议入口和文档分工入口。模块树只在 `docs/MODULE.md` 维护；架构、运行时、记忆机制、命令说明分别由 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/MEMORY.md`、`docs/COMMAND.md` 维护。
 
-Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消息接入、权限、调度、存储与 Web API；前端负责 Web / PWA 体验；`container/agent-runner/` 负责实际 Agent 执行、工具调用与流式事件。当前运行时包括 `claude`（Claude Agent SDK + Claude Code CLI）和 `codex`（Codex CLI + `codex-acp`）。
+Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消息接入、权限、调度、存储与 Web API；前端负责 Web / PWA 体验；`container/agent-runner/` 负责实际 Agent 执行、工具调用与流式事件。当前运行时包括 `claude`（Claude Agent SDK + Claude Code CLI）和 `openai`（OpenAI Agents SDK）。
 
 ## 必读顺序
 
@@ -29,6 +29,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 
 - 仓库级执行协议放在 tracked 文件里：`AGENTS.md`、`PLANS/ROADMAP.md`、`PLANS/_TEMPLATE.md`、`RUNBOOKS/*.md`、`.agents/*.md`。
 - `PLANS/ROADMAP.md` 负责跨轮次长期跟进；`PLANS/ACTIVE.md` 是当前复杂任务的本地临时计划，不作为长期协议入口。
+- 所有 superpowers / spec workflow / plan 产物必须统一落在 `PLANS/`：当前执行计划写 `PLANS/ACTIVE.md`，跨轮次事项写 `PLANS/ROADMAP.md`，模板写 `PLANS/_TEMPLATE.md`。禁止创建或写入 `docs/superpowers/`、`docs/superpowsers/`、`docs/**/plans/`、`docs/**/specs/` 作为计划或规格落盘位置；发现旧文件应迁移或删除。
 - `docs/.local/PLAN.md` 若有人自行创建，只能视为个人草稿。
 
 ## 复杂任务底线

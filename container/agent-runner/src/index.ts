@@ -22,18 +22,7 @@ import {
   PreCompactHookInput,
   createSdkMcpServer,
 } from '@anthropic-ai/claude-agent-sdk';
-import {
-  ClientSideConnection,
-  ndJsonStream,
-  type ContentBlock,
-  type McpServer,
-  type PermissionOption,
-  type SessionMode,
-  type SessionNotification,
-} from '@agentclientprotocol/sdk';
 import { detectImageMimeTypeFromBase64Strict } from './image-detector.js';
-import { spawn } from 'node:child_process';
-import { Readable, Writable } from 'node:stream';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 import {
   detectAgentRunnerCliClawServiceControl,
@@ -47,24 +36,20 @@ import type {
   SDKUserMessage,
   StreamEvent,
 } from './types.js';
-import type { StreamRuntimeIdentity } from './stream-event.types.js';
 export type { StreamEventType, StreamEvent } from './types.js';
 
 import { StreamEventProcessor } from './stream-processor.js';
 import { PREDEFINED_AGENTS } from './agent-definitions.js';
 import { createMcpTools } from './mcp-tools.js';
-import { readCodexCliConfig } from './codex-config.js';
 import {
-  appendCodexFinalTurnChunk,
-  buildCodexAcpLaunchArgs,
-  createCodexTranscriptCheckpoint,
-  extractCodexAssistantMessagePhase,
-  formatCodexRuntimeError,
+  buildOpenAiRuntimeIdentity,
+  runOpenAiAgentLoop,
+} from './openai-agent-runtime.js';
+import {
+  formatOpenAiRuntimeError,
   mergeRuntimeIdentityState,
-  resolveCodexTranscriptTurn,
-  shouldEmitCodexSessionUpdate,
-  stripCodexRuntimeDiagnosticPrefix,
-} from './codex-session-runtime.js';
+  type RuntimeIdentityState,
+} from './openai-agent-stream.js';
 // 路径解析：优先读取环境变量，降级到容器内默认路径（保持向后兼容）
 const WORKSPACE_GROUP =
   process.env.CLI_CLAW_WORKSPACE_GROUP || '/workspace/group';
@@ -74,28 +59,15 @@ const WORKSPACE_IPC = process.env.CLI_CLAW_WORKSPACE_IPC || '/workspace/ipc';
 // 别名自动解析为最新版本，如 opus → Opus 4.6
 // [1m] 后缀启用 1M 上下文窗口（CLI 内部 jG() 识别后缀，sM() 返回 1M 窗口）
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'opus[1m]';
-const CODEX_MODEL = process.env.OPENAI_MODEL || process.env.CODEX_MODEL || '';
-const CODEX_REASONING_EFFORT =
-  process.env.OPENAI_REASONING_EFFORT ||
-  process.env.CODEX_REASONING_EFFORT ||
-  process.env.REASONING_EFFORT ||
-  '';
-const CODEX_SERVICE_TIER =
-  process.env.OPENAI_SERVICE_TIER ||
-  process.env.CODEX_SERVICE_TIER ||
-  process.env.SERVICE_TIER ||
-  '';
-const CODEX_CLI_CONFIG = readCodexCliConfig();
 
 const IPC_INPUT_DIR = path.join(WORKSPACE_IPC, 'input');
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_FALLBACK_POLL_MS = 5000; // 后备轮询间隔（仅防止 inotify 事件丢失）
-const CODEX_INTERRUPT_POLL_MS = 250;
 
 // Module-level session ID so SIGTERM handler can emit it before exit.
 // Updated in main() whenever a query returns a new session.
 let latestSessionId: string | undefined;
-let activeRuntimeIdentity: StreamRuntimeIdentity | null = null;
+let activeRuntimeIdentity: RuntimeIdentityState | null = null;
 
 const CLI_CLAW_SERVICE_CONTROL_CONTEXT = {
   backendPid:
@@ -115,134 +87,15 @@ function normalizeRuntimeText(value: string | undefined): string | null {
   return trimmed || null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function readStringField(
-  record: Record<string, unknown>,
-  key: string,
-): string | null {
-  const value = record[key];
-  return typeof value === 'string' ? normalizeRuntimeText(value) : null;
-}
-
-function readCodexConfigOption(
-  options: unknown,
-  optionKey: string,
-): string | null {
-  if (Array.isArray(options)) {
-    for (const option of options) {
-      if (!isRecord(option)) continue;
-      const key =
-        readStringField(option, 'key') ??
-        readStringField(option, 'id') ??
-        readStringField(option, 'name');
-      if (key !== optionKey) continue;
-      const currentValue =
-        readStringField(option, 'currentValue') ??
-        readStringField(option, 'value') ??
-        readStringField(option, 'selectedValue');
-      if (currentValue) return currentValue;
-    }
-    return null;
-  }
-
-  if (isRecord(options)) {
-    const direct = options[optionKey];
-    if (typeof direct === 'string') {
-      return normalizeRuntimeText(direct);
-    }
-    if (isRecord(direct)) {
-      return (
-        readStringField(direct, 'currentValue') ??
-        readStringField(direct, 'value') ??
-        readStringField(direct, 'selectedValue')
-      );
-    }
-  }
-
-  return null;
-}
-
-function extractCodexRuntimeIdentity(
-  payload: unknown,
-): StreamRuntimeIdentity | null {
-  if (!isRecord(payload)) return null;
-
-  let model =
-    readStringField(payload, 'model') ??
-    readStringField(payload, 'currentModelId');
-  let reasoningEffort =
-    readStringField(payload, 'reasoning_effort') ??
-    readStringField(payload, 'model_reasoning_effort');
-  let speedTier =
-    readStringField(payload, 'speed_tier') ??
-    readStringField(payload, 'service_tier');
-
-  const models = isRecord(payload.models) ? payload.models : null;
-  const currentModelId = models
-    ? readStringField(models, 'currentModelId')
-    : null;
-
-  if ((!model || !reasoningEffort) && currentModelId) {
-    const [modelPart, effortPart] = currentModelId.split('/', 2);
-    model = model ?? normalizeRuntimeText(modelPart);
-    reasoningEffort = reasoningEffort ?? normalizeRuntimeText(effortPart);
-  }
-
-  const configOptions = payload.configOptions;
-  model =
-    model ??
-    readCodexConfigOption(configOptions, 'model') ??
-    readCodexConfigOption(payload.config, 'model');
-  reasoningEffort =
-    reasoningEffort ??
-    readCodexConfigOption(configOptions, 'reasoning_effort') ??
-    readCodexConfigOption(configOptions, 'model_reasoning_effort') ??
-    readCodexConfigOption(payload.config, 'reasoning_effort') ??
-    readCodexConfigOption(payload.config, 'model_reasoning_effort');
-  speedTier =
-    speedTier ??
-    readCodexConfigOption(configOptions, 'service_tier') ??
-    readCodexConfigOption(payload.config, 'service_tier');
-
-  if (!model && !reasoningEffort && !speedTier) return null;
-
-  return {
-    agentType: 'codex',
-    model,
-    reasoningEffort,
-    speedTier: speedTier ?? null,
-    supportsReasoningEffort: true,
-  };
-}
-
 function buildRuntimeIdentity(
-  agentType: 'claude' | 'codex',
+  agentType: 'claude' | 'openai',
   requestedRuntime?: Pick<
     ContainerInput,
     'model' | 'reasoningEffort' | 'speedTier'
   >,
-): StreamRuntimeIdentity {
-  if (agentType === 'codex') {
-    return {
-      agentType: 'codex',
-      model:
-        normalizeRuntimeText(requestedRuntime?.model ?? undefined) ??
-        normalizeRuntimeText(CODEX_MODEL) ??
-        normalizeRuntimeText(CODEX_CLI_CONFIG.model ?? undefined),
-      reasoningEffort:
-        normalizeRuntimeText(requestedRuntime?.reasoningEffort ?? undefined) ??
-        normalizeRuntimeText(CODEX_REASONING_EFFORT) ??
-        normalizeRuntimeText(CODEX_CLI_CONFIG.reasoningEffort ?? undefined),
-      speedTier:
-        normalizeRuntimeText(requestedRuntime?.speedTier ?? undefined) ??
-        normalizeRuntimeText(CODEX_SERVICE_TIER) ??
-        normalizeRuntimeText(CODEX_CLI_CONFIG.speedTier ?? undefined) ??
-        'standard',
-      supportsReasoningEffort: true,
-    };
+): RuntimeIdentityState {
+  if (agentType === 'openai') {
+    return buildOpenAiRuntimeIdentity(requestedRuntime);
   }
   return {
     agentType: 'claude',
@@ -1103,96 +956,6 @@ function loadUserMcpServers(): Record<string, unknown> {
   return {};
 }
 
-function buildAcpMcpServers(): McpServer[] {
-  const merged = loadUserMcpServers() as Record<
-    string,
-    Record<string, unknown>
-  >;
-  const servers: McpServer[] = [];
-
-  for (const [name, entry] of Object.entries(merged)) {
-    if (!entry || typeof entry !== 'object') continue;
-
-    if (typeof entry.command === 'string') {
-      servers.push({
-        name,
-        command: entry.command,
-        args: Array.isArray(entry.args)
-          ? entry.args.map((value) => String(value))
-          : [],
-        env:
-          entry.env && typeof entry.env === 'object'
-            ? Object.entries(entry.env as Record<string, unknown>).map(
-                ([envName, value]) => ({
-                  name: envName,
-                  value: String(value),
-                }),
-              )
-            : [],
-      });
-      continue;
-    }
-
-    const type = entry.type === 'sse' ? 'sse' : 'http';
-    if (typeof entry.url === 'string') {
-      servers.push({
-        name,
-        type,
-        url: entry.url,
-        headers:
-          entry.headers && typeof entry.headers === 'object'
-            ? Object.entries(entry.headers as Record<string, unknown>).map(
-                ([headerName, value]) => ({
-                  name: headerName,
-                  value: String(value),
-                }),
-              )
-            : [],
-      });
-    }
-  }
-
-  return servers;
-}
-
-function choosePermissionOption(
-  options: PermissionOption[],
-  preferredKinds: Array<PermissionOption['kind']> = [
-    'allow_once',
-    'allow_always',
-  ],
-): string | null {
-  for (const kind of preferredKinds) {
-    const match = options.find((option) => option.kind === kind);
-    if (match) return match.optionId;
-  }
-  return options[0]?.optionId ?? null;
-}
-
-function extractAcpToolCallCommandText(toolCall: {
-  rawInput?: unknown;
-  content?: Array<{
-    type?: string;
-    content?: { type?: string; text?: string };
-  }>;
-}): string | null {
-  const direct = extractShellCommandText(toolCall.rawInput);
-  if (direct) return direct;
-
-  for (const block of toolCall.content || []) {
-    if (
-      block?.type === 'content' &&
-      block.content?.type === 'text' &&
-      typeof block.content.text === 'string' &&
-      block.content.text.trim()
-    ) {
-      return block.content.text.trim();
-    }
-  }
-
-  return null;
-}
-
 function createPreToolUseHook(chatJid: string): HookCallback {
   return async (input) => {
     const preTool = input as {
@@ -1226,526 +989,6 @@ function createPreToolUseHook(chatJid: string): HookCallback {
   };
 }
 
-function summarizeUnknown(value: unknown, maxLength = 240): string | undefined {
-  if (value === undefined) return undefined;
-  try {
-    const serialized =
-      typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-    return serialized.length > maxLength
-      ? `${serialized.slice(0, maxLength)}...`
-      : serialized;
-  } catch {
-    return String(value);
-  }
-}
-
-function codexPromptBlocks(
-  prompt: string,
-  images?: Array<{ data: string; mimeType?: string }>,
-): ContentBlock[] {
-  const blocks: ContentBlock[] = [{ type: 'text', text: prompt }];
-  for (const image of images || []) {
-    blocks.push({
-      type: 'image',
-      data: image.data,
-      mimeType: image.mimeType || 'image/png',
-    });
-  }
-  return blocks;
-}
-
-async function runCodexLoop(containerInput: ContainerInput): Promise<void> {
-  if (containerInput.isScheduledTask) {
-    writeOutput({
-      status: 'error',
-      result: null,
-      error: 'Codex does not support scheduled task runs yet',
-    });
-    forceExitWithSafetyNet(1);
-  }
-
-  let sessionId = containerInput.sessionId;
-  latestSessionId = sessionId;
-
-  fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-  try {
-    fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
-  } catch {
-    /* ignore */
-  }
-  cleanupStartupInterruptSentinel();
-
-  let prompt = containerInput.prompt;
-  let promptImages = containerInput.images;
-  const pendingDrain = drainIpcInput();
-  if (pendingDrain.messages.length > 0) {
-    prompt +=
-      '\n' + pendingDrain.messages.map((message) => message.text).join('\n');
-    const pendingImages = pendingDrain.messages.flatMap(
-      (message) => message.images || [],
-    );
-    if (pendingImages.length > 0) {
-      promptImages = [...(promptImages || []), ...pendingImages];
-    }
-  }
-
-  const acpCommand = process.env.CODEX_ACP_COMMAND?.trim() || 'npx';
-  const acpArgs = buildCodexAcpLaunchArgs({
-    acpCommand,
-    requestedRuntime: {
-      model: containerInput.model ?? null,
-      reasoningEffort: containerInput.reasoningEffort ?? null,
-      speedTier: containerInput.speedTier ?? null,
-    },
-  });
-  const acpEnv = {
-    ...process.env,
-    ...(containerInput.model
-      ? {
-          OPENAI_MODEL: containerInput.model,
-          CODEX_MODEL: containerInput.model,
-        }
-      : {}),
-    ...(containerInput.reasoningEffort
-      ? {
-          OPENAI_REASONING_EFFORT: containerInput.reasoningEffort,
-          CODEX_REASONING_EFFORT: containerInput.reasoningEffort,
-          REASONING_EFFORT: containerInput.reasoningEffort,
-        }
-      : {}),
-    ...(containerInput.speedTier && containerInput.speedTier !== 'standard'
-      ? {
-          OPENAI_SERVICE_TIER: containerInput.speedTier,
-          CODEX_SERVICE_TIER: containerInput.speedTier,
-          SERVICE_TIER: containerInput.speedTier,
-        }
-      : {}),
-  };
-  if (containerInput.speedTier === 'standard') {
-    delete acpEnv.OPENAI_SERVICE_TIER;
-    delete acpEnv.CODEX_SERVICE_TIER;
-    delete acpEnv.SERVICE_TIER;
-  }
-  const acpProcess = spawn(acpCommand, acpArgs, {
-    cwd: WORKSPACE_GROUP,
-    env: acpEnv,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  acpProcess.stderr.setEncoding('utf8');
-  acpProcess.stderr.on('data', (chunk) => {
-    const text = String(chunk).trim();
-    if (text) {
-      log(`[codex-acp] ${text}`);
-    }
-  });
-
-  const stream = ndJsonStream(
-    Writable.toWeb(acpProcess.stdin),
-    Readable.toWeb(acpProcess.stdout),
-  );
-
-  let activeTurnText = '';
-  let activeTurnMessageUuid: string | undefined;
-  let activeSawAssistantMessagePhase = false;
-  let activeCodexTurnId = containerInput.turnId;
-  let activeCodexMessageCursor: { timestamp: string; id?: string } | undefined;
-  let liveCodexPromptActive = false;
-  let ignoredCodexSetupUpdateCount = 0;
-  const connection = new ClientSideConnection(
-    () => ({
-      requestPermission: async (params) => {
-        const commandText = extractAcpToolCallCommandText(params.toolCall);
-        if (commandText) {
-          const blocked = detectAgentRunnerCliClawServiceControl(
-            commandText,
-            containerInput.chatJid,
-            buildServiceControlContext(containerInput.chatJid),
-          );
-          if (blocked) {
-            log(
-              `Rejected unsafe Codex tool call: ${blocked.reason}; command=${blocked.matchedText}`,
-            );
-            const rejectOptionId = choosePermissionOption(params.options, [
-              'reject_once',
-              'reject_always',
-            ]);
-            if (rejectOptionId) {
-              return {
-                outcome: {
-                  outcome: 'selected',
-                  optionId: rejectOptionId,
-                },
-              };
-            }
-            return { outcome: { outcome: 'cancelled' } };
-          }
-        }
-        const optionId = choosePermissionOption(params.options);
-        if (!optionId) {
-          return { outcome: { outcome: 'cancelled' } };
-        }
-        return {
-          outcome: {
-            outcome: 'selected',
-            optionId,
-          },
-        };
-      },
-      sessionUpdate: async (notification: SessionNotification) => {
-        const update = notification.update as any;
-        if (
-          !shouldEmitCodexSessionUpdate({
-            livePromptActive: liveCodexPromptActive,
-          })
-        ) {
-          ignoredCodexSetupUpdateCount += 1;
-          if (ignoredCodexSetupUpdateCount <= 3) {
-            log(
-              `Ignoring Codex ACP session update outside live prompt: ${update?.sessionUpdate || 'unknown'}`,
-            );
-          }
-          return;
-        }
-        const baseEvent = {
-          turnId: activeCodexTurnId,
-          sessionId: notification.sessionId,
-          ...(activeCodexMessageCursor
-            ? { messageCursor: activeCodexMessageCursor }
-            : {}),
-          messageUuid:
-            typeof update.messageId === 'string' ? update.messageId : undefined,
-        };
-
-        switch (update.sessionUpdate) {
-          case 'agent_message_chunk': {
-            const chunkText =
-              update.content?.type === 'text' &&
-              typeof update.content.text === 'string'
-                ? update.content.text
-                : null;
-            const assistantMessagePhase =
-              extractCodexAssistantMessagePhase(update);
-            if (assistantMessagePhase) {
-              activeSawAssistantMessagePhase = true;
-            }
-            if (chunkText) {
-              const visibleChunkText =
-                stripCodexRuntimeDiagnosticPrefix(chunkText);
-              if (visibleChunkText !== chunkText) {
-                log('Suppressed Codex runtime diagnostic from assistant chunk');
-              }
-              if (!visibleChunkText) break;
-              const appended = appendCodexFinalTurnChunk(
-                activeTurnText,
-                {
-                  text: visibleChunkText,
-                  messageUuid:
-                    typeof update.messageId === 'string'
-                      ? update.messageId
-                      : undefined,
-                  assistantMessagePhase,
-                },
-                activeTurnMessageUuid,
-              );
-              activeTurnText = appended.text;
-              activeTurnMessageUuid = appended.lastMessageUuid;
-              writeOutput({
-                status: 'stream',
-                result: null,
-                newSessionId: notification.sessionId,
-                streamEvent: {
-                  ...baseEvent,
-                  eventType: 'text_delta',
-                  text: visibleChunkText,
-                  ...(assistantMessagePhase
-                    ? { assistantMessagePhase }
-                    : {}),
-                },
-              });
-            }
-            break;
-          }
-          case 'agent_thought_chunk': {
-            const thoughtText =
-              update.content?.type === 'text' &&
-              typeof update.content.text === 'string'
-                ? update.content.text
-                : null;
-            if (thoughtText) {
-              writeOutput({
-                status: 'stream',
-                result: null,
-                newSessionId: notification.sessionId,
-                streamEvent: {
-                  ...baseEvent,
-                  eventType: 'thinking_delta',
-                  text: thoughtText,
-                },
-              });
-            }
-            break;
-          }
-          case 'tool_call': {
-            writeOutput({
-              status: 'stream',
-              result: null,
-              newSessionId: notification.sessionId,
-              streamEvent: {
-                ...baseEvent,
-                eventType: 'tool_use_start',
-                toolUseId: update.toolCallId,
-                toolName: update.title || update.kind || 'tool',
-                toolInputSummary: summarizeUnknown(update.rawInput),
-                toolInput:
-                  update.rawInput && typeof update.rawInput === 'object'
-                    ? update.rawInput
-                    : undefined,
-              },
-            });
-            break;
-          }
-          case 'tool_call_update': {
-            writeOutput({
-              status: 'stream',
-              result: null,
-              newSessionId: notification.sessionId,
-              streamEvent: {
-                ...baseEvent,
-                eventType:
-                  update.status === 'completed' ||
-                  update.status === 'failed' ||
-                  update.status === 'cancelled'
-                    ? 'tool_use_end'
-                    : 'tool_progress',
-                toolUseId: update.toolCallId,
-                toolName: update.title || update.kind || 'tool',
-                text: summarizeUnknown(update.rawOutput),
-              },
-            });
-            break;
-          }
-          case 'usage_update': {
-            writeOutput({
-              status: 'stream',
-              result: null,
-              newSessionId: notification.sessionId,
-              streamEvent: {
-                ...baseEvent,
-                eventType: 'status',
-                statusText: 'usage_updated',
-              },
-            });
-            break;
-          }
-          default:
-            break;
-        }
-      },
-    }),
-    stream,
-  );
-
-  try {
-    await connection.initialize({
-      protocolVersion: 1,
-      clientInfo: { name: 'cli-claw', version: '1.0.0' },
-      clientCapabilities: {},
-    });
-
-    const mcpServers = buildAcpMcpServers();
-    if (sessionId) {
-      try {
-        const loadedSession = await connection.loadSession({
-          sessionId,
-          cwd: WORKSPACE_GROUP,
-          mcpServers,
-        });
-        activeRuntimeIdentity = mergeRuntimeIdentityState(
-          activeRuntimeIdentity,
-          extractCodexRuntimeIdentity(loadedSession),
-        );
-      } catch {
-        sessionId = undefined;
-        latestSessionId = undefined;
-      }
-    }
-
-    if (!sessionId) {
-      const newSession = await connection.newSession({
-        cwd: WORKSPACE_GROUP,
-        mcpServers,
-      });
-      sessionId = newSession.sessionId;
-      latestSessionId = sessionId;
-      activeRuntimeIdentity = mergeRuntimeIdentityState(
-        activeRuntimeIdentity,
-        extractCodexRuntimeIdentity(newSession),
-      );
-      if (
-        newSession.modes?.availableModes?.some(
-          (mode: SessionMode) => mode.id === 'auto',
-        )
-      ) {
-        await connection.setSessionMode({
-          sessionId,
-          modeId: 'auto',
-        });
-      }
-    }
-
-    while (true) {
-      try {
-        fs.unlinkSync(IPC_INPUT_INTERRUPT_SENTINEL);
-      } catch {
-        /* ignore */
-      }
-      clearInterruptRequested();
-      activeTurnText = '';
-      activeTurnMessageUuid = undefined;
-      activeSawAssistantMessagePhase = false;
-      activeCodexTurnId = containerInput.turnId;
-      activeCodexMessageCursor = containerInput.messageCursor;
-      emitTurnInitEvent(sessionId, activeCodexTurnId, activeCodexMessageCursor);
-      containerInput.messageCursor = undefined;
-
-      let closeRequested = false;
-      let interruptRequested = false;
-      const cancelWatcher = setInterval(() => {
-        if (!sessionId || closeRequested || interruptRequested) return;
-        if (shouldClose() || shouldDrain()) {
-          closeRequested = true;
-          void connection.cancel({ sessionId }).catch(() => {});
-          return;
-        }
-        if (shouldInterrupt()) {
-          interruptRequested = true;
-          void connection.cancel({ sessionId }).catch(() => {});
-        }
-      }, CODEX_INTERRUPT_POLL_MS);
-
-      try {
-        liveCodexPromptActive = true;
-        const transcriptCheckpoint = sessionId
-          ? createCodexTranscriptCheckpoint(sessionId)
-          : null;
-        await connection.prompt({
-          sessionId,
-          prompt: codexPromptBlocks(prompt, promptImages),
-        });
-        const transcriptTurn =
-          resolveCodexTranscriptTurn(transcriptCheckpoint);
-        const codexPhaseSource = activeSawAssistantMessagePhase
-          ? 'acp'
-          : transcriptTurn
-            ? 'transcript'
-            : 'none';
-        log(
-          `Codex assistant phase source: source=${codexPhaseSource}, acp=${activeSawAssistantMessagePhase}, transcriptCommentary=${transcriptTurn?.commentaryText.length ?? 0}, transcriptFinal=${transcriptTurn?.finalAnswerText.length ?? 0}, transcriptPath=${transcriptTurn?.transcriptPath || 'unknown'}`,
-        );
-        if (transcriptTurn) {
-          if (
-            transcriptTurn.commentaryText &&
-            !activeSawAssistantMessagePhase
-          ) {
-            writeOutput({
-              status: 'stream',
-              result: null,
-              newSessionId: sessionId,
-              streamEvent: {
-                eventType: 'text_delta',
-                text: transcriptTurn.commentaryText,
-                assistantMessagePhase: 'commentary',
-                isSynthetic: true,
-                turnId: activeCodexTurnId,
-                sessionId,
-                ...(activeCodexMessageCursor
-                  ? { messageCursor: activeCodexMessageCursor }
-                  : {}),
-              },
-            });
-          }
-          if (transcriptTurn.finalAnswerText) {
-            activeTurnText = transcriptTurn.finalAnswerText;
-            activeTurnMessageUuid = undefined;
-          }
-        }
-      } finally {
-        liveCodexPromptActive = false;
-        clearInterval(cancelWatcher);
-      }
-
-      latestSessionId = sessionId;
-
-      if (closeRequested) {
-        writeOutput({ status: 'closed', result: null });
-        break;
-      }
-
-      if (interruptRequested) {
-        writeOutput({
-          status: 'stream',
-          result: null,
-          newSessionId: sessionId,
-          streamEvent: {
-            eventType: 'status',
-            statusText: 'interrupted',
-            turnId: activeCodexTurnId,
-            sessionId,
-            ...(activeCodexMessageCursor
-              ? { messageCursor: activeCodexMessageCursor }
-              : {}),
-          },
-        });
-        const nextMessage = await waitForIpcMessage();
-        if (nextMessage === null) {
-          writeOutput({
-            status: 'success',
-            result: null,
-            newSessionId: sessionId,
-          });
-          break;
-        }
-        prompt = nextMessage.text;
-        promptImages = nextMessage.images;
-        containerInput.turnId = generateTurnId();
-        containerInput.messageCursor = nextMessage.cursor;
-        continue;
-      }
-
-      writeOutput({
-        status: 'success',
-        result: activeTurnText || null,
-        newSessionId: sessionId,
-        turnId: activeCodexTurnId,
-        sessionId,
-      });
-
-      const nextMessage = await waitForIpcMessage();
-      if (nextMessage === null) {
-        break;
-      }
-      prompt = nextMessage.text;
-      promptImages = nextMessage.images;
-      containerInput.turnId = generateTurnId();
-      containerInput.messageCursor = nextMessage.cursor;
-    }
-  } catch (err) {
-    const errorMessage = serializeErrorForOutput(err);
-    writeOutput(buildVisibleRuntimeErrorOutput(errorMessage, sessionId));
-    forceExitWithSafetyNet(1);
-  } finally {
-    acpProcess.kill('SIGTERM');
-  }
-}
-
-/**
- * Run a single query and stream results via writeOutput.
- * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
- * allowing agent teams subagents to run to completion.
- * IPC user messages are consumed only between queries so stream output from one
- * user turn cannot bleed into the next turn's card or channel route.
- */
 async function runQuery(
   prompt: string,
   sessionId: string | undefined,
@@ -2374,9 +1617,7 @@ function buildVisibleRuntimeErrorOutput(
   errorMessage: string,
   sessionId?: string,
 ): ContainerOutput {
-  const friendlyError = formatCodexRuntimeError(errorMessage, {
-    isCodexRuntime: activeRuntimeIdentity?.agentType === 'codex',
-  });
+  const friendlyError = formatOpenAiRuntimeError(errorMessage);
   return {
     status: 'error',
     result: friendlyError,
@@ -2393,7 +1634,7 @@ async function main(): Promise<void> {
   try {
     const stdinData = await readStdin();
     containerInput = JSON.parse(stdinData);
-    const requestedAgentType = containerInput.agentType || 'claude';
+    const requestedAgentType = containerInput.agentType || 'openai';
     activeRuntimeIdentity = buildRuntimeIdentity(requestedAgentType, {
       model: containerInput.model ?? null,
       reasoningEffort: containerInput.reasoningEffort ?? null,
@@ -2415,9 +1656,30 @@ async function main(): Promise<void> {
   latestSessionId = sessionId;
   const { isHome, isAdminHome } = normalizeHomeFlags(containerInput);
 
-  if ((containerInput.agentType || 'claude') === 'codex') {
-    log(`Selected runner: codex, runnerPid: ${process.pid}`);
-    await runCodexLoop(containerInput);
+  if ((containerInput.agentType || 'openai') === 'openai') {
+    log(`Selected runner: openai, runnerPid: ${process.pid}`);
+    await runOpenAiAgentLoop(containerInput, {
+      workspaceGroup: WORKSPACE_GROUP,
+      workspaceIpc: WORKSPACE_IPC,
+      ipcInputDir: IPC_INPUT_DIR,
+      ipcInputCloseSentinel: IPC_INPUT_CLOSE_SENTINEL,
+      ipcInputInterruptSentinel: IPC_INPUT_INTERRUPT_SENTINEL,
+      writeOutput,
+      log,
+      normalizeHomeFlags,
+      cleanupStartupInterruptSentinel,
+      clearInterruptRequested,
+      shouldClose,
+      shouldDrain,
+      shouldInterrupt,
+      drainIpcInput,
+      waitForIpcMessage,
+      generateTurnId,
+      emitTurnInitEvent,
+      setLatestSessionId: (nextSessionId) => {
+        latestSessionId = nextSessionId;
+      },
+    });
     forceExitWithSafetyNet(0);
   }
 

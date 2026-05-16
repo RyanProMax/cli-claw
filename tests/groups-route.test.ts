@@ -35,7 +35,7 @@ const mocks = vi.hoisted(() => ({
   canDeleteGroup: vi.fn(),
   canManageGroupMembers: vi.fn(),
   checkGroupLimit: vi.fn(),
-  getCodexRuntimeFallback: vi.fn(),
+  getOpenAiRuntimeDefaults: vi.fn(),
   getClaudeProviderConfig: vi.fn(),
   getAvailableRuntimeModelOptions: vi.fn(),
   getAvailableRuntimeModelPresets: vi.fn(),
@@ -110,10 +110,6 @@ vi.mock('../src/runtime-build.js', () => ({
   getRuntimeBuildStatus: mocks.getRuntimeBuildStatus,
 }));
 
-vi.mock('../src/codex-config.js', () => ({
-  getCodexRuntimeFallback: mocks.getCodexRuntimeFallback,
-}));
-
 vi.mock('../src/runtime-config.js', async () => {
   const actual = await vi.importActual<
     typeof import('../src/runtime-config.js')
@@ -121,17 +117,18 @@ vi.mock('../src/runtime-config.js', async () => {
   return {
     ...actual,
     getClaudeProviderConfig: mocks.getClaudeProviderConfig,
+    getOpenAiRuntimeDefaults: mocks.getOpenAiRuntimeDefaults,
   };
 });
 
-vi.mock('../src/runtime-model-options.js', () => ({
+vi.mock('../src/core/runtime/model-options.js', () => ({
   getAvailableRuntimeModelOptions: mocks.getAvailableRuntimeModelOptions,
   getAvailableRuntimeModelPresets: mocks.getAvailableRuntimeModelPresets,
   normalizeAvailableRuntimeModelPreset:
     mocks.normalizeAvailableRuntimeModelPreset,
 }));
 
-vi.mock('../src/host-workspace-cwd.js', () => ({
+vi.mock('../src/core/workspace/host-cwd.js', () => ({
   materializeHostWorkspaceDefaultCwd: mocks.materializeHostWorkspaceDefaultCwd,
   validateHostWorkspaceCwd: mocks.validateHostWorkspaceCwd,
   resolveEffectiveHostWorkspaceCwd: mocks.resolveEffectiveHostWorkspaceCwd,
@@ -142,7 +139,7 @@ vi.mock('../src/web.js', () => ({
   invalidateAllowedUserCache: mocks.invalidateAllowedUserCache,
 }));
 
-vi.mock('../src/workspace-runtime-reset.js', () => ({
+vi.mock('../src/agent/runner/workspace-reset.js', () => ({
   clearSessionJsonlFiles: mocks.clearSessionJsonlFiles,
   resetWorkspaceRuntimeState: mocks.resetWorkspaceRuntimeState,
 }));
@@ -230,10 +227,10 @@ describe('group runtime stale-build guard', () => {
         return { group, materialized: false };
       },
     );
-    mocks.getCodexRuntimeFallback.mockReturnValue({
+    mocks.getOpenAiRuntimeDefaults.mockReturnValue({
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
-      speedTier: null,
+      speedTier: 'standard',
     });
     mocks.getClaudeProviderConfig.mockReturnValue({
       anthropicModel: 'sonnet',
@@ -321,7 +318,7 @@ describe('group runtime stale-build guard', () => {
     const res = await app.request('/api/groups/web:main', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ agent_type: 'codex' }),
+      body: JSON.stringify({ agent_type: 'openai' }),
     });
 
     expect(res.status).toBe(409);
@@ -361,7 +358,7 @@ describe('group runtime stale-build guard', () => {
     const res = await app.request('/api/groups/web:main', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ agent_type: 'codex' }),
+      body: JSON.stringify({ agent_type: 'openai' }),
     });
 
     expect(res.status).toBe(200);
@@ -371,7 +368,7 @@ describe('group runtime stale-build guard', () => {
       }),
     );
     expect(mocks.setRegisteredGroup).toHaveBeenCalledOnce();
-    expect(registeredGroups['web:main'].agentType).toBe('codex');
+    expect(registeredGroups['web:main'].agentType).toBe('openai');
     expect(mocks.stopGroup).toHaveBeenCalledWith('web:main', { force: true });
     expect(sessions.main).toBeUndefined();
   });
@@ -384,7 +381,7 @@ describe('group runtime stale-build guard', () => {
         added_at: '2026-04-04T10:00:00.000Z',
         created_by: 'admin-2',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
       },
       'feishu:ops-room': {
@@ -414,7 +411,7 @@ describe('group runtime stale-build guard', () => {
     const payload = (await res.json()) as { groups: Record<string, any> };
     expect(payload.groups['web:main']).toEqual(
       expect.objectContaining({
-        agent_type: 'codex',
+        agent_type: 'openai',
         execution_mode: 'host',
         is_home: true,
         is_my_home: true,
@@ -429,7 +426,7 @@ describe('group runtime stale-build guard', () => {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        agent_type: 'codex',
+        agent_type: 'openai',
         model: 'gpt-5.4',
         reasoning_effort: 'xhigh',
         speed_tier: 'fast',
@@ -454,23 +451,23 @@ describe('group runtime stale-build guard', () => {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        agent_type: 'codex',
+        agent_type: 'openai',
         model: 'sonnet',
       }),
     });
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
-      error: 'Unsupported codex model',
+      error: 'Unsupported openai model',
       presets: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
     });
     expect(mocks.normalizeAvailableRuntimeModelPreset).toHaveBeenCalledWith(
-      'codex',
+      'openai',
       'sonnet',
       { currentModel: null },
     );
     expect(mocks.getAvailableRuntimeModelPresets).toHaveBeenCalledWith(
-      'codex',
+      'openai',
       { currentModel: null },
     );
     expect(mocks.setRegisteredGroup).not.toHaveBeenCalled();
@@ -479,7 +476,7 @@ describe('group runtime stale-build guard', () => {
   test('returns runtime model options with the effective current model', async () => {
     registeredGroups['web:main'] = {
       ...registeredGroups['web:main'],
-      agentType: 'codex',
+      agentType: 'openai',
       executionMode: 'host',
       model: null,
     };
@@ -496,7 +493,7 @@ describe('group runtime stale-build guard', () => {
       ],
     });
     expect(mocks.getAvailableRuntimeModelOptions).toHaveBeenCalledWith(
-      'codex',
+      'openai',
       { currentModel: 'gpt-5.5' },
     );
   });

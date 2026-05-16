@@ -163,7 +163,7 @@ const PREBUILT_CARD_WRAPPER = JSON.stringify({
     schema: '2.0',
     config: {
       wide_screen_mode: true,
-      summary: { content: '配置 Codex' },
+      summary: { content: '配置 OpenAI' },
     },
     body: {
       elements: [],
@@ -273,7 +273,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       appSecret: 'app-secret',
     });
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'GPT-5.5',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -293,7 +293,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     });
 
     expect(buildStaticReplyCard).toHaveBeenCalledWith('最终回复', {
-      footerNote: '2s | Codex | GPT-5.5 | high | standard (1x)',
+      footerNote: '2s | OpenAI | GPT-5.5 | high | standard (1x)',
       runtimeIdentity,
     });
     expect(hoisted.createSpy).toHaveBeenCalledWith({
@@ -325,7 +325,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       undefined,
       {
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'GPT-5.5',
           reasoningEffort: 'high',
           supportsReasoningEffort: true,
@@ -347,7 +347,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
               [
                 {
                   tag: 'md',
-              text: '最终回复\n\n2s | Codex | GPT-5.5 | high | standard (1x)',
+                  text: '最终回复\n\n2s | OpenAI | GPT-5.5 | high | standard (1x)',
                 },
               ],
             ],
@@ -395,7 +395,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         message_id: 'msg-command',
         create_time: Date.now().toString(),
         message_type: 'text',
-        content: JSON.stringify({ text: '/codex' }),
+        content: JSON.stringify({ text: '/openai' }),
         chat_type: 'p2p',
       },
       sender: {
@@ -591,7 +591,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         message_id: 'msg-command',
         create_time: Date.now().toString(),
         message_type: 'text',
-        content: JSON.stringify({ text: '/codex' }),
+        content: JSON.stringify({ text: '/openai' }),
         chat_type: 'p2p',
       },
       sender: {
@@ -1017,130 +1017,66 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     });
   });
 
-  test('forwards runtime picker card actions when Feishu returns select_static option as a string', async () => {
-    const onCardRuntimeUpdate = vi
-      .fn()
-      .mockResolvedValue('已将当前工作区模型切换为 gpt-5.4-mini');
-    const connection = createFeishuConnection({
-      appId: 'app-id',
-      appSecret: 'app-secret',
-    });
-
-    await connection.connect({
-      onReady: hoisted.onReadySpy,
-      onCardRuntimeUpdate,
-    });
-
-    await hoisted.handlers['card.action.trigger']?.({
-      action: {
-        tag: 'select_static',
-        option: 'gpt-5.4-mini',
-        value: {
-          action: 'set_runtime_model',
-        },
-      },
-      context: {
-        open_chat_id: 'runtime-chat',
-      },
-    });
-
-    expect(onCardRuntimeUpdate).toHaveBeenCalledWith('feishu:runtime-chat', {
+  test.each([
+    {
       action: 'set_runtime_model',
-      value: 'gpt-5.4-mini',
-    });
-    expect(hoisted.createSpy).toHaveBeenCalledWith({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: 'runtime-chat',
-        msg_type: 'interactive',
-        content: JSON.stringify({
-          schema: '2.0',
-          body: {
-            text: '已将当前工作区模型切换为 gpt-5.4-mini',
-          },
-        }),
-      },
-    });
-  });
-
-  test('forwards effort picker card actions when Feishu returns select_static option as a string', async () => {
-    const onCardRuntimeUpdate = vi
-      .fn()
-      .mockResolvedValue('已将当前工作区思考强度切换为 xhigh');
-    const connection = createFeishuConnection({
-      appId: 'app-id',
-      appSecret: 'app-secret',
-    });
-
-    await connection.connect({
-      onReady: hoisted.onReadySpy,
-      onCardRuntimeUpdate,
-    });
-
-    await hoisted.handlers['card.action.trigger']?.({
-      action: {
-        tag: 'select_static',
-        option: 'xhigh',
-        value: {
-          action: 'set_runtime_effort',
-        },
-      },
-      context: {
-        open_chat_id: 'runtime-chat',
-      },
-    });
-
-    expect(onCardRuntimeUpdate).toHaveBeenCalledWith('feishu:runtime-chat', {
+      option: 'gpt-5.4-mini',
+      reply: '已将当前工作区模型切换为 gpt-5.4-mini',
+    },
+    {
       action: 'set_runtime_effort',
-      value: 'xhigh',
-    });
-    expect(hoisted.createSpy).toHaveBeenCalledWith({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: 'runtime-chat',
-        msg_type: 'interactive',
-        content: JSON.stringify({
-          schema: '2.0',
-          body: {
-            text: '已将当前工作区思考强度切换为 xhigh',
-          },
-        }),
-      },
-    });
-  });
-
-  test('forwards speed picker card actions when Feishu returns select_static option as a string', async () => {
-    const onCardRuntimeUpdate = vi
-      .fn()
-      .mockResolvedValue('已将当前工作区速度切换为 fast');
-    const connection = createFeishuConnection({
-      appId: 'app-id',
-      appSecret: 'app-secret',
-    });
-
-    await connection.connect({
-      onReady: hoisted.onReadySpy,
-      onCardRuntimeUpdate,
-    });
-
-    await hoisted.handlers['card.action.trigger']?.({
-      action: {
-        tag: 'select_static',
-        option: 'fast',
-        value: {
-          action: 'set_runtime_speed',
-        },
-      },
-      context: {
-        open_chat_id: 'runtime-chat',
-      },
-    });
-
-    expect(onCardRuntimeUpdate).toHaveBeenCalledWith('feishu:runtime-chat', {
+      option: 'xhigh',
+      reply: '已将当前工作区思考强度切换为 xhigh',
+    },
+    {
       action: 'set_runtime_speed',
-      value: 'fast',
-    });
-  });
+      option: 'fast',
+      reply: '已将当前工作区速度切换为 fast',
+    },
+  ])(
+    'normalizes Feishu select_static runtime picker action $action',
+    async ({ action, option, reply }) => {
+      const onCardRuntimeUpdate = vi.fn().mockResolvedValue(reply);
+      const connection = createFeishuConnection({
+        appId: 'app-id',
+        appSecret: 'app-secret',
+      });
+
+      await connection.connect({
+        onReady: hoisted.onReadySpy,
+        onCardRuntimeUpdate,
+      });
+
+      await hoisted.handlers['card.action.trigger']?.({
+        action: {
+          tag: 'select_static',
+          option,
+          value: { action },
+        },
+        context: {
+          open_chat_id: 'runtime-chat',
+        },
+      });
+
+      expect(onCardRuntimeUpdate).toHaveBeenCalledWith('feishu:runtime-chat', {
+        action,
+        value: option,
+      });
+      expect(hoisted.createSpy).toHaveBeenCalledWith({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: 'runtime-chat',
+          msg_type: 'interactive',
+          content: JSON.stringify({
+            schema: '2.0',
+            body: {
+              text: reply,
+            },
+          }),
+        },
+      });
+    },
+  );
 
   test('infers effort picker actions when Feishu omits the element action value', async () => {
     const onCardRuntimeUpdate = vi

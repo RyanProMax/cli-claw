@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-vi.mock('../src/workspace-runtime-reset.ts', () => ({
+vi.mock('../src/agent/runner/workspace-reset.ts', () => ({
   resetWorkspaceRuntimeState: async (
     deps: {
       queue: {
@@ -13,18 +13,18 @@ vi.mock('../src/workspace-runtime-reset.ts', () => ({
   },
 }));
 
-const getCodexRuntimeFallbackMock = vi.hoisted(() =>
+const getOpenAiRuntimeDefaultsMock = vi.hoisted(() =>
   vi.fn(() => ({ model: null, reasoningEffort: null, speedTier: null })),
 );
 const getAvailableRuntimeModelPresetsMock = vi.hoisted(() =>
   vi.fn(
     (
-      agentType: 'claude' | 'codex',
+      agentType: 'claude' | 'openai',
       options?: { currentModel?: string | null },
     ) => {
       const presets =
-        agentType === 'codex'
-          ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']
+        agentType === 'openai'
+          ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2']
           : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
       const currentModel = options?.currentModel?.trim();
       if (
@@ -42,20 +42,20 @@ const getAvailableRuntimeModelPresetsMock = vi.hoisted(() =>
 const getAvailableRuntimeModelCatalogMock = vi.hoisted(() =>
   vi.fn(
     (
-      agentType: 'claude' | 'codex',
+      agentType: 'claude' | 'openai',
       options?: { currentModel?: string | null },
     ) => ({
       options: getAvailableRuntimeModelPresetsMock(agentType, options).map(
         (value: string) => ({ value, label: value }),
       ),
-      source: agentType === 'codex' ? 'codex-cli' : 'preset',
+      source: 'preset',
     }),
   ),
 );
 const normalizeAvailableRuntimeModelPresetMock = vi.hoisted(() =>
   vi.fn(
     (
-      agentType: 'claude' | 'codex',
+      agentType: 'claude' | 'openai',
       rawValue: string,
       options?: { currentModel?: string | null },
     ) => {
@@ -69,10 +69,11 @@ const normalizeAvailableRuntimeModelPresetMock = vi.hoisted(() =>
   ),
 );
 
-vi.mock('../src/codex-config.js', () => ({
-  getCodexRuntimeFallback: getCodexRuntimeFallbackMock,
+vi.mock('../src/runtime-config.js', () => ({
+  getClaudeProviderConfig: () => ({ anthropicModel: 'opus[1m]' }),
+  getOpenAiRuntimeDefaults: getOpenAiRuntimeDefaultsMock,
 }));
-vi.mock('../src/runtime-model-options.js', () => ({
+vi.mock('../src/core/runtime/model-options.js', () => ({
   getAvailableRuntimeModelCatalog: getAvailableRuntimeModelCatalogMock,
   getAvailableRuntimeModelPresets: getAvailableRuntimeModelPresetsMock,
   normalizeAvailableRuntimeModelPreset:
@@ -84,7 +85,7 @@ import {
   buildRuntimeStatusReply,
   executeRuntimeWorkspaceCommand,
   resolveRuntimeWorkspaceTarget,
-} from '../src/runtime-command-handler.ts';
+} from '../src/core/runtime/command-handler.ts';
 import type { RegisteredGroup } from '../src/types.ts';
 
 function createDeps(groups: Record<string, RegisteredGroup>) {
@@ -116,19 +117,19 @@ function createDeps(groups: Record<string, RegisteredGroup>) {
 
 describe('runtime command handler', () => {
   beforeEach(() => {
-    getCodexRuntimeFallbackMock.mockReturnValue({
+    getOpenAiRuntimeDefaultsMock.mockReturnValue({
       model: null,
       reasoningEffort: null,
       speedTier: null,
     });
     getAvailableRuntimeModelPresetsMock.mockImplementation(
       (
-        agentType: 'claude' | 'codex',
+        agentType: 'claude' | 'openai',
         options?: { currentModel?: string | null },
       ) => {
         const presets =
-          agentType === 'codex'
-            ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2']
+          agentType === 'openai'
+            ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2']
             : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
         const currentModel = options?.currentModel?.trim();
         if (
@@ -144,18 +145,18 @@ describe('runtime command handler', () => {
     );
     getAvailableRuntimeModelCatalogMock.mockImplementation(
       (
-        agentType: 'claude' | 'codex',
+        agentType: 'claude' | 'openai',
         options?: { currentModel?: string | null },
       ) => ({
         options: getAvailableRuntimeModelPresetsMock(agentType, options).map(
           (value: string) => ({ value, label: value }),
         ),
-        source: agentType === 'codex' ? 'codex-cli' : 'preset',
+        source: 'preset',
       }),
     );
     normalizeAvailableRuntimeModelPresetMock.mockImplementation(
       (
-        agentType: 'claude' | 'codex',
+        agentType: 'claude' | 'openai',
         rawValue: string,
         options?: { currentModel?: string | null },
       ) => {
@@ -176,7 +177,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
       },
       'feishu:room': {
@@ -189,7 +190,7 @@ describe('runtime command handler', () => {
     const target = resolveRuntimeWorkspaceTarget('feishu:room', deps);
 
     expect(target?.workspaceJid).toBe('web:proj-home');
-    expect(target?.effectiveGroup.agentType).toBe('codex');
+    expect(target?.effectiveGroup.agentType).toBe('openai');
   });
 
   test('updates workspace model presets through the shared selection helper', async () => {
@@ -199,7 +200,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4-mini',
         reasoningEffort: 'medium',
@@ -237,7 +238,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
@@ -247,7 +248,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: false,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
       },
     });
@@ -259,7 +260,7 @@ describe('runtime command handler', () => {
     const result = await applyRuntimeWorkspaceSelection({
       chatJid: 'web:proj-child',
       selection: 'model',
-      value: 'gpt-5.3-codex',
+      value: 'gpt-5.2',
       deps,
     });
 
@@ -268,27 +269,27 @@ describe('runtime command handler', () => {
 
     expect(result).toEqual({
       handled: true,
-      reply: '已将当前工作区模型切换为 gpt-5.3-codex',
+      reply: '已将当前工作区模型切换为 gpt-5.2',
     });
     expect(buildRuntimeStatusReply(after!)).toContain(
-      '🧠 当前模型: gpt-5.3-codex',
+      '🧠 当前模型: gpt-5.2',
     );
     expect(setGroup).toHaveBeenCalledWith(
       'web:proj-home',
-      expect.objectContaining({ model: 'gpt-5.3-codex' }),
+      expect.objectContaining({ model: 'gpt-5.2' }),
     );
-    expect(groups['web:proj-home']?.model).toBe('gpt-5.3-codex');
+    expect(groups['web:proj-home']?.model).toBe('gpt-5.2');
     expect(stopGroup).toHaveBeenCalledWith('web:proj-home', { force: true });
   });
 
-  test('returns combined Codex configuration help for bare /codex', async () => {
+  test('returns combined OpenAI configuration help for bare /openai', async () => {
     const { deps } = createDeps({
       'web:proj-home': {
         name: 'Project Home',
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4-mini',
       },
@@ -297,15 +298,15 @@ describe('runtime command handler', () => {
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'web',
       chatJid: 'web:proj-home',
-      commandText: '/codex',
+      commandText: '/openai',
       deps,
     });
 
     expect(result.handled).toBe(true);
-    expect(result.reply).toContain('Codex 配置：');
+    expect(result.reply).toContain('OpenAI 配置：');
     expect(result.reply).toContain('当前模型：gpt-5.4-mini');
     expect(result.reply).toContain(
-      '可用模型：gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2',
+      '可用模型：gpt-5.4, gpt-5.4-mini, gpt-5.2',
     );
     expect(result.reply).toContain('当前思考强度：medium');
     expect(result.reply).toContain('可用思考强度：low, medium, high, xhigh');
@@ -313,15 +314,15 @@ describe('runtime command handler', () => {
     expect(result.reply).toContain('可用速度：standard (1x), fast (2x)');
   });
 
-  test('surfaces dynamically discovered codex models in bare /codex replies', async () => {
+  test('surfaces dynamically discovered openai models in bare /openai replies', async () => {
     getAvailableRuntimeModelPresetsMock.mockImplementation(
       (
-        agentType: 'claude' | 'codex',
+        agentType: 'claude' | 'openai',
         options?: { currentModel?: string | null },
       ) => {
         const presets =
-          agentType === 'codex'
-            ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.3-codex-spark']
+          agentType === 'openai'
+            ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.5-pro']
             : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
         const currentModel = options?.currentModel?.trim();
         return currentModel &&
@@ -339,7 +340,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4-mini',
       },
@@ -348,13 +349,13 @@ describe('runtime command handler', () => {
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'web',
       chatJid: 'web:proj-home',
-      commandText: '/codex',
+      commandText: '/openai',
       deps,
     });
 
     expect(result.handled).toBe(true);
     expect(result.reply).toContain(
-      '可用模型：gpt-5.4-mini, gpt-5.4, gpt-5.5, gpt-5.3-codex-spark',
+      '可用模型：gpt-5.4-mini, gpt-5.4, gpt-5.5, gpt-5.5-pro',
     );
   });
 
@@ -365,7 +366,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
       },
     });
@@ -391,7 +392,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4-mini',
       },
@@ -410,15 +411,15 @@ describe('runtime command handler', () => {
     expect(setGroup).not.toHaveBeenCalled();
   });
 
-  test('accepts dynamically discovered codex models when applying a selection', async () => {
+  test('accepts dynamically discovered openai models when applying a selection', async () => {
     getAvailableRuntimeModelPresetsMock.mockImplementation(
       (
-        agentType: 'claude' | 'codex',
+        agentType: 'claude' | 'openai',
         options?: { currentModel?: string | null },
       ) => {
         const presets =
-          agentType === 'codex'
-            ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.3-codex-spark']
+          agentType === 'openai'
+            ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.5-pro']
             : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
         const currentModel = options?.currentModel?.trim();
         return currentModel &&
@@ -436,7 +437,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
@@ -446,15 +447,15 @@ describe('runtime command handler', () => {
     const result = await applyRuntimeWorkspaceSelection({
       chatJid: 'web:proj-home',
       selection: 'model',
-      value: 'gpt-5.3-codex-spark',
+      value: 'gpt-5.5-pro',
       deps,
     });
 
     expect(result).toEqual({
       handled: true,
-      reply: '已将当前工作区模型切换为 gpt-5.3-codex-spark',
+      reply: '已将当前工作区模型切换为 gpt-5.5-pro',
     });
-    expect(groups['web:proj-home']?.model).toBe('gpt-5.3-codex-spark');
+    expect(groups['web:proj-home']?.model).toBe('gpt-5.5-pro');
   });
 
   test('returns combined Claude configuration help for bare /claude', async () => {
@@ -488,14 +489,14 @@ describe('runtime command handler', () => {
     expect(setGroup).not.toHaveBeenCalled();
   });
 
-  test('rejects the parameterized /codex form and points users to the picker', async () => {
+  test('rejects the parameterized /openai form and points users to the picker', async () => {
     const { deps, setGroup } = createDeps({
       'web:proj-home': {
         name: 'Project Home',
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
@@ -505,13 +506,13 @@ describe('runtime command handler', () => {
     const result = await executeRuntimeWorkspaceCommand({
       entrypoint: 'web',
       chatJid: 'web:proj-home',
-      commandText: '/codex gpt-5.4',
+      commandText: '/openai gpt-5.4',
       deps,
     });
 
     expect(result).toEqual({
       handled: true,
-      reply: '请直接输入 /codex 打开 Codex 配置选择器',
+      reply: '请直接输入 /openai 打开 OpenAI 配置选择器',
     });
     expect(setGroup).not.toHaveBeenCalled();
   });
@@ -523,7 +524,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
@@ -539,7 +540,7 @@ describe('runtime command handler', () => {
 
     expect(result).toEqual({
       handled: true,
-      reply: '当前工作区是 codex，请使用 /codex 配置该 Agent',
+      reply: '当前工作区是 openai，请使用 /openai 配置该 Agent',
     });
   });
 
@@ -550,7 +551,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
       },
     });
@@ -559,7 +560,7 @@ describe('runtime command handler', () => {
     expect(target).not.toBeNull();
 
     expect(buildRuntimeStatusReply(target!)).toContain('🤖 Agent');
-    expect(buildRuntimeStatusReply(target!)).toContain('🤖 当前 Agent: codex');
+    expect(buildRuntimeStatusReply(target!)).toContain('🤖 当前 Agent: openai');
     expect(buildRuntimeStatusReply(target!)).toContain('🧠 当前模型: gpt-5.4');
     expect(buildRuntimeStatusReply(target!)).toContain(
       '⚙️ 当前推理强度: medium',
@@ -571,8 +572,8 @@ describe('runtime command handler', () => {
     expect(buildRuntimeStatusReply(target!)).not.toContain('模型预设:');
   });
 
-  test('uses Codex runtime fallback when workspace settings are unset', () => {
-    getCodexRuntimeFallbackMock.mockReturnValue({
+  test('uses OpenAI runtime fallback when workspace settings are unset', () => {
+    getOpenAiRuntimeDefaultsMock.mockReturnValue({
       model: 'gpt-5.4-mini',
       reasoningEffort: 'xhigh',
       speedTier: 'fast',
@@ -583,7 +584,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
       },
     });
@@ -609,7 +610,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-12T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         reasoningEffort: 'high',
       },
@@ -618,7 +619,7 @@ describe('runtime command handler', () => {
     const target = resolveRuntimeWorkspaceTarget('web:proj-home', deps);
 
     expect(target?.effectiveRuntimeIdentity).toEqual({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'high',
       speedTier: 'standard',
@@ -634,7 +635,7 @@ describe('runtime command handler', () => {
         folder: 'proj',
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',

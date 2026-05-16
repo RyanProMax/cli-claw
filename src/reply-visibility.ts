@@ -113,7 +113,7 @@ function isStructuredReportHeading(headingText: string): boolean {
   );
 }
 
-function splitLeadingCodexCommentary(
+function splitLeadingRuntimeCommentary(
   rawText: string,
 ): ResolvedVisibleReplyParts | null {
   const normalizedRawText = normalizeReplyText(rawText);
@@ -150,11 +150,11 @@ export function resolveVisibleReplyParts(
   const presentationCommentaryText = normalizeReplyText(
     presentationText?.commentaryText,
   );
-  const shouldApplyCodexVisibility =
-    runtimeIdentity?.agentType === 'codex' ||
+  const shouldApplyRuntimeVisibility =
+    runtimeIdentity?.agentType === 'openai' ||
     (!runtimeIdentity?.agentType && Boolean(presentationCommentaryText));
 
-  if (!shouldApplyCodexVisibility) {
+  if (!shouldApplyRuntimeVisibility) {
     return {
       visibleText: sanitizedRawText,
       commentaryText: presentationCommentaryText,
@@ -166,7 +166,7 @@ export function resolveVisibleReplyParts(
   const droppedPresentationAnswer = Boolean(answerText);
   const commentaryText = presentationCommentaryText;
 
-  const inferred = splitLeadingCodexCommentary(sanitizedRawText);
+  const inferred = splitLeadingRuntimeCommentary(sanitizedRawText);
   if (inferred) return inferred;
 
   if (

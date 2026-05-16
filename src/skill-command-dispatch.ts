@@ -3,7 +3,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 
 import { DATA_DIR, GROUPS_DIR } from './config.js';
-import { resolveEffectiveHostWorkspaceCwd } from './host-workspace-cwd.js';
+import { resolveEffectiveHostWorkspaceCwd } from './core/workspace/host-cwd.js';
 import { type RuntimeCommandEntrypoint } from './runtime-command-registry.js';
 import { validateSkillPath } from './skill-utils.js';
 import type { RegisteredGroup } from './types.js';

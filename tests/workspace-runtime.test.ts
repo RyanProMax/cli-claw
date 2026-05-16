@@ -5,15 +5,15 @@ import {
 } from '../web/src/lib/workspace-runtime.js';
 
 describe('normalizeWorkspaceRuntimeSelection', () => {
-  test('forces Codex to host mode', () => {
+  test('preserves OpenAI container mode', () => {
     expect(
       normalizeWorkspaceRuntimeSelection({
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'container',
       }),
     ).toEqual({
-      agentType: 'codex',
-      executionMode: 'host',
+      agentType: 'openai',
+      executionMode: 'container',
     });
   });
 

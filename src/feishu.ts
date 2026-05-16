@@ -1796,7 +1796,7 @@ export function createFeishuConnection(
       return 'set_runtime_effort';
     }
     if (
-      normalizeModelPreset('codex', selectedValue) ||
+      normalizeModelPreset('openai', selectedValue) ||
       normalizeModelPreset('claude', selectedValue)
     ) {
       return 'set_runtime_model';

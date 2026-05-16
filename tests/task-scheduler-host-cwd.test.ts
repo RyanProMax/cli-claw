@@ -48,7 +48,7 @@ import {
   runScriptTask,
   runTask,
   triggerTaskNow,
-} from '../src/task-scheduler.js';
+} from '../src/agent/scheduler/index.js';
 import type { RegisteredGroup, ScheduledTask } from '../src/types.js';
 
 const sourceGroup: RegisteredGroup = {
@@ -163,6 +163,58 @@ describe('task scheduler host cwd forwarding', () => {
     );
   });
 
+  test('inherits source OpenAI runtime settings for host agent tasks', async () => {
+    const task = buildTask({});
+    const openAiSourceGroup: RegisteredGroup = {
+      ...sourceGroup,
+      agentType: 'openai',
+      model: 'gpt-5.4-mini',
+      reasoningEffort: 'high',
+      speedTier: 'fast',
+    };
+    const groups = {
+      'web:source': openAiSourceGroup,
+    } as Record<string, RegisteredGroup>;
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+      },
+      onProcess: vi.fn(),
+      sendMessage: vi.fn(),
+      assistantName: 'cli-claw',
+    };
+
+    vi.mocked((await import('../src/db.js')).getTaskById).mockReturnValue(task);
+    runHostAgentMock.mockResolvedValue({
+      status: 'success',
+      result: 'ok',
+    });
+
+    await runTask(task, deps as never, { manualRun: true });
+
+    expect(runHostAgentMock.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        agentType: 'openai',
+        model: 'gpt-5.4-mini',
+        reasoningEffort: 'high',
+        speedTier: 'fast',
+      }),
+    );
+    expect(runHostAgentMock.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        agentType: 'openai',
+        model: 'gpt-5.4-mini',
+        reasoningEffort: 'high',
+        speedTier: 'fast',
+      }),
+    );
+  });
+
   test('marks host agent login runtime text as a task error', async () => {
     const task = buildTask({
       id: 'task-login-error',
@@ -199,13 +251,14 @@ describe('task scheduler host cwd forwarding', () => {
       expect.objectContaining({
         status: 'error',
         result: 'Not logged in · Please run /login',
-        error: 'Codex CLI 未登录。请先在服务器上执行：codex login',
+        error:
+          'Codex CLI 登录态缺失或已过期。请在宿主机执行 `codex login` 后重试。',
       }),
     );
     expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
       'task-login-error',
       '2026-04-05T10:00:00.000Z',
-      'Error: Codex CLI 未登录。请先在服务器上执行：codex login',
+      'Error: Codex CLI 登录态缺失或已过期。请在宿主机执行 `codex login` 后重试。',
     );
   });
 

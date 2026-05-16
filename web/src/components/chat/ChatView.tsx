@@ -115,14 +115,14 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   const currentUser = useAuthStore(s => s.user);
   const canUseTerminal = group?.execution_mode !== 'host';
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const isCodexWorkspace = group?.agent_type === 'codex';
+  const isOpenAIWorkspace = group?.agent_type === 'openai';
 
   // Sidebar: members tab visibility
   const isHome = !!group?.is_home;
   const showMembersTab = (!!group?.is_shared || group?.member_role === 'owner') && !isHome;
   const visibleTabs = SIDEBAR_TABS.filter((t) => {
     if (t.id === 'members') return showMembersTab;
-    if (isCodexWorkspace && (t.id === 'env' || t.id === 'skills')) return false;
+    if (isOpenAIWorkspace && (t.id === 'env' || t.id === 'skills')) return false;
     return true;
   });
 
@@ -132,13 +132,13 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   }, [sidebarTab, showMembersTab]);
 
   useEffect(() => {
-    if (isCodexWorkspace && (sidebarTab === 'env' || sidebarTab === 'skills')) {
+    if (isOpenAIWorkspace && (sidebarTab === 'env' || sidebarTab === 'skills')) {
       setSidebarTab('files');
     }
-    if (isCodexWorkspace && (mobilePanel === 'env' || mobilePanel === 'skills')) {
+    if (isOpenAIWorkspace && (mobilePanel === 'env' || mobilePanel === 'skills')) {
       setMobilePanel('files');
     }
-  }, [isCodexWorkspace, mobilePanel, sidebarTab]);
+  }, [isOpenAIWorkspace, mobilePanel, sidebarTab]);
 
   // Fetch IM connection status for home groups
   const isOwnHome =
@@ -394,7 +394,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   };
 
   const openMobileEnv = () => {
-    if (isCodexWorkspace) return;
+    if (isOpenAIWorkspace) return;
     setMobileActionsOpen(false);
     setMobilePanel('env');
   };
@@ -447,8 +447,8 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
             {!isWaiting && group.agent_type && (
               <>
                 <span className="text-muted-foreground/40">·</span>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${group.agent_type === 'codex' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300 dark:border-violet-800'}`}>
-                  {group.agent_type === 'codex' ? 'Codex' : 'Claude'}
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${group.agent_type === 'openai' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300 dark:border-violet-800'}`}>
+                  {group.agent_type === 'openai' ? 'OpenAI' : 'Claude'}
                 </span>
               </>
             )}
@@ -796,7 +796,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
             >
               工作区文件
             </button>
-            {!isCodexWorkspace && (
+            {!isOpenAIWorkspace && (
               <button
                 onClick={openMobileEnv}
                 className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
@@ -804,7 +804,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                 环境变量
               </button>
             )}
-            {!isCodexWorkspace && (
+            {!isOpenAIWorkspace && (
               <button
                 onClick={() => { setMobileActionsOpen(false); setMobilePanel('skills'); }}
                 className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"

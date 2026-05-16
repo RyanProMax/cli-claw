@@ -42,7 +42,7 @@ type SqliteDatabase = {
 
 export interface LoopStatusOptions {
   taskReader: LoopTaskReader;
-  codexUsage: UsageProviderResult | null;
+  runtimeUsage: UsageProviderResult | null;
   stockTaskDb?: string;
   maintenanceStateFile?: string;
 }
@@ -197,11 +197,11 @@ function formatScheduledTaskStatus(
   return `${formatTaskStatus(task.status)}，上次=${formatTime(task.last_run)}，下次=${formatTime(task.next_run)}${latestError}`;
 }
 
-function formatUsageGuard(codexUsage: UsageProviderResult | null): string {
-  if (!codexUsage?.available) {
-    return `未知（${codexUsage?.reason ?? '用量不可读'}）`;
+function formatUsageGuard(runtimeUsage: UsageProviderResult | null): string {
+  if (!runtimeUsage?.available) {
+    return `未知（${runtimeUsage?.reason ?? '用量不可读'}）`;
   }
-  const remaining = codexUsage.secondaryRemainingPct;
+  const remaining = runtimeUsage.secondaryRemainingPct;
   if (remaining === undefined) return '未知（7d 不可读）';
   if (remaining < 30) return `需要暂停，7d=${remaining}%`;
   return `正常，7d=${remaining}%`;
@@ -264,6 +264,6 @@ export function formatLoopStatusSection(options: LoopStatusOptions): string {
     `   进展通知：${formatScheduledTaskStatus(notifierTask, notifierLogs)}`,
     `🛠️ 自迭代维护循环：${maintenanceLoopStatus}｜心跳=${maintenanceHeartbeat}｜当前重点=${maintenanceFocus}`,
     `   调度器：${formatScheduledTaskStatus(maintenanceTask, maintenanceLogs)}`,
-    `🛡️ 用量护栏：${formatUsageGuard(options.codexUsage)}`,
+    `🛡️ 用量护栏：${formatUsageGuard(options.runtimeUsage)}`,
   ].join('\n');
 }

@@ -9,21 +9,27 @@ import {
   supportsReasoningEffort,
   supportsSpeedTier,
   type RuntimeCommandEntrypoint,
-} from './runtime-command-registry.js';
+} from '../../runtime-command-registry.js';
 import {
   getAvailableRuntimeModelCatalog,
   getAvailableRuntimeModelPresets,
   normalizeAvailableRuntimeModelPreset,
-} from './runtime-model-options.js';
-import { getClaudeProviderConfig } from './runtime-config.js';
+} from './model-options.js';
+import {
+  getClaudeProviderConfig,
+  getOpenAiRuntimeDefaults,
+} from '../../runtime-config.js';
 import {
   buildEffectiveGroupFromHomeSibling,
   resolveEffectiveRuntimeIdentity,
 } from './group-runtime.js';
-import { getCodexRuntimeFallback } from './codex-config.js';
-import { logger } from './logger.js';
-import { resetWorkspaceRuntimeState } from './workspace-runtime-reset.js';
-import type { AgentType, RegisteredGroup, RuntimeIdentity } from './types.js';
+import { logger } from '../../logger.js';
+import { resetWorkspaceRuntimeState } from '../../agent/runner/workspace-reset.js';
+import type {
+  AgentType,
+  RegisteredGroup,
+  RuntimeIdentity,
+} from '../../types.js';
 
 export interface RuntimeCommandAgentLike {
   id: string;
@@ -72,7 +78,7 @@ function stripVirtualChatJid(chatJid: string): string {
 }
 
 function normalizeAgentType(value: string | null | undefined): AgentType {
-  return value === 'codex' ? 'codex' : 'claude';
+  return value === 'claude' ? 'claude' : 'openai';
 }
 
 function resolveLegacyMainJid(
@@ -159,14 +165,14 @@ export function resolveRuntimeWorkspaceTarget(
     homeRuntimeJid && homeRuntimeJid.trim() ? homeRuntimeJid : workspaceJid;
   const runtimeOwnerGroup = deps.getGroup(runtimeOwnerJid) ?? workspaceGroup;
   const effectiveGroup = resolveEffectiveRuntimeGroup(workspaceGroup, deps);
-  const codexRuntimeFallback = getCodexRuntimeFallback();
+  const openAiRuntimeDefaults = getOpenAiRuntimeDefaults();
   const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
     effectiveGroup,
     {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
-      codexCliModel: codexRuntimeFallback.model,
-      codexCliReasoningEffort: codexRuntimeFallback.reasoningEffort,
-      codexCliSpeedTier: codexRuntimeFallback.speedTier,
+      openAiModel: openAiRuntimeDefaults.model,
+      openAiReasoningEffort: openAiRuntimeDefaults.reasoningEffort,
+      openAiSpeedTier: openAiRuntimeDefaults.speedTier,
     },
   );
 
@@ -204,12 +210,12 @@ function buildAgentConfigReply(
     currentModel: target.effectiveRuntimeIdentity.model,
   });
   const lines = [
-    `${agentType === 'codex' ? 'Codex' : 'Claude'} 配置：`,
+    `${agentType === 'openai' ? 'OpenAI' : 'Claude'} 配置：`,
     `当前模型：${target.effectiveRuntimeIdentity.model}`,
     `可用模型：${modelCatalog.options.map((option) => option.value).join(', ')}`,
   ];
 
-  if (agentType === 'codex') {
+  if (agentType === 'openai') {
     const currentEffort =
       target.effectiveRuntimeIdentity.reasoningEffort?.trim() || 'medium';
     lines.push(`当前思考强度：${currentEffort}`);
@@ -236,7 +242,7 @@ export function buildRuntimeStatusReply(
   const agentType = normalizeAgentType(runtimeIdentity.agentType);
   const currentEffort = runtimeIdentity.reasoningEffort?.trim() || null;
   const currentSpeedTier =
-    agentType === 'codex'
+    agentType === 'openai'
       ? runtimeIdentity.speedTier === 'fast'
         ? 'fast (2x)'
         : 'standard (1x)'
@@ -430,10 +436,10 @@ export async function executeRuntimeWorkspaceCommand(options: {
         handled: true,
         reply: buildHelpReply(options.entrypoint, target),
       };
-    case 'codex':
+    case 'openai':
     case 'claude':
       if (parsed.argsText) {
-        const label = parsed.name === 'codex' ? 'Codex' : 'Claude';
+        const label = parsed.name === 'openai' ? 'OpenAI' : 'Claude';
         return {
           handled: true,
           reply: `请直接输入 /${parsed.name} 打开 ${label} 配置选择器`,

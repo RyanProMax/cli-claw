@@ -8,7 +8,7 @@ import {
   createStderrState,
   createStdoutParserState,
   writeRunLog,
-} from '../src/agent-output-parser.js';
+} from '../src/agent/runner/output-parser.js';
 
 describe('writeRunLog', () => {
   test('includes agent identity and build metadata in summary', () => {
@@ -38,9 +38,9 @@ describe('writeRunLog', () => {
         agentIdentity: {
           chatJid: 'web:main',
           groupFolder: 'main',
-          agentType: 'codex',
+          agentType: 'openai',
           executionMode: 'host',
-          selectedRunner: 'codex',
+          selectedRunner: 'openai',
         },
         runtimeBuildInfo: {
           backendPid: 1234,
@@ -59,9 +59,9 @@ describe('writeRunLog', () => {
 
     const content = fs.readFileSync(logFile, 'utf8');
     expect(content).toContain('Chat JID: web:main');
-    expect(content).toContain('Agent Type: codex');
+    expect(content).toContain('Agent Type: openai');
     expect(content).toContain('Execution Mode: host');
-    expect(content).toContain('Selected Runner: codex');
+    expect(content).toContain('Selected Runner: openai');
     expect(content).toContain('Backend PID: 1234');
     expect(content).toContain('Backend Build Loaded: backend-loaded');
     expect(content).toContain('Agent Runner Build Current: runner-current');

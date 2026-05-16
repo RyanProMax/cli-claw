@@ -21,6 +21,28 @@ afterEach(() => {
 });
 
 describe('runtime config storage', () => {
+  test('builds OpenAI runtime defaults from local environment only', async () => {
+    vi.stubEnv('OPENAI_MODEL', 'gpt-5.4-mini');
+    vi.stubEnv('OPENAI_REASONING_EFFORT', 'xhigh');
+    vi.stubEnv('OPENAI_SERVICE_TIER', 'fast');
+
+    const runtimeConfig = await import('../src/runtime-config.js');
+
+    expect(runtimeConfig.getOpenAiRuntimeDefaults()).toEqual({
+      model: 'gpt-5.4-mini',
+      reasoningEffort: 'xhigh',
+      speedTier: 'fast',
+    });
+  });
+
+  test('normalizes Codex backend priority service tier to OpenAI fast speed', async () => {
+    vi.stubEnv('OPENAI_SERVICE_TIER', 'priority');
+
+    const runtimeConfig = await import('../src/runtime-config.js');
+
+    expect(runtimeConfig.getOpenAiRuntimeDefaults().speedTier).toBe('fast');
+  });
+
   test('ignores legacy provider config versions', async () => {
     const home = createTempHome();
     const configDir = path.join(home, '.cli-claw', 'config');

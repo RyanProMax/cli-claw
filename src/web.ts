@@ -104,7 +104,7 @@ import {
   executeRuntimeWorkspaceCommand,
   resolveRuntimeWorkspaceTarget,
   type ResolvedRuntimeWorkspaceTarget,
-} from './runtime-command-handler.js';
+} from './core/runtime/command-handler.js';
 import {
   formatUnknownRuntimeCommandReply,
   parseRuntimeCommand,

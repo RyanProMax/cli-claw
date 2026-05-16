@@ -10,7 +10,7 @@ async function loadGroupQueueModule() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-group-queue-'));
   tempHomes.push(home);
   vi.stubEnv('HOME', home);
-  const mod = await import('../src/group-queue.ts');
+  const mod = await import('../src/agent/queue/group-queue.ts');
   const { DATA_DIR } = await import('../src/config.js');
   return { ...mod, DATA_DIR };
 }

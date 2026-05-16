@@ -76,7 +76,7 @@ export function MessageInput({
   const updateGroupRuntime = useChatStore((s) => s.updateGroupRuntime);
   const { mode: displayMode } = useDisplayMode();
   const isCompact = displayMode === 'compact';
-  const agentType = group?.agent_type ?? 'claude';
+  const agentType = group?.agent_type ?? 'openai';
   const pickerCommand = !disabled
     ? detectRuntimePickerCommand(content)
     : null;
@@ -466,10 +466,10 @@ export function MessageInput({
 
     try {
       await updateGroupRuntime(groupJid, {
-        agent_type: group.agent_type ?? 'claude',
+        agent_type: group.agent_type ?? 'openai',
         execution_mode:
           group.execution_mode ??
-          ((group.agent_type ?? 'claude') === 'codex' ? 'host' : 'container'),
+          'container',
         model: command === 'model' ? value : (group.model ?? null),
         reasoning_effort:
           command === 'effort'
@@ -671,7 +671,7 @@ export function MessageInput({
             <div className="px-3 pb-2">
               <div className="rounded-xl border border-brand-200/60 bg-brand-50/30 p-2.5">
                 <div className="mb-2 text-[11px] font-medium text-muted-foreground">
-                  {pickerCommand === 'codex' ? '配置 Codex' : '配置 Claude'}
+                  {pickerCommand === 'openai' ? '配置 OpenAI' : '配置 Claude'}
                 </div>
                 {pickerSections.length > 0 ? (
                   <div className="space-y-3">
@@ -706,7 +706,7 @@ export function MessageInput({
                   </div>
                 ) : (
                   <div className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-                    当前工作区是 {agentType === 'codex' ? 'Codex' : 'Claude'}，请使用 /{agentType} 配置该 Agent
+                    当前工作区是 {agentType === 'openai' ? 'OpenAI' : 'Claude'}，请使用 /{agentType} 配置该 Agent
                   </div>
                 )}
               </div>

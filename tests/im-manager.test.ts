@@ -43,7 +43,7 @@ describe('imManager messageMeta forwarding', () => {
       turnId: 'turn-1',
       sessionId: 'session-1',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'GPT-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,

@@ -38,7 +38,7 @@ export function CreateContainerDialog({
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [agentType, setAgentType] = useState<'claude' | 'codex'>('claude');
+  const [agentType, setAgentType] = useState<'claude' | 'openai'>('openai');
   const [executionMode, setExecutionMode] = useState<'container' | 'host'>('container');
   const [customCwd, setCustomCwd] = useState('');
   const [initMode, setInitMode] = useState<'empty' | 'local' | 'git'>('empty');
@@ -51,7 +51,7 @@ export function CreateContainerDialog({
   const reset = () => {
     setName('');
     setAdvancedOpen(false);
-    setAgentType('claude');
+    setAgentType('openai');
     setExecutionMode('container');
     setCustomCwd('');
     setInitMode('empty');
@@ -136,27 +136,24 @@ export function CreateContainerDialog({
                   <p className="text-xs text-muted-foreground mt-0.5">完整支持 Docker 与宿主机两种执行模式</p>
                 </div>
               </label>
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${canHostExec ? 'cursor-pointer hover:bg-accent/50' : 'opacity-50 cursor-not-allowed'}`}>
+              <label className="flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer hover:bg-accent/50">
                 <input
                   type="radio"
                   name="agent_type"
-                  value="codex"
-                  checked={agentType === 'codex'}
+                  value="openai"
+                  checked={agentType === 'openai'}
                   onChange={() => {
-                    if (!canHostExec) return;
-                    setAgentType('codex');
-                    setExecutionMode('host');
+                    setAgentType('openai');
                     setInitMode('empty');
                     setInitSourcePath('');
                     setInitGitUrl('');
                   }}
-                  disabled={!canHostExec}
                   className="mt-0.5 accent-primary"
                 />
                 <div>
-                  <div className="text-sm font-medium">Codex</div>
+                  <div className="text-sm font-medium">OpenAI</div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {canHostExec ? '当前版本仅支持宿主机模式，并复用服务器上的 codex 登录态' : '仅管理员可用，且仅支持宿主机模式'}
+                    支持 Docker 与宿主机两种执行模式，复用 Codex CLI 登录态
                   </p>
                 </div>
               </label>
@@ -166,7 +163,7 @@ export function CreateContainerDialog({
           <div>
             <label className="block text-sm font-medium mb-2">执行模式</label>
             <div className="space-y-2">
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${agentType === 'codex' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent/50'}`}>
+              <label className="flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer hover:bg-accent/50">
                 <input
                   type="radio"
                   name="execution_mode"
@@ -176,7 +173,6 @@ export function CreateContainerDialog({
                     setExecutionMode('container');
                     setCustomCwd('');
                   }}
-                  disabled={agentType === 'codex'}
                   className="mt-0.5 accent-primary"
                 />
                 <div>
@@ -217,11 +213,11 @@ export function CreateContainerDialog({
             </div>
           </div>
 
-          {agentType === 'codex' && (
+          {agentType === 'openai' && (
             <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
               <AlertTriangle className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-sky-700 dark:text-sky-300">
-                Codex 直接使用宿主机当前用户的全局 CLI 登录态。若未登录，请先在服务器执行 <code>codex login</code>。
+                OpenAI runtime 需要服务端已完成 <code>codex login</code>。
               </p>
             </div>
           )}

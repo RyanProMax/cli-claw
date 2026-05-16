@@ -499,7 +499,7 @@ function buildRuntimeSelectElement(options: {
 }
 
 function buildRuntimeSelectionElements(options: {
-  agentType: 'claude' | 'codex';
+  agentType: 'claude' | 'openai';
   runtimeIdentity?: RuntimeIdentity | null;
   modelChoices?: RuntimePresetOption[];
 }): Record<string, unknown>[] {
@@ -791,7 +791,7 @@ function buildAuxiliaryElementsForState(
     );
   }
 
-  // ② Thinking. Codex commentary/process text is the same user-facing
+  // ② Thinking. Runtime commentary/process text is the same user-facing
   // auxiliary lane as model thinking; only the answer lane renders正文.
   const thinkingPanelBody = buildUnifiedThinkingPanelBody(aux);
   const hasActiveThinking =
@@ -1027,11 +1027,11 @@ export function buildStaticReplyCard(
 }
 
 export function buildRuntimeSelectionCard(options: {
-  agentType: 'claude' | 'codex';
+  agentType: 'claude' | 'openai';
   runtimeIdentity?: RuntimeIdentity | null;
   modelChoices?: RuntimePresetOption[];
 }): object {
-  const label = options.agentType === 'codex' ? 'Codex' : 'Claude';
+  const label = options.agentType === 'openai' ? 'OpenAI' : 'Claude';
   const selectElements = buildRuntimeSelectionElements(options);
 
   if (selectElements.length === 0) {

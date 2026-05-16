@@ -33,7 +33,7 @@ export function WorkspaceRuntimeDialog({
   jid,
   name,
   isHome = false,
-  currentAgentType = 'claude',
+  currentAgentType = 'openai',
   currentExecutionMode = 'container',
   onClose,
 }: WorkspaceRuntimeDialogProps) {
@@ -103,24 +103,21 @@ export function WorkspaceRuntimeDialog({
                   </p>
                 </div>
               </label>
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${canHostExec ? 'cursor-pointer hover:bg-accent/50' : 'opacity-50 cursor-not-allowed'}`}>
+              <label className="flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer hover:bg-accent/50">
                 <input
                   type="radio"
                   name="runtime_agent_type"
-                  value="codex"
-                  checked={agentType === 'codex'}
+                  value="openai"
+                  checked={agentType === 'openai'}
                   onChange={() => {
-                    if (!canHostExec) return;
-                    setAgentType('codex');
-                    setExecutionMode('host');
+                    setAgentType('openai');
                   }}
-                  disabled={!canHostExec}
                   className="mt-0.5 accent-primary"
                 />
                 <div>
-                  <div className="text-sm font-medium">Codex</div>
+                  <div className="text-sm font-medium">OpenAI</div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {canHostExec ? '仅支持宿主机模式，并复用服务器上的 codex 登录态' : '仅管理员可用，且仅支持宿主机模式'}
+                    支持 Docker 与宿主机两种执行模式，复用 Codex CLI 登录态
                   </p>
                 </div>
               </label>
@@ -130,14 +127,14 @@ export function WorkspaceRuntimeDialog({
           <div>
             <label className="block text-sm font-medium mb-2">执行模式</label>
             <div className="space-y-2">
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${executionModeLocked || agentType === 'codex' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent/50'}`}>
+              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${executionModeLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent/50'}`}>
                 <input
                   type="radio"
                   name="runtime_execution_mode"
                   value="container"
                   checked={normalized.executionMode === 'container'}
                   onChange={() => setExecutionMode('container')}
-                  disabled={executionModeLocked || agentType === 'codex'}
+                  disabled={executionModeLocked}
                   className="mt-0.5 accent-primary"
                 />
                 <div>
@@ -189,11 +186,11 @@ export function WorkspaceRuntimeDialog({
             </div>
           )}
 
-          {normalized.agentType === 'codex' && (
+          {normalized.agentType === 'openai' && (
             <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
               <AlertTriangle className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-sky-700 dark:text-sky-300">
-                Codex 直接使用宿主机当前用户的全局 CLI 登录态。若未登录，请先在服务器执行 <code>codex login</code>。
+                OpenAI runtime 需要服务端已完成 <code>codex login</code>。
               </p>
             </div>
           )}

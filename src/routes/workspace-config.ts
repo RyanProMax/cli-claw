@@ -18,7 +18,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { GROUPS_DIR } from '../config.js';
 import { canAccessGroup } from '../web-context.js';
 import { getJidsByFolder, getRegisteredGroup } from '../db.js';
-import { resolveEffectiveHostWorkspaceCwd } from '../host-workspace-cwd.js';
+import { resolveEffectiveHostWorkspaceCwd } from '../core/workspace/host-cwd.js';
 import {
   parseFrontmatter,
   validateSkillId,

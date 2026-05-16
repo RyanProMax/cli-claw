@@ -36,7 +36,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 当前接入的运行时：
 
 - `claude`：Claude Agent SDK + Claude Code CLI
-- `codex`：Codex CLI + `codex-acp`
+- `openai`：OpenAI Agents SDK
 
 主进程负责多用户隔离、消息路由、队列调度、持久化和 Web / IM 体验；真正的推理、工具调用和会话循环由底层 CLI runtime 执行。
 
@@ -44,7 +44,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 
 - 多用户工作区：每个用户拥有隔离的工作区、权限、运行时设置和消息审计。
 - 多入口接入：通过 Web 与多种 IM 通道访问同一工作区，消息统一路由。
-- 多运行时执行：同一平台内支持 Claude Runtime 与 Codex Runtime。
+- 多运行时执行：同一平台内支持 Claude Runtime 与 OpenAI Runtime。
 - 流式体验：思考、文本、工具调用、任务事件和结果实时回传。
 - 文件与任务：工作区文件管理、定时任务和 MCP 能力统一接入。
 - 移动端 PWA：适配手机访问、查看执行状态和继续会话。
@@ -54,7 +54,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 | `agentType` | 底层运行时                         | 支持执行模式         | 认证方式                         |
 | ----------- | ---------------------------------- | -------------------- | -------------------------------- |
 | `claude`    | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 设置向导配置 Claude Provider |
-| `codex`     | Codex CLI + `codex-acp`            | `host`               | 宿主机执行 `codex login`         |
+| `openai`    | OpenAI Agents SDK                  | `host` / `container` | 复用宿主机 Codex CLI 登录态      |
 
 ## 快速开始
 
@@ -64,7 +64,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 - [Docker](https://www.docker.com/)（仅容器模式需要；当前主要用于 Claude Runtime）
 - 至少准备一种运行时认证方式：
   - Claude Runtime：在 Web 设置向导中配置 Claude Provider
-  - Codex Runtime：在宿主机执行 `codex login`
+  - OpenAI Runtime：在宿主机执行 `codex login`
 
 ### 通过同名 launcher 启动
 
@@ -121,7 +121,7 @@ make start
 
 1. 创建管理员账号
 2. 配置默认 Claude Provider（可选，但推荐先配）
-3. 如需 Codex，在服务器执行 `codex login`
+3. 如需 OpenAI Runtime，确认宿主机已执行 `codex login`
 4. 如需 IM 通道，在 Web 设置页补充对应凭据
 
 ### 容器模式
@@ -257,7 +257,7 @@ commit message 使用英文，格式建议：`type: summary`
 
 ```text
 fix: align message hover footer
-feat: add codex runtime notes
+feat: add openai runtime notes
 refactor: simplify workspace routing
 ```
 

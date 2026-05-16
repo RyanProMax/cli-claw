@@ -17,7 +17,7 @@ describe('formatLoopStatusSection', () => {
     try {
       const output = formatLoopStatusSection({
         taskReader: emptyTaskReader,
-        codexUsage: {
+        runtimeUsage: {
           available: true,
           primaryRemainingPct: 90,
           secondaryRemainingPct: 67,
@@ -40,7 +40,7 @@ describe('formatLoopStatusSection', () => {
     try {
       const output = formatLoopStatusSection({
         taskReader: emptyTaskReader,
-        codexUsage: {
+        runtimeUsage: {
           available: true,
           primaryRemainingPct: 90,
           secondaryRemainingPct: 67,

@@ -205,7 +205,7 @@ async function driveQueuedFeishuSuccessPath(_: {
     { recordLifecycleForMessages },
     { StreamingCardController },
   ] = await Promise.all([
-    import('../src/group-queue.ts'),
+    import('../src/agent/queue/group-queue.ts'),
     import('../src/im-message-lifecycle.ts'),
     import('../src/feishu-streaming-card.ts'),
   ]);
@@ -312,7 +312,7 @@ async function driveQueuedFeishuSuccessPath(_: {
   }
 }
 
-async function driveQueuedFeishuCodexStaticFinalPath(_: {
+async function driveQueuedFeishuOpenAIStaticFinalPath(_: {
   db: any;
   connection: any;
   chatJid: string;
@@ -333,7 +333,7 @@ async function driveQueuedFeishuCodexStaticFinalPath(_: {
     { recordLifecycleForMessages },
     { resolveVisibleReplyParts },
   ] = await Promise.all([
-    import('../src/group-queue.ts'),
+    import('../src/agent/queue/group-queue.ts'),
     import('../src/im-message-lifecycle.ts'),
     import('../src/reply-visibility.ts'),
   ]);
@@ -347,7 +347,7 @@ async function driveQueuedFeishuCodexStaticFinalPath(_: {
   const processed = new Promise<void>((resolve, reject) => {
     timeout = setTimeout(() => {
       reject(
-        new Error('Timed out waiting for Feishu Codex static final processing'),
+        new Error('Timed out waiting for Feishu OpenAI static final processing'),
       );
     }, 2000);
 
@@ -364,7 +364,7 @@ async function driveQueuedFeishuCodexStaticFinalPath(_: {
         const visibleReply = resolveVisibleReplyParts(
           rawFinalText,
           { answerText: stalePresentationAnswer },
-          { agentType: 'codex' },
+          { agentType: 'openai' },
         );
         expect(visibleReply).toMatchObject({
           visibleText: rawFinalText,
@@ -378,7 +378,7 @@ async function driveQueuedFeishuCodexStaticFinalPath(_: {
           details: {
             droppedPresentationAnswer: true,
             visibilityResolution: {
-              agentType: 'codex',
+              agentType: 'openai',
               selectedSource: 'raw_final',
               rawFinalLength: rawFinalText.length,
               presentationAnswerLength: stalePresentationAnswer.length,
@@ -635,7 +635,7 @@ describe('Feishu in-process E2E harness', () => {
       folder: 'feishu-process-group',
       added_at: '2026-04-28T09:00:00.000Z',
       executionMode: 'host',
-      agentType: 'codex',
+      agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
     });
@@ -696,7 +696,7 @@ describe('Feishu in-process E2E harness', () => {
     await expect(wakeup).resolves.toBe('woke');
 
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.1',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -829,7 +829,7 @@ describe('Feishu in-process E2E harness', () => {
       folder: 'feishu-cursor-boundary',
       added_at: '2026-04-29T09:00:00.000Z',
       executionMode: 'host',
-      agentType: 'codex',
+      agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
     });
@@ -866,7 +866,7 @@ describe('Feishu in-process E2E harness', () => {
     await expect(wakeup).resolves.toBe('woke');
 
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.5',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -980,10 +980,10 @@ describe('Feishu in-process E2E harness', () => {
     expect(assistantMessages[0]?.content).toBe(finalText);
   });
 
-  test('does not write Codex replayed presentation text into real Feishu streaming cards for the current cursor', async () => {
+  test('does not write OpenAI replayed presentation text into real Feishu streaming cards for the current cursor', async () => {
     const { db, notifier, imManager, restartGuard, processGroupMessages } =
       await loadFeishuProcessGroupModules();
-    const chatId = 'oc_codex_current_cursor_replay';
+    const chatId = 'oc_openai_current_cursor_replay';
     const chatJid = `feishu:${chatId}`;
     const userId = 'user-feishu-current-cursor-replay';
     const messageId = 'om_current_cursor_agent_skills';
@@ -1002,11 +1002,11 @@ describe('Feishu in-process E2E harness', () => {
     ];
 
     db.setRegisteredGroup(chatJid, {
-      name: 'Feishu Codex Current Cursor Replay',
+      name: 'Feishu OpenAI Current Cursor Replay',
       folder: 'feishu-current-cursor-replay',
       added_at: '2026-04-30T10:37:00.000Z',
       executionMode: 'host',
-      agentType: 'codex',
+      agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
     });
@@ -1043,7 +1043,7 @@ describe('Feishu in-process E2E harness', () => {
     await expect(wakeup).resolves.toBe('woke');
 
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -1133,7 +1133,7 @@ describe('Feishu in-process E2E harness', () => {
   test('routes current Feishu stream events without replay gates', async () => {
     const { db, notifier, imManager, restartGuard, processGroupMessages } =
       await loadFeishuProcessGroupModules();
-    const chatId = 'oc_codex_current_live_stream';
+    const chatId = 'oc_openai_current_live_stream';
     const chatJid = `feishu:${chatId}`;
     const userId = 'user-feishu-current-live-stream';
     const messageId = 'om_current_live_stream';
@@ -1144,7 +1144,7 @@ describe('Feishu in-process E2E harness', () => {
       folder: 'feishu-current-live-stream',
       added_at: '2026-05-05T03:19:00.000Z',
       executionMode: 'host',
-      agentType: 'codex',
+      agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
     });
@@ -1181,7 +1181,7 @@ describe('Feishu in-process E2E harness', () => {
     await expect(wakeup).resolves.toBe('woke');
 
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -1291,7 +1291,7 @@ describe('Feishu in-process E2E harness', () => {
       folder: 'feishu-restart-residue-card',
       added_at: '2026-04-29T09:10:00.000Z',
       executionMode: 'host',
-      agentType: 'codex',
+      agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
     });
@@ -1376,7 +1376,7 @@ describe('Feishu in-process E2E harness', () => {
     await expect(wakeup).resolves.toBe('woke');
 
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.5',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -1496,7 +1496,7 @@ describe('Feishu in-process E2E harness', () => {
       folder: 'main',
       added_at: '2026-04-29T15:00:00.000Z',
       executionMode: 'host',
-      agentType: 'codex',
+      agentType: 'openai',
       activation_mode: 'auto',
       is_home: true,
       created_by: userId,
@@ -1609,32 +1609,32 @@ describe('Feishu in-process E2E harness', () => {
         await onOutput?.({
           status: 'stream',
           result: null,
-          runtimeIdentity: { agentType: 'codex' as const },
+          runtimeIdentity: { agentType: 'openai' as const },
           streamEvent: {
             eventType: 'init',
             turnId: currentMessageId,
             sessionId: leaked ? 'sess-hkipo-skill' : 'sess-current-normal',
             messageCursor: input.messageCursor,
-            runtimeIdentity: { agentType: 'codex' as const },
+            runtimeIdentity: { agentType: 'openai' as const },
           },
         });
         await onOutput?.({
           status: 'stream',
           result: null,
-          runtimeIdentity: { agentType: 'codex' as const },
+          runtimeIdentity: { agentType: 'openai' as const },
           streamEvent: {
             eventType: 'text_delta',
             text: resultText,
             turnId: currentMessageId,
             sessionId: leaked ? 'sess-hkipo-skill' : 'sess-current-normal',
-            runtimeIdentity: { agentType: 'codex' as const },
+            runtimeIdentity: { agentType: 'openai' as const },
           },
         });
         await onOutput?.({
           status: 'success',
           result: resultText,
           newSessionId: 'sess-current-normal',
-          runtimeIdentity: { agentType: 'codex' as const },
+          runtimeIdentity: { agentType: 'openai' as const },
           turnId: currentMessageId,
           sessionId: leaked ? 'sess-hkipo-skill' : 'sess-current-normal',
           sourceKind: 'sdk_final',
@@ -1678,18 +1678,18 @@ describe('Feishu in-process E2E harness', () => {
     expect(db.getSession('main')).toBe('sess-current-normal');
   });
 
-  test('sends current Codex raw final to Feishu when presentation contains stale transcript', async () => {
+  test('sends current OpenAI raw final to Feishu when presentation contains stale transcript', async () => {
     const { db, notifier, feishu, restartGuard } = await loadFeishuE2EModules();
     const connection = feishu.createFeishuConnection({
       appId: 'app-id',
       appSecret: 'app-secret',
     });
-    const chatJid = 'feishu:oc_codex_stale_presentation';
-    const messageId = 'om_codex_stale_presentation';
+    const chatJid = 'feishu:oc_openai_stale_presentation';
+    const messageId = 'om_openai_stale_presentation';
     const rawFinalText = [
       '我先查实际链路，不先猜。',
       '',
-      '不符合流式输出预期，当前 Codex 飞书卡片被禁用。',
+      '不符合流式输出预期，当前 OpenAI 飞书卡片被禁用。',
     ].join('\n');
     const stalePresentationAnswer = [
       '我会按仓库协议先补读工程说明和当前计划，再定位 `stock-analysis-skill`。',
@@ -1709,7 +1709,7 @@ describe('Feishu in-process E2E harness', () => {
 
     await hoisted.handlers['im.message.receive_v1']?.({
       message: {
-        chat_id: 'oc_codex_stale_presentation',
+        chat_id: 'oc_openai_stale_presentation',
         message_id: messageId,
         create_time: '1777070338000',
         message_type: 'text',
@@ -1718,14 +1718,14 @@ describe('Feishu in-process E2E harness', () => {
       },
       sender: {
         sender_id: {
-          open_id: 'ou_codex',
+          open_id: 'ou_openai',
         },
       },
     });
 
     await expect(wakeup).resolves.toBe('woke');
 
-    await driveQueuedFeishuCodexStaticFinalPath({
+    await driveQueuedFeishuOpenAIStaticFinalPath({
       db,
       connection,
       chatJid,
@@ -1763,7 +1763,7 @@ describe('Feishu in-process E2E harness', () => {
     expect(finalized?.details).toMatchObject({
       droppedPresentationAnswer: true,
       visibilityResolution: {
-        agentType: 'codex',
+        agentType: 'openai',
         selectedSource: 'raw_final',
         rawFinalLength: rawFinalText.length,
         presentationAnswerLength: stalePresentationAnswer.length,

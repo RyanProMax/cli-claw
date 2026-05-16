@@ -52,7 +52,7 @@ describe('no cli-claw context injection', () => {
     expect(runnerSource).not.toContain('<user-profile>');
     expect(runnerSource).not.toContain('<memory-system>');
     expect(runnerSource).not.toContain('buildMemoryRecallPrompt');
-    expect(runnerSource).not.toContain('wrapCodexPromptWithReplyPolicy');
+    expect(runnerSource).not.toContain('wrapOpenAIPromptWithReplyPolicy');
     expect(runnerSource).not.toContain('autoContinuePrompt');
     expect(runnerSource).not.toContain('flushPrompt');
   });
@@ -99,7 +99,7 @@ describe('no cli-claw context injection', () => {
       /\/recall\b|name:\s*['"]recall|formatContextMessages|getConversationContext/i,
       /active-plan-progress|appendActivePlanProgress/i,
       /Memory(Global|File|Source|SearchHit)|memory_(append|search|get)|daily-summary|project-memory|routes\/memory|MemoryPage/i,
-      /HEARTBEAT\.md|<recent-work>|<memory-system>|<reply-policy>|global-agents-md|wrapCodexPromptWithReplyPolicy|buildMemoryRecallPrompt|formatTranscriptMarkdown|conversationsDir|transcript_archive/i,
+      /HEARTBEAT\.md|<recent-work>|<memory-system>|<reply-policy>|global-agents-md|wrapOpenAIPromptWithReplyPolicy|buildMemoryRecallPrompt|formatTranscriptMarkdown|conversationsDir|transcript_archive/i,
       /CLAUDE\.md|\.claude\/rules|settingSources:\s*\[\s*['"]project/i,
     ];
 

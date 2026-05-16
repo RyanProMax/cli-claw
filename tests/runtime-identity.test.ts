@@ -5,13 +5,13 @@ import {
   mergeRuntimeIdentity,
   parseRuntimeIdentity,
   serializeRuntimeIdentity,
-} from '../src/runtime-identity.ts';
+} from '../src/core/runtime/identity.ts';
 import { formatRuntimeIdentityFooter as formatWebRuntimeIdentityFooter } from '../web/src/lib/runtimeIdentity.ts';
 
 describe('runtime identity helpers', () => {
   test('formats model and reasoning effort when both are exact', () => {
     const identity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'GPT-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -36,9 +36,9 @@ describe('runtime identity helpers', () => {
     expect(formatWebRuntimeIdentityFooter(identity)).toBe('claude-opus-4.1');
   });
 
-  test('shows Codex speed tier when reasoning effort is missing', () => {
+  test('shows OpenAI speed tier when reasoning effort is missing', () => {
     const identity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'GPT-5.4',
     };
 
@@ -52,7 +52,7 @@ describe('runtime identity helpers', () => {
 
   test('serializes and parses normalized runtime identity payloads', () => {
     const serialized = serializeRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: ' GPT-5.4 ',
       reasoningEffort: ' xhigh ',
       speedTier: ' fast ',
@@ -61,7 +61,7 @@ describe('runtime identity helpers', () => {
 
     expect(serialized).toBeTruthy();
     expect(parseRuntimeIdentity(serialized)).toEqual({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'GPT-5.4',
       reasoningEffort: 'xhigh',
       speedTier: 'fast',
@@ -69,18 +69,44 @@ describe('runtime identity helpers', () => {
     });
   });
 
-  test('preserves existing Codex speed when runtime update omits speed tier', () => {
+  test('parses historical codex runtime identity as OpenAI', () => {
+    expect(
+      parseRuntimeIdentity(
+        JSON.stringify({
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+        }),
+      ),
+    ).toEqual({
+      agentType: 'openai',
+      model: 'gpt-5.5',
+      reasoningEffort: 'medium',
+      speedTier: 'standard',
+      supportsReasoningEffort: null,
+    });
+
+    expect(
+      formatWebRuntimeIdentityFooter({
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        reasoningEffort: 'medium',
+      }),
+    ).toBe('gpt-5.5 | medium | standard (1x)');
+  });
+
+  test('preserves existing OpenAI speed when runtime update omits speed tier', () => {
     expect(
       mergeRuntimeIdentity(
         {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.5',
           reasoningEffort: 'xhigh',
           speedTier: 'fast',
           supportsReasoningEffort: true,
         },
         {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.5',
           reasoningEffort: 'xhigh',
           speedTier: null,
@@ -88,7 +114,7 @@ describe('runtime identity helpers', () => {
         },
       ),
     ).toEqual({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
       speedTier: 'fast',

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 
 import { LAUNCH_CWD } from './app-root.js';
-import { materializeHostWorkspaceDefaultCwd } from './host-workspace-cwd.js';
+import { materializeHostWorkspaceDefaultCwd } from './core/workspace/host-cwd.js';
 import type { MountAllowlist, RegisteredGroup } from './types.js';
 
 export interface CreateImNewWorkspaceGroupOptions {

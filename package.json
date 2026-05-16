@@ -35,11 +35,10 @@
     "test": "vitest",
     "build:web": "npm --prefix web run build",
     "build:shared": "tsc -p shared/tsconfig.json",
-    "build:backend": "tsc",
+    "build:backend": "rm -rf dist && tsc",
     "typecheck:backend": "tsc --noEmit"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.18.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.85",
     "@hono/node-server": "^1.19.9",
     "@larksuiteoapi/node-sdk": "^1.58.0",
@@ -85,7 +84,7 @@
   "keywords": [
     "claude",
     "claude-code",
-    "codex",
+    "openai",
     "ai-agent",
     "self-hosted",
     "feishu",

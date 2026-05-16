@@ -51,6 +51,6 @@ describe('npm package manifest', () => {
     expect(pkg.scripts?.['build:release']).toBeUndefined();
     expect(pkg.scripts?.['build:all']).toBeUndefined();
     expect(pkg.scripts?.['build:web:local']).toBeUndefined();
-    expect(pkg.dependencies?.['@agentclientprotocol/sdk']).toBeDefined();
+    expect(pkg.dependencies?.['@agentclientprotocol/sdk']).toBeUndefined();
   });
 });

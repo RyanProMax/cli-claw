@@ -150,9 +150,9 @@ import {
   executeRuntimeWorkspaceCommand,
   resolveRuntimeWorkspaceTarget,
   type ResolvedRuntimeWorkspaceTarget,
-} from './runtime-command-handler.js';
-import { getAvailableRuntimeModelOptions } from './runtime-model-options.js';
-import { attachRuntimeUsageFooterMeta } from './runtime-usage.js';
+} from './core/runtime/command-handler.js';
+import { getAvailableRuntimeModelOptions } from './core/runtime/model-options.js';
+import { attachRuntimeUsageFooterMeta } from './core/runtime/usage.js';
 import {
   discoverSkillCommands,
   executeDiscoveredSkillCommandResult,
@@ -181,6 +181,7 @@ import {
   getUserDingTalkConfig,
   getSystemSettings,
   getClaudeProviderConfig,
+  getOpenAiRuntimeDefaults,
   saveUserFeishuConfig,
   saveUserTelegramConfig,
   updateAllSessionCredentials,
@@ -192,8 +193,8 @@ import type {
   WeChatConnectConfig,
   DingTalkConnectConfig,
 } from './im-manager.js';
-import { GroupQueue } from './group-queue.js';
-import { startSchedulerLoop, triggerTaskNow } from './task-scheduler.js';
+import { GroupQueue } from './agent/queue/group-queue.js';
+import { startSchedulerLoop, triggerTaskNow } from './agent/scheduler/index.js';
 import {
   checkBillingAccessFresh,
   formatBillingAccessDeniedMessage,
@@ -221,12 +222,13 @@ import {
 } from './runtime-build.js';
 import {
   buildEffectiveGroupFromHomeSibling,
+  normalizeAgentType,
   resolveEffectiveRuntimeIdentity,
-} from './group-runtime.js';
+} from './core/runtime/group-runtime.js';
 import {
   materializeHostWorkspaceDefaultCwd,
   validateHostWorkspaceCwd,
-} from './host-workspace-cwd.js';
+} from './core/workspace/host-cwd.js';
 import { resolveTaskOwner } from './task-utils.js';
 import {
   ensureAgentDirectories,
@@ -255,9 +257,8 @@ import {
 } from './routes/skills.js';
 import { verifyPairingCode } from './telegram-pairing.js';
 import { executeSessionReset } from './commands.js';
-import { getCodexUsageSnapshot } from './usage-command.js';
 import { formatLoopStatusSection } from './loop-status.js';
-import { mergeRuntimeIdentity } from './runtime-identity.js';
+import { mergeRuntimeIdentity } from './core/runtime/identity.js';
 import { runSelfCheck, type SelfCheckResult } from './self-check.js';
 import {
   hasPendingSelfRestartForChat,
@@ -273,7 +274,6 @@ import {
   inferStartupLaunchSpecFromProcess,
   type StartupLaunchSpec,
 } from './startup-launch.js';
-import { getCodexRuntimeFallback } from './codex-config.js';
 import { compactMessagesForAgent } from './context-compaction.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -287,16 +287,16 @@ let lastSelfCheckResult: SelfCheckResult | null = null;
 let selfCheckRunning = false;
 let startupLaunchSpec: StartupLaunchSpec = inferStartupLaunchSpecFromProcess();
 
-function getCodexRuntimeIdentityOptions(): {
-  codexCliModel: string | null;
-  codexCliReasoningEffort: string | null;
-  codexCliSpeedTier: string | null;
+function getOpenAiRuntimeIdentityOptions(): {
+  openAiModel: string | null;
+  openAiReasoningEffort: string | null;
+  openAiSpeedTier: string | null;
 } {
-  const fallback = getCodexRuntimeFallback();
+  const fallback = getOpenAiRuntimeDefaults();
   return {
-    codexCliModel: fallback.model,
-    codexCliReasoningEffort: fallback.reasoningEffort,
-    codexCliSpeedTier: fallback.speedTier,
+    openAiModel: fallback.model,
+    openAiReasoningEffort: fallback.reasoningEffort,
+    openAiSpeedTier: fallback.speedTier,
   };
 }
 
@@ -332,7 +332,7 @@ function startsWithResearchTitleForLog(
   );
 }
 
-function logCodexFinalVisibleReplyFields(input: {
+function logOpenAiFinalVisibleReplyFields(input: {
   chatJid?: string;
   virtualChatJid?: string;
   group?: string;
@@ -348,7 +348,7 @@ function logCodexFinalVisibleReplyFields(input: {
   visibleReplyParts: ResolvedVisibleReplyParts;
   message: string;
 }): void {
-  if (input.runtimeIdentity?.agentType !== 'codex') return;
+  if (input.runtimeIdentity?.agentType !== 'openai') return;
 
   logger.info(
     {
@@ -435,11 +435,12 @@ export function feedStreamEventToCard(
           se,
           se.runtimeIdentity,
         );
+        if (!channel) break;
         if (channel === 'commentary') {
           session.appendCommentary(presentationText.commentaryText);
         } else {
           if (
-            se.runtimeIdentity?.agentType === 'codex' &&
+            se.runtimeIdentity?.agentType === 'openai' &&
             presentationText.commentaryText.trim()
           ) {
             session.appendCommentary(presentationText.commentaryText);
@@ -2004,9 +2005,9 @@ async function handleCommand(
     'IM command invoked',
   );
 
-  if (cmd === 'help' || cmd === 'codex' || cmd === 'claude') {
+  if (cmd === 'help' || cmd === 'openai' || cmd === 'claude') {
     if (
-      (cmd === 'codex' || cmd === 'claude') &&
+      (cmd === 'openai' || cmd === 'claude') &&
       !rawArgs &&
       chatJid.startsWith('feishu:')
     ) {
@@ -2436,10 +2437,6 @@ function handleStatusCommand(chatJid: string): string {
     value === undefined ? 'unavailable' : `${value}%`;
   const formatResetValue = (value: unknown): string =>
     typeof value === 'string' && value.trim().length > 0 ? value : 'unknown';
-  const codexUsage =
-    runtimeTarget?.effectiveRuntimeIdentity.agentType === 'codex'
-      ? getCodexUsageSnapshot()
-      : null;
   const runtimeIdentity = runtimeTarget?.effectiveRuntimeIdentity ?? null;
   logger.info(
     {
@@ -2467,14 +2464,14 @@ function handleStatusCommand(chatJid: string): string {
     isActive,
     queuePosition,
     {
-      agentType: runtimeIdentity?.agentType === 'codex' ? 'codex' : 'claude',
+      agentType: runtimeIdentity?.agentType ?? 'openai',
       model: runtimeIdentity?.model ?? 'unknown',
       reasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
       speedTier: runtimeIdentity?.speedTier ?? null,
-      primaryRemaining: formatQuotaValue(codexUsage?.primaryRemainingPct),
-      primaryReset: formatResetValue(codexUsage?.primaryResetAt),
-      secondaryRemaining: formatQuotaValue(codexUsage?.secondaryRemainingPct),
-      secondaryReset: formatResetValue(codexUsage?.secondaryResetAt),
+      primaryRemaining: formatQuotaValue(undefined),
+      primaryReset: formatResetValue(undefined),
+      secondaryRemaining: formatQuotaValue(undefined),
+      secondaryReset: formatResetValue(undefined),
       workspaceName: workspace.name,
       currentSessionName,
       sessionCount: workspace.agents.length + 1,
@@ -2483,7 +2480,7 @@ function handleStatusCommand(chatJid: string): string {
   );
   const loopStatus = formatLoopStatusSection({
     taskReader: { getTaskById, getTaskRunLogs },
-    codexUsage: getCodexUsageSnapshot(),
+    runtimeUsage: null,
   });
 
   const lifecycleStatus = chatJid.startsWith('feishu:')
@@ -3957,7 +3954,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
   let activeRuntimeIdentity: RuntimeIdentity | null =
     resolveEffectiveRuntimeIdentity(effectiveGroup, {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
-      ...getCodexRuntimeIdentityOptions(),
+      ...getOpenAiRuntimeIdentityOptions(),
     });
   const agentRunStartedAt = Date.now();
   let activeStreamingTurnStartedAt = agentRunStartedAt;
@@ -4502,7 +4499,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 streamingPresentationText,
                 activeRuntimeIdentity,
               );
-              logCodexFinalVisibleReplyFields({
+              logOpenAiFinalVisibleReplyFields({
                 chatJid,
                 group: group.name,
                 turnId: result.turnId,
@@ -4514,7 +4511,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 presentationText: streamingPresentationText,
                 runtimeIdentity: activeRuntimeIdentity,
                 visibleReplyParts,
-                message: 'Codex final visible reply fields resolved',
+                message: 'OpenAI final visible reply fields resolved',
               });
               if (visibleReplyParts.droppedPresentationAnswer) {
                 logger.warn(
@@ -5365,11 +5362,11 @@ async function runAgent(
   ipcWatcherManager?.watchGroup(group.folder);
   try {
     const executionMode = group.executionMode || 'container';
-    const agentType = group.agentType || 'claude';
-    const selectedRunner = executionMode === 'host' ? agentType : 'claude';
+    const agentType = normalizeAgentType(group.agentType);
+    const selectedRunner = agentType;
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(group, {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
-      ...getCodexRuntimeIdentityOptions(),
+      ...getOpenAiRuntimeIdentityOptions(),
     });
     const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
@@ -5443,6 +5440,7 @@ async function runAgent(
           messageCursor,
           groupFolder: group.folder,
           chatJid,
+          agentType,
           model: effectiveRuntimeIdentity.model ?? null,
           reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
           speedTier: effectiveRuntimeIdentity.speedTier ?? null,
@@ -7525,7 +7523,7 @@ async function processAgentConversation(
   let currentAgentRuntimeIdentity: RuntimeIdentity | null =
     resolveEffectiveRuntimeIdentity(effectiveGroup, {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
-      ...getCodexRuntimeIdentityOptions(),
+      ...getOpenAiRuntimeIdentityOptions(),
     });
   const agentConversationStartedAt = Date.now();
   let activeAgentTurnStartedAt = agentConversationStartedAt;
@@ -7843,7 +7841,7 @@ async function processAgentConversation(
           agentStreamingPresentationText,
           currentAgentRuntimeIdentity,
         );
-        logCodexFinalVisibleReplyFields({
+        logOpenAiFinalVisibleReplyFields({
           virtualChatJid,
           agentId,
           turnId: output.turnId,
@@ -7855,7 +7853,7 @@ async function processAgentConversation(
           presentationText: agentStreamingPresentationText,
           runtimeIdentity: currentAgentRuntimeIdentity,
           visibleReplyParts,
-          message: 'Codex agent final visible reply fields resolved',
+          message: 'OpenAI agent final visible reply fields resolved',
         });
         if (visibleReplyParts.droppedPresentationAnswer) {
           logger.warn(
@@ -8101,13 +8099,13 @@ async function processAgentConversation(
   ipcWatcherManager?.watchGroup(effectiveGroup.folder);
   try {
     const executionMode = effectiveGroup.executionMode || 'container';
-    const agentType = effectiveGroup.agentType || 'claude';
-    const selectedRunner = executionMode === 'host' ? agentType : 'claude';
+    const agentType = normalizeAgentType(effectiveGroup.agentType);
+    const selectedRunner = agentType;
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
       effectiveGroup,
       {
         claudeProviderModel: getClaudeProviderConfig().anthropicModel,
-        ...getCodexRuntimeIdentityOptions(),
+        ...getOpenAiRuntimeIdentityOptions(),
       },
     );
     const runtimeBuildLogFields = getRuntimeBuildLogFields();
@@ -10532,32 +10530,33 @@ export async function startCliClaw(
       await processAgentConversation(homeChatJid, agentId);
     });
   });
-  const schedulerDeps: import('./task-scheduler.js').SchedulerDependencies = {
-    registeredGroups: () => registeredGroups,
-    getSessions: () => sessions,
-    queue,
-    onProcess: (
-      groupJid,
-      proc,
-      containerName,
-      groupFolder,
-      displayName,
-      taskRunId,
-    ) =>
-      queue.registerProcess(
+  const schedulerDeps: import('./agent/scheduler/index.js').SchedulerDependencies =
+    {
+      registeredGroups: () => registeredGroups,
+      getSessions: () => sessions,
+      queue,
+      onProcess: (
         groupJid,
         proc,
         containerName,
         groupFolder,
         displayName,
-        undefined, // agentId
         taskRunId,
-      ),
-    sendMessage,
-    broadcastStreamEvent,
-    onWorkspaceCreated: broadcastGroupCreated,
-    assistantName: ASSISTANT_NAME,
-  };
+      ) =>
+        queue.registerProcess(
+          groupJid,
+          proc,
+          containerName,
+          groupFolder,
+          displayName,
+          undefined, // agentId
+          taskRunId,
+        ),
+      sendMessage,
+      broadcastStreamEvent,
+      onWorkspaceCreated: broadcastGroupCreated,
+      assistantName: ASSISTANT_NAME,
+    };
   startSchedulerLoop(schedulerDeps);
 
   // Inject triggerTaskRun into WebDeps (schedulerDeps must exist first)

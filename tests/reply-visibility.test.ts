@@ -6,7 +6,7 @@ import {
 } from '../src/reply-visibility.ts';
 
 describe('resolveVisibleReplyText', () => {
-  test('strips leading Codex commentary when it leaks into the final reply body', () => {
+  test('strips leading OpenAI commentary when it leaks into the final reply body', () => {
     const rawText = [
       '我会先核对招股书和上市状态。',
       '',
@@ -21,12 +21,12 @@ describe('resolveVisibleReplyText', () => {
         {
           commentaryText: '我会先核对招股书和上市状态。',
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toBe(['## 01879 打新预研', '', '这是最终报告。'].join('\n'));
   });
 
-  test('uses current raw final for Codex even when explicit answer text is available', () => {
+  test('uses current raw final for OpenAI even when explicit answer text is available', () => {
     expect(
       resolveVisibleReplyText(
         '当前 raw final',
@@ -34,7 +34,7 @@ describe('resolveVisibleReplyText', () => {
           answerText: '最终答案',
           commentaryText: 'commentary',
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toBe('当前 raw final');
   });
@@ -57,7 +57,7 @@ describe('resolveVisibleReplyText', () => {
           answerText: staleAnswer,
           commentaryText: '',
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toBe(rawText);
   });
@@ -69,7 +69,7 @@ describe('resolveVisibleReplyText', () => {
         answerText: '正常 presentation answer',
         commentaryText: '旧过程说明',
       },
-      { agentType: 'codex' },
+      { agentType: 'openai' },
     );
 
     expect(parts).toEqual({
@@ -83,7 +83,7 @@ describe('resolveVisibleReplyText', () => {
     const rawText = [
       '我先查实际链路，不先猜。',
       '',
-      '不符合流式输出预期，当前 Codex 飞书卡片被禁用。',
+      '不符合流式输出预期，当前 OpenAI 飞书卡片被禁用。',
     ].join('\n');
     const staleAnswer = [
       '我会按仓库协议先补读工程说明和当前计划，再定位 `stock-analysis-skill`。',
@@ -95,7 +95,7 @@ describe('resolveVisibleReplyText', () => {
       resolveVisibleReplyParts(
         rawText,
         { answerText: staleAnswer },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toEqual({
       visibleText: rawText,
@@ -104,14 +104,14 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('classifies a process-only Codex terminal final as commentary, not answer body', () => {
+  test('classifies a process-only OpenAI terminal final as commentary, not answer body', () => {
     expect(
       resolveVisibleReplyParts(
         '我会先检查飞书渲染链路。',
         {
           commentaryText: '我会先检查飞书渲染链路。',
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toEqual({
       visibleText: '',
@@ -120,7 +120,7 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('keeps duplicate Codex process text in commentary when terminal final equals the streamed text', () => {
+  test('keeps duplicate OpenAI process text in commentary when terminal final equals the streamed text', () => {
     const rawText = [
       '我会先检查飞书渲染链路。',
       '已完成修复：过程面板不再重复正文。',
@@ -132,7 +132,7 @@ describe('resolveVisibleReplyText', () => {
         {
           commentaryText: rawText,
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toEqual({
       visibleText: '',
@@ -141,9 +141,9 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('keeps long duplicate Codex process text in commentary instead of falling back to the body', () => {
+  test('keeps long duplicate OpenAI process text in commentary instead of falling back to the body', () => {
     const rawText = [
-      '我会先系统性打印 Codex 输出流并归类每个事件。',
+      '我会先系统性打印 OpenAI 输出流并归类每个事件。',
       '当前观察到 text_delta 连续携带执行说明。'.repeat(80),
       '验证完成后再更新卡片渲染合同。',
     ].join('\n');
@@ -154,7 +154,7 @@ describe('resolveVisibleReplyText', () => {
         {
           commentaryText: rawText,
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toEqual({
       visibleText: '',
@@ -163,9 +163,9 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('splits Codex implementation narration before the actual user-facing answer', () => {
+  test('splits OpenAI implementation narration before the actual user-facing answer', () => {
     const processText = [
-      '我已经按这个问题做了修复，根因就是 Codex 的同一份 text_delta 累计文本既被直播到了“过程”，结束时又作为 terminal final 写进正文。',
+      '我已经按这个问题做了修复，根因就是 OpenAI 的同一份 text_delta 累计文本既被直播到了“过程”，结束时又作为 terminal final 写进正文。',
       '现在终态会判断两者是否完全相同：相同就清空“过程”，只保留正文；只有真的能剥离出独立过程前缀时，才放进“过程”。',
       '我再确认一下重启是否已经应用。',
     ].join('\n');
@@ -177,7 +177,7 @@ describe('resolveVisibleReplyText', () => {
         {
           commentaryText: processText,
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toEqual({
       visibleText: '你说得对，这是概念混了。',
@@ -185,7 +185,7 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('uses the already-clean Codex terminal final after phase-based runner filtering', () => {
+  test('uses the already-clean OpenAI terminal final after phase-based runner filtering', () => {
     const commentaryText = [
       '我会先把 roadmap 迁到 `PLAN/ROADMAP.md` 并修正文档引用。',
       'Context compacted',
@@ -207,7 +207,7 @@ describe('resolveVisibleReplyText', () => {
           answerText: finalText,
           commentaryText,
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toEqual({
       visibleText: finalText,
@@ -216,7 +216,7 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('does not rewrite non-Codex replies', () => {
+  test('does not rewrite non-OpenAI replies', () => {
     expect(
       resolveVisibleReplyText(
         '普通回复',
@@ -258,19 +258,19 @@ describe('resolveVisibleReplyText', () => {
     ).toBe(['## 港股 IPO 池', '', '这是最终报告。'].join('\n'));
   });
 
-  test('infers a short Codex process prefix before a markdown report heading as commentary', () => {
+  test('infers a short OpenAI process prefix before a markdown report heading as commentary', () => {
     const rawText =
       '我按 `stock-analysis-skill` 先联网核验当前 IPO 池。# 港股 IPO 池跟踪\n\n正文';
 
     expect(
-      resolveVisibleReplyParts(rawText, {}, { agentType: 'codex' }),
+      resolveVisibleReplyParts(rawText, {}, { agentType: 'openai' }),
     ).toEqual({
       visibleText: '# 港股 IPO 池跟踪\n\n正文',
       commentaryText: '我按 `stock-analysis-skill` 先联网核验当前 IPO 池。',
     });
   });
 
-  test('infers Codex process logs before a bold research title as commentary', () => {
+  test('infers OpenAI process logs before a bold research title as commentary', () => {
     const rawText = [
       '我会按 stock-analysis-skill 的研报协议执行。',
       '本地协议文件已读取。',
@@ -282,7 +282,7 @@ describe('resolveVisibleReplyText', () => {
     ].join('\n');
 
     expect(
-      resolveVisibleReplyParts(rawText, {}, { agentType: 'codex' }),
+      resolveVisibleReplyParts(rawText, {}, { agentType: 'openai' }),
     ).toEqual({
       visibleText: [
         '**/research｜HK.00100｜hk｜2026-05-04**',
@@ -298,7 +298,7 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('keeps a structured research report visible after a long duplicated Codex process preamble', () => {
+  test('keeps a structured research report visible after a long duplicated OpenAI process preamble', () => {
     const processText = [
       '我会按 stock-analysis-skill 的研报流程做：先读 reference，再走标准 API，最后补齐公开来源。',
       '当前已经完成身份核验、标准代码解析、财报模块拉取、行情口径对齐和机构观点交叉核验。'.repeat(
@@ -320,7 +320,7 @@ describe('resolveVisibleReplyText', () => {
         {
           commentaryText: rawText,
         },
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toEqual({
       visibleText: reportText,
@@ -328,7 +328,7 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('infers Codex process logs before a bold hkipo title as commentary', () => {
+  test('infers OpenAI process logs before a bold hkipo title as commentary', () => {
     const rawText = [
       '我会先按技能要求读取港股 IPO 研究规则。',
       '已读取 /hkipo 评分与输出约束。',
@@ -340,7 +340,7 @@ describe('resolveVisibleReplyText', () => {
     ].join('\n');
 
     expect(
-      resolveVisibleReplyParts(rawText, {}, { agentType: 'codex' }),
+      resolveVisibleReplyParts(rawText, {}, { agentType: 'openai' }),
     ).toEqual({
       visibleText: [
         '**港股 IPO 池｜2026-05-05**',
@@ -370,7 +370,7 @@ describe('resolveVisibleReplyText', () => {
       '已经按当前请求处理。',
     ].join('\n');
 
-    expect(resolveVisibleReplyText(rawText, {}, { agentType: 'codex' })).toBe(
+    expect(resolveVisibleReplyText(rawText, {}, { agentType: 'openai' })).toBe(
       ['**结论**', '已经按当前请求处理。'].join('\n'),
     );
   });
@@ -385,7 +385,7 @@ describe('resolveVisibleReplyText', () => {
           '- src/index.ts',
         ].join('\n'),
         {},
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toBe('内部上下文已拦截。请重新发送当前请求。');
   });
@@ -401,7 +401,7 @@ describe('resolveVisibleReplyText', () => {
           '盯盘任务不会主动吞掉用户消息。',
         ].join('\n'),
         {},
-        { agentType: 'codex' },
+        { agentType: 'openai' },
       ),
     ).toBe(['**结论**', '盯盘任务不会主动吞掉用户消息。'].join('\n'));
   });

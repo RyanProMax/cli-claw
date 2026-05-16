@@ -7,7 +7,7 @@ describe('formatToolStepLine', () => {
     expect(formatToolStepLine('exec_command')).toBe('💻 exec_command');
   });
 
-  test('uses summary verbs to distinguish common Codex step types', () => {
+  test('uses summary verbs to distinguish common OpenAI step types', () => {
     expect(formatToolStepLine('tool', 'Read index.ts')).toBe(
       '📖 tool · Read index.ts',
     );
@@ -19,7 +19,7 @@ describe('formatToolStepLine', () => {
     );
   });
 
-  test('uses tool-name verbs when Codex sends the whole step as the name', () => {
+  test('uses tool-name verbs when OpenAI sends the whole step as the name', () => {
     expect(formatToolStepLine('Read SKILL.md')).toBe('📖 Read SKILL.md');
     expect(formatToolStepLine('Search runtime command in src')).toBe(
       '🔎 Search runtime command in src',

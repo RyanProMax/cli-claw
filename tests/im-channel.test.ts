@@ -69,7 +69,7 @@ describe('IM channel footer consumption', () => {
 
   const messageMeta = {
     runtimeIdentity: {
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'GPT-5.4',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -82,7 +82,7 @@ describe('IM channel footer consumption', () => {
   };
 
   const expectedText =
-    'Hello world\n\n2s | Codex | GPT-5.4 | high | standard (1x)';
+    'Hello world\n\n2s | OpenAI | GPT-5.4 | high | standard (1x)';
 
   beforeEach(() => {
     hoisted.feishuInner.connect.mockReset();

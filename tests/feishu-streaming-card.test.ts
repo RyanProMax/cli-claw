@@ -74,7 +74,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'GPT-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -101,7 +101,7 @@ describe('StreamingCardController footer caching', () => {
     (controller as any).state = 'completed';
 
     expect((controller as any).getFooterNote()).toBe(
-      '5s | Codex | GPT-5.4 | xhigh | standard (1x)',
+      '5s | OpenAI | GPT-5.4 | xhigh | standard (1x)',
     );
 
     controller.dispose();
@@ -114,7 +114,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -133,7 +133,7 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 19% (5h) | 72% (7d)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 19% (5h) | 72% (7d)',
     );
 
     controller.dispose();
@@ -146,7 +146,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -165,7 +165,7 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)',
     );
 
     controller.dispose();
@@ -178,7 +178,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -199,7 +199,7 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 4% (7d)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 4% (7d)',
     );
 
     controller.dispose();
@@ -212,7 +212,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -231,7 +231,7 @@ describe('StreamingCardController footer caching', () => {
     } as any);
 
     expect((controller as any).getFooterNote()).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x)',
     );
 
     controller.dispose();
@@ -247,11 +247,11 @@ describe('StreamingCardController footer caching', () => {
     (controller as any).backendMode = 'legacy';
     (controller as any).messageId = null;
 
-    await controller.fail('Codex CLI 用量已用尽。请稍后重试。');
+    await controller.fail('OpenAI CLI 用量已用尽。请稍后重试。');
 
     expect((controller as any).state).toBe('aborted');
     expect((controller as any).accumulatedText).toBe(
-      'Codex CLI 用量已用尽。请稍后重试。',
+      'OpenAI CLI 用量已用尽。请稍后重试。',
     );
 
     controller.dispose();
@@ -399,7 +399,7 @@ describe('StreamingCardController footer caching', () => {
     expect(mainMarkdown?.content).toBe('Intro\n\n##### Result\n\n- first');
   });
 
-  test('renders Codex commentary in the Thinking panel instead of a separate process panel or main body', async () => {
+  test('renders OpenAI commentary in the Thinking panel instead of a separate process panel or main body', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
@@ -506,7 +506,7 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('renders Codex thinking, commentary, body, and live duration footer in streaming cards', async () => {
+  test('renders OpenAI thinking, commentary, body, and live duration footer in streaming cards', async () => {
     const { client, createdCards, updatedCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
@@ -514,7 +514,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -550,7 +550,7 @@ describe('StreamingCardController footer caching', () => {
     expect(JSON.stringify(elements)).toContain('工具检查');
     expect(mainMarkdown?.content).toBe('最终正文');
     expect(statusNote).toContain('⏳ 生成中...');
-    expect(statusNote).toContain('Codex');
+    expect(statusNote).toContain('OpenAI');
     expect(statusNote).toContain('gpt-5.4');
     expect(statusNote).toContain('standard (1x)');
 
@@ -1040,7 +1040,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'GPT-5.4',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -1070,11 +1070,11 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('builds one Codex runtime configuration card with model, effort, and speed selectors', () => {
+  test('builds one OpenAI runtime configuration card with model, effort, and speed selectors', () => {
     const card = buildRuntimeSelectionCard({
-      agentType: 'codex',
+      agentType: 'openai',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         speedTier: 'fast',
@@ -1083,7 +1083,7 @@ describe('StreamingCardController footer caching', () => {
     }) as any;
 
     const selects = collectSelectStaticElements(card);
-    expect(card.config.summary.content).toBe('配置 Codex');
+    expect(card.config.summary.content).toBe('配置 OpenAI');
     expect(selects).toHaveLength(3);
     expect(selects[0]).toMatchObject({
       tag: 'select_static',
@@ -1099,10 +1099,6 @@ describe('StreamingCardController footer caching', () => {
       {
         text: { tag: 'plain_text', content: 'GPT-5.4-Mini' },
         value: 'gpt-5.4-mini',
-      },
-      {
-        text: { tag: 'plain_text', content: 'GPT-5.3-Codex' },
-        value: 'gpt-5.3-codex',
       },
       {
         text: { tag: 'plain_text', content: 'GPT-5.2' },
@@ -1125,9 +1121,9 @@ describe('StreamingCardController footer caching', () => {
 
   test('prefers injected runtime model choices when building an agent configuration card', () => {
     const card = buildRuntimeSelectionCard({
-      agentType: 'codex',
+      agentType: 'openai',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.5',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -1135,7 +1131,7 @@ describe('StreamingCardController footer caching', () => {
       modelChoices: [
         { value: 'gpt-5.4', label: 'GPT-5.4' },
         { value: 'gpt-5.5', label: 'GPT-5.5' },
-        { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3-Codex-Spark' },
+        { value: 'gpt-5.2', label: 'GPT-5.2' },
       ],
     }) as any;
 
@@ -1156,17 +1152,17 @@ describe('StreamingCardController footer caching', () => {
         value: 'gpt-5.5',
       },
       {
-        text: { tag: 'plain_text', content: 'GPT-5.3-Codex-Spark' },
-        value: 'gpt-5.3-codex-spark',
+        text: { tag: 'plain_text', content: 'GPT-5.2' },
+        value: 'gpt-5.2',
       },
     ]);
   });
 
-  test('falls back to the current Codex defaults when configuration card inputs are unset', () => {
+  test('falls back to the current OpenAI defaults when configuration card inputs are unset', () => {
     const card = buildRuntimeSelectionCard({
-      agentType: 'codex',
+      agentType: 'openai',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: null,
         reasoningEffort: null,
         supportsReasoningEffort: true,
@@ -1228,9 +1224,9 @@ describe('StreamingCardController footer caching', () => {
 
   test('omits initial_option when the current value is no longer in the preset list', () => {
     const card = buildRuntimeSelectionCard({
-      agentType: 'codex',
+      agentType: 'openai',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'legacy-model',
         reasoningEffort: 'medium',
         supportsReasoningEffort: true,
@@ -1250,7 +1246,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'GPT-5.4',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -1323,7 +1319,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'GPT-5.4',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -1334,7 +1330,7 @@ describe('StreamingCardController footer caching', () => {
     const note: string = (controller as any).buildStreamingStatusNote();
     expect(note).toContain('⏳ 生成中...');
     expect(note).toMatch(
-      /\d+s \| Codex \| GPT-5\.4 \| high \| standard \(1x\)/,
+      /\d+s \| OpenAI \| GPT-5\.4 \| high \| standard \(1x\)/,
     );
 
     controller.dispose();
@@ -1382,7 +1378,7 @@ describe('StreamingCardController footer caching', () => {
     });
 
     controller.setRuntimeIdentity({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'GPT-5.4',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -1406,7 +1402,7 @@ describe('StreamingCardController footer caching', () => {
     const finalCardJson = JSON.stringify(updatedCards.at(-1));
     expect(finalCardJson).toContain('⚠️ 已中断');
     expect(finalCardJson).toMatch(
-      /\d+s \| Codex \| GPT-5\.4 \| high \| standard \(1x\)/,
+      /\d+s \| OpenAI \| GPT-5\.4 \| high \| standard \(1x\)/,
     );
     expect(finalCardJson).not.toContain('Thinking...');
     expect(finalCardJson).not.toContain('Reasoning...');
@@ -1651,7 +1647,7 @@ describe('StreamingCardController footer caching', () => {
         '- 07666 池内最高。',
       ].join('\n'),
       presentationText,
-      { agentType: 'codex' },
+      { agentType: 'openai' },
     );
     controller.appendThinking(visibleReplyParts.commentaryText);
     await controller.complete(visibleReplyParts.visibleText);

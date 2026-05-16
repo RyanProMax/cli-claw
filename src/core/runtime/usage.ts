@@ -1,13 +1,10 @@
-import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
+import { getClaudeUsageSnapshot } from '../../claude-oauth-usage.js';
 import {
   parseAssistantTokenUsage,
   type AssistantFooterTokenUsage,
-} from './assistant-meta-footer.js';
-import type { RuntimeIdentity } from './types.js';
-import {
-  getCodexUsageSnapshot,
-  type UsageProviderResult,
-} from './usage-command.js';
+} from '../../assistant-meta-footer.js';
+import type { RuntimeIdentity } from '../../types.js';
+import type { UsageProviderResult } from '../../usage-command.js';
 
 export type RuntimeUsageFooterMeta = Pick<
   AssistantFooterTokenUsage,
@@ -18,8 +15,8 @@ export async function getRuntimeUsageSnapshot(
   runtimeIdentity?: Pick<RuntimeIdentity, 'agentType'> | null,
 ): Promise<UsageProviderResult | null> {
   if (!runtimeIdentity?.agentType) return null;
-  if (runtimeIdentity.agentType === 'codex') {
-    return getCodexUsageSnapshot();
+  if (runtimeIdentity.agentType === 'openai') {
+    return null;
   }
   return getClaudeUsageSnapshot();
 }

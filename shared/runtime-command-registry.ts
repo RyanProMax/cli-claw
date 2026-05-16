@@ -1,4 +1,4 @@
-export type RuntimeAgentType = 'claude' | 'codex';
+export type RuntimeAgentType = 'claude' | 'openai';
 export type RuntimeCommandEntrypoint = 'im' | 'web';
 export type ReasoningEffortPreset = 'low' | 'medium' | 'high' | 'xhigh';
 export type SpeedTierPreset = 'standard' | 'fast';
@@ -17,19 +17,9 @@ const CLAUDE_MODEL_PRESETS = [
   'haiku',
 ] as const;
 
-const CODEX_MODEL_PRESETS = [
-  'gpt-5.4',
-  'gpt-5.4-mini',
-  'gpt-5.3-codex',
-  'gpt-5.2',
-] as const;
+const OPENAI_MODEL_PRESETS = ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2'] as const;
 
-const REASONING_EFFORT_PRESETS = [
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-] as const;
+const REASONING_EFFORT_PRESETS = ['low', 'medium', 'high', 'xhigh'] as const;
 
 const SPEED_TIER_PRESETS = ['standard', 'fast'] as const;
 
@@ -172,12 +162,12 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: ['claude'],
   },
   {
-    name: 'codex',
-    usage: '/codex',
-    description: '配置当前工作区 Codex 模型、思考强度和速度',
+    name: 'openai',
+    usage: '/openai',
+    description: '配置当前工作区 OpenAI 模型、推理强度和速度',
     module: 'agent',
     availableEntrypoints: ['im', 'web'],
-    availabilityByRuntime: ['codex'],
+    availabilityByRuntime: ['openai'],
   },
 ];
 
@@ -185,19 +175,17 @@ function normalizeText(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export function supportsReasoningEffort(
-  agentType: RuntimeAgentType,
-): boolean {
-  return agentType === 'codex';
+export function supportsReasoningEffort(agentType: RuntimeAgentType): boolean {
+  return agentType === 'openai';
 }
 
 export function supportsSpeedTier(agentType: RuntimeAgentType): boolean {
-  return agentType === 'codex';
+  return agentType === 'openai';
 }
 
 export function getModelPresets(agentType: RuntimeAgentType): string[] {
-  return agentType === 'codex'
-    ? [...CODEX_MODEL_PRESETS]
+  return agentType === 'openai'
+    ? [...OPENAI_MODEL_PRESETS]
     : [...CLAUDE_MODEL_PRESETS];
 }
 
@@ -211,7 +199,7 @@ function formatModelPresetLabel(preset: string): string {
     .map((part) => {
       const normalized = part.toLowerCase();
       if (normalized === 'gpt') return 'GPT';
-      if (normalized === 'codex') return 'Codex';
+      if (normalized === 'openai') return 'OpenAI';
       if (normalized === 'mini') return 'Mini';
       if (normalized.startsWith('opus')) return `Opus${part.slice(4)}`;
       if (normalized.startsWith('sonnet')) return `Sonnet${part.slice(6)}`;
@@ -278,7 +266,9 @@ export function normalizeReasoningEffortPreset(
   rawValue: string,
 ): ReasoningEffortPreset | null {
   const normalized = normalizeText(rawValue);
-  return REASONING_EFFORT_PRESETS.find((preset) => preset === normalized) ?? null;
+  return (
+    REASONING_EFFORT_PRESETS.find((preset) => preset === normalized) ?? null
+  );
 }
 
 export function normalizeSpeedTierPreset(
@@ -337,9 +327,7 @@ export function parseSlashCommandCandidate(
   };
 }
 
-export function parseRuntimeCommand(
-  text: string,
-): ParsedRuntimeCommand | null {
+export function parseRuntimeCommand(text: string): ParsedRuntimeCommand | null {
   const slashCandidate = parseSlashCommandCandidate(text);
   const trimmed = text.trim();
   const body = slashCandidate

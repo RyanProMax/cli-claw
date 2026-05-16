@@ -60,5 +60,9 @@ export function ensureAgentDirectories(
     path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.claude'),
     { recursive: true },
   );
+  fs.mkdirSync(
+    path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.openai'),
+    { recursive: true },
+  );
   return agentIpcDir;
 }

@@ -185,7 +185,7 @@ describe('formatSystemStatus', () => {
         false,
         null,
         {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.4',
           reasoningEffort: 'xhigh',
           speedTier: 'fast',
@@ -203,7 +203,7 @@ describe('formatSystemStatus', () => {
       [
         '🤖 Agent',
         '━━━━━━━━━━',
-        '🤖 当前 Agent: codex',
+        '🤖 当前 Agent: openai',
         '🧠 当前模型: gpt-5.4',
         '⚙️ 当前推理强度: xhigh',
         '🚀 当前速度: fast (2x)',

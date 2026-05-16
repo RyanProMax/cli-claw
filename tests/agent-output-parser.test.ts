@@ -5,36 +5,36 @@ import {
   createStdoutParserState,
   formatUserFacingRuntimeError,
   handleNonZeroExit,
-} from '../src/agent-output-parser.ts';
+} from '../src/agent/runner/output-parser.ts';
 
 describe('formatUserFacingRuntimeError', () => {
-  test('formats Codex usage-limit errors into a user-facing retry message', () => {
+  test('formats OpenAI usage-limit errors into a user-facing retry message', () => {
     const stderr = `
       Host agent exited with code 1:
-      visit https://chatgpt.com/codex/settings/usage to purchase more credits
-      or try again at 1:41 AM. Some(UsageLimitExceeded)
+      OpenAI API error: insufficient_quota; try again at 1:41 AM.
     `;
 
     expect(formatUserFacingRuntimeError(stderr)).toBe(
-      'Codex CLI 用量已用尽。请前往 https://chatgpt.com/codex/settings/usage 购买额度，或在 1:41 AM 后重试。',
+      'OpenAI API 用量或频率限制已触发，请在 1:41 AM 后重试。',
     );
   });
 
-  test('formats Codex login errors into a user-facing login hint', () => {
-    const stderr = 'codex error: auth_required, please login before continuing';
+  test('formats OpenAI login errors into a user-facing login hint', () => {
+    const stderr =
+      'Codex CLI login is required. Run `codex login` on the host, then retry.';
 
     expect(formatUserFacingRuntimeError(stderr)).toBe(
-      'Codex CLI 未登录。请先在服务器上执行：codex login',
+      'Codex CLI 登录态缺失或已过期。请在宿主机执行 `codex login` 后重试。',
     );
   });
 
-  test('formats Codex remote compact parameter errors without raw JSON', () => {
+  test('formats OpenAI remote compact parameter errors without raw JSON', () => {
     const stderr = `
-      {"message":"Internal error","code":-32603,"data":{"message":"Error running remote compact task: { \\"error\\": { \\"message\\": \\"Unknown parameter: 'safety_identifier'.\\", \\"type\\": \\"invalid_request_error\\", \\"param\\": \\"safety_identifier\\", \\"code\\": \\"unknown_parameter\\" } }","codex_error_info":"other"}}
+      {"message":"Internal error","code":-32603,"data":{"message":"Error running remote compact task: { \\"error\\": { \\"message\\": \\"Unknown parameter: 'safety_identifier'.\\", \\"type\\": \\"invalid_request_error\\", \\"param\\": \\"safety_identifier\\", \\"code\\": \\"unknown_parameter\\" } }"}}
     `;
 
     expect(formatUserFacingRuntimeError(stderr)).toBe(
-      'Codex 上下文压缩失败：当前 Codex 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 Codex runtime 后重试，必要时发送 /clear 清除当前会话上下文。',
+      'OpenAI 上下文压缩失败：当前 OpenAI 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 OpenAI runtime 后重试，必要时发送 /clear 清除当前会话上下文。',
     );
   });
 
@@ -42,8 +42,8 @@ describe('formatUserFacingRuntimeError', () => {
     const stdoutState = createStdoutParserState();
     stdoutState.lastErrorOutput = {
       status: 'error',
-      result: 'Codex CLI 用量已用尽。请稍后重试。',
-      error: 'Codex CLI 用量已用尽。请稍后重试。',
+      result: 'OpenAI CLI 用量已用尽。请稍后重试。',
+      error: 'OpenAI CLI 用量已用尽。请稍后重试。',
       finalizationReason: 'error',
     };
 
@@ -80,7 +80,7 @@ describe('formatUserFacingRuntimeError', () => {
 
     expect(resolved).toMatchObject({
       status: 'error',
-      result: 'Codex CLI 用量已用尽。请稍后重试。',
+      result: 'OpenAI CLI 用量已用尽。请稍后重试。',
       alreadyStreamedError: true,
       finalizationReason: 'error',
     });

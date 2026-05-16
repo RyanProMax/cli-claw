@@ -154,7 +154,7 @@ describe('chat streaming store', () => {
     expect(next?.partialText).toBe('first update\n\nsecond update');
   });
 
-  test('keeps the latest Codex assistant message in partialText and demotes earlier messages to commentaryText', () => {
+  test('keeps the latest phase-tagged OpenAI assistant message in partialText and demotes earlier messages to commentaryText', () => {
     useChatStore.setState((state) => ({
       ...state,
       groups: {
@@ -162,7 +162,7 @@ describe('chat streaming store', () => {
           name: 'Proj Home',
           folder: 'proj-home',
           added_at: '2026-04-22T10:00:00.000Z',
-          agent_type: 'codex',
+          agent_type: 'openai',
         },
       },
       waiting: {
@@ -176,8 +176,9 @@ describe('chat streaming store', () => {
       turnId: 'turn-1',
       sessionId: 'session-1',
       messageUuid: 'msg-1',
+      assistantMessagePhase: 'commentary',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -189,8 +190,9 @@ describe('chat streaming store', () => {
       turnId: 'turn-1',
       sessionId: 'session-1',
       messageUuid: 'msg-2',
+      assistantMessagePhase: 'final_answer',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -204,7 +206,7 @@ describe('chat streaming store', () => {
     expect(next?.partialText).toBe('最终结论');
   });
 
-  test('preserves Codex assistant phase through buffered Web text deltas', () => {
+  test('preserves OpenAI assistant phase through buffered Web text deltas', () => {
     useChatStore.setState((state) => ({
       ...state,
       groups: {
@@ -212,7 +214,7 @@ describe('chat streaming store', () => {
           name: 'Proj Home',
           folder: 'proj-home',
           added_at: '2026-04-22T10:00:00.000Z',
-          agent_type: 'codex',
+          agent_type: 'openai',
         },
       },
       waiting: {
@@ -228,7 +230,7 @@ describe('chat streaming store', () => {
       messageUuid: 'msg-1',
       assistantMessagePhase: 'commentary',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -242,7 +244,7 @@ describe('chat streaming store', () => {
       messageUuid: 'msg-1',
       assistantMessagePhase: 'final_answer',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -328,7 +330,7 @@ describe('chat streaming store', () => {
     expect(next?.sessionId).toBe('session-new');
   });
 
-  test('restores codex commentary text from stream snapshots without treating it as answer text', () => {
+  test('restores OpenAI commentary text from stream snapshots without treating it as answer text', () => {
     useChatStore.setState((state) => ({
       ...state,
       waiting: {
@@ -338,14 +340,14 @@ describe('chat streaming store', () => {
 
     useChatStore.getState().handleStreamSnapshot('web:proj-home', {
       partialText: '',
-      commentaryText: '正在核对 ACP 事件',
+      commentaryText: '正在核对 OpenAI phase 事件',
       activeTools: [],
       recentEvents: [],
       systemStatus: null,
       turnId: 'turn-2',
       sessionId: 'session-2',
       runtimeIdentity: {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -353,7 +355,7 @@ describe('chat streaming store', () => {
     });
 
     const next = useChatStore.getState().streaming['web:proj-home'];
-    expect(next?.commentaryText).toBe('正在核对 ACP 事件');
+    expect(next?.commentaryText).toBe('正在核对 OpenAI phase 事件');
     expect(next?.partialText).toBe('');
   });
 });

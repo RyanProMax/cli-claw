@@ -34,14 +34,15 @@ export function classifyStreamPresentationTextChannel(
   runtimeIdentity?: StreamRuntimeIdentity | null,
 ): StreamPresentationTextChannel | null {
   if (event.eventType !== 'text_delta') return null;
-  if (runtimeIdentity?.agentType === 'codex') {
+  if (runtimeIdentity?.agentType === 'openai') {
     if (event.assistantMessagePhase === 'commentary') return 'commentary';
     if (event.assistantMessagePhase === 'final_answer') return 'answer';
+    return null;
   }
   return 'answer';
 }
 
-function appendCodexAssistantMessageText(
+function appendPhasedAssistantMessageText(
   current: StreamPresentationTextState,
   event: Pick<
     StreamEvent,
@@ -126,8 +127,8 @@ export function appendStreamPresentationText(
     return current;
   }
 
-  if (channel === 'answer' && resolvedRuntimeIdentity?.agentType === 'codex') {
-    return appendCodexAssistantMessageText(current, event);
+  if (channel === 'answer' && resolvedRuntimeIdentity?.agentType === 'openai') {
+    return appendPhasedAssistantMessageText(current, event);
   }
 
   const streamAppended = appendStreamTextDelta(

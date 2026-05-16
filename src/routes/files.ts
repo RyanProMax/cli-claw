@@ -9,7 +9,7 @@ import {
 import type { AuthUser } from '../types.js';
 import type { RegisteredGroup } from '../types.js';
 import { getJidsByFolder, getRegisteredGroup } from '../db.js';
-import { resolveEffectiveHostWorkspaceCwd } from '../host-workspace-cwd.js';
+import { resolveEffectiveHostWorkspaceCwd } from '../core/workspace/host-cwd.js';
 import { logger } from '../logger.js';
 import {
   listFiles,

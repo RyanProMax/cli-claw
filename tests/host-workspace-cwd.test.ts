@@ -8,7 +8,7 @@ import {
   materializeHostWorkspaceDefaultCwd,
   resolveEffectiveHostWorkspaceCwd,
   validateHostWorkspaceCwd,
-} from '../src/host-workspace-cwd.js';
+} from '../src/core/workspace/host-cwd.js';
 
 const tempDirs: string[] = [];
 

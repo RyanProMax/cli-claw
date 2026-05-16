@@ -4,6 +4,7 @@ import path from 'path';
 
 import { ASSISTANT_NAME, DATA_DIR } from './config.js';
 import { logger } from './logger.js';
+import { normalizeSpeedTierPreset } from './runtime-command-registry.js';
 
 const MAX_FIELD_LENGTH = 2000;
 const CLAUDE_CONFIG_DIR = path.join(DATA_DIR, 'config');
@@ -80,6 +81,42 @@ const DEFAULT_CREDENTIAL_SCOPES = [
   'user:profile',
   'user:sessions:claude_code',
 ];
+
+export interface OpenAiRuntimeDefaults {
+  model: string;
+  reasoningEffort: string;
+  speedTier: string;
+}
+
+function normalizeRuntimeEnvText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function normalizeOpenAiSpeedTierDefault(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'priority') return 'fast';
+  return normalizeSpeedTierPreset(normalized);
+}
+
+export function getOpenAiRuntimeDefaults(
+  env: NodeJS.ProcessEnv = process.env,
+): OpenAiRuntimeDefaults {
+  const configuredSpeedTier =
+    normalizeRuntimeEnvText(env.OPENAI_SERVICE_TIER) ??
+    normalizeRuntimeEnvText(env.SERVICE_TIER);
+  return {
+    model: normalizeRuntimeEnvText(env.OPENAI_MODEL) ?? 'gpt-5.4',
+    reasoningEffort:
+      normalizeRuntimeEnvText(env.OPENAI_REASONING_EFFORT) ??
+      normalizeRuntimeEnvText(env.REASONING_EFFORT) ??
+      'medium',
+    speedTier: configuredSpeedTier
+      ? (normalizeOpenAiSpeedTierDefault(configuredSpeedTier) ?? 'standard')
+      : 'standard',
+  };
+}
 
 export interface ClaudeOAuthCredentials {
   accessToken: string;

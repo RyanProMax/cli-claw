@@ -20,7 +20,7 @@ import {
   createStderrState,
   createStdoutParserState,
   handleTimeoutClose,
-} from '../src/agent-output-parser.ts';
+} from '../src/agent/runner/output-parser.ts';
 
 describe('agent timeout logging', () => {
   test('logs controlled host agent timeouts as info instead of error', () => {

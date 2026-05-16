@@ -35,7 +35,7 @@ describe('stream presentation', () => {
     );
   });
 
-  test('keeps the latest Codex assistant message as the answer candidate and demotes earlier messages to Thinking', () => {
+  test('keeps the latest OpenAI assistant message as the answer candidate and demotes earlier messages to Thinking', () => {
     const first = appendStreamPresentationText(
       createEmptyStreamPresentationTextState(),
       {
@@ -44,14 +44,14 @@ describe('stream presentation', () => {
         messageUuid: 'msg-1',
         assistantMessagePhase: 'commentary',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.4',
           reasoningEffort: 'high',
           supportsReasoningEffort: true,
         },
       },
       {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -66,14 +66,14 @@ describe('stream presentation', () => {
         messageUuid: 'msg-2',
         assistantMessagePhase: 'final_answer',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.4',
           reasoningEffort: 'high',
           supportsReasoningEffort: true,
         },
       },
       {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -88,14 +88,14 @@ describe('stream presentation', () => {
         messageUuid: 'msg-2',
         assistantMessagePhase: 'final_answer',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.4',
           reasoningEffort: 'high',
           supportsReasoningEffort: true,
         },
       },
       {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
         reasoningEffort: 'high',
         supportsReasoningEffort: true,
@@ -122,7 +122,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('classifies Codex commentary phase as Thinking even without a message boundary', () => {
+  test('classifies OpenAI commentary phase as Thinking even without a message boundary', () => {
     const state = appendStreamPresentationText(
       createEmptyStreamPresentationTextState(),
       {
@@ -131,14 +131,14 @@ describe('stream presentation', () => {
         messageUuid: 'msg-progress',
         assistantMessagePhase: 'commentary',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.5',
           reasoningEffort: 'xhigh',
           supportsReasoningEffort: true,
         },
       },
       {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.5',
         reasoningEffort: 'xhigh',
         supportsReasoningEffort: true,
@@ -153,7 +153,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('classifies Codex final-answer phase as body even when the text looks like progress', () => {
+  test('classifies OpenAI final-answer phase as body even when the text looks like progress', () => {
     const state = appendStreamPresentationText(
       createEmptyStreamPresentationTextState(),
       {
@@ -162,14 +162,14 @@ describe('stream presentation', () => {
         messageUuid: 'msg-final',
         assistantMessagePhase: 'final_answer',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.5',
           reasoningEffort: 'xhigh',
           supportsReasoningEffort: true,
         },
       },
       {
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.5',
         reasoningEffort: 'xhigh',
         supportsReasoningEffort: true,
@@ -184,7 +184,7 @@ describe('stream presentation', () => {
     });
   });
 
-  test('streams the latest Codex assistant message to Feishu body and older messages to Thinking', () => {
+  test('streams the latest OpenAI assistant message to Feishu body and older messages to Thinking', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -208,7 +208,7 @@ describe('stream presentation', () => {
         messageUuid: 'msg-2',
         assistantMessagePhase: 'final_answer',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.4',
           reasoningEffort: 'high',
           supportsReasoningEffort: true,
@@ -222,7 +222,7 @@ describe('stream presentation', () => {
     );
 
     expect(session.setRuntimeIdentity).toHaveBeenCalledWith({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -231,7 +231,7 @@ describe('stream presentation', () => {
     expect(session.append).toHaveBeenCalledWith('最终结论');
   });
 
-  test('never streams stale Codex presentation answerText into Feishu cards', () => {
+  test('does not stream phase-less OpenAI text into Feishu cards', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -254,7 +254,7 @@ describe('stream presentation', () => {
         text: '当前增量',
         messageUuid: 'msg-current',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.4',
           reasoningEffort: 'high',
           supportsReasoningEffort: true,
@@ -268,12 +268,10 @@ describe('stream presentation', () => {
     );
 
     expect(session.append).not.toHaveBeenCalled();
-    expect(session.appendCommentary).toHaveBeenCalledWith(
-      '<messages>旧历史上下文</messages>\n当前增量',
-    );
+    expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 
-  test('streams a single Codex commentary phase into Thinking instead of the main body', () => {
+  test('streams a single OpenAI commentary phase into Thinking instead of the main body', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -297,7 +295,7 @@ describe('stream presentation', () => {
         messageUuid: 'msg-preamble',
         assistantMessagePhase: 'commentary',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.4',
           reasoningEffort: 'high',
           supportsReasoningEffort: true,
@@ -316,7 +314,7 @@ describe('stream presentation', () => {
     );
   });
 
-  test('does not stream an ambiguous one-character Codex preamble prefix into Feishu cards', () => {
+  test('ignores phase-less OpenAI text until the final-answer phase is known', () => {
     const session = {
       setRuntimeIdentity: vi.fn(),
       appendCommentary: vi.fn(),
@@ -339,20 +337,20 @@ describe('stream presentation', () => {
         text: '我',
         messageUuid: 'msg-preamble',
         runtimeIdentity: {
-          agentType: 'codex',
+          agentType: 'openai',
           model: 'gpt-5.5',
           reasoningEffort: 'high',
           supportsReasoningEffort: true,
         },
       } as any,
       {
-        answerText: '我',
+        answerText: '',
         commentaryText: '',
         streamText: '我',
       },
     );
 
-    expect(session.append).toHaveBeenCalledWith('我');
+    expect(session.append).not.toHaveBeenCalled();
     expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 
@@ -369,7 +367,7 @@ describe('stream presentation', () => {
     expect(session.appendCommentary).not.toHaveBeenCalled();
   });
 
-  test('clears duplicate Codex Thinking commentary when terminal visibility has no commentary', () => {
+  test('clears duplicate OpenAI Thinking commentary when terminal visibility has no commentary', () => {
     const session = {
       appendCommentary: vi.fn(),
       appendThinking: vi.fn(),

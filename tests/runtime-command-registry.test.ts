@@ -23,10 +23,10 @@ import {
 } from '../web/src/lib/runtimeCommandPicker.ts';
 
 describe('runtime command registry', () => {
-  test('formats web help as grouped module sections for codex workspaces', () => {
+  test('formats web help as grouped module sections for openai workspaces', () => {
     const help = formatCommandHelp({
       entrypoint: 'web',
-      agentType: 'codex',
+      agentType: 'openai',
     });
 
     expect(help).not.toContain('可用命令：');
@@ -34,7 +34,7 @@ describe('runtime command registry', () => {
     expect(help).toContain('/help');
     expect(help).toContain('/clear');
     expect(help).toContain('/sw <任务描述>');
-    expect(help).toContain('/codex');
+    expect(help).toContain('/openai');
     expect(help).not.toContain('/claude');
     expect(help).not.toContain('/model');
     expect(help).not.toContain('/effort');
@@ -57,7 +57,7 @@ describe('runtime command registry', () => {
     expect(help).toContain('/bind <workspace>');
     expect(help).toContain('/where');
     expect(help).toContain('/claude');
-    expect(help).not.toContain('/codex');
+    expect(help).not.toContain('/openai');
     expect(help).not.toContain('/model');
     expect(help).not.toContain('/autopilot');
     expect(help).not.toContain('/recall');
@@ -67,11 +67,11 @@ describe('runtime command registry', () => {
   test('does not expose legacy /usage or standalone runtime setting commands', () => {
     const imHelp = formatCommandHelp({
       entrypoint: 'im',
-      agentType: 'codex',
+      agentType: 'openai',
     });
     const webHelp = formatCommandHelp({
       entrypoint: 'web',
-      agentType: 'codex',
+      agentType: 'openai',
     });
 
     expect(imHelp).not.toContain('/usage');
@@ -80,8 +80,8 @@ describe('runtime command registry', () => {
     expect(parseRuntimeCommand('/model')).toBeNull();
     expect(parseRuntimeCommand('/effort')).toBeNull();
     expect(parseRuntimeCommand('/speed')).toBeNull();
-    expect(parseRuntimeCommand('/codex')).toMatchObject({
-      name: 'codex',
+    expect(parseRuntimeCommand('/openai')).toMatchObject({
+      name: 'openai',
       argsText: '',
       args: [],
     });
@@ -95,11 +95,11 @@ describe('runtime command registry', () => {
   test('shows self-iteration commands in IM help and parses them as local commands', () => {
     const imHelp = formatCommandHelp({
       entrypoint: 'im',
-      agentType: 'codex',
+      agentType: 'openai',
     });
     const webHelp = formatCommandHelp({
       entrypoint: 'web',
-      agentType: 'codex',
+      agentType: 'openai',
     });
 
     expect(imHelp).toContain('/self-status');
@@ -129,19 +129,19 @@ describe('runtime command registry', () => {
 
   test('normalizes preset-only model selections', () => {
     expect(normalizeModelPreset('claude', ' SONNET ')).toBe('sonnet');
-    expect(normalizeModelPreset('codex', 'GPT-5.4')).toBe('gpt-5.4');
-    expect(normalizeModelPreset('codex', 'not-a-preset')).toBeNull();
+    expect(normalizeModelPreset('openai', 'GPT-5.4')).toBe('gpt-5.4');
+    expect(normalizeModelPreset('openai', 'not-a-preset')).toBeNull();
   });
 
   test('normalizes reasoning effort presets only for supported runtimes', () => {
-    expect(supportsReasoningEffort('codex')).toBe(true);
+    expect(supportsReasoningEffort('openai')).toBe(true);
     expect(supportsReasoningEffort('claude')).toBe(false);
     expect(normalizeReasoningEffortPreset(' xhigh ')).toBe('xhigh');
     expect(normalizeReasoningEffortPreset('turbo')).toBeNull();
   });
 
   test('normalizes speed tier presets only for supported runtimes', () => {
-    expect(supportsSpeedTier('codex')).toBe(true);
+    expect(supportsSpeedTier('openai')).toBe(true);
     expect(supportsSpeedTier('claude')).toBe(false);
     expect(normalizeSpeedTierPreset(' FAST ')).toBe('fast');
     expect(normalizeSpeedTierPreset('turbo')).toBeNull();
@@ -155,46 +155,44 @@ describe('runtime command registry', () => {
       'sonnet',
       'haiku',
     ]);
-    expect(getModelPresets('codex')).toEqual([
+    expect(getModelPresets('openai')).toEqual([
       'gpt-5.4',
       'gpt-5.4-mini',
-      'gpt-5.3-codex',
       'gpt-5.2',
     ]);
   });
 
   test('exposes display labels for runtime model pickers', () => {
-    expect(getModelPresetOptions('codex')).toEqual([
+    expect(getModelPresetOptions('openai')).toEqual([
       { value: 'gpt-5.4', label: 'GPT-5.4' },
       { value: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
-      { value: 'gpt-5.3-codex', label: 'GPT-5.3-Codex' },
       { value: 'gpt-5.2', label: 'GPT-5.2' },
     ]);
   });
 
   test('exposes stable runtime fallback defaults for picker/status rendering', () => {
     expect(getDefaultModelPreset('claude')).toBe('opus[1m]');
-    expect(getDefaultModelPreset('codex')).toBe('gpt-5.4');
+    expect(getDefaultModelPreset('openai')).toBe('gpt-5.4');
     expect(getDefaultReasoningEffortPreset('claude')).toBeNull();
-    expect(getDefaultReasoningEffortPreset('codex')).toBe('medium');
+    expect(getDefaultReasoningEffortPreset('openai')).toBe('medium');
     expect(getDefaultSpeedTierPreset('claude')).toBeNull();
-    expect(getDefaultSpeedTierPreset('codex')).toBe('standard');
+    expect(getDefaultSpeedTierPreset('openai')).toBe('standard');
   });
 
   test('detects agent-scoped runtime picker commands only for bare slash commands', () => {
-    expect(detectRuntimePickerCommand('/codex')).toBe('codex');
-    expect(detectRuntimePickerCommand('/codex ')).toBe('codex');
+    expect(detectRuntimePickerCommand('/openai')).toBe('openai');
+    expect(detectRuntimePickerCommand('/openai ')).toBe('openai');
     expect(detectRuntimePickerCommand('/claude')).toBe('claude');
     expect(detectRuntimePickerCommand('/model')).toBeNull();
     expect(detectRuntimePickerCommand('/effort')).toBeNull();
     expect(detectRuntimePickerCommand('/speed')).toBeNull();
-    expect(detectRuntimePickerCommand('/codex gpt-5.4')).toBeNull();
+    expect(detectRuntimePickerCommand('/openai gpt-5.4')).toBeNull();
     expect(detectRuntimePickerCommand('hello')).toBeNull();
   });
 
   test('returns grouped runtime picker sections only for the matching agent command', () => {
     expect(
-      getRuntimePickerSections({ command: 'codex', agentType: 'codex' }).map(
+      getRuntimePickerSections({ command: 'openai', agentType: 'openai' }).map(
         (section) => section.command,
       ),
     ).toEqual(['model', 'effort', 'speed']);
@@ -204,10 +202,10 @@ describe('runtime command registry', () => {
       ),
     ).toEqual(['model']);
     expect(
-      getRuntimePickerSections({ command: 'codex', agentType: 'claude' }),
+      getRuntimePickerSections({ command: 'openai', agentType: 'claude' }),
     ).toEqual([]);
     expect(
-      getRuntimePickerSections({ command: 'codex', agentType: 'codex' })
+      getRuntimePickerSections({ command: 'openai', agentType: 'openai' })
         .find((section) => section.command === 'effort')
         ?.options.map((item) => item.value),
     ).toEqual(['low', 'medium', 'high', 'xhigh']);
@@ -216,7 +214,7 @@ describe('runtime command registry', () => {
       { value: 'fast', label: 'fast (2x)' },
     ]);
     expect(
-      getRuntimePickerSections({ command: 'codex', agentType: 'codex' })
+      getRuntimePickerSections({ command: 'openai', agentType: 'openai' })
         .find((section) => section.command === 'speed')
         ?.options.map((item) => item.value),
     ).toEqual(['standard', 'fast']);
@@ -239,9 +237,9 @@ describe('runtime command registry', () => {
       args: [],
     });
     expect(
-      parseSlashCommandCandidate('codex', { allowBare: true }),
+      parseSlashCommandCandidate('openai', { allowBare: true }),
     ).toEqual({
-      rawName: 'codex',
+      rawName: 'openai',
       argsText: '',
       args: [],
     });

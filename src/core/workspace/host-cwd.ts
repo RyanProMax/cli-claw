@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { LAUNCH_CWD } from './app-root.js';
-import { findAllowedRoot, loadMountAllowlist } from './mount-security.js';
-import type { MountAllowlist, RegisteredGroup } from './types.js';
+import { LAUNCH_CWD } from '../../app-root.js';
+import { findAllowedRoot, loadMountAllowlist } from '../../mount-security.js';
+import type { MountAllowlist, RegisteredGroup } from '../../types.js';
 
 export interface HostWorkspaceCwdValidationOptions {
   allowlist?: MountAllowlist | null;

@@ -2,16 +2,17 @@ import {
   getDefaultModelPreset,
   getDefaultReasoningEffortPreset,
   getDefaultSpeedTierPreset,
+  normalizeSpeedTierPreset,
   supportsReasoningEffort,
   supportsSpeedTier,
-} from './runtime-command-registry.js';
+} from '../../runtime-command-registry.js';
 import type {
   AgentType,
   ExecutionMode,
   RegisteredGroup,
   RuntimeIdentity,
-} from './types.js';
-import { resolveEffectiveHostWorkspaceCwd } from './host-workspace-cwd.js';
+} from '../../types.js';
+import { resolveEffectiveHostWorkspaceCwd } from '../workspace/host-cwd.js';
 
 function normalizeRuntimeText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -19,18 +20,26 @@ function normalizeRuntimeText(value: string | null | undefined): string | null {
   return trimmed || null;
 }
 
+function normalizeRuntimeSpeedTier(
+  agentType: AgentType,
+  value: string | null | undefined,
+): string | null {
+  if (!supportsSpeedTier(agentType)) return null;
+  const normalized = normalizeRuntimeText(value);
+  return normalized ? normalizeSpeedTierPreset(normalized) : null;
+}
+
 export function normalizeAgentType(raw: string | null | undefined): AgentType {
-  if (raw === 'codex') return 'codex';
-  return 'claude';
+  if (raw === 'claude') return 'claude';
+  return 'openai';
 }
 
 export function enforceAgentExecutionMode(
   agentType: AgentType,
   executionMode: ExecutionMode,
 ): string | null {
-  if (agentType === 'codex' && executionMode !== 'host') {
-    return 'Codex only supports host execution mode';
-  }
+  void agentType;
+  void executionMode;
   return null;
 }
 
@@ -86,9 +95,9 @@ export function resolveEffectiveRuntimeIdentity(
   group: RegisteredGroup,
   options: {
     claudeProviderModel?: string | null;
-    codexCliModel?: string | null;
-    codexCliReasoningEffort?: string | null;
-    codexCliSpeedTier?: string | null;
+    openAiModel?: string | null;
+    openAiReasoningEffort?: string | null;
+    openAiSpeedTier?: string | null;
   } = {},
 ): RuntimeIdentity {
   const agentType = normalizeAgentType(group.agentType);
@@ -98,8 +107,8 @@ export function resolveEffectiveRuntimeIdentity(
     normalizeRuntimeText(group.model) ??
     (agentType === 'claude'
       ? normalizeRuntimeText(options.claudeProviderModel)
-      : agentType === 'codex'
-        ? normalizeRuntimeText(options.codexCliModel)
+      : agentType === 'openai'
+        ? normalizeRuntimeText(options.openAiModel)
         : null) ??
     getDefaultModelPreset(agentType);
 
@@ -108,15 +117,15 @@ export function resolveEffectiveRuntimeIdentity(
     model,
     reasoningEffort: supportsEffort
       ? (normalizeRuntimeText(group.reasoningEffort) ??
-        (agentType === 'codex'
-          ? normalizeRuntimeText(options.codexCliReasoningEffort)
+        (agentType === 'openai'
+          ? normalizeRuntimeText(options.openAiReasoningEffort)
           : null) ??
         getDefaultReasoningEffortPreset(agentType))
       : null,
     speedTier: supportsSpeed
-      ? (normalizeRuntimeText(group.speedTier) ??
-        (agentType === 'codex'
-          ? normalizeRuntimeText(options.codexCliSpeedTier)
+      ? (normalizeRuntimeSpeedTier(agentType, group.speedTier) ??
+        (agentType === 'openai'
+          ? normalizeRuntimeSpeedTier(agentType, options.openAiSpeedTier)
           : null) ??
         getDefaultSpeedTierPreset(agentType))
       : null,

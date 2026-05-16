@@ -3,9 +3,22 @@ import { describe, expect, test } from 'vitest';
 import {
   buildEffectiveGroupFromHomeSibling,
   hasRuntimeBoundaryChange,
+  normalizeAgentType,
   resolveEffectiveRuntimeIdentity,
   validateGroupRuntimeUpdate,
-} from '../src/group-runtime.js';
+} from '../src/core/runtime/group-runtime.js';
+
+describe('normalizeAgentType', () => {
+  test('maps historical codex rows and empty values to OpenAI', () => {
+    expect(normalizeAgentType('codex')).toBe('openai');
+    expect(normalizeAgentType(null)).toBe('openai');
+    expect(normalizeAgentType(undefined)).toBe('openai');
+  });
+
+  test('preserves explicit Claude rows', () => {
+    expect(normalizeAgentType('claude')).toBe('claude');
+  });
+});
 
 describe('validateGroupRuntimeUpdate', () => {
   test('allows home workspaces to change agent when execution mode stays the same', () => {
@@ -13,7 +26,7 @@ describe('validateGroupRuntimeUpdate', () => {
       validateGroupRuntimeUpdate({
         isHome: true,
         currentExecutionMode: 'host',
-        nextAgentType: 'codex',
+        nextAgentType: 'openai',
         nextExecutionMode: 'host',
       }),
     ).toBeNull();
@@ -30,15 +43,15 @@ describe('validateGroupRuntimeUpdate', () => {
     ).toBe('Cannot change execution mode of home containers');
   });
 
-  test('still enforces codex host-mode requirement', () => {
+  test('allows OpenAI container execution mode', () => {
     expect(
       validateGroupRuntimeUpdate({
         isHome: false,
         currentExecutionMode: 'container',
-        nextAgentType: 'codex',
+        nextAgentType: 'openai',
         nextExecutionMode: 'container',
       }),
-    ).toBe('Codex only supports host execution mode');
+    ).toBeNull();
   });
 });
 
@@ -48,7 +61,7 @@ describe('hasRuntimeBoundaryChange', () => {
       hasRuntimeBoundaryChange({
         currentAgentType: 'claude',
         currentExecutionMode: 'host',
-        nextAgentType: 'codex',
+        nextAgentType: 'openai',
         nextExecutionMode: 'host',
       }),
     ).toBe(true);
@@ -78,7 +91,7 @@ describe('hasRuntimeBoundaryChange', () => {
 });
 
 describe('buildEffectiveGroupFromHomeSibling', () => {
-  test('inherits codex host runtime from the sibling home workspace', () => {
+  test('inherits openai host runtime from the sibling home workspace', () => {
     expect(
       buildEffectiveGroupFromHomeSibling(
         {
@@ -94,7 +107,7 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
           name: 'Main',
           folder: 'main',
           added_at: '2026-04-05T09:00:00.000Z',
-          agentType: 'codex',
+          agentType: 'openai',
           executionMode: 'host',
           customCwd: '/srv/main',
           created_by: 'admin-1',
@@ -103,7 +116,7 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
       ),
     ).toEqual(
       expect.objectContaining({
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         customCwd: '/srv/main',
         is_home: true,
@@ -127,7 +140,7 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
           name: 'Main',
           folder: 'main',
           added_at: '2026-04-05T09:00:00.000Z',
-          agentType: 'codex',
+          agentType: 'openai',
           executionMode: 'host',
           created_by: 'admin-1',
           is_home: true,
@@ -136,7 +149,7 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
     ).toEqual(
       expect.objectContaining({
         created_by: 'member-1',
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         is_home: true,
       }),
@@ -145,18 +158,18 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
 });
 
 describe('resolveEffectiveRuntimeIdentity', () => {
-  test('materializes Codex defaults before dispatch so runner config cannot drift from status', () => {
+  test('materializes OpenAI defaults before dispatch so runner config cannot drift from status', () => {
     expect(
       resolveEffectiveRuntimeIdentity({
         name: 'Project Home',
         folder: 'proj',
         added_at: '2026-04-12T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
       }),
     ).toEqual({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'medium',
       speedTier: 'standard',
@@ -164,7 +177,7 @@ describe('resolveEffectiveRuntimeIdentity', () => {
     });
   });
 
-  test('uses caller-supplied Codex CLI fallback defaults when workspace runtime is unset', () => {
+  test('uses caller-supplied OpenAI runtime fallback defaults when workspace runtime is unset', () => {
     expect(
       resolveEffectiveRuntimeIdentity(
         {
@@ -172,17 +185,17 @@ describe('resolveEffectiveRuntimeIdentity', () => {
           folder: 'proj',
           added_at: '2026-04-12T00:00:00.000Z',
           is_home: true,
-          agentType: 'codex',
+          agentType: 'openai',
           executionMode: 'host',
         },
         {
-          codexCliModel: 'gpt-5.4',
-          codexCliReasoningEffort: 'xhigh',
-          codexCliSpeedTier: 'fast',
-        } as any,
+          openAiModel: 'gpt-5.4',
+          openAiReasoningEffort: 'xhigh',
+          openAiSpeedTier: 'fast',
+        },
       ),
     ).toEqual({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       speedTier: 'fast',
@@ -190,21 +203,21 @@ describe('resolveEffectiveRuntimeIdentity', () => {
     });
   });
 
-  test('uses the explicit workspace effort as the effective Codex effort', () => {
+  test('uses the explicit workspace effort as the effective OpenAI effort', () => {
     expect(
       resolveEffectiveRuntimeIdentity({
         name: 'Project Home',
         folder: 'proj',
         added_at: '2026-04-12T00:00:00.000Z',
         is_home: true,
-        agentType: 'codex',
+        agentType: 'openai',
         executionMode: 'host',
         model: 'gpt-5.4-mini',
         reasoningEffort: 'high',
         speedTier: 'fast',
       }),
     ).toEqual({
-      agentType: 'codex',
+      agentType: 'openai',
       model: 'gpt-5.4-mini',
       reasoningEffort: 'high',
       speedTier: 'fast',

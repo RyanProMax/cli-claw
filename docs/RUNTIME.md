@@ -23,19 +23,19 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - backend 启动时还会把当前 PID、端口、validated launch spec，以及可选的 `launchd` service name 持久化到 `~/.cli-claw/ops/current-backend.json`；外部 `cli-claw restart` 会复用这份状态发起同一条 safe self-restart，而不是从调用方自己的 argv 反推启动命令。
 - 成功的 `/self-restart` intent 会记录发起它的 IM 会话；新进程启动并重新连上 IM 后，会向该会话补发一条“自重启成功”消息，附带当前服务状态与一次 best-effort 残留进程检查结果。
 - 若重启期间还有未完成的 direct IM 消息需要恢复处理，恢复回合仍优先使用 Feishu streaming card 承载终态；只有没有 streaming card 成功完成时，才允许补发静态 IM 兜底，避免终态只落库/Web，同时避免同一回复重复发送。
-- 若残留检查发现真正的孤儿 runner（`agent-runner` / `codex-acp` 链条已脱离 backend，表现为 `ppid = 1` 或父 PID 不存在），新进程会 best-effort 发送 `SIGTERM` 清理；正常挂在当前 backend 下的 runner 链不会被触碰。
+- 若残留检查发现真正的孤儿 runner（`agent-runner` 链条已脱离 backend，表现为 `ppid = 1` 或父 PID 不存在），新进程会 best-effort 发送 `SIGTERM` 清理；正常挂在当前 backend 下的 runner 链不会被触碰。
 - 若当前服务由 repo 提供的 LaunchAgent 启动，并带有 `CLI_CLAW_LAUNCHD_SERVICE_NAME`，watchdog 在 preflight 通过后不会再手工 `spawn` 一个脱离 supervisor 的 replacement，而是执行 `launchctl kickstart -k <service>`，让 `launchd` 保持拥有者身份并继续负责后续兜底重拉。
 
 `/self-restart` 不是 blue-green 或 rollback 机制。它能避免“preflight 失败还杀旧进程”的 badcase，但不能保证源码/二进制级回滚；更强的生产发布仍应使用 release 目录、symlink 或系统级 supervisor。
 
-对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 默认使用 `cli-claw start`，也可以通过 `-- COMMAND [ARGS...]` 显式复用 `/self-status` 暴露的 validated launch command；不要另起一套不同的启动脚本。安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` / `codex` 这类宿主机 runtime 依赖，同时注入 `CLI_CLAW_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
+对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 默认使用 `cli-claw start`，也可以通过 `-- COMMAND [ARGS...]` 显式复用 `/self-status` 暴露的 validated launch command；不要另起一套不同的启动脚本。安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` 这类宿主机 runtime 依赖，同时注入 `CLI_CLAW_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
 
 ## 运行时矩阵
 
-| `agentType` | 底层运行时                         | 支持执行模式         | 当前认证方式                                                  | 备注                                                                          |
-| ----------- | ---------------------------------- | -------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `claude`    | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 向导配置 Claude Provider（OAuth / setup-token / API Key） | 容器镜像当前只内置这条运行时                                                  |
-| `codex`     | Codex CLI + `codex-acp`            | `host`               | 宿主机执行 `codex login`                                      | 不支持 `container`；host preflight 会区分“CLI 不在服务 PATH 中”与“CLI 未登录” |
+| `agentType` | 底层运行时                         | 支持执行模式         | 当前认证方式                                                  | 备注                                                                             |
+| ----------- | ---------------------------------- | -------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `claude`    | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 向导配置 Claude Provider（OAuth / setup-token / API Key） | 容器镜像当前只内置这条运行时                                                     |
+| `openai`    | OpenAI Agents SDK                  | `host` / `container` | 宿主机 Codex CLI 登录态（`codex login`）                      | backend 通过 Codex app-server 解析 token，runner 使用隔离文件 session 保存上下文 |
 
 ## 选择规则
 
@@ -47,7 +47,6 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
   - `model`
   - `reasoningEffort`
   - `speedTier`
-- `codex` 会被强制约束到 `host`。
 - admin 主工作区默认 `host`；member 主工作区默认 `container`。
 - `cli-claw start` 会先校验启动目录是否满足 host allowlist，再把该目录物化到缺失 `customCwd` 的 host 工作区。
 
@@ -56,23 +55,22 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 运行时参数按以下顺序生效：
 
 1. 工作区显式设置的 `model` / `reasoningEffort` / `speedTier`
-2. 对 `codex` 而言，backend 会显式读取与 runner 相同的用户级 / 进程级 fallback：
-   - `OPENAI_MODEL` / `CODEX_MODEL`
-   - `OPENAI_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `REASONING_EFFORT`
-   - `OPENAI_SERVICE_TIER` / `CODEX_SERVICE_TIER` / `SERVICE_TIER`
-   - `~/.codex/config.toml` 中的 `model` / `model_reasoning_effort`（或 `reasoning_effort`）/ `service_tier`
+2. 对 `openai` 而言，backend 会显式读取与 runner 相同的进程级 fallback：
+   - `OPENAI_MODEL`
+   - `OPENAI_REASONING_EFFORT` / `REASONING_EFFORT`
+   - `OPENAI_SERVICE_TIER` / `SERVICE_TIER`
 3. runtime 默认配置
 4. CLI / provider 自身默认值
 
 约束：
 
 - `claude` 的 `model` 仍采用 preset-only 约束。
-- `codex` 的 `model` 在 backend 侧优先通过宿主机 `codex debug models` 读取当前 CLI 实时 catalog；若 CLI 不可用、超时或返回异常，再回退到 `~/.codex/models_cache.json`，最后回退到内置 preset。
-- `/codex` / `/claude` 配置卡和命令回复会把 effective runtime identity 中的当前模型一起传入选项构造；当当前模型不在实时 catalog 中时，它仍会作为当前值展示，避免状态摘要、配置卡和 dispatch fallback 互相矛盾。
-- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/codex` / `/claude` 配置卡、runner dispatch 和 footer fallback 都必须读取这同一份结果，不能让 Codex CLI 全局配置只影响 runner/footer 而不影响 `/status`。
+- `openai` 的 `model` 使用内置 preset，并允许把当前 effective model 作为当前值展示，避免状态摘要、配置卡和 dispatch fallback 互相矛盾。
+- `/openai` / `/claude` 配置卡和命令回复会把 effective runtime identity 中的当前模型一起传入选项构造。
+- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/openai` / `/claude` 配置卡、runner dispatch 和 footer fallback 都必须读取这同一份结果。
 - `reasoningEffort` 只有支持该能力的 runtime 才会真正下发。
 - 不支持 `reasoningEffort` 的 runtime 会忽略该字段，但 `model` 仍可独立生效。
-- `speedTier` 只有 `codex` 支持；`fast` 会下发 Codex CLI `service_tier="fast"`，`standard` 表示不下发 service-tier 覆盖。
+- `speedTier` 只有 `openai` 支持；对 Codex CLI 登录态，`fast` 会向 OpenAI provider data 下发 Codex 后端实际接受的 `service_tier="priority"`，`standard` 表示不下发 service-tier 覆盖。
 - 非主工作区若继承同 folder 的 home workspace runtime，则会沿用该 home workspace 的 `agentType` / `executionMode` / `model` / `reasoningEffort` / `speedTier`。
 
 ## Host 工作目录解析
@@ -107,7 +105,7 @@ host 相关消费者统一使用同一份 effective cwd contract：
 - run log / dispatch log 排障
 - 区分“请求的运行时”和“实际执行的运行时”
 
-backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`reasoningEffort` 与 `speedTier` 写入 runner input。对 Codex，这份 effective identity 还会显式纳入用户级 `~/.codex/config.toml` / 相关环境变量 fallback；这样 workspace 未显式设置时，`/status`、选择卡、dispatch 和 footer fallback 仍会保持一套值。若 runner 返回了实际 `runtime_identity`，仍以 runner 返回值为最终记录。
+backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`reasoningEffort` 与 `speedTier` 写入 runner input。对 OpenAI，这份 effective identity 会显式纳入 `OPENAI_*` / `SERVICE_TIER` 环境变量 fallback；这样 workspace 未显式设置时，`/status`、选择卡、dispatch 和 footer fallback 仍会保持一套值。若 runner 返回了实际 `runtime_identity`，仍以 runner 返回值为最终记录。
 
 ## 会话与 Runner 对应关系
 
@@ -115,19 +113,19 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 - 外层 channel 是消息入口，例如飞书或微信。
 - Workspace conversation 是 Cli Claw 的对话身份，由 `folder` 加可选 `agentId` 决定。
-- Runtime session 是 Claude/Codex 自己的会话 ID，持久化在 `sessions` 表。主对话所有 channel 共用 `(folder, 空 agent_id)`；conversation agent 使用 `(folder, agent_id)`。
+- Runtime session 是 Claude/OpenAI 自己的会话 ID，持久化在 `sessions` 表。主对话所有 channel 共用 `(folder, 空 agent_id)`；conversation agent 使用 `(folder, agent_id)`。
 - Runner 是正在处理消息的底层 CLI 进程或容器，只在执行期间存在，并可能在 idle timeout 后退出。
 
 对应关系：
 
 - 同一个 workspace 主对话共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 普通消息会合并成一轮；遇到不同来源或 `assistant_prompt` 任务边界即切到下一轮，按入库顺序继续处理，不跨来源重排。例如 `A1/A2/B1/A3/B2/B3` 必须切成 `A1+A2`、`B1`、`A3`、`B2+B3` 四轮。
 - Skill slash command 如果返回 `assistant_prompt`，该消息会标记为 `source_kind='assistant_prompt'`，并用隔离 runtime session 作为新 turn 发送给底层 runtime；它不读取 workspace 主 runtime session，完成后也不写回主 session，避免命令生成的研究任务污染后续普通对话。若历史版本已经把上一轮 skill final 的 session 写成主 session，下一条普通用户消息必须忽略它并建立新的正常主 session。
-- 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/Codex 对话上下文。
+- 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/OpenAI 对话上下文。
 - Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。runtime query 正在执行时不消费新的用户 IPC 消息；新消息只会排队并触发 drain。只有当前 query 已结束、runner 处于等待下一条消息的 idle 阶段时，才允许同来源消息通过 IPC 复用同一 runtime session。不同来源消息始终排队并触发 drain，让当前 turn 完成后按顺序处理。
-- Runner 可以用 runtime session id 恢复底层会话，但恢复过程是 runner 内部动作。恢复期间产生的 Codex ACP session updates、历史 transcript 片段或旧工具步骤不得进入 runner stdout；stdout 只发布当前 prompt live 期间产生的事件和最终结果。
-- 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 Codex commentary 和可识别的内部包装从主正文剥离，避免 runtime transcript 细节直接发给用户。
+- Runner 可以用 runtime session id 恢复底层会话，但恢复过程是 runner 内部动作。恢复期间产生的历史 session 片段或旧工具步骤不得进入 runner stdout；stdout 只发布当前 prompt live 期间产生的事件和最终结果。
+- 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 OpenAI commentary 和可识别的内部包装从主正文剥离，避免 runtime session 细节直接发给用户。
 - 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只允许作为 Web/调试展示的过渡 buffer，不得覆盖新 turn 的最终回复。中断、overflow、compact、crash recovery 的 partial body 不会作为 IM 正文发送或持久化，也不能推进 committed cursor。
-- Codex runtime 错误必须在 runner / host 边界格式化为稳定中文提示；JSON-RPC `Internal error`、远端 compact task 失败、`unknown_parameter safety_identifier` 等诊断不得原样进入飞书/Web 正文。
+- OpenAI runtime 错误必须在 runner / host 边界格式化为稳定提示；API key、quota/rate limit、context window、invalid model 等诊断不得以低层异常原样进入飞书/Web 正文。
 - 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
 
 ### Feishu Streaming Card Presentation
@@ -135,18 +133,18 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 飞书卡片是 runtime 输出的展示层，不是 runtime session 或记忆边界。稳定契约如下：
 
 - 正常 Agent 回复优先使用 streaming card；静态 card / post+md 仍保留为 Feishu API 失败、非流式命令回复和格式限制场景的兜底，不能移除。
-- Streaming card 将 tool `steps`、单一 `Thinking` 辅助区和主正文分区渲染。主正文只承载 answer；Codex 的 `agent_message_chunk` / `text_delta` 可以作为当前流式正文候选，但终态仍以 terminal raw/final output 经过可见性分类后的结果为准。
+- Streaming card 将 tool `steps`、单一 `Thinking` 辅助区和主正文分区渲染。主正文只承载 answer；OpenAI 的 `text_delta` 只有在带有明确 `assistantMessagePhase="final_answer"` 时才进入当前流式正文候选，终态仍以 terminal raw/final output 经过可见性分类后的结果为准。
 - `thinking` 必须和 tool `steps` 一样使用原生折叠面板展示；即使 runtime 只发出空 `thinking_delta`，也不能退化成顶部普通 markdown 行混入状态/正文区域。
 - 同来源新用户输入开始时会重置当前卡片展示态；`turnId` 变化或 `messageCursor.id` 变化也会清空上轮 presentation buffer、thinking 和中断状态，避免旧工具 steps 出现在新消息卡片上。
 - 主进程会丢弃 `messageCursor.id` 不属于当前待处理用户消息的 stale stream events；这是路由保护，不是上下文或 replay 判断。历史执行事件必须在 runner 源头消失，不能依赖飞书卡片层过滤。
 - 启动恢复遇到 `~/.cli-claw/streaming-buffer` 或 `active_streaming_turns` 里的中断卡片态时，只清理这些临时态；不恢复旧卡片正文、不生成 `interrupt_partial` assistant 消息、不提交该 turn 游标。
-- Codex 原始输出的正式 `phase` 字段必须保留到渲染层：`agent_thought_chunk` 进入 `thinking_delta` / `thinkingText`；`agent_message_chunk` 进入 `text_delta`。Codex 语义事实来源只有原生 `phase`，当前已确认的来源是 JSONL transcript 的 `event_msg.payload.phase`，取值只允许 `commentary` 或 `final_answer`。`StreamEvent.assistantMessagePhase` 只是 Cli Claw 在统一流式协议里的传输别名：当 `agentType=codex` 时，它必须是 Codex 原生 `phase` 的原样复制，不得新增值、重命名语义、按中英文前缀推断或在 Feishu/Web 层二次加工。
-- 如果 `codex-acp` chunk 暴露 Codex assistant item 的 `phase`，runner 直接透传为 `assistantMessagePhase`。如果 ACP chunk 省略 phase，runner 必须在当前 prompt 开始前记录同一 session transcript 的路径和字节 offset，在 `connection.prompt()` 结束后只读取本轮新增 JSONL 字节，解析 `event_msg.payload.phase` 重建 `commentary` / `final_answer` 边界，并忽略 `response_item` 等重复副本。该 fallback 只是把 Codex 原生字段补回流式协议；由 fallback 产生的 `isSynthetic` stream event 只表示“晚到补发”，不表示 phase 是 Cli Claw 自定义的。
-- `phase: "commentary"` 进入 `commentaryText` / `Thinking`，`phase: "final_answer"` 进入当前 `answerText` / Web `partialText`，terminal final output 也只累积 `final_answer` phase。正常展示不得再依赖 `我会先...`、`我继续...`、`Context compacted` 这类自然语言前缀判断；旧 Codex ACP 若缺失 phase，只允许使用 transcript phase 或 messageUuid 边界 fallback，不能解析文本前缀。Feishu/Web 渲染层必须把 `thinkingText` 与 `commentaryText` 合并为同一个 `Thinking` 辅助区，不再渲染单独“过程”折叠栏。terminal raw/final output 仍经过可见性边界：若 raw/final 与 streaming `commentaryText` 完全相同，完成态保留到 `Thinking`，正文为空；若 raw/final 含强结构化最终正文边界（例如 `**/research｜...**` 或 `**港股 IPO 池｜...**`），允许作为兼容兜底把标题前内容剥离到 `Thinking`，并从该标题开始发送正文。
-- 后续可优化方向必须保持同一语义边界：优先推动或升级 `codex-acp` 在 `agent_message_chunk` 上稳定暴露原生 `phase`，这样 transcript fallback 可以退化为兼容路径；若 ACP 能返回 transcript path，应直接使用该路径，减少按 session id 扫描 `~/.codex/sessions`；可以缓存 `sessionId -> transcriptPath` 以降低文件查找成本。禁止的优化包括：让 Feishu/Web 直接读取 Codex JSONL、把 `assistantMessagePhase` 当成新分类体系扩展、或恢复任何文本前缀/关键词分类。
-- Feishu card 必须把 tool `steps` 作为顶部第一个执行轨迹面板展示，标题使用 `🧰 ... steps` 和 `💭 Thinking` 对齐；`Thinking` 紧随其后，再渲染 status/hook/todo 和最终正文；完成态也不能把 steps 折叠栏移到正文底部。Codex commentary/process 文本进入 `Thinking`，长中文过程按句子边界拆行，避免堆成一整段。若 Codex terminal final 把“我会先…”这类过程句粘在 `**/research｜...**`、`**港股 IPO 池｜...**` 等报告标题前，`reply-visibility` 必须把这段剥离出正文，并同步进顶部 `Thinking` 区域。
+- OpenAI Responses 输出的正式 `phase` 字段必须保留到渲染层：`phase: "commentary"` 进入 `commentaryText` / `Thinking`，`phase: "final_answer"` 进入当前 `answerText` / Web `partialText`。`StreamEvent.assistantMessagePhase` 只是 Cli Claw 在统一流式协议里的传输别名，取值只允许 `commentary` 或 `final_answer`，不得新增值、重命名语义、按中英文前缀推断或在 Feishu/Web 层二次加工。
+- OpenAI runner 必须从 Responses `response.output_item.added` / `response.output_item.done` 中记录 assistant message `item.id` 与 `phase`，再把后续 `response.output_text.delta` 映射为带 `messageUuid` 与 `assistantMessagePhase` 的 `text_delta`。如果某个 OpenAI `text_delta` 缺失 phase，Feishu/Web 不累计也不展示它，只等待 terminal raw/final output；这是 replay 防护，避免历史 presentation 文本污染当前卡片。
+- Feishu/Web 渲染层必须把 `thinkingText` 与 `commentaryText` 合并为同一个 `Thinking` 辅助区，不再渲染单独“过程”折叠栏。terminal raw/final output 仍经过可见性边界：若 raw/final 与 streaming `commentaryText` 完全相同，完成态保留到 `Thinking`，正文为空；若 raw/final 含强结构化最终正文边界（例如 `**/research｜...**` 或 `**港股 IPO 池｜...**`），允许作为兼容兜底把标题前内容剥离到 `Thinking`，并从该标题开始发送正文。
+- 后续可优化方向必须保持同一语义边界：优先使用 OpenAI Responses 原生 `phase` 与 `item.id`；禁止让 Feishu/Web 直接读取底层 session 文件、把 `assistantMessagePhase` 当成新分类体系扩展、或恢复任何文本前缀/关键词分类。
+- Feishu card 必须把 tool `steps` 作为顶部第一个执行轨迹面板展示，标题使用 `🧰 ... steps` 和 `💭 Thinking` 对齐；`Thinking` 紧随其后，再渲染 status/hook/todo 和最终正文；完成态也不能把 steps 折叠栏移到正文底部。OpenAI commentary/process 文本进入 `Thinking`，长中文过程按句子边界拆行，避免堆成一整段。若 OpenAI terminal final 把过程句粘在 `**/research｜...**`、`**港股 IPO 池｜...**` 等报告标题前，`reply-visibility` 必须把这段剥离出正文，并同步进顶部 `Thinking` 区域。
 - Feishu Markdown 不保证保留普通单换行；紧凑报告（如 `/hkipo`）必须在 Schema 2 卡片 builder 中分拆为多个原生 `markdown` elements，保持与正常飞书 interactive card 相同的发送路径。不要在通用 Markdown optimizer 里注入报告私有 `<br>` 或另开“安全版/降级版”格式。
-- Codex final visibility resolution 必须保留结构化日志，至少记录 raw final、streaming presentation answer/commentary、最终 visible text、剥离出的 commentary、`sourceKind`、`finalizationReason`、`turnId` / `sessionId` / `sdkMessageUuid` 和 runtime identity，便于追踪正文与过程文本边界。
+- OpenAI final visibility resolution 必须保留结构化日志，至少记录 raw final、streaming presentation answer/commentary、最终 visible text、剥离出的 commentary、`sourceKind`、`finalizationReason`、`turnId` / `sessionId` / `sdkMessageUuid` 和 runtime identity，便于追踪正文与过程文本边界。
 - Streaming / 完成态 card 保留当前 turn 的完整 tool steps，便于回看执行过程；临时状态、hook 和 system status 在终态收敛。
 - Footer 必须展示 runtime identity 和当前处理耗时；耗时按当前 streaming turn 计算，而不是按长运行 handler、runtime session 或 SDK 累计 usage 计算。同来源新用户输入、`turnId` 变化、`messageCursor.id` 变化，或完成态清理后首次绑定下一轮 `turnId` / `messageCursor.id` 时，presentation buffer、thinking、中断状态和 footer 计时起点必须一起重置。耗时使用紧凑格式并省略为 0 的小时/分钟单位，例如 `36s`、`1min12s`、`1h23min12s`，且不显示小数秒。usage 晚到时可以补丁更新 footer，但不能改写主正文来源。
 
@@ -154,7 +152,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 - `sessions` 表的主键维度仍是 `(folder, agentId)`；主会话使用空 `agent_id`，不再为 IM 主对话创建或保留 `im:<sourceJid>` runtime slot。它不是 `(folder, agentId, agentType)`。
 - 切换 `agentType`、`executionMode`、`model`、`reasoningEffort` 或 `speedTier` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
-- 因此，主对话从 Codex 切到 Claude 再切回 Codex 时，当前版本不保证恢复切换前的 Codex session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
+- 因此，主对话从 OpenAI 切到 Claude 再切回 OpenAI 时，当前版本不保证恢复切换前的 OpenAI session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
 
 ## 外部运行时契约
 
@@ -164,14 +162,14 @@ Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自�
   - Claude Runtime 的隔离配置 / 会话目录
 - `~/.claude/.credentials.json`
   - Claude Runtime 的本地登录态来源之一
-- `~/.codex/config.toml`
-  - Codex Runtime 的模型 / reasoning effort 配置
-- `~/.codex/sessions/**/*.jsonl`
-  - Codex Runtime 的原生 transcript / usage 快照来源
-- `codex login`
-  - Codex Runtime 的宿主机登录态
+- `~/.codex/auth.json`
+  - OpenAI Runtime 的宿主机登录态来源；backend 优先通过 `codex app-server` 获取/刷新 access token，仅在 app-server 不可用且 access token 仍有效时读取该文件兜底
+- `CLI_CLAW_CODEX_ACCESS_TOKEN`
+  - backend 注入给 OpenAI runner 的短期运行时凭据，不需要用户手工配置
+- `CLI_CLAW_RUNTIME_SESSION_DIR/openai-agent/*.json`
+  - OpenAI Agents 的文件 session；未设置 `CLI_CLAW_RUNTIME_SESSION_DIR` 时 runner 使用 `/workspace/.cli-claw-runtime/openai-agent`
 
-仓库内还可以追踪与 agent 工作流相关的角色文件，例如 `.agents/*.md`。这些文件属于仓库执行协议，不等同于 `~/.codex/` 或 `~/.agents/agents/` 下的用户级配置。
+仓库内还可以追踪与 agent 工作流相关的角色文件，例如 `.agents/*.md`。这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。
 
 应用包根目录从已安装模块位置解析；launch cwd 只参与 host 工作区默认执行目录的物化，不参与后端 build、web build 或 shared 资源定位。
 

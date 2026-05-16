@@ -282,7 +282,7 @@ export function ChatPage() {
           jid={runtimeState.jid}
           name={runtimeGroup.name}
           isHome={!!runtimeGroup.is_home}
-          currentAgentType={runtimeGroup.agent_type || 'claude'}
+          currentAgentType={runtimeGroup.agent_type || 'openai'}
           currentExecutionMode={runtimeGroup.execution_mode || 'container'}
           onClose={() => setRuntimeState({ open: false, jid: '' })}
         />

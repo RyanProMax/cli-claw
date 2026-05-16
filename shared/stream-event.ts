@@ -23,7 +23,7 @@ export type StreamEventType =
   | 'init';
 
 export interface StreamRuntimeIdentity {
-  agentType: 'claude' | 'codex';
+  agentType: 'claude' | 'openai';
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;
@@ -43,8 +43,8 @@ export interface StreamEvent {
   /** SDK message uuid if known. */
   messageUuid?: string;
   /**
-   * Codex assistant item phase, when known.
-   * This is a transport alias for the native Codex `phase` value and must not
+   * Assistant item phase, when known.
+   * This is a transport alias for runtimes that expose a native `phase` value and must not
    * be inferred from natural-language text.
    */
   assistantMessagePhase?: StreamAssistantMessagePhase;
@@ -114,7 +114,7 @@ function getMessageBoundarySeparator(text: string): string {
 /**
  * Append a streamed text delta while preserving intra-turn assistant message boundaries.
  *
- * Codex commentary can arrive as multiple assistant messages inside the same turn.
+ * Some runtimes can emit multiple assistant messages inside the same turn.
  * When the message UUID changes, keep a blank-line separator so downstream
  * renderers do not jam distinct updates together.
  */

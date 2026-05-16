@@ -9,7 +9,7 @@ import { formatAssistantMetaFooter as formatWebAssistantMetaFooter } from '../we
 describe('assistant meta footer', () => {
   test('formats duration compactly without zero hour or minute fields', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'GPT-5.4',
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
@@ -20,30 +20,30 @@ describe('assistant meta footer', () => {
         runtimeIdentity,
         tokenUsage: { durationMs: 36_000 },
       }),
-    ).toBe('36s | Codex | GPT-5.4 | high | standard (1x)');
+    ).toBe('36s | OpenAI | GPT-5.4 | high | standard (1x)');
     expect(
       formatBackendAssistantMetaFooter({
         runtimeIdentity,
         tokenUsage: { durationMs: 72_000 },
       }),
-    ).toBe('1m12s | Codex | GPT-5.4 | high | standard (1x)');
+    ).toBe('1m12s | OpenAI | GPT-5.4 | high | standard (1x)');
     expect(
       formatBackendAssistantMetaFooter({
         runtimeIdentity,
         tokenUsage: { durationMs: 4_992_000 },
       }),
-    ).toBe('1h23m12s | Codex | GPT-5.4 | high | standard (1x)');
+    ).toBe('1h23m12s | OpenAI | GPT-5.4 | high | standard (1x)');
     expect(
       formatWebAssistantMetaFooter({
         runtimeIdentity,
         tokenUsage: { durationMs: 4_992_000 },
       }),
-    ).toBe('1h23m12s | Codex | GPT-5.4 | high | standard (1x)');
+    ).toBe('1h23m12s | OpenAI | GPT-5.4 | high | standard (1x)');
   });
 
   test('formats base footer with duration, agent type, model, and reasoning effort', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'GPT-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -57,10 +57,23 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5s | Codex | GPT-5.4 | xhigh | standard (1x)');
+    ).toBe('5s | OpenAI | GPT-5.4 | xhigh | standard (1x)');
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5s | Codex | GPT-5.4 | xhigh | standard (1x)',
+      '5s | OpenAI | GPT-5.4 | xhigh | standard (1x)',
     );
+  });
+
+  test('labels historical codex runtime identity as OpenAI', () => {
+    expect(
+      formatBackendAssistantMetaFooter({
+        runtimeIdentity: {
+          agentType: 'codex',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          supportsReasoningEffort: true,
+        },
+      }),
+    ).toBe('OpenAI | gpt-5.5 | medium | standard (1x)');
   });
 
   test('skips reasoning effort when it is not applicable for the runtime', () => {
@@ -86,7 +99,7 @@ describe('assistant meta footer', () => {
 
   test('hides reasoning effort when support is unknown and effort is missing', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'GPT-5.4',
     };
     const tokenUsage = {
@@ -98,15 +111,15 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('4s | Codex | GPT-5.4 | standard (1x)');
+    ).toBe('4s | OpenAI | GPT-5.4 | standard (1x)');
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '4s | Codex | GPT-5.4 | standard (1x)',
+      '4s | OpenAI | GPT-5.4 | standard (1x)',
     );
   });
 
   test('does not show used token windows when remaining quota is missing', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -119,15 +132,15 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5s | Codex | gpt-5.4 | xhigh | standard (1x)');
+    ).toBe('5s | OpenAI | gpt-5.4 | xhigh | standard (1x)');
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x)',
     );
   });
 
   test('appends remaining quota windows in the compact footer', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -143,16 +156,16 @@ describe('assistant meta footer', () => {
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
     ).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 19% (5h) | 72% (7d)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 19% (5h) | 72% (7d)',
     );
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 19% (5h) | 72% (7d)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 19% (5h) | 72% (7d)',
     );
   });
 
   test('appends remaining quota even when only the week window is low', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -165,15 +178,15 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5s | Codex | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)');
+    ).toBe('5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)');
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 42% (5h) | 9% (7d)',
     );
   });
 
   test('shows healthy remaining quota windows instead of hiding them', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -187,16 +200,16 @@ describe('assistant meta footer', () => {
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
     ).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 72% (7d)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 72% (7d)',
     );
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 72% (7d)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x) | 28% (5h) | 72% (7d)',
     );
   });
 
   test('formats compact card footer with duration, agent type, model, and effort only', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -210,15 +223,15 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantCardFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('5s | Codex | gpt-5.4 | xhigh | standard (1x)');
+    ).toBe('5s | OpenAI | gpt-5.4 | xhigh | standard (1x)');
     expect(formatWebAssistantCardFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '5s | Codex | gpt-5.4 | xhigh | standard (1x)',
+      '5s | OpenAI | gpt-5.4 | xhigh | standard (1x)',
     );
   });
 
   test('appends footer below assistant text for IM channels', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'GPT-5.4',
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
@@ -235,13 +248,13 @@ describe('assistant meta footer', () => {
         tokenUsage,
       }),
     ).toBe(
-      'Hello from assistant\n\n4s | Codex | GPT-5.4 | xhigh | standard (1x)',
+      'Hello from assistant\n\n4s | OpenAI | GPT-5.4 | xhigh | standard (1x)',
     );
   });
 
-  test('formats fast Codex speed tier', () => {
+  test('formats fast OpenAI speed tier', () => {
     const runtimeIdentity = {
-      agentType: 'codex' as const,
+      agentType: 'openai' as const,
       model: 'GPT-5.4',
       reasoningEffort: 'xhigh',
       speedTier: 'fast',
@@ -253,13 +266,13 @@ describe('assistant meta footer', () => {
         runtimeIdentity,
         tokenUsage: { durationMs: 4_500 },
       }),
-    ).toBe('4s | Codex | GPT-5.4 | xhigh | fast (2x)');
+    ).toBe('4s | OpenAI | GPT-5.4 | xhigh | fast (2x)');
     expect(
       formatWebAssistantMetaFooter({
         runtimeIdentity,
         tokenUsage: { durationMs: 4_500 },
       }),
-    ).toBe('4s | Codex | GPT-5.4 | xhigh | fast (2x)');
+    ).toBe('4s | OpenAI | GPT-5.4 | xhigh | fast (2x)');
   });
 
   test('keeps original text when no footer parts are available', () => {

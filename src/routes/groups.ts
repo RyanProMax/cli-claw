@@ -24,11 +24,11 @@ import {
   normalizeAgentType,
   resolveEffectiveRuntimeIdentity,
   validateGroupRuntimeUpdate,
-} from '../group-runtime.js';
+} from '../core/runtime/group-runtime.js';
 import {
   materializeHostWorkspaceDefaultCwd,
   validateHostWorkspaceCwd,
-} from '../host-workspace-cwd.js';
+} from '../core/workspace/host-cwd.js';
 import {
   normalizeReasoningEffortPreset,
   normalizeSpeedTierPreset,
@@ -39,7 +39,7 @@ import {
   getAvailableRuntimeModelOptions,
   getAvailableRuntimeModelPresets,
   normalizeAvailableRuntimeModelPreset,
-} from '../runtime-model-options.js';
+} from '../core/runtime/model-options.js';
 import {
   getRuntimeBuildStatus,
   isRuntimeBuildStale,
@@ -93,10 +93,10 @@ import { logger } from '../logger.js';
 import {
   getClaudeProviderConfig,
   getContainerEnvConfig,
+  getOpenAiRuntimeDefaults,
   saveContainerEnvConfig,
   toPublicContainerEnvConfig,
 } from '../runtime-config.js';
-import { getCodexRuntimeFallback } from '../codex-config.js';
 import {
   loadMountAllowlist,
   findAllowedRoot,
@@ -169,14 +169,14 @@ function resolveEffectiveGroupForRuntime(
 }
 
 function resolveRuntimeIdentityForGroup(group: RegisteredGroup) {
-  const codexRuntimeFallback = getCodexRuntimeFallback();
+  const openAiRuntimeDefaults = getOpenAiRuntimeDefaults();
   return resolveEffectiveRuntimeIdentity(
     resolveEffectiveGroupForRuntime(group),
     {
       claudeProviderModel: getClaudeProviderConfig().anthropicModel,
-      codexCliModel: codexRuntimeFallback.model,
-      codexCliReasoningEffort: codexRuntimeFallback.reasoningEffort,
-      codexCliSpeedTier: codexRuntimeFallback.speedTier,
+      openAiModel: openAiRuntimeDefaults.model,
+      openAiReasoningEffort: openAiRuntimeDefaults.reasoningEffort,
+      openAiSpeedTier: openAiRuntimeDefaults.speedTier,
     },
   );
 }
@@ -380,7 +380,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
       name: group.name,
       folder: group.folder,
       added_at: group.added_at,
-      agent_type: group.agentType || 'claude',
+      agent_type: normalizeAgentType(group.agentType),
       model: group.model ?? null,
       reasoning_effort: group.reasoningEffort ?? null,
       speed_tier: group.speedTier ?? null,
@@ -413,7 +413,7 @@ import { removeFlowArtifacts } from '../file-manager.js';
 import {
   clearSessionJsonlFiles,
   resetWorkspaceRuntimeState,
-} from '../workspace-runtime-reset.js';
+} from '../agent/runner/workspace-reset.js';
 export { removeFlowArtifacts };
 
 function resetWorkspaceForGroup(folder: string): void {
@@ -506,11 +506,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   const agentType = normalizeAgentType(validation.data.agent_type);
   const executionMode =
     validation.data.execution_mode ||
-    (agentType === 'codex'
-      ? 'host'
-      : (await isDockerAvailable())
-        ? 'container'
-        : 'host');
+    ((await isDockerAvailable()) ? 'container' : 'host');
   const model = normalizeOptionalRuntimeModel(agentType, validation.data.model);
   if (validation.data.model && !model) {
     return c.json(
@@ -802,7 +798,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       name: group.name,
       folder: group.folder,
       added_at: group.added_at,
-      agent_type: group.agentType || 'claude',
+      agent_type: normalizeAgentType(group.agentType),
       execution_mode: group.executionMode || 'container',
       model: group.model ?? null,
       reasoning_effort: group.reasoningEffort ?? null,
@@ -937,7 +933,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     const nextAgentType =
       agent_type !== undefined
         ? normalizeAgentType(agent_type)
-        : existing.agentType || 'claude';
+        : normalizeAgentType(existing.agentType);
     const nextExecutionMode =
       execution_mode !== undefined
         ? (execution_mode as ExecutionMode)
@@ -999,7 +995,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
       );
     }
     const runtimeBoundaryChanged = hasRuntimeBoundaryChange({
-      currentAgentType: existing.agentType || 'claude',
+      currentAgentType: normalizeAgentType(existing.agentType),
       currentExecutionMode: existing.executionMode || 'container',
       nextAgentType,
       nextExecutionMode,
@@ -1030,7 +1026,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         {
           jid,
           folder: existing.folder,
-          previousAgentType: existing.agentType || 'claude',
+          previousAgentType: normalizeAgentType(existing.agentType),
           nextAgentType,
           previousExecutionMode: existing.executionMode || 'container',
           nextExecutionMode,
@@ -1097,7 +1093,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
           {
             jid,
             folder: persistedGroup.folder,
-            previousAgentType: existing.agentType || 'claude',
+            previousAgentType: normalizeAgentType(existing.agentType),
             nextAgentType,
             previousExecutionMode: existing.executionMode || 'container',
             nextExecutionMode,
@@ -1123,7 +1119,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         {
           jid,
           folder: persistedGroup.folder,
-          previousAgentType: existing.agentType || 'claude',
+          previousAgentType: normalizeAgentType(existing.agentType),
           nextAgentType,
           previousExecutionMode: existing.executionMode || 'container',
           nextExecutionMode,
@@ -1678,11 +1674,11 @@ groupRoutes.get('/:jid/env', authMiddleware, (c) => {
   const jid = c.req.param('jid');
   const group = getRegisteredGroup(jid);
   if (!group) return c.json({ error: 'Group not found' }, 404);
-  if ((group.agentType || 'claude') === 'codex') {
+  if (normalizeAgentType(group.agentType) === 'openai') {
     return c.json(
       {
         error:
-          'This workspace uses Codex and does not support Claude env overrides',
+          'This workspace uses OpenAI and does not support Claude env overrides',
       },
       400,
     );
@@ -1716,11 +1712,11 @@ groupRoutes.put('/:jid/env', authMiddleware, async (c) => {
   const jid = c.req.param('jid');
   const group = getRegisteredGroup(jid);
   if (!group) return c.json({ error: 'Group not found' }, 404);
-  if ((group.agentType || 'claude') === 'codex') {
+  if (normalizeAgentType(group.agentType) === 'openai') {
     return c.json(
       {
         error:
-          'This workspace uses Codex and does not support Claude env overrides',
+          'This workspace uses OpenAI and does not support Claude env overrides',
       },
       400,
     );

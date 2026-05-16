@@ -1,4 +1,4 @@
-import type { RuntimeIdentity } from './types.js';
+import type { RuntimeIdentity } from '../../types.js';
 
 function normalizeText(value: string | null | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -6,11 +6,18 @@ function normalizeText(value: string | null | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function normalizeAgentType(
+  value: RuntimeIdentity['agentType'] | string,
+): RuntimeIdentity['agentType'] {
+  return value === 'claude' ? 'claude' : 'openai';
+}
+
 export function normalizeRuntimeIdentity(
   identity?: RuntimeIdentity | null,
 ): RuntimeIdentity | null {
   if (!identity) return null;
 
+  const agentType = normalizeAgentType(identity.agentType);
   const model = normalizeText(identity.model);
   const reasoningEffort = normalizeText(identity.reasoningEffort);
   const speedTier = normalizeText(identity.speedTier);
@@ -20,11 +27,10 @@ export function normalizeRuntimeIdentity(
       : null;
 
   return {
-    agentType: identity.agentType,
+    agentType,
     model: model ?? null,
     reasoningEffort: reasoningEffort ?? null,
-    speedTier:
-      speedTier ?? (identity.agentType === 'codex' ? 'standard' : null),
+    speedTier: speedTier ?? (agentType === 'openai' ? 'standard' : null),
     supportsReasoningEffort,
   };
 }
@@ -93,7 +99,7 @@ export function formatRuntimeIdentityFooter(
   const normalized = normalizeRuntimeIdentity(identity);
   if (!normalized?.model) return null;
   const speedTier =
-    normalized.agentType === 'codex'
+    normalized.agentType === 'openai'
       ? normalized.speedTier === 'fast'
         ? 'fast (2x)'
         : normalized.speedTier && normalized.speedTier !== 'standard'

@@ -641,10 +641,7 @@ function isBackendProcess(command: string): boolean {
 }
 
 function isRunnerProcess(command: string): boolean {
-  return (
-    command.includes('container/agent-runner/dist/index.js') ||
-    /\bcodex-acp\b/.test(command)
-  );
+  return command.includes('container/agent-runner/dist/index.js');
 }
 
 export function summarizeResidualProcesses(

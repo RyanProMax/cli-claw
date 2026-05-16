@@ -18,7 +18,7 @@ export interface ContainerInput {
   messageCursor?: { timestamp: string; id?: string };
   groupFolder: string;
   chatJid: string;
-  agentType?: 'claude' | 'codex';
+  agentType?: 'claude' | 'openai';
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;

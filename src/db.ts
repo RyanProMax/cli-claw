@@ -53,7 +53,7 @@ import { getDefaultPermissions, normalizePermissions } from './permissions.js';
 import {
   parseRuntimeIdentity,
   serializeRuntimeIdentity,
-} from './runtime-identity.js';
+} from './core/runtime/identity.js';
 
 let db: InstanceType<typeof Database>;
 
@@ -717,7 +717,7 @@ export function initDatabase(): void {
     'execution_mode',
     "TEXT DEFAULT 'container'",
   );
-  ensureColumn('registered_groups', 'agent_type', "TEXT DEFAULT 'claude'");
+  ensureColumn('registered_groups', 'agent_type', "TEXT DEFAULT 'openai'");
   ensureColumn('registered_groups', 'model', 'TEXT');
   ensureColumn('registered_groups', 'reasoning_effort', 'TEXT');
   ensureColumn('registered_groups', 'speed_tier', 'TEXT');
@@ -793,7 +793,7 @@ export function initDatabase(): void {
           folder TEXT NOT NULL,
           added_at TEXT NOT NULL,
           container_config TEXT,
-          agent_type TEXT DEFAULT 'claude',
+          agent_type TEXT DEFAULT 'openai',
           execution_mode TEXT DEFAULT 'container',
           custom_cwd TEXT,
           init_source_path TEXT,
@@ -801,7 +801,7 @@ export function initDatabase(): void {
           created_by TEXT,
           is_home INTEGER DEFAULT 0
         );
-        INSERT INTO registered_groups_new SELECT jid, name, folder, added_at, container_config, 'claude', execution_mode, custom_cwd, NULL, NULL, NULL, 0 FROM registered_groups;
+        INSERT INTO registered_groups_new SELECT jid, name, folder, added_at, container_config, 'openai', execution_mode, custom_cwd, NULL, NULL, NULL, 0 FROM registered_groups;
         DROP TABLE registered_groups;
         ALTER TABLE registered_groups_new RENAME TO registered_groups;
       `);
@@ -1284,7 +1284,18 @@ export function initDatabase(): void {
     db.exec('ALTER TABLE agents ADD COLUMN spawned_from_jid TEXT');
   }
 
-  const SCHEMA_VERSION = '33';
+  // v33→v34: codex is the historical OpenAI runtime name. Older builds stored
+  // it as agent_type='codex', which newer strict unions must treat as OpenAI.
+  const v34Ver = getRouterStateInternal('schema_version');
+  if (!v34Ver || parseInt(v34Ver, 10) < 34) {
+    db.transaction(() => {
+      db.prepare(
+        "UPDATE registered_groups SET agent_type = 'openai' WHERE agent_type IS NULL OR agent_type = '' OR agent_type = 'codex'",
+      ).run();
+    })();
+  }
+
+  const SCHEMA_VERSION = '34';
   db.prepare(
     'INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)',
   ).run('schema_version', SCHEMA_VERSION);
@@ -2468,7 +2479,7 @@ type RegisteredGroupRow = {
 };
 
 function parseAgentType(raw: string | null): AgentType {
-  return raw === 'codex' ? 'codex' : 'claude';
+  return raw === 'claude' ? 'claude' : 'openai';
 }
 
 /** Convert a raw DB row into a RegisteredGroup domain object. */
@@ -2536,7 +2547,7 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     group.folder,
     group.added_at,
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
-    group.agentType ?? 'claude',
+    group.agentType ?? 'openai',
     group.executionMode ?? 'container',
     group.model ?? null,
     group.reasoningEffort ?? null,
@@ -2704,7 +2715,7 @@ export function ensureUserHomeGroup(
     name,
     folder,
     added_at: now,
-    agentType: 'claude',
+    agentType: 'openai',
     executionMode: isAdmin ? 'host' : 'container',
     created_by: userId,
     is_home: true,

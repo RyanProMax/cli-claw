@@ -14,7 +14,6 @@ import {
 } from './app-root.js';
 
 import { CONTAINER_IMAGE, DATA_DIR, GROUPS_DIR } from './config.js';
-import { buildHostRuntimePath, checkCodexCliReady } from './codex-config.js';
 import { logger } from './logger.js';
 import {
   loadMountAllowlist,
@@ -33,9 +32,10 @@ import {
   writeCredentialsFile,
 } from './runtime-config.js';
 import { providerPool } from './provider-pool.js';
-import { isApiError } from './agent-output-parser.js';
+import { isApiError } from './agent/runner/output-parser.js';
 import type { ClaudeProviderConfig } from './runtime-config.js';
 import { loadUserMcpServers } from './mcp-utils.js';
+import { resolveCodexCliRuntimeEnv } from './core/runtime/codex-cli-auth.js';
 import {
   AgentType,
   MessageCursor,
@@ -55,7 +55,7 @@ import {
   handleTimeoutClose,
   writeRunLog,
   type CloseHandlerContext,
-} from './agent-output-parser.js';
+} from './agent/runner/output-parser.js';
 import { getRuntimeBuildLogFields } from './runtime-build.js';
 import { writeSelfRestartRequestChatJidToEnv } from './self-restart.js';
 
@@ -68,6 +68,26 @@ const REQUIRED_SETTINGS_ENV: Record<string, string> = {
   CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
   CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
 };
+const LEGACY_OPENAI_TOKEN_ENV = 'OPENAI' + '_API_KEY';
+
+function buildHostRuntimePath(options: {
+  pathValue?: string | null;
+  homeDir?: string | null;
+}): string {
+  const entries = (options.pathValue || '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const candidates = [
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    options.homeDir ? path.join(options.homeDir, '.local', 'bin') : null,
+  ].filter((entry): entry is string => Boolean(entry));
+  for (const candidate of candidates) {
+    if (!entries.includes(candidate)) entries.push(candidate);
+  }
+  return entries.join(path.delimiter);
+}
 
 const CONTEXT_MCP_TEXT_PATTERN =
   /memory|recall|history|transcript|summary|(?:^|[^a-z0-9])context(?:[^a-z0-9]|$)/i;
@@ -279,6 +299,8 @@ function buildVolumeMounts(
   ownerHomeFolder?: string,
   taskRunId?: string,
   resolvedProvider?: ResolvedProvider,
+  agentType: AgentType = 'openai',
+  runtimeEnv: Record<string, string> = {},
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const packageRoot = APP_ROOT;
@@ -331,6 +353,26 @@ function buildVolumeMounts(
     containerPath: '/home/node/.claude',
     readonly: false,
   });
+
+  if (agentType === 'openai') {
+    const openAiSessionDir = agentId
+      ? path.join(
+          DATA_DIR,
+          'sessions',
+          group.folder,
+          'agents',
+          agentId,
+          '.openai',
+        )
+      : path.join(DATA_DIR, 'sessions', group.folder, '.openai');
+    mkdirForContainer(openAiSessionDir);
+    mounts.push({
+      hostPath: openAiSessionDir,
+      containerPath: '/workspace/runtime-session',
+      readonly: false,
+    });
+    runtimeEnv.CLI_CLAW_RUNTIME_SESSION_DIR = '/workspace/runtime-session';
+  }
 
   // Skills：以只读卷挂载宿主机目录（由 entrypoint 创建符号链接）
   // 用户的所有 skills 在其所有工作区中全量生效
@@ -392,13 +434,32 @@ function buildVolumeMounts(
   // Global config merged with per-container overrides.
   const envDir = path.join(DATA_DIR, 'env', group.folder);
   fs.mkdirSync(envDir, { recursive: true });
-  const globalConfig = resolvedProvider?.config ?? getClaudeProviderConfig();
-  const containerOverride = getContainerEnvConfig(group.folder);
-  const envLines = buildContainerEnvLines(
-    globalConfig,
-    containerOverride,
-    resolvedProvider?.customEnv,
-  );
+  const containerOverride =
+    agentType === 'claude' ? getContainerEnvConfig(group.folder) : {};
+  const globalConfig =
+    agentType === 'claude'
+      ? (resolvedProvider?.config ?? getClaudeProviderConfig())
+      : null;
+  const envLines = globalConfig
+    ? buildContainerEnvLines(
+        globalConfig,
+        containerOverride,
+        resolvedProvider?.customEnv,
+      )
+    : [];
+  for (const [key, value] of Object.entries(runtimeEnv)) {
+    const normalized = value.trim();
+    if (normalized) envLines.push(`${key}=${normalized}`);
+  }
+  for (const envName of [
+    'OPENAI_MODEL',
+    'OPENAI_REASONING_EFFORT',
+    'OPENAI_SERVICE_TIER',
+    'SERVICE_TIER',
+  ]) {
+    const value = process.env[envName]?.trim();
+    if (value) envLines.push(`${envName}=${value}`);
+  }
   if (envLines.length > 0) {
     const envFilePath = path.join(envDir, 'env');
     const quotedLines = shellQuoteEnvLines(envLines);
@@ -421,8 +482,10 @@ function buildVolumeMounts(
   }
 
   // Write .credentials.json for OAuth credentials (session dir is already mounted)
-  const mergedConfig = mergeClaudeEnvConfig(globalConfig, containerOverride);
-  if (mergedConfig.claudeOAuthCredentials) {
+  const mergedConfig = globalConfig
+    ? mergeClaudeEnvConfig(globalConfig, containerOverride)
+    : null;
+  if (mergedConfig?.claudeOAuthCredentials) {
     try {
       writeCredentialsFile(groupSessionsDir, mergedConfig);
     } catch (err) {
@@ -487,27 +550,23 @@ export async function runContainerAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
   ownerHomeFolder?: string,
 ): Promise<ContainerOutput> {
-  if ((group.agentType ?? 'claude') === 'codex') {
-    return {
-      status: 'error',
-      result: null,
-      error: 'Codex only supports host execution mode',
-    };
-  }
   const startTime = Date.now();
-  const agentType = input.agentType || group.agentType || 'claude';
-  const selectedRunner = 'claude';
+  const agentType = input.agentType || group.agentType || 'openai';
+  const selectedRunner = agentType;
   const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
   const groupDir = path.join(GROUPS_DIR, group.folder);
   mkdirForContainer(groupDir);
 
   // ─── Provider Pool selection ───
-  const poolResult = trySelectPoolProvider(group.folder);
+  const poolResult =
+    agentType === 'claude' ? trySelectPoolProvider(group.folder) : null;
   const selectedProfileId = poolResult?.profileId ?? null;
   const resolvedProvider = poolResult?.resolved;
 
   try {
+    const runtimeEnv =
+      agentType === 'openai' ? await resolveCodexCliRuntimeEnv() : {};
     // Determine if this is an admin home container (full privileges)
     const isAdminHome = !!group.is_home && group.folder === 'main';
     // Per-user skills: always mount if the group has an owner
@@ -520,6 +579,8 @@ export async function runContainerAgent(
       ownerHomeFolder,
       input.taskRunId,
       resolvedProvider,
+      agentType,
+      runtimeEnv,
     );
     const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
     const agentSuffix = input.agentId
@@ -543,7 +604,7 @@ export async function runContainerAgent(
 
     logger.info(
       {
-        requestedAgentType: input.agentType || group.agentType || 'claude',
+        requestedAgentType: input.agentType || group.agentType || 'openai',
         effectiveAgentType: agentType,
         group: group.name,
         folder: group.folder,
@@ -582,7 +643,7 @@ export async function runContainerAgent(
         );
         container.kill();
       });
-      container.stdin.write(JSON.stringify(input));
+      container.stdin.write(JSON.stringify({ ...input, agentType }));
       container.stdin.end();
 
       let timedOut = false;
@@ -1007,7 +1068,7 @@ export async function runHostAgent(
   const hostEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
   };
-  const agentType = group.agentType ?? 'claude';
+  const agentType = input.agentType || group.agentType || 'openai';
   const selectedRunner = agentType;
   const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
@@ -1051,6 +1112,22 @@ export async function runHostAgent(
           );
         }
       }
+    } else if (agentType === 'openai') {
+      delete hostEnv[LEGACY_OPENAI_TOKEN_ENV];
+      const codexRuntimeEnv = await resolveCodexCliRuntimeEnv();
+      Object.assign(hostEnv, codexRuntimeEnv);
+      const openAiSessionDir = input.agentId
+        ? path.join(
+            DATA_DIR,
+            'sessions',
+            group.folder,
+            'agents',
+            input.agentId,
+            '.openai',
+          )
+        : path.join(DATA_DIR, 'sessions', group.folder, '.openai');
+      fs.mkdirSync(openAiSessionDir, { recursive: true });
+      hostEnv.CLI_CLAW_RUNTIME_SESSION_DIR = openAiSessionDir;
     }
 
     hostEnv['PATH'] = buildHostRuntimePath({
@@ -1097,7 +1174,7 @@ export async function runHostAgent(
     const requiredDeps =
       agentType === 'claude'
         ? ['@anthropic-ai/claude-agent-sdk']
-        : ['@agentclientprotocol/sdk'];
+        : ['@openai/agents', 'openai'];
     const agentRunnerRequire = createRequire(agentRunnerManifestPath);
     const missingDeps = requiredDeps.filter((dep) => {
       try {
@@ -1126,26 +1203,6 @@ export async function runHostAgent(
         `agent-runner 产物缺失。请先执行：${setupBuildHint}；若这是安装包环境，请确认包含 container/agent-runner/dist。`,
       );
     }
-    if (agentType === 'codex') {
-      const codexCliReadiness = checkCodexCliReady({
-        env: hostEnv,
-      });
-      if (codexCliReadiness.status !== 'ready') {
-        logger.error(
-          {
-            group: group.name,
-            codexCliStatus: codexCliReadiness.status,
-            codexCliCommand: codexCliReadiness.command,
-            pathValue: codexCliReadiness.pathValue,
-          },
-          'Host agent preflight failed: Codex CLI unavailable',
-        );
-        return hostModeSetupError(
-          codexCliReadiness.message || 'Codex CLI 启动检查失败。',
-        );
-      }
-    }
-
     // Auto-rebuild only in local/dev checkouts. Installed npm packages may
     // normalize mtimes such that src appears slightly newer than dist.
     if (!isInstalledNodeModulesPackageRoot(APP_ROOT)) {
@@ -1183,7 +1240,7 @@ export async function runHostAgent(
 
     logger.info(
       {
-        requestedAgentType: input.agentType || group.agentType || 'claude',
+        requestedAgentType: input.agentType || group.agentType || 'openai',
         effectiveAgentType: agentType,
         group: group.name,
         folder: group.folder,
@@ -1232,7 +1289,7 @@ export async function runHostAgent(
         );
         killProcessTree(proc);
       });
-      proc.stdin.write(JSON.stringify(input));
+      proc.stdin.write(JSON.stringify({ ...input, agentType }));
       proc.stdin.end();
 
       // 9. 超时管理

@@ -58,7 +58,7 @@ function formatCompactDuration(durationMs: number): string {
 function formatAgentTypeLabel(agentType?: string | null): string | null {
   const normalized = normalizeText(agentType)?.toLowerCase();
   if (!normalized) return null;
-  if (normalized === 'codex') return 'Codex';
+  if (normalized === 'openai' || normalized === 'codex') return 'OpenAI';
   if (normalized === 'claude') return 'Claude';
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
@@ -67,7 +67,7 @@ function formatSpeedTierLabel(
   runtimeIdentity?: AssistantFooterRuntimeIdentity | null,
 ): string | null {
   const agentType = normalizeText(runtimeIdentity?.agentType)?.toLowerCase();
-  if (agentType !== 'codex') return null;
+  if (agentType !== 'openai' && agentType !== 'codex') return null;
 
   const speedTier =
     normalizeText(runtimeIdentity?.speedTier)?.toLowerCase() ?? 'standard';

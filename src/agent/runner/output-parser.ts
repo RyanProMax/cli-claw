@@ -5,11 +5,11 @@
 import fs from 'fs';
 import path from 'path';
 import type { Readable } from 'stream';
-import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
+import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 
-import { getSystemSettings } from './runtime-config.js';
-import { logger } from './logger.js';
-import type { ContainerOutput } from './container-runner.js';
+import { getSystemSettings } from '../../runtime-config.js';
+import { logger } from '../../logger.js';
+import type { ContainerOutput } from '../../container-runner.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 export const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
@@ -673,29 +673,29 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
     /unknown[_ ]parameter/i.test(normalized) &&
     /safety_identifier/i.test(normalized)
   ) {
-    return 'Codex 上下文压缩失败：当前 Codex 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 Codex runtime 后重试，必要时发送 /clear 清除当前会话上下文。';
+    return 'OpenAI 上下文压缩失败：当前 OpenAI 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 OpenAI runtime 后重试，必要时发送 /clear 清除当前会话上下文。';
   }
 
   if (
-    /Codex CLI 未登录/u.test(normalized) ||
-    /auth_required|login required|please login|not logged in/i.test(normalized)
+    /Codex CLI login|CLI_CLAW_CODEX_ACCESS_TOKEN|OpenAI API key is missing|api key/i.test(
+      normalized,
+    ) ||
+    /auth_required|login required|not logged in|unauthorized|401/i.test(
+      normalized,
+    )
   ) {
-    return 'Codex CLI 未登录。请先在服务器上执行：codex login';
+    return 'Codex CLI 登录态缺失或已过期。请在宿主机执行 `codex login` 后重试。';
   }
 
   if (
     /UsageLimitExceeded/i.test(normalized) ||
     /purchase more credits/i.test(normalized) ||
-    /https:\/\/chatgpt\.com\/codex\/settings\/usage/i.test(normalized)
+    /insufficient_quota|quota|rate limit|429/i.test(normalized)
   ) {
-    const usageUrl =
-      normalized.match(
-        /https:\/\/chatgpt\.com\/codex\/settings\/usage/i,
-      )?.[0] || 'https://chatgpt.com/codex/settings/usage';
     const retryAt = normalized.match(/try again at ([^.]+)\.?/i)?.[1]?.trim();
     return retryAt
-      ? `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或在 ${retryAt} 后重试。`
-      : `Codex CLI 用量已用尽。请前往 ${usageUrl} 购买额度，或稍后重试。`;
+      ? `OpenAI API 用量或频率限制已触发，请在 ${retryAt} 后重试。`
+      : 'OpenAI API 用量或频率限制已触发，请稍后重试或检查账户额度。';
   }
 
   return null;

@@ -1425,7 +1425,7 @@ describe('restart recovery cursor handling', () => {
           streamEvent: {
             eventType: 'init',
             messageCursor: currentCursor,
-            runtimeIdentity: { agentType: 'codex' },
+            runtimeIdentity: { agentType: 'openai' },
           },
         } as never);
         await onOutput?.({
@@ -1433,7 +1433,7 @@ describe('restart recovery cursor handling', () => {
           streamEvent: {
             eventType: 'text_delta',
             text: '当前 PLANS 分析中',
-            runtimeIdentity: { agentType: 'codex' },
+            runtimeIdentity: { agentType: 'openai' },
           },
         } as never);
         await onOutput?.({
@@ -1441,7 +1441,7 @@ describe('restart recovery cursor handling', () => {
           result: '当前 PLANS 清理结论',
           sourceKind: 'sdk_final',
           finalizationReason: 'completed',
-          runtimeIdentity: { agentType: 'codex' },
+          runtimeIdentity: { agentType: 'openai' },
         } as never);
         return { status: 'success' };
       },
@@ -1542,7 +1542,7 @@ describe('restart recovery cursor handling', () => {
           streamEvent: {
             eventType: 'init',
             messageCursor: currentCursor,
-            runtimeIdentity: { agentType: 'codex' },
+            runtimeIdentity: { agentType: 'openai' },
           },
         } as never);
         await onOutput?.({
@@ -1550,7 +1550,7 @@ describe('restart recovery cursor handling', () => {
           streamEvent: {
             eventType: 'text_delta',
             text: '已经触发了',
-            runtimeIdentity: { agentType: 'codex' },
+            runtimeIdentity: { agentType: 'openai' },
           },
         } as never);
         await onOutput?.({
@@ -1558,7 +1558,7 @@ describe('restart recovery cursor handling', () => {
           result: '已触发并完成重启。',
           sourceKind: 'sdk_final',
           finalizationReason: 'completed',
-          runtimeIdentity: { agentType: 'codex' },
+          runtimeIdentity: { agentType: 'openai' },
         } as never);
         return { status: 'success' };
       },
@@ -1625,7 +1625,7 @@ describe('restart recovery cursor handling', () => {
           streamEvent: {
             eventType: 'init',
             messageCursor: currentCursor,
-            runtimeIdentity: { agentType: 'codex' },
+            runtimeIdentity: { agentType: 'openai' },
           },
         } as never);
         const currentSession = imMocks.sessions.at(-1);
@@ -1639,7 +1639,7 @@ describe('restart recovery cursor handling', () => {
           streamEvent: {
             eventType: 'text_delta',
             text: '已经触发了',
-            runtimeIdentity: { agentType: 'codex' },
+            runtimeIdentity: { agentType: 'openai' },
           },
         } as never);
         await onOutput?.({
@@ -1647,7 +1647,7 @@ describe('restart recovery cursor handling', () => {
           result: '已触发并完成重启。',
           sourceKind: 'sdk_final',
           finalizationReason: 'completed',
-          runtimeIdentity: { agentType: 'codex' },
+          runtimeIdentity: { agentType: 'openai' },
         } as never);
         return { status: 'success' };
       },
@@ -1890,7 +1890,7 @@ describe('restart recovery cursor handling', () => {
     expect(buildInterruptedReply('')).toBe('*⚠️ 已中断*');
   });
 
-  test('does not include interrupted Codex commentary in visible partial replies', async () => {
+  test('does not include interrupted OpenAI commentary in visible partial replies', async () => {
     const { buildInterruptedReply } = await loadIndexModule();
 
     expect(

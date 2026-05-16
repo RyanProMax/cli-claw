@@ -2,7 +2,7 @@
 
 import { WebSocket } from 'ws';
 import { RegisteredGroup, UserRole } from './types.js';
-import { GroupQueue } from './group-queue.js';
+import { GroupQueue } from './agent/queue/group-queue.js';
 import type {
   AuthUser,
   NewMessage,

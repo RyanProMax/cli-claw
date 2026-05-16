@@ -32,7 +32,7 @@ import {
   canAccessGroup,
   getWebDeps,
 } from '../web-context.js';
-import { getRunningTaskIds } from '../task-scheduler.js';
+import { getRunningTaskIds } from '../agent/scheduler/index.js';
 
 const tasksRoutes = new Hono<{ Variables: Variables }>();
 

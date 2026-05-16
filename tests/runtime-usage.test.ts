@@ -1,14 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
-const { getCodexUsageSnapshotMock, getClaudeUsageSnapshotMock } = vi.hoisted(
-  () => ({
-    getCodexUsageSnapshotMock: vi.fn(),
-    getClaudeUsageSnapshotMock: vi.fn(),
-  }),
-);
-
-vi.mock('../src/usage-command.js', () => ({
-  getCodexUsageSnapshot: getCodexUsageSnapshotMock,
+const { getClaudeUsageSnapshotMock } = vi.hoisted(() => ({
+  getClaudeUsageSnapshotMock: vi.fn(),
 }));
 
 vi.mock('../src/claude-oauth-usage.js', () => ({
@@ -20,31 +13,38 @@ import {
   getRuntimeUsageFooterMeta,
   getRuntimeUsageSnapshot,
   shouldShowRemainingUsageInFooter,
-} from '../src/runtime-usage.ts';
+} from '../src/core/runtime/usage.ts';
 
 describe('runtime usage helper', () => {
-  test('returns codex usage snapshot for codex runtimes', async () => {
-    getCodexUsageSnapshotMock.mockReturnValue({
-      provider: 'codex',
-      available: true,
-      source: 'local ~/.codex/sessions',
-      primaryUsagePct: 72,
-      secondaryUsagePct: 28,
-      primaryRemainingPct: 28,
-      secondaryRemainingPct: 72,
-    });
-
+  test('keeps OpenAI and missing runtime usage unavailable without dropping existing metadata', async () => {
     await expect(
       getRuntimeUsageSnapshot({
-        agentType: 'codex',
+        agentType: 'openai',
         model: 'gpt-5.4',
       }),
-    ).resolves.toMatchObject({
-      provider: 'codex',
-      primaryUsagePct: 72,
-      secondaryUsagePct: 28,
-      primaryRemainingPct: 28,
-      secondaryRemainingPct: 72,
+    ).resolves.toBeNull();
+
+    await expect(getRuntimeUsageSnapshot(null)).resolves.toBeNull();
+    await expect(
+      getRuntimeUsageFooterMeta({
+        agentType: 'openai',
+        model: 'gpt-5.4',
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      attachRuntimeUsageFooterMeta(
+        {
+          agentType: 'openai',
+          model: 'gpt-5.4',
+        },
+        {
+          durationMs: 5_200,
+          inputTokens: 100,
+        },
+      ),
+    ).resolves.toEqual({
+      durationMs: 5_200,
+      inputTokens: 100,
     });
   });
 
@@ -73,85 +73,12 @@ describe('runtime usage helper', () => {
     });
   });
 
-  test('returns null when runtime identity is missing', async () => {
-    await expect(getRuntimeUsageSnapshot(null)).resolves.toBeNull();
-  });
-
-  test('builds footer metadata only when snapshot is available', async () => {
-    getCodexUsageSnapshotMock.mockReturnValue({
-      provider: 'codex',
-      available: true,
-      source: 'local ~/.codex/sessions',
-      primaryUsagePct: 72,
-      secondaryUsagePct: 28,
-      primaryRemainingPct: 28,
-      secondaryRemainingPct: 72,
-    });
-
-    await expect(
-      getRuntimeUsageFooterMeta({
-        agentType: 'codex',
-        model: 'gpt-5.4',
-      }),
-    ).resolves.toEqual({
-      primaryRemainingPct: 28,
-      secondaryRemainingPct: 72,
-    });
-  });
-
-  test('does not build footer metadata when only used percentages are available', async () => {
-    getCodexUsageSnapshotMock.mockReturnValue({
-      provider: 'codex',
-      available: true,
-      source: 'local ~/.codex/sessions',
-      primaryUsagePct: 72,
-      secondaryUsagePct: 96,
-    });
-
-    await expect(
-      getRuntimeUsageFooterMeta({
-        agentType: 'codex',
-        model: 'gpt-5.4',
-      }),
-    ).resolves.toBeNull();
-  });
-
-  test('merges current remaining usage into existing token usage metadata', async () => {
-    getCodexUsageSnapshotMock.mockReturnValue({
-      provider: 'codex',
-      available: true,
-      source: 'local ~/.codex/sessions',
-      primaryUsagePct: 72,
-      secondaryUsagePct: 28,
-      primaryRemainingPct: 28,
-      secondaryRemainingPct: 72,
-    });
-
-    await expect(
-      attachRuntimeUsageFooterMeta(
-        {
-          agentType: 'codex',
-          model: 'gpt-5.4',
-        },
-        {
-          durationMs: 5_200,
-          inputTokens: 100,
-        },
-      ),
-    ).resolves.toEqual({
-      durationMs: 5_200,
-      inputTokens: 100,
-      primaryRemainingPct: 28,
-      secondaryRemainingPct: 72,
-    });
-  });
-
   test('shows remaining footer whenever quota data is available', () => {
     expect(
       shouldShowRemainingUsageInFooter({
-        provider: 'codex',
+        provider: 'claude',
         available: true,
-        source: 'local ~/.codex/sessions',
+        source: 'test usage snapshot',
         primaryRemainingPct: 28,
         secondaryRemainingPct: 72,
       }),
@@ -159,9 +86,9 @@ describe('runtime usage helper', () => {
 
     expect(
       shouldShowRemainingUsageInFooter({
-        provider: 'codex',
+        provider: 'claude',
         available: true,
-        source: 'local ~/.codex/sessions',
+        source: 'test usage snapshot',
         primaryRemainingPct: 42,
         secondaryRemainingPct: 9,
       }),
@@ -169,9 +96,9 @@ describe('runtime usage helper', () => {
 
     expect(
       shouldShowRemainingUsageInFooter({
-        provider: 'codex',
+        provider: 'claude',
         available: true,
-        source: 'local ~/.codex/sessions',
+        source: 'test usage snapshot',
         primaryUsagePct: 72,
         secondaryUsagePct: 96,
       }),

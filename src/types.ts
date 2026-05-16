@@ -34,7 +34,7 @@ export interface ContainerConfig {
 }
 
 export type ExecutionMode = 'container' | 'host';
-export type AgentType = 'claude' | 'codex';
+export type AgentType = 'claude' | 'openai';
 
 export interface RuntimeIdentity {
   agentType: AgentType;
@@ -49,7 +49,7 @@ export interface RegisteredGroup {
   folder: string;
   added_at: string;
   containerConfig?: ContainerConfig;
-  agentType?: AgentType; // 默认 'claude'
+  agentType?: AgentType; // 默认 'openai'
   executionMode?: ExecutionMode; // 默认 'container'
   model?: string | null;
   reasoningEffort?: string | null;

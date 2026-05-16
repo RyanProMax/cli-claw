@@ -213,7 +213,7 @@ export function formatSystemStatus(
       : '空闲';
   const reasoningEffort = status.reasoningEffort?.trim() || '不支持';
   const speedTier =
-    status.agentType === 'codex'
+    status.agentType === 'openai'
       ? status.speedTier === 'fast'
         ? 'fast (2x)'
         : 'standard (1x)'

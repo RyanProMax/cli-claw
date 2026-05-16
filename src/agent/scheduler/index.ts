@@ -9,14 +9,18 @@ import {
   GROUPS_DIR,
   SCHEDULER_POLL_INTERVAL,
   TIMEZONE,
-} from './config.js';
-import { getSystemSettings } from './runtime-config.js';
+} from '../../config.js';
+import {
+  getClaudeProviderConfig,
+  getOpenAiRuntimeDefaults,
+  getSystemSettings,
+} from '../../runtime-config.js';
 import {
   ContainerOutput,
   runContainerAgent,
   runHostAgent,
   writeTasksSnapshot,
-} from './container-runner.js';
+} from '../../container-runner.js';
 import {
   addGroupMember,
   getAllTasks,
@@ -34,18 +38,19 @@ import {
   updateChatName,
   updateTaskAfterRun,
   updateTaskWorkspace,
-} from './db.js';
-import { GroupQueue } from './group-queue.js';
-import { resolveEffectiveHostWorkspaceCwd } from './host-workspace-cwd.js';
-import { logger } from './logger.js';
-import { resolveTaskOwner } from './task-utils.js';
-import { removeFlowArtifacts } from './file-manager.js';
-import { hasScriptCapacity, runScript } from './script-runner.js';
-import type { StreamEvent } from './stream-event.types.js';
-import { ExecutionMode, RegisteredGroup, ScheduledTask } from './types.js';
-import { checkBillingAccessFresh, isBillingEnabled } from './billing.js';
-import { formatUserFacingRuntimeError } from './agent-output-parser.js';
-import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
+} from '../../db.js';
+import { GroupQueue } from '../queue/group-queue.js';
+import { resolveEffectiveHostWorkspaceCwd } from '../../core/workspace/host-cwd.js';
+import { logger } from '../../logger.js';
+import { resolveTaskOwner } from '../../task-utils.js';
+import { resolveEffectiveRuntimeIdentity } from '../../core/runtime/group-runtime.js';
+import { removeFlowArtifacts } from '../../file-manager.js';
+import { hasScriptCapacity, runScript } from '../../script-runner.js';
+import type { StreamEvent } from '../../stream-event.types.js';
+import { ExecutionMode, RegisteredGroup, ScheduledTask } from '../../types.js';
+import { checkBillingAccessFresh, isBillingEnabled } from '../../billing.js';
+import { formatUserFacingRuntimeError } from '../runner/output-parser.js';
+import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 
 /**
  * Resolve the actual group JID to send a task to.
@@ -154,6 +159,7 @@ function ensureTaskWorkspace(
     sourceGroup,
     deps.registeredGroups(),
   );
+  const sourceRuntimeGroup = sourceHomeGroup || sourceGroup;
   const sourceWorkspaceCwd = sourceGroup
     ? resolveEffectiveHostWorkspaceCwd(sourceGroup, sourceHomeGroup)
     : undefined;
@@ -165,6 +171,10 @@ function ensureTaskWorkspace(
     executionMode,
     customCwd: executionMode === 'host' ? sourceWorkspaceCwd : undefined,
     created_by: ownerId,
+    agentType: sourceRuntimeGroup?.agentType,
+    model: sourceRuntimeGroup?.model,
+    reasoningEffort: sourceRuntimeGroup?.reasoningEffort,
+    speedTier: sourceRuntimeGroup?.speedTier,
   };
 
   setRegisteredGroup(jid, group);
@@ -373,6 +383,18 @@ export async function runTask(
   }
 
   const sourceWorkspaceGroup = resolveTaskSourceGroup(task, workspaceGroups);
+  const sourceRuntimeGroup =
+    (sourceWorkspaceGroup &&
+      findHomeSiblingGroup(sourceWorkspaceGroup, workspaceGroups)) ||
+    sourceWorkspaceGroup;
+  const taskRuntimeGroup: RegisteredGroup = {
+    ...workspaceGroup,
+    agentType: workspaceGroup.agentType ?? sourceRuntimeGroup?.agentType,
+    model: workspaceGroup.model ?? sourceRuntimeGroup?.model,
+    reasoningEffort:
+      workspaceGroup.reasoningEffort ?? sourceRuntimeGroup?.reasoningEffort,
+    speedTier: workspaceGroup.speedTier ?? sourceRuntimeGroup?.speedTier,
+  };
   const sourceWorkspaceCwd = sourceWorkspaceGroup
     ? resolveEffectiveHostWorkspaceCwd(
         sourceWorkspaceGroup,
@@ -458,6 +480,16 @@ export async function runTask(
     const executionMode = resolveTaskExecutionMode(task, deps);
     const runAgent =
       executionMode === 'host' ? runHostAgent : runContainerAgent;
+    const openAiDefaults = getOpenAiRuntimeDefaults();
+    const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
+      taskRuntimeGroup,
+      {
+        claudeProviderModel: getClaudeProviderConfig().anthropicModel,
+        openAiModel: openAiDefaults.model,
+        openAiReasoningEffort: openAiDefaults.reasoningEffort,
+        openAiSpeedTier: openAiDefaults.speedTier,
+      },
+    );
 
     // Resolve owner's home folder for user-scoped skill mounts.
     const ownerHomeFolder = workspaceGroup.created_by
@@ -465,13 +497,16 @@ export async function runTask(
       : workspace.folder;
 
     const output = await runAgent(
-      workspaceGroup,
+      taskRuntimeGroup,
       {
         prompt: task.prompt,
         sessionId,
         groupFolder: workspace.folder,
         chatJid: workspace.jid,
-        agentType: workspaceGroup.agentType || 'claude',
+        agentType: taskRuntimeGroup.agentType || 'openai',
+        model: effectiveRuntimeIdentity.model ?? null,
+        reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
+        speedTier: effectiveRuntimeIdentity.speedTier ?? null,
         isMain: isAdminHome,
         isHome,
         isAdminHome,
