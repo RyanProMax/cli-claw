@@ -408,7 +408,6 @@ export async function runTask(
   const finalizeRunLog = () => {
     if (runLogFinalized) return;
     runLogFinalized = true;
-    runningTaskIds.delete(task.id);
     const durationMs = lastOutputTime - startTime;
     updateTaskRunLog(runLogId, {
       duration_ms: durationMs,

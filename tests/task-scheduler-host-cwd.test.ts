@@ -44,6 +44,7 @@ vi.mock('../src/db.js', () => ({
 }));
 
 import {
+  getRunningTaskIds,
   runScriptTask,
   runTask,
   triggerTaskNow,
@@ -206,6 +207,58 @@ describe('task scheduler host cwd forwarding', () => {
       '2026-04-05T10:00:00.000Z',
       'Error: Codex CLI 未登录。请先在服务器上执行：codex login',
     );
+  });
+
+  test('keeps task marked running until scheduled task row is finalized', async () => {
+    const task = buildTask({
+      id: 'task-finalizing',
+      next_run: '2026-04-05T10:00:00.000Z',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+    let releaseHostAgent!: () => void;
+    const hostAgentDone = new Promise<void>((resolve) => {
+      releaseHostAgent = resolve;
+    });
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+      },
+      onProcess: vi.fn(),
+      sendMessage: vi.fn(),
+      assistantName: 'cli-claw',
+    };
+
+    const db = await import('../src/db.js');
+    vi.mocked(db.getTaskById).mockReturnValue(task);
+    runHostAgentMock.mockImplementation(async (...args: unknown[]) => {
+      const onOutput = args[3] as (output: {
+        status: 'success';
+        result: string;
+      }) => Promise<void>;
+      await onOutput({ status: 'success', result: 'ok' });
+      await hostAgentDone;
+      return { status: 'success', result: 'ok' };
+    });
+
+    const running = runTask(task, deps as never);
+    await vi.waitFor(() => {
+      expect(db.updateTaskRunLog).toHaveBeenCalledWith(
+        'run-log-1',
+        expect.objectContaining({ status: 'success', result: 'ok' }),
+      );
+    });
+
+    expect(getRunningTaskIds()).toContain('task-finalizing');
+    releaseHostAgent();
+    await running;
+    expect(getRunningTaskIds()).not.toContain('task-finalizing');
   });
 
   test('runs former group-context agent tasks through isolated task workspaces instead of injecting prompts', async () => {
