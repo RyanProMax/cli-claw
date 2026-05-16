@@ -38,6 +38,18 @@ describe('formatUserFacingRuntimeError', () => {
     );
   });
 
+  test('formats Codex backend bare 400 errors without raw JSON', () => {
+    const stderr = `{ "name": "Error", "message": "400 status code (no body)", "status": 400, "headers": {}, "requestID": null }`;
+
+    const formatted = formatUserFacingRuntimeError(stderr);
+
+    expect(formatted).toBe(
+      'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新 host 日志中的 request id，更新并重启 cli-claw 后重试。',
+    );
+    expect(formatted).not.toContain('"headers"');
+    expect(formatted).not.toContain('"requestID"');
+  });
+
   test('preserves an already-streamed error result on non-zero exit', async () => {
     const stdoutState = createStdoutParserState();
     stdoutState.lastErrorOutput = {

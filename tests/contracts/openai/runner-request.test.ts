@@ -156,6 +156,7 @@ describe('P0 OpenAI runner request contract', () => {
     expect(fastRequest!.body).toMatchObject({
       model: 'gpt-5.5',
       stream: true,
+      store: false,
       service_tier: 'priority',
       reasoning: {
         effort: 'xhigh',
@@ -171,6 +172,7 @@ describe('P0 OpenAI runner request contract', () => {
     expect(standardRequest!.body).toMatchObject({
       model: 'gpt-5.5',
       stream: true,
+      store: false,
       reasoning: {
         effort: 'xhigh',
         summary: 'auto',

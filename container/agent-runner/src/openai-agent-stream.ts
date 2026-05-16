@@ -63,7 +63,10 @@ function getRawItem(event: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function getUsageNumber(usage: Record<string, unknown>, keys: string[]): number {
+function getUsageNumber(
+  usage: Record<string, unknown>,
+  keys: string[],
+): number {
   for (const key of keys) {
     const value = usage[key];
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -81,14 +84,28 @@ export function formatOpenAiRuntimeError(errorMessage: string): string {
   ) {
     return 'Codex CLI login is missing or expired. Run `codex login` on the host, then retry.';
   }
-  if (/context[_ ]window|maximum context|prompt is too long|token limit/i.test(normalized)) {
+  if (
+    /context[_ ]window|maximum context|prompt is too long|token limit/i.test(
+      normalized,
+    )
+  ) {
     return 'OpenAI context window is full. Clear this session or start a new session with a shorter prompt.';
   }
   if (/rate limit|429|quota|insufficient_quota/i.test(normalized)) {
     return 'OpenAI rate limit or quota was reached. Retry later or check account usage.';
   }
+  if (/Store must be set to false/i.test(normalized)) {
+    return 'OpenAI runtime request was rejected by Codex backend because store must be false. Update and restart cli-claw, then retry.';
+  }
   if (/model.*not.*found|invalid.*model|does not exist/i.test(normalized)) {
     return `OpenAI model/config is invalid: ${normalized}`;
+  }
+  if (
+    /400 status code \(no body\)|"status"\s*:\s*400|status:\s*400/i.test(
+      normalized,
+    )
+  ) {
+    return 'OpenAI runtime request was rejected by Codex backend (400). Check the latest host log for the request id, update and restart cli-claw, then retry.';
   }
   return normalized;
 }
@@ -121,8 +138,9 @@ export class OpenAiAgentStreamMapper {
     const name = (event as { name?: string }).name;
     const rawItem = getRawItem(event);
     if (name === 'tool_called') {
-      const toolUseId =
-        String(rawItem?.callId ?? rawItem?.call_id ?? rawItem?.id ?? '');
+      const toolUseId = String(
+        rawItem?.callId ?? rawItem?.call_id ?? rawItem?.id ?? '',
+      );
       if (toolUseId) this.activeTools.add(toolUseId);
       this.emitStream({
         eventType: 'tool_use_start',
@@ -137,14 +155,17 @@ export class OpenAiAgentStreamMapper {
       return;
     }
     if (name === 'tool_output') {
-      const toolUseId =
-        String(rawItem?.callId ?? rawItem?.call_id ?? rawItem?.id ?? '');
+      const toolUseId = String(
+        rawItem?.callId ?? rawItem?.call_id ?? rawItem?.id ?? '',
+      );
       if (toolUseId) this.activeTools.delete(toolUseId);
       this.emitStream({
         eventType: 'tool_use_end',
         toolUseId: toolUseId || undefined,
         toolName: String(rawItem?.name ?? 'tool'),
-        text: summarizeUnknown((event as { item?: { output?: unknown } }).item?.output),
+        text: summarizeUnknown(
+          (event as { item?: { output?: unknown } }).item?.output,
+        ),
       });
       return;
     }
@@ -156,7 +177,11 @@ export class OpenAiAgentStreamMapper {
     }
   }
 
-  emitUsageFromResult(result: unknown, durationMs: number, model: string): void {
+  emitUsageFromResult(
+    result: unknown,
+    durationMs: number,
+    model: string,
+  ): void {
     const rawResponses = (result as { rawResponses?: unknown[] }).rawResponses;
     if (!Array.isArray(rawResponses)) return;
 
@@ -204,7 +229,10 @@ export class OpenAiAgentStreamMapper {
     const record =
       data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
     const type = String(record.type ?? '');
-    if (type === 'response.output_item.added' || type === 'response.output_item.done') {
+    if (
+      type === 'response.output_item.added' ||
+      type === 'response.output_item.done'
+    ) {
       this.trackOutputItem(record);
       return;
     }
@@ -267,7 +295,8 @@ export class OpenAiAgentStreamMapper {
   }
 
   private normalizeOutputIndex(value: unknown): string | undefined {
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (typeof value === 'number' && Number.isFinite(value))
+      return String(value);
     if (typeof value === 'string' && value.trim()) return value.trim();
     return undefined;
   }
@@ -281,7 +310,9 @@ export class OpenAiAgentStreamMapper {
   }
 }
 
-function parseToolArguments(value: string): Record<string, unknown> | undefined {
+function parseToolArguments(
+  value: string,
+): Record<string, unknown> | undefined {
   try {
     const parsed = JSON.parse(value);
     return parsed && typeof parsed === 'object'

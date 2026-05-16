@@ -5,6 +5,7 @@ import {
   buildOpenAiRuntimeIdentity,
   resolveCodexServiceTier,
 } from '../../../container/agent-runner/src/openai-agent-runtime.ts';
+import { formatOpenAiRuntimeError } from '../../../container/agent-runner/src/openai-agent-stream.ts';
 
 describe('OpenAI agent runtime settings', () => {
   test('maps UI fast speed to Codex priority service tier', () => {
@@ -32,6 +33,7 @@ describe('OpenAI agent runtime settings', () => {
       effort: 'xhigh',
       summary: 'auto',
     });
+    expect(settings.store).toBe(false);
     expect(settings.providerData).toEqual({ service_tier: 'priority' });
   });
 
@@ -48,6 +50,7 @@ describe('OpenAI agent runtime settings', () => {
       effort: 'high',
       summary: 'auto',
     });
+    expect(settings.store).toBe(false);
     expect(settings.providerData).toBeUndefined();
   });
 
@@ -64,5 +67,17 @@ describe('OpenAI agent runtime settings', () => {
       reasoningEffort: 'xhigh',
       speedTier: 'fast',
     });
+  });
+
+  test('formats bare Codex backend 400 errors without raw SDK JSON', () => {
+    const formatted = formatOpenAiRuntimeError(
+      '{ "name": "Error", "message": "400 status code (no body)", "status": 400, "headers": {}, "requestID": null }',
+    );
+
+    expect(formatted).toBe(
+      'OpenAI runtime request was rejected by Codex backend (400). Check the latest host log for the request id, update and restart cli-claw, then retry.',
+    );
+    expect(formatted).not.toContain('"headers"');
+    expect(formatted).not.toContain('"requestID"');
   });
 });

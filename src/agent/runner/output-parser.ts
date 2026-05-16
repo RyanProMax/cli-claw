@@ -698,6 +698,18 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
       : 'OpenAI API 用量或频率限制已触发，请稍后重试或检查账户额度。';
   }
 
+  if (/Store must be set to false/i.test(normalized)) {
+    return 'OpenAI runtime 请求被 Codex 后端拒绝：store 必须为 false。请更新并重启 cli-claw 后重试。';
+  }
+
+  if (
+    /400 status code \(no body\)|"status"\s*:\s*400|status:\s*400/i.test(
+      normalized,
+    )
+  ) {
+    return 'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新 host 日志中的 request id，更新并重启 cli-claw 后重试。';
+  }
+
   return null;
 }
 

@@ -150,6 +150,7 @@ export function buildModelSettings(input: ContainerInput): ModelSettings {
   const serviceTier = resolveCodexServiceTier(speedTier);
   return {
     parallelToolCalls: false,
+    store: false,
     reasoning: {
       effort: reasoningEffort as ModelSettings['reasoning'] extends {
         effort?: infer Effort;

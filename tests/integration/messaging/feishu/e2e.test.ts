@@ -347,7 +347,9 @@ async function driveQueuedFeishuOpenAIStaticFinalPath(_: {
   const processed = new Promise<void>((resolve, reject) => {
     timeout = setTimeout(() => {
       reject(
-        new Error('Timed out waiting for Feishu OpenAI static final processing'),
+        new Error(
+          'Timed out waiting for Feishu OpenAI static final processing',
+        ),
       );
     }, 2000);
 
@@ -803,6 +805,154 @@ describe('Feishu in-process E2E harness', () => {
       'cursor_committed',
     ]);
     expect(lifecycle.every((event: any) => event.status === 'ok')).toBe(true);
+  });
+
+  test('renders OpenAI runner errors in Feishu without leaking raw SDK JSON', async () => {
+    const { db, notifier, imManager, restartGuard, processGroupMessages } =
+      await loadFeishuProcessGroupModules();
+    const chatId = 'oc_openai_error_no_raw_json';
+    const chatJid = `feishu:${chatId}`;
+    const userId = 'user-feishu-openai-error';
+    const messageId = 'om_openai_error_no_raw_json';
+    const friendlyError =
+      'OpenAI runtime request was rejected by Codex backend (400). Check the latest host log for the request id, update and restart cli-claw, then retry.';
+    const rawError =
+      '{ "name": "Error", "message": "400 status code (no body)", "status": 400, "headers": {}, "requestID": null }';
+    const forbiddenSnippets = [
+      rawError,
+      '"headers"',
+      '"requestID"',
+      '"status": 400',
+      '400 status code (no body)',
+    ];
+
+    db.setRegisteredGroup(chatJid, {
+      name: 'Feishu OpenAI Error',
+      folder: 'feishu-openai-error',
+      added_at: '2026-05-16T13:10:00.000Z',
+      executionMode: 'host',
+      agentType: 'openai',
+      activation_mode: 'auto',
+      created_by: userId,
+    });
+    db.ensureChatExists(chatJid);
+
+    await imManager.connectUserFeishu(
+      userId,
+      { appId: 'app-id', appSecret: 'app-secret' },
+      vi.fn(),
+      {
+        resolveManagedCommandText: (_chatJid, text) =>
+          restartGuard.resolveManagedSelfRestartCommand(text),
+      },
+    );
+
+    const wakeup = notifier.interruptibleSleep(10_000).then(() => 'woke');
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: chatId,
+        message_id: messageId,
+        create_time: '1778937000000',
+        message_type: 'text',
+        content: JSON.stringify({ text: "what's up" }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_openai_error',
+        },
+      },
+    });
+    await expect(wakeup).resolves.toBe('woke');
+
+    const runtimeIdentity = {
+      agentType: 'openai' as const,
+      model: 'gpt-5.5',
+      reasoningEffort: 'xhigh',
+      speedTier: 'fast',
+      supportsReasoningEffort: true,
+    };
+    hoisted.runHostAgent.mockImplementation(
+      async (_group, input, _onProcess, onOutput) => {
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'init',
+            turnId: messageId,
+            sessionId: 'sess-openai-error',
+            messageCursor: input.messageCursor,
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'stream',
+          result: null,
+          runtimeIdentity,
+          streamEvent: {
+            eventType: 'thinking_delta',
+            text: '正在连接 OpenAI runtime...',
+            turnId: messageId,
+            sessionId: 'sess-openai-error',
+            runtimeIdentity,
+          },
+        });
+        await onOutput?.({
+          status: 'error',
+          result: friendlyError,
+          error: friendlyError,
+          alreadyStreamedError: true,
+          newSessionId: 'sess-openai-error',
+          runtimeIdentity,
+          turnId: messageId,
+          sessionId: 'sess-openai-error',
+          sourceKind: 'sdk_final',
+          finalizationReason: 'error',
+        });
+        return { status: 'error', error: friendlyError };
+      },
+    );
+
+    await expect(processGroupMessages(chatJid)).resolves.toBe(true);
+
+    const sentInteractiveCards = hoisted.createSpy.mock.calls
+      .map((call) => call[0]?.data)
+      .filter((data) => data?.msg_type === 'interactive' && data?.content)
+      .map((data) => JSON.parse(data.content));
+    const allCardPayloads = [
+      ...hoisted.createdCards,
+      ...hoisted.updatedCards,
+      ...sentInteractiveCards,
+    ].map((card) => JSON.stringify(card));
+
+    expect(
+      allCardPayloads.some((payload) => payload.includes(friendlyError)),
+    ).toBe(true);
+    for (const payload of allCardPayloads) {
+      for (const snippet of forbiddenSnippets) {
+        expect(payload).not.toContain(snippet);
+      }
+    }
+
+    const assistantMessages = db
+      .getMessagesPage(chatJid, undefined, 10)
+      .filter((message: any) => message.sender === 'cli-claw-agent');
+    expect(assistantMessages[0]?.content).toBe(friendlyError);
+    for (const snippet of forbiddenSnippets) {
+      expect(assistantMessages[0]?.content).not.toContain(snippet);
+    }
+
+    const lifecycleStages = db
+      .getImMessageLifecycleEvents({
+        provider: 'feishu',
+        chatJid,
+        messageId,
+      })
+      .map((event: any) => event.stage);
+    expect(lifecycleStages).toContain('finalized');
+    expect(lifecycleStages).toContain('im_delivered');
+    expect(lifecycleStages).toContain('cursor_committed');
   });
 
   test('resets real Feishu streaming card payload when the message cursor changes even if the runner reuses a turn id', async () => {
