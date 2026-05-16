@@ -1116,6 +1116,7 @@ export async function runHostAgent(
       delete hostEnv[LEGACY_OPENAI_TOKEN_ENV];
       const codexRuntimeEnv = await resolveCodexCliRuntimeEnv();
       Object.assign(hostEnv, codexRuntimeEnv);
+      hostEnv.OPENAI_AGENTS_DISABLE_TRACING ??= '1';
       const openAiSessionDir = input.agentId
         ? path.join(
             DATA_DIR,

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {
   Agent,
   Runner,
+  setTracingDisabled,
   type AgentInputItem,
   type ModelProvider,
   type ModelSettings,
@@ -202,12 +203,14 @@ async function runOpenAiTurn(
   closed: boolean;
   finalText: string | null;
 }> {
+  process.env.OPENAI_AGENTS_DISABLE_TRACING ??= '1';
+  setTracingDisabled(true);
   const session = createOpenAiAgentSession(sessionId);
   const currentSessionId = await session.getSessionId();
   deps.setLatestSessionId(currentSessionId);
 
   const abortController = new AbortController();
-  const runner = new Runner({ modelProvider });
+  const runner = new Runner({ modelProvider, tracingDisabled: true });
   let interrupted = false;
   let closed = false;
   const cancelWatcher = setInterval(() => {

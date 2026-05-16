@@ -127,6 +127,8 @@ async function captureOpenAiRunnerRequests(speedTiers: string[]) {
     vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
     vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
     vi.stubEnv('CLI_CLAW_RUNTIME_SESSION_DIR', path.join(tempRoot, 'sessions'));
+    vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
+    vi.stubEnv('no_proxy', '127.0.0.1,localhost');
 
     const { runOpenAiAgentLoop } =
       await import('../../../container/agent-runner/src/openai-agent-runtime.ts');
@@ -194,6 +196,7 @@ function responseSnapshot(text = '', status = 'in_progress') {
 function writeSuccessfulResponsesStream(
   res: ServerResponse,
   finalText: string,
+  options: { emptyTerminalOutput?: boolean } = {},
 ): void {
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   res.write(
@@ -234,13 +237,80 @@ function writeSuccessfulResponsesStream(
     }),
   );
   res.write(
+    sse('response.output_text.done', {
+      type: 'response.output_text.done',
+      item_id: 'msg_1',
+      output_index: 0,
+      content_index: 0,
+      text: finalText,
+    }),
+  );
+  res.write(
+    sse('response.content_part.done', {
+      type: 'response.content_part.done',
+      item_id: 'msg_1',
+      output_index: 0,
+      content_index: 0,
+      part: { type: 'output_text', text: finalText, annotations: [] },
+    }),
+  );
+  res.write(
+    sse('response.output_item.done', {
+      type: 'response.output_item.done',
+      output_index: 0,
+      item: {
+        id: 'msg_1',
+        type: 'message',
+        status: 'completed',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: finalText, annotations: [] }],
+      },
+    }),
+  );
+  res.write(
     sse('response.completed', {
       type: 'response.completed',
-      response: responseSnapshot(finalText, 'completed'),
+      response: responseSnapshot(
+        options.emptyTerminalOutput ? '' : finalText,
+        'completed',
+      ),
     }),
   );
   res.end('data: [DONE]\n\n');
 }
+
+describe('Codex proxy-aware request transport', () => {
+  test('uses HTTPS proxy env for the ChatGPT Codex backend', async () => {
+    const { buildCodexCliFetchOptions, resolveCodexProxyUrl } =
+      await import('../../../container/agent-runner/src/codex-cli-provider.ts');
+    const env = {
+      HTTPS_PROXY: 'http://127.0.0.1:7897',
+      NO_PROXY: 'localhost,127.0.0.1',
+    };
+
+    expect(
+      resolveCodexProxyUrl('https://chatgpt.com/backend-api/codex', env),
+    ).toBe('http://127.0.0.1:7897');
+    expect(
+      buildCodexCliFetchOptions('https://chatgpt.com/backend-api/codex', env)
+        ?.dispatcher,
+    ).toBeDefined();
+  });
+
+  test('honors NO_PROXY for local capture servers', async () => {
+    const { buildCodexCliFetchOptions, resolveCodexProxyUrl } =
+      await import('../../../container/agent-runner/src/codex-cli-provider.ts');
+    const env = {
+      HTTPS_PROXY: 'http://127.0.0.1:7897',
+      NO_PROXY: '127.0.0.1,localhost',
+    };
+
+    expect(resolveCodexProxyUrl('http://127.0.0.1:30123', env)).toBeNull();
+    expect(buildCodexCliFetchOptions('http://127.0.0.1:30123', env)).toBe(
+      undefined,
+    );
+  });
+});
 
 describe('P0 OpenAI runner request contract', () => {
   test('serializes fast and standard OpenAI runs through the real SDK request body', async () => {
@@ -290,6 +360,8 @@ describe('P0 OpenAI runner request contract', () => {
           'CLI_CLAW_RUNTIME_SESSION_DIR',
           path.join(tempRoot, 'sessions'),
         );
+        vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
+        vi.stubEnv('no_proxy', '127.0.0.1,localhost');
 
         const { runOpenAiAgentLoop } =
           await import('../../../container/agent-runner/src/openai-agent-runtime.ts');
@@ -352,6 +424,59 @@ describe('P0 OpenAI runner request contract', () => {
         );
       },
       (_req, res) => writeSuccessfulResponsesStream(res, finalText),
+    );
+  });
+
+  test('stops after one Codex stream when terminal response output is empty', async () => {
+    const finalText = 'CODEX_STREAM_DONE_OK';
+    await withCaptureServer(
+      async ({ baseUrl, captured }) => {
+        const tempRoot = makeTempDir('cli-claw-p0-openai-codex-empty-');
+        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        vi.stubEnv(
+          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          path.join(tempRoot, 'sessions'),
+        );
+        vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
+        vi.stubEnv('no_proxy', '127.0.0.1,localhost');
+
+        const { runOpenAiAgentLoop } =
+          await import('../../../container/agent-runner/src/openai-agent-runtime.ts');
+        const { outputs, deps } = buildRunnerDeps(tempRoot);
+
+        await runOpenAiAgentLoop(
+          {
+            prompt: "what's up from Codex backend",
+            groupFolder: 'main',
+            chatJid: 'feishu:oc_p0_codex_empty',
+            agentType: 'openai',
+            model: 'gpt-5.5',
+            reasoningEffort: 'xhigh',
+            speedTier: 'fast',
+            turnId: 'om_p0_codex_empty',
+            messageCursor: {
+              timestamp: '1778941000000',
+              id: 'om_p0_codex_empty',
+            },
+          },
+          deps,
+        );
+
+        expect(captured).toHaveLength(1);
+        expect(outputs).toContainEqual(
+          expect.objectContaining({
+            status: 'success',
+            result: finalText,
+            sourceKind: 'sdk_final',
+            finalizationReason: 'completed',
+          }),
+        );
+      },
+      (_req, res) =>
+        writeSuccessfulResponsesStream(res, finalText, {
+          emptyTerminalOutput: true,
+        }),
     );
   });
 });
