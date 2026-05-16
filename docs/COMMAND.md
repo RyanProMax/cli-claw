@@ -34,6 +34,28 @@ Cli Claw 的“命令”分成两层：
 - 从 IM 让 agent 自己操作服务时，优先使用显式应用内命令 `/self-restart` 或受管重启短语。普通 IM-origin agent 工具调用即使命中了 `cli-claw restart` 这类 safe launcher 字面命令，也会被 restart guard 拦截；Web operator 环境和外部 shell 才适合直接调用 `cli-claw restart`。
 - 这些命令与下文的 `/help`、`/codex`、`/claude`、`/clear` 等应用内命令不是同一层协议。
 
+## 运维辅助脚本
+
+仓库内 `scripts/` 可以放一次性或定时运维辅助入口；这类脚本不属于 `cli-claw` launcher，也不属于 Web / IM 应用内命令。
+
+当前股票 handoff bridge 使用：
+
+```bash
+node scripts/stock-handoff-agent-bridge.mjs \
+  --stock-task-db /Users/ryan/projects/stock-analysis-api/.cache/task_chain.sqlite \
+  --cli-claw-db ~/.cli-claw/db/messages.db
+```
+
+调试或回归复现时也可用导出的 JSON fixture 代替 stock SQLite：
+
+```bash
+node scripts/stock-handoff-agent-bridge.mjs \
+  --stock-handoffs-json /tmp/stock-handoffs.json \
+  --cli-claw-db ~/.cli-claw/db/messages.db
+```
+
+该脚本只做一件事：读取 `stock-analysis-api` P1b handoff queue 中的 pending item，并为缺失的 item 幂等创建 `execution_type=agent`、`schedule_type=once` 的 Cli Claw scheduled task。它不会预先 claim stock handoff，不会运行 agent，不会写 strategy registry，不会 approve / activate 策略，也不会调用 broker。scheduled agent 真正执行时必须先 claim 指定 handoff id，再用 owner / lease / hash 校验后的 `complete/fail` 回写 stock task-chain。
+
 ## 应用内命令概览
 
 Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实源：
@@ -70,12 +92,12 @@ skill command 的执行结果有两类：
 
 以下命令在 IM 与 Web 都可直接识别；runtime 配置命令会按当前工作区 agent 只展示一个：
 
-| 命令             | 别名                | 作用                                          |
-| ---------------- | ------------------- | --------------------------------------------- |
-| `/help`          | -                   | 按模块查看当前入口、当前 runtime 下真正可用的命令 |
-| `/clear`         | -                   | 清除当前工作区或当前绑定 Agent 的会话上下文   |
-| `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务                      |
-| `/claude`        | -                   | 配置 Claude 工作区模型；仅当前 runtime 为 `claude` 时可用 |
+| 命令             | 别名                | 作用                                                                    |
+| ---------------- | ------------------- | ----------------------------------------------------------------------- |
+| `/help`          | -                   | 按模块查看当前入口、当前 runtime 下真正可用的命令                       |
+| `/clear`         | -                   | 清除当前工作区或当前绑定 Agent 的会话上下文                             |
+| `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务                                                |
+| `/claude`        | -                   | 配置 Claude 工作区模型；仅当前 runtime 为 `claude` 时可用               |
 | `/codex`         | -                   | 配置 Codex 工作区模型、思考强度和速度；仅当前 runtime 为 `codex` 时可用 |
 
 说明：

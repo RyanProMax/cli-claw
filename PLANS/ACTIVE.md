@@ -1,54 +1,84 @@
-# Active Task: Stock Strategy Iteration Gate
+# Active Task: Stock Handoff Scheduled-Agent Bridge
 
 ## Current Goal
 
-- Stop the stock task-chain from treating collector prechecks as completed strategy iteration input.
-- Make the loop pause strategy iteration when KOL intelligence still requires an Agent-produced report, so market/news scans are not presented as a working self-iteration chain before strategy evidence exists.
-- Keep the change scoped to scheduling semantics and reporting contracts; do not add public API, approve / activate strategies, or touch live trading paths.
+- Add a bounded bridge that turns `stock-analysis-api` pending agent handoffs into Cli Claw one-shot scheduled agent tasks.
+- Keep the bridge idempotent and operator-safe: it must not claim stock handoffs itself, must not run broker / registry approval commands, and must make the scheduled agent use the P1b owner / lease / hash `claim <id> -> complete/fail` contract.
+- Preserve Cli Claw scheduler boundaries: bridge only creates `execution_type=agent`, `schedule_type=once` tasks; actual execution stays in the existing scheduler / `runTask` path.
 
 ## Current Milestone
 
 Objective:
-- Add a regression showing `kol_scan` with `agent_required` must not schedule `strategy_iteration`.
-- Change task-chain scheduling so `strategy_iteration` is only queued after actionable KOL intelligence is collected and no main post-market drain task is pending.
-- Update the stock-analysis docs/plan to record the new gate and current blocker.
+- Implement the smallest bridge runner that reads stock handoffs from a stock SQLite DB or exported JSON fixture and inserts missing Cli Claw once-agent scheduled tasks with deterministic IDs and safe prompts.
 
 Allowed scope:
-- `/Users/ryan/projects/stock-analysis-api/src/services/task_chain_service.py`
-- `/Users/ryan/projects/stock-analysis-api/tests/test_task_chain_cli.py`
-- `/Users/ryan/projects/stock-analysis-api/docs/architecture.md`
-- `/Users/ryan/projects/stock-analysis-api/docs/specs/task-chain-worker.md`
-- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
-- `PLANS/ROADMAP.md`
+- `scripts/stock-handoff-agent-bridge.mjs`
+- `tests/stock-handoff-agent-bridge.test.ts`
 - `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
+- Owner docs only if a durable Cli Claw contract changes.
 
 Validation:
-- Run the focused task-chain regression test.
-- Run `uv run pytest tests/test_task_chain_cli.py`.
-- Run `git diff --check` in both affected repositories.
-- Run the repo review helper where available.
+- Reproduce a failing focused bridge test before implementation.
+- `npm test -- tests/stock-handoff-agent-bridge.test.ts`
+- Related scheduler regression if needed: `npm test -- tests/task-scheduler-host-cwd.test.ts`
+- `npm run typecheck:backend`
+- `./scripts/review.sh`
+- `git diff --check`
 
 Status:
 - done
 
 Validation status:
 - passed 2026-05-16:
-  - Reproduced the pre-fix failure with `uv run pytest tests/test_task_chain_cli.py::test_kol_scan_does_not_treat_assistant_prompt_as_final_report tests/test_task_chain_cli.py::test_kol_scan_with_final_report_can_trigger_strategy_iteration`: `agent_required` KOL still scheduled `strategy_iteration`.
-  - Focused regression after fix: same command passed, 2 tests.
-  - `uv run pytest tests/test_task_chain_cli.py`: passed, 13 tests.
-  - `/Users/ryan/projects/stock-analysis-api`: `git diff --check` passed.
-  - `/Users/ryan/projects/cli-claw`: `git diff --check` passed.
-  - `/Users/ryan/projects/cli-claw`: `./scripts/review.sh` passed mechanical checks and requested semantic review.
+  - Reproduced the pre-implementation focused failure with `npm test -- tests/stock-handoff-agent-bridge.test.ts`: the bridge module did not exist yet, so Vitest failed to import it.
+  - `npm test -- tests/stock-handoff-agent-bridge.test.ts`: passed, 3 tests covering SQLite input, idempotency, and exported JSON fixture input.
+  - `npm test -- tests/task-scheduler-host-cwd.test.ts`: passed, 3 tests.
+  - `npm run typecheck:backend`: passed.
+  - `./scripts/review.sh`: passed mechanical checks and confirmed semantic review is required before marking done.
+  - `git diff --check`: passed.
+  - Extra non-gating check: full `npm test` still fails in `tests/feishu-e2e.test.ts` at `does not write Codex replayed presentation text into real Feishu streaming cards for the current cursor`; focused rerun reproduces the same stale `Futu` payload assertion. This milestone does not touch Feishu files, so the failure is recorded as unrelated follow-up risk rather than a bridge blocker.
 
 Review status:
-- passed 2026-05-16: diff stays within the active scope; `kol_scan agent_required` no longer advances strategy iteration, collected KOL output still can unblock it, no public API / approval / activation / live trading path changed, and owner docs plus roadmap are synchronized.
+- passed 2026-05-16:
+  - Scope check: all edits stay inside the allowed milestone scope.
+  - Objective check: the bridge creates deterministic `stock-handoff-<handoff_id>` once-agent tasks from pending stock handoffs, supports SQLite and JSON fixture input, and skips existing tasks idempotently.
+  - Pattern-fit check: implementation follows existing scheduled task schema and `scripts/` ops-entry convention without adding a new framework or runtime path.
+  - Test and validation check: focused bridge tests, scheduler host-cwd regression, backend typecheck, mechanical review, and whitespace diff check all passed.
+  - Hygiene check: no placeholder markers, debug logging, or dead temporary code found in the changed milestone files.
+  - Docs check: `docs/COMMAND.md` now documents the ops helper, SQLite input, JSON fixture input, and safety boundaries.
+  - Regression/contract check: the bridge does not claim handoffs, run agents, approve/activate strategies, write broker state, or change scheduler execution; the scheduled agent must claim the exact handoff id and complete/fail with the P1b owner/lease/hash contract.
 
 ## Notes
 
-- Root cause found 2026-05-16: live task-chain runs repeatedly completed `kol_scan` with `status=agent_required` because `stock-kol-intel` returned an assistant prompt, not final KOL intelligence. `_execute_task()` still scheduled `strategy_iteration`, so the loop reran alpha research while consuming placeholder KOL input and while the strategy registry had no active strategy versions.
+- P1b is already implemented in `/Users/ryan/projects/stock-analysis-api` at commit `3c42df4`.
+- Bridge must not pre-claim a stock handoff. Agent prompt must claim the exact handoff id at runtime so scheduler downtime does not strand the item and parallel handoffs do not get cross-claimed.
+- Deterministic scheduled task ID should be `stock-handoff-<handoff_id>`.
+- The scheduled task prompt must include the stock `handoff_id`, role, input hash, prompt text, and exact `uv run python scripts/task_chain.py ...` commands for claim / complete / fail.
+- If a matching scheduled task already exists, bridge should report `skipped_existing` instead of creating a duplicate.
 
 ## Handoff
 
-- Completed. The task-chain source invoked by launchd will pick up the scheduling gate on the next `uv run python scripts/task_chain.py ... tick` invocation.
-- Current live task-chain pending state has only a future `market_observe`; no stale `strategy_iteration` is pending.
-- Follow-up tracked in `PLANS/ROADMAP.md`: Cli Claw still needs an Agent handoff to turn `stock-kol-intel` `agent_required` prompts into final KOL reports.
+Current milestone:
+- P2 bridge runner
+
+Current status:
+- done
+
+Changed files:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/COMMAND.md`
+- `scripts/stock-handoff-agent-bridge.mjs`
+- `tests/stock-handoff-agent-bridge.test.ts`
+
+Last failure summary:
+- Extra full-suite attempt failed in the existing Feishu E2E stale-payload assertion:
+  `tests/feishu-e2e.test.ts > does not write Codex replayed presentation text into real Feishu streaming cards for the current cursor`.
+
+Suspected cause:
+- Existing Feishu presentation/current-cursor regression or fixture issue; not caused by the stock bridge diff.
+
+Next step:
+- Run the bridge against the real stock task-chain DB, confirm the created Cli Claw scheduled agent task is picked up, then add execution-log sweep / retry handling for tasks that fail before calling stock `handoff fail`.

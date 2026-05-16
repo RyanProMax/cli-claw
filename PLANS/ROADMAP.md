@@ -84,15 +84,17 @@
 
 ### P1 RM-2026-05-16-01 Stock KOL Agent Handoff For Strategy Iteration
 
-- Status: `proposed`
+- Status: `in_progress`
 - Source: 2026-05-16 user feedback that scans are not useful before a strategy/self-iteration chain is actually running
 - Summary: `stock-analysis-api` task-chain can now pause `strategy_iteration` when `kol_scan` returns `agent_required`, but Cli Claw still needs an operator-safe handoff that executes the `stock-kol-intel` assistant prompt and writes a final KOL report back to the task-chain evidence stream.
 - Durable contract:
   - Task-chain scheduling semantics live in `/Users/ryan/projects/stock-analysis-api/docs/specs/task-chain-worker.md`.
   - Cli Claw presentation and Agent execution boundaries should stay aligned with `docs/RUNTIME.md`.
+- Recent progress:
+  - 2026-05-16: Added `scripts/stock-handoff-agent-bridge.mjs`, which creates deterministic `execution_type=agent`, `schedule_type=once` tasks from stock P1b handoffs without pre-claiming them; the scheduled agent claims the exact handoff id at runtime before complete/fail. The bridge supports stock SQLite input and exported JSON fixtures, and is covered for deterministic task creation plus idempotency.
 - Next action:
-  - Design a bounded Agent handoff path for `agent_required` task-chain outputs, with idempotency and visible failure states.
-  - Add regression coverage that prompt-only KOL output does not appear as strategy progress, and final KOL output can unblock `strategy_iteration`.
+  - Run the bridge against the real stock task-chain DB and verify the scheduled agent writes a final KOL report back through `handoff complete`.
+  - Add execution-log sweep / retry handling for scheduled agent tasks that fail before calling stock `handoff fail`.
 
 ### P2 RM-2026-04-25-07 Codex Runtime Health And Model Guardrails
 
