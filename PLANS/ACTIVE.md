@@ -1,28 +1,28 @@
-# Active Task: Stock Handoff Scheduled-Agent Bridge
+# Active Task: Scheduled Agent Runtime Failure Classification
 
 ## Current Goal
 
-- Add a bounded bridge that turns `stock-analysis-api` pending agent handoffs into Cli Claw one-shot scheduled agent tasks.
-- Keep the bridge idempotent and operator-safe: it must not claim stock handoffs itself, must not run broker / registry approval commands, and must make the scheduled agent use the P1b owner / lease / hash `claim <id> -> complete/fail` contract.
-- Preserve Cli Claw scheduler boundaries: bridge only creates `execution_type=agent`, `schedule_type=once` tasks; actual execution stays in the existing scheduler / `runTask` path.
+- Prevent Cli Claw scheduled agent tasks from reporting runtime setup/auth failures as successful task runs.
+- Keep the stock handoff chain safe: if the scheduled agent cannot start or authenticate, the stock handoff must remain pending/unclaimed, but the task run log should show an actionable error instead of `success`.
+- Preserve once-task behavior: the task may complete/stop after one attempt, but its `last_result` and task_run_logs must make the failure visible to the operator.
 
 ## Current Milestone
 
 Objective:
-- Implement the smallest bridge runner that reads stock handoffs from a stock SQLite DB or exported JSON fixture and inserts missing Cli Claw once-agent scheduled tasks with deterministic IDs and safe prompts.
+- Add a regression for host scheduled agent tasks whose runtime returns a login/setup failure as a textual result.
+- Classify those runtime-failure results as task errors in `task_run_logs` and `last_result`.
+- Record the real stock handoff probe outcome and next operator step.
 
 Allowed scope:
-- `scripts/stock-handoff-agent-bridge.mjs`
-- `tests/stock-handoff-agent-bridge.test.ts`
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `docs/COMMAND.md`
-- Owner docs only if a durable Cli Claw contract changes.
+- `src/task-scheduler.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
+- Owner docs only if a durable scheduler/runtime contract changes.
 
 Validation:
-- Reproduce a failing focused bridge test before implementation.
-- `npm test -- tests/stock-handoff-agent-bridge.test.ts`
-- Related scheduler regression if needed: `npm test -- tests/task-scheduler-host-cwd.test.ts`
+- Reproduce the failing scheduler regression before implementation.
+- `npm test -- tests/task-scheduler-host-cwd.test.ts`
 - `npm run typecheck:backend`
 - `./scripts/review.sh`
 - `git diff --check`
@@ -32,36 +32,32 @@ Status:
 
 Validation status:
 - passed 2026-05-16:
-  - Reproduced the pre-implementation focused failure with `npm test -- tests/stock-handoff-agent-bridge.test.ts`: the bridge module did not exist yet, so Vitest failed to import it.
-  - `npm test -- tests/stock-handoff-agent-bridge.test.ts`: passed, 3 tests covering SQLite input, idempotency, and exported JSON fixture input.
-  - `npm test -- tests/task-scheduler-host-cwd.test.ts`: passed, 3 tests.
+  - Reproduced the failing scheduler regression with `npm test -- tests/task-scheduler-host-cwd.test.ts`: a host agent result `Not logged in · Please run /login` was logged as `status='success'`.
+  - `npm test -- tests/task-scheduler-host-cwd.test.ts`: passed, 4 tests.
   - `npm run typecheck:backend`: passed.
   - `./scripts/review.sh`: passed mechanical checks and confirmed semantic review is required before marking done.
   - `git diff --check`: passed.
-  - Extra non-gating check: full `npm test` still fails in `tests/feishu-e2e.test.ts` at `does not write Codex replayed presentation text into real Feishu streaming cards for the current cursor`; focused rerun reproduces the same stale `Futu` payload assertion. This milestone does not touch Feishu files, so the failure is recorded as unrelated follow-up risk rather than a bridge blocker.
 
 Review status:
 - passed 2026-05-16:
-  - Scope check: all edits stay inside the allowed milestone scope.
-  - Objective check: the bridge creates deterministic `stock-handoff-<handoff_id>` once-agent tasks from pending stock handoffs, supports SQLite and JSON fixture input, and skips existing tasks idempotently.
-  - Pattern-fit check: implementation follows existing scheduled task schema and `scripts/` ops-entry convention without adding a new framework or runtime path.
-  - Test and validation check: focused bridge tests, scheduler host-cwd regression, backend typecheck, mechanical review, and whitespace diff check all passed.
-  - Hygiene check: no placeholder markers, debug logging, or dead temporary code found in the changed milestone files.
-  - Docs check: `docs/COMMAND.md` now documents the ops helper, SQLite input, JSON fixture input, and safety boundaries.
-  - Regression/contract check: the bridge does not claim handoffs, run agents, approve/activate strategies, write broker state, or change scheduler execution; the scheduled agent must claim the exact handoff id and complete/fail with the P1b owner/lease/hash contract.
+  - Scope check: edits stay within the active milestone scope.
+  - Objective check: scheduled agent textual login/setup failures are now classified as task errors; the run log keeps the raw result and stores an actionable error message.
+  - Pattern-fit check: the fix stays in `runTask()` classification logic and reuses existing runtime-error formatting instead of changing runner/process lifecycle semantics.
+  - Test and validation check: focused scheduler regression, backend typecheck, mechanical review, and whitespace diff check passed.
+  - Hygiene check: no placeholder markers, debug logging, or temporary code found in the changed milestone files.
+  - Docs check: no owner-doc contract changed; roadmap is updated with the real probe and runtime-failure classification progress.
+  - Regression/contract check: script tasks and normal agent successes are unchanged; only scheduled agent outputs with explicit runtime-error finalization or exact Codex login text become task errors.
 
 ## Notes
 
-- P1b is already implemented in `/Users/ryan/projects/stock-analysis-api` at commit `3c42df4`.
-- Bridge must not pre-claim a stock handoff. Agent prompt must claim the exact handoff id at runtime so scheduler downtime does not strand the item and parallel handoffs do not get cross-claimed.
-- Deterministic scheduled task ID should be `stock-handoff-<handoff_id>`.
-- The scheduled task prompt must include the stock `handoff_id`, role, input hash, prompt text, and exact `uv run python scripts/task_chain.py ...` commands for claim / complete / fail.
-- If a matching scheduled task already exists, bridge should report `skipped_existing` instead of creating a duplicate.
+- P2 bridge was committed in `cb45a99` and the no-op real bridge run was recorded in `5a6c491`.
+- Manual probe generated stock handoff `7a966070-7522-4eb1-90c4-a41682bf3fa1` and bridge created Cli Claw task `stock-handoff-7a966070-7522-4eb1-90c4-a41682bf3fa1`.
+- Scheduler attempted the task twice and logged `success` with result `Not logged in · Please run /login`; stock handoff stayed `pending` and unclaimed. This is a scheduler/runtime classification problem, not a bridge insertion problem.
 
 ## Handoff
 
 Current milestone:
-- P2 bridge runner
+- P3 scheduled agent runtime-failure visibility
 
 Current status:
 - done
@@ -69,17 +65,14 @@ Current status:
 Changed files:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `docs/COMMAND.md`
-- `scripts/stock-handoff-agent-bridge.mjs`
-- `tests/stock-handoff-agent-bridge.test.ts`
+- `src/task-scheduler.ts`
+- `tests/task-scheduler-host-cwd.test.ts`
 
 Last failure summary:
-- Extra full-suite attempt failed in the existing Feishu E2E stale-payload assertion:
-  `tests/feishu-e2e.test.ts > does not write Codex replayed presentation text into real Feishu streaming cards for the current cursor`.
-- Operational follow-up 2026-05-16: real bridge run against `/Users/ryan/projects/stock-analysis-api/.cache/task_chain.sqlite` and `~/.cli-claw/db/messages.db` returned `created=0`, `skipped_existing=0`, `ignored=0`; current stock handoff queue is empty.
+- Real scheduled agent task logs show `success` even though the only result is `Not logged in · Please run /login`; the stock handoff remains `pending` with no owner or lease.
 
 Suspected cause:
-- Existing Feishu presentation/current-cursor regression or fixture issue; not caused by the stock bridge diff.
+- `runTask()` currently treats `ContainerOutput.status='success'` with textual runtime errors as success; Codex ACP can surface login failures as final text rather than process errors.
 
 Next step:
-- Wait for or generate the next pending stock handoff, rerun the bridge, confirm the created Cli Claw scheduled agent task is picked up, then add execution-log sweep / retry handling for tasks that fail before calling stock `handoff fail`.
+- Restart Cli Claw so the scheduler picks up the fix, then retry or requeue the stock handoff task after Codex login is available.

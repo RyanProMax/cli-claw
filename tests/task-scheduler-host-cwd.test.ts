@@ -162,6 +162,52 @@ describe('task scheduler host cwd forwarding', () => {
     );
   });
 
+  test('marks host agent login runtime text as a task error', async () => {
+    const task = buildTask({
+      id: 'task-login-error',
+      next_run: '2026-04-05T10:00:00.000Z',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+      },
+      onProcess: vi.fn(),
+      sendMessage: vi.fn(),
+      assistantName: 'cli-claw',
+    };
+
+    const db = await import('../src/db.js');
+    vi.mocked(db.getTaskById).mockReturnValue(task);
+    runHostAgentMock.mockResolvedValue({
+      status: 'success',
+      result: 'Not logged in · Please run /login',
+    });
+
+    await runTask(task, deps as never, { manualRun: true });
+
+    expect(db.updateTaskRunLog).toHaveBeenCalledWith(
+      'run-log-1',
+      expect.objectContaining({
+        status: 'error',
+        result: 'Not logged in · Please run /login',
+        error: 'Codex CLI 未登录。请先在服务器上执行：codex login',
+      }),
+    );
+    expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
+      'task-login-error',
+      '2026-04-05T10:00:00.000Z',
+      'Error: Codex CLI 未登录。请先在服务器上执行：codex login',
+    );
+  });
+
   test('runs former group-context agent tasks through isolated task workspaces instead of injecting prompts', async () => {
     const task = buildTask({
       id: 'task-group-mode',
@@ -200,5 +246,4 @@ describe('task scheduler host cwd forwarding', () => {
       expect.any(Function),
     );
   });
-
 });

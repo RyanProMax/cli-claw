@@ -44,6 +44,7 @@ import { hasScriptCapacity, runScript } from './script-runner.js';
 import type { StreamEvent } from './stream-event.types.js';
 import { ExecutionMode, RegisteredGroup, ScheduledTask } from './types.js';
 import { checkBillingAccessFresh, isBillingEnabled } from './billing.js';
+import { formatUserFacingRuntimeError } from './agent-output-parser.js';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 
 /**
@@ -233,6 +234,22 @@ const runningTaskIds = new Set<string>();
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
+}
+
+function classifyAgentTaskOutputError(output: ContainerOutput): string | null {
+  if (output.status === 'error') {
+    return output.error || output.result || 'Unknown error';
+  }
+  if (output.finalizationReason === 'error') {
+    return output.error || output.result || 'Agent runtime error';
+  }
+
+  const result = output.result?.trim();
+  if (!result) return null;
+  if (/^not logged in\s*[·.-]?\s*please run \/login$/i.test(result)) {
+    return formatUserFacingRuntimeError(result) || result;
+  }
+  return null;
 }
 
 function computeNextRun(task: ScheduledTask): string | null {
@@ -470,8 +487,9 @@ export async function runTask(
           lastOutputTime = Date.now();
           resetIdleTimer();
         }
-        if (streamedOutput.status === 'error') {
-          error = streamedOutput.error || 'Unknown error';
+        const streamedError = classifyAgentTaskOutputError(streamedOutput);
+        if (streamedError) {
+          error = streamedError;
           lastOutputTime = Date.now();
         }
         // Finalize run log on first non-stream output (success/error/closed).
@@ -486,8 +504,10 @@ export async function runTask(
 
     if (idleTimer) clearTimeout(idleTimer);
 
-    if (output.status === 'error') {
-      error = output.error || 'Unknown error';
+    const outputError = classifyAgentTaskOutputError(output);
+    if (outputError) {
+      if (output.result) result = output.result;
+      error = outputError;
       lastOutputTime = Date.now();
     } else if (output.result) {
       // Messages are sent via MCP tool (IPC), result text is just logged
