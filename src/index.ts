@@ -2070,6 +2070,7 @@ async function handleWorkflowSlashCommand(
   chatJid: string,
   rawArgs: string,
   triggerUserId?: string | null,
+  initialInput?: Record<string, unknown>,
 ): Promise<string> {
   const target = resolveRuntimeWorkspaceTarget(chatJid, {
     getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
@@ -2082,6 +2083,7 @@ async function handleWorkflowSlashCommand(
     chatJid,
     argsText: rawArgs,
     triggerUserId: triggerUserId ?? target.sourceGroup.created_by ?? null,
+    initialInput,
   });
 }
 
@@ -2172,6 +2174,26 @@ async function maybeHandleImSkillCommand(options: {
 
   if (result.kind === 'assistant_prompt') {
     return encodeImSlashRewriteMessage(result.prompt);
+  }
+
+  if (result.kind === 'workflow') {
+    const workflowArgs = [result.workflowId, result.prompt]
+      .filter((part) => part.trim().length > 0)
+      .join(' ');
+    return executeWorkflowCommand({
+      group: options.target.effectiveGroup,
+      chatJid: options.chatJid,
+      argsText: workflowArgs,
+      triggerUserId:
+        options.target.sourceGroup.created_by ??
+        options.target.runtimeOwnerGroup.created_by ??
+        null,
+      initialInput: {
+        command: normalizedName,
+        argsText: options.slashCandidate.argsText,
+        input: result.input,
+      },
+    });
   }
 
   return result.content;

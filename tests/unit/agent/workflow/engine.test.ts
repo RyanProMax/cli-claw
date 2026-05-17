@@ -25,6 +25,7 @@ function makeWorkflow(): WorkflowDefinition {
         id: 'research',
         type: 'role_task',
         roleId: 'analyst',
+        outputArtifact: 'research_notes',
         prompt: '围绕用户问题做投研分析',
       },
     ],
@@ -123,6 +124,13 @@ describe('workflow graph engine', () => {
     });
 
     expect(result.result).toBe('风险摘要完成');
+    expect(result.artifacts).toMatchObject({
+      research_notes: {
+        nodeId: 'research',
+        roleId: 'analyst',
+        result: '风险摘要完成',
+      },
+    });
     expect(runnerInputs).toHaveLength(1);
     expect(runnerInputs[0]).toMatchObject({
       groupFolder: 'workspace-a',
@@ -169,7 +177,10 @@ describe('workflow graph engine', () => {
         roleId: 'analyst',
         status: 'success',
         attempt: 1,
-        output: { result: '风险摘要完成' },
+        output: expect.objectContaining({
+          result: '风险摘要完成',
+          artifactKey: 'research_notes',
+        }),
       }),
     ]);
     expect(runEvents).toEqual([
@@ -186,5 +197,107 @@ describe('workflow graph engine', () => {
         thread_id: context.thread_id,
       },
     });
+  });
+
+  test('runs local tasks through a registered task runner and exposes artifacts to later roles', async () => {
+    const workflow: WorkflowDefinition = {
+      id: 'hkipo',
+      name: 'HK IPO 工作流',
+      description: '港股新股打新 crew',
+      roles: ['analyst'],
+      start: 'ipo_pool_discovery',
+      nodes: [
+        {
+          id: 'ipo_pool_discovery',
+          type: 'local_task',
+          taskId: 'stock.hkipo.fetch_pool',
+          outputArtifact: 'ipo_pool',
+        },
+        {
+          id: 'ranking_report_editor',
+          type: 'role_task',
+          roleId: 'analyst',
+          prompt: '基于 artifacts 生成报告',
+        },
+      ] as any,
+      edges: [
+        { from: 'ipo_pool_discovery', to: 'ranking_report_editor' },
+        { from: 'ranking_report_editor', to: '__end__' },
+      ],
+      maxRetries: 0,
+      sourcePath: '/workspace/.agents/workflows/hkipo.json',
+    };
+    const role = makeRole();
+    const context = { ...makeContext(), workflow_id: 'hkipo' };
+    const run = { ...makeRun(), workflow_id: 'hkipo' };
+    const localTaskCalls: unknown[] = [];
+    const runnerPrompts: string[] = [];
+    const stepEvents: unknown[] = [];
+
+    const result = await runWorkflowGraph({
+      workflow,
+      roles: new Map([[role.id, role]]),
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      context,
+      run,
+      prompt: '筛选当前港股 IPO',
+      initialInput: { includeClosed: true },
+      localTasks: {
+        'stock.hkipo.fetch_pool': async (input: any) => {
+          localTaskCalls.push(input);
+          return {
+            status: 'ok',
+            includeClosed: input.input.includeClosed,
+            data: [{ code: 'HK.01234', name: 'Demo Robotics' }],
+          };
+        },
+      },
+      runner: async (input) => {
+        runnerPrompts.push(input.prompt);
+        return {
+          status: 'success',
+          result: '报告已生成',
+          newSessionId: 'workflow-session-1',
+        };
+      },
+      recordStep: (step) => {
+        stepEvents.push(step);
+      },
+      updateRunStatus: (runId, update) => ({ ...run, ...update }),
+    } as any);
+
+    expect(result.result).toBe('报告已生成');
+    expect((result as any).artifacts).toMatchObject({
+      ipo_pool: {
+        status: 'ok',
+        includeClosed: true,
+        data: [{ code: 'HK.01234', name: 'Demo Robotics' }],
+      },
+    });
+    expect(localTaskCalls).toEqual([
+      expect.objectContaining({
+        taskId: 'stock.hkipo.fetch_pool',
+        nodeId: 'ipo_pool_discovery',
+        input: { includeClosed: true },
+      }),
+    ]);
+    expect(runnerPrompts[0]).toContain('[Structured Artifacts]');
+    expect(runnerPrompts[0]).toContain('"ipo_pool"');
+    expect(stepEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'ipo_pool_discovery',
+          status: 'success',
+          output: expect.objectContaining({
+            artifactKey: 'ipo_pool',
+            artifact: expect.objectContaining({ status: 'ok' }),
+          }),
+        }),
+      ]),
+    );
   });
 });

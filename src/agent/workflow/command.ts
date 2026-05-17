@@ -1,15 +1,26 @@
 import fs from 'fs';
 import path from 'path';
 
+import { APP_ROOT } from '../../core/app-root.js';
 import { GROUPS_DIR } from '../../core/config.js';
 import type { RegisteredGroup } from '../../domain/types.js';
 import { createWorkflowRun, getOrCreateWorkflowContext } from './context.js';
-import { discoverWorkflowConfigs, loadWorkflowDefinition } from './config.js';
+import {
+  discoverWorkflowConfigs,
+  type WorkflowRoleDefinition,
+} from './config.js';
 import {
   getPersistentWorkflowCheckpointer,
   runWorkflowGraph,
+  type WorkflowLocalTaskRegistry,
 } from './engine.js';
+import {
+  createDefaultWorkflowLocalTasks,
+  getDefaultWorkflowLocalTaskIds,
+} from './local-tasks.js';
 import { DEFAULT_WORKFLOW_KNOWN_TOOLS } from './tools.js';
+
+type WorkflowDiscovery = ReturnType<typeof discoverWorkflowConfigs>;
 
 export interface WorkflowCommandOptions {
   group: RegisteredGroup;
@@ -18,6 +29,9 @@ export interface WorkflowCommandOptions {
   triggerUserId?: string | null;
   workspaceRoot?: string;
   knownTools?: string[];
+  knownLocalTasks?: string[];
+  initialInput?: Record<string, unknown>;
+  localTasks?: WorkflowLocalTaskRegistry;
   runGraph?: typeof runWorkflowGraph;
 }
 
@@ -63,6 +77,43 @@ function formatWorkflowList(
   ].join('\n');
 }
 
+function discoverWorkflowConfigsWithBuiltins(options: {
+  workspaceRoot: string;
+  knownTools: string[];
+  knownLocalTasks: string[];
+}): WorkflowDiscovery {
+  const roots = Array.from(new Set([APP_ROOT, options.workspaceRoot]));
+  const workflowById = new Map<
+    string,
+    WorkflowDiscovery['workflows'][number]
+  >();
+  const roles = new Map<string, WorkflowRoleDefinition>();
+  const errors: string[] = [];
+
+  for (const root of roots) {
+    const discovered = discoverWorkflowConfigs({
+      workspaceRoot: root,
+      knownTools: options.knownTools,
+      knownLocalTasks: options.knownLocalTasks,
+    });
+    errors.push(...discovered.errors);
+    for (const [roleId, role] of discovered.roles.entries()) {
+      roles.set(roleId, role);
+    }
+    for (const workflow of discovered.workflows) {
+      workflowById.set(workflow.id, workflow);
+    }
+  }
+
+  return {
+    workflows: [...workflowById.values()].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    ),
+    roles,
+    errors: Array.from(new Set(errors)),
+  };
+}
+
 export async function executeWorkflowCommand(
   options: WorkflowCommandOptions,
 ): Promise<string> {
@@ -71,10 +122,16 @@ export async function executeWorkflowCommand(
     options.workspaceRoot,
   );
   const knownTools = options.knownTools ?? [...DEFAULT_WORKFLOW_KNOWN_TOOLS];
+  const knownLocalTasks =
+    options.knownLocalTasks ?? getDefaultWorkflowLocalTaskIds();
   const { workflowId, prompt } = splitWorkflowArgs(options.argsText);
 
   if (!workflowId) {
-    const discovered = discoverWorkflowConfigs({ workspaceRoot, knownTools });
+    const discovered = discoverWorkflowConfigsWithBuiltins({
+      workspaceRoot,
+      knownTools,
+      knownLocalTasks,
+    });
     if (discovered.errors.length > 0) {
       return formatWorkflowErrors(discovered.errors);
     }
@@ -85,51 +142,64 @@ export async function executeWorkflowCommand(
     return `用法：/workflow ${workflowId} <任务>`;
   }
 
-  const loaded = loadWorkflowDefinition({
+  const discovered = discoverWorkflowConfigsWithBuiltins({
     workspaceRoot,
-    workflowId,
     knownTools,
+    knownLocalTasks,
   });
-  if (!loaded.workflow) {
-    return formatWorkflowErrors(loaded.errors);
+  const workflow =
+    discovered.workflows.find((candidate) => candidate.id === workflowId) ??
+    null;
+  if (!workflow) {
+    return formatWorkflowErrors([
+      ...discovered.errors,
+      `workflow ${workflowId} not found`,
+    ]);
   }
-  if (loaded.errors.length > 0) {
-    return formatWorkflowErrors(loaded.errors);
+  if (discovered.errors.length > 0) {
+    return formatWorkflowErrors(discovered.errors);
   }
 
   const context = getOrCreateWorkflowContext({
     folder: options.group.folder,
-    workflowId: loaded.workflow.id,
+    workflowId: workflow.id,
     metadata: { workspaceRoot },
   });
   const run = createWorkflowRun({
     contextId: context.id,
     folder: options.group.folder,
-    workflowId: loaded.workflow.id,
+    workflowId: workflow.id,
     triggerChatJid: options.chatJid,
     triggerUserId: options.triggerUserId ?? null,
     prompt,
-    metadata: { source: 'slash-command' },
+    metadata: {
+      source: 'slash-command',
+      initialInput: options.initialInput ?? {},
+    },
   });
 
   try {
     const graphRunner = options.runGraph ?? runWorkflowGraph;
     const result = await graphRunner({
-      workflow: loaded.workflow,
-      roles: loaded.roles,
+      workflow,
+      roles: discovered.roles,
       group: options.group,
       context,
       run,
       prompt,
+      initialInput: options.initialInput,
+      localTasks:
+        options.localTasks ??
+        createDefaultWorkflowLocalTasks({ workspaceRoot }),
       executionCwd: workspaceRoot,
       checkpointer: getPersistentWorkflowCheckpointer(),
     });
     return [
-      `工作流 ${loaded.workflow.name} (${loaded.workflow.id}) 完成：`,
+      `工作流 ${workflow.name} (${workflow.id}) 完成：`,
       result.result || '无输出',
     ].join('\n');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return `工作流 ${loaded.workflow.name} (${loaded.workflow.id}) 失败：${message}`;
+    return `工作流 ${workflow.name} (${workflow.id}) 失败：${message}`;
   }
 }

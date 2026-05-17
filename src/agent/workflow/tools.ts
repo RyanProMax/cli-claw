@@ -11,3 +11,10 @@ export const DEFAULT_WORKFLOW_KNOWN_TOOLS = [
   'install_skill',
   'uninstall_skill',
 ] as const;
+
+export const DEFAULT_WORKFLOW_LOCAL_TASK_IDS = [
+  'stock.hkipo.fetch_pool',
+  'stock.hkipo.scan_heat',
+  'stock.hkipo.fetch_official_docs',
+  'stock.hkipo.run_backtest',
+] as const;

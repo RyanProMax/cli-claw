@@ -437,4 +437,65 @@ describe('skill command dispatch', () => {
       ack: '已开始分析',
     });
   });
+
+  test('supports workflow replies for command-driven workflow triggers', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-workflow-'),
+    );
+    tempDirs.push(workspaceRoot);
+
+    writeSkill({
+      rootDir: workspaceRoot,
+      skillId: 'stock-analysis-skill',
+      commands: {
+        hkipo: {
+          description: '分析当前港股新股',
+          argumentHint: '[--all]',
+          entrypoints: ['im', 'web'],
+          executor: {
+            command: process.execPath,
+            args: ['commands/reply.js'],
+          },
+        },
+      },
+      files: {
+        'commands/reply.js': [
+          "let data = '';",
+          "process.stdin.setEncoding('utf8');",
+          "process.stdin.on('data', (chunk) => { data += chunk; });",
+          "process.stdin.on('end', () => {",
+          '  const payload = JSON.parse(data);',
+          '  process.stdout.write(JSON.stringify({ reply: { type: "workflow", workflowId: "hkipo", prompt: "港股 IPO 打新分析", input: { includeClosed: payload.args.includes("--all") }, ack: "已启动港股 IPO 工作流" } }));',
+          '});',
+        ].join('\n'),
+      },
+    });
+
+    const discovered = await discoverSkillCommands({
+      entrypoint: 'im',
+      roots: [workspaceRoot],
+    });
+
+    await expect(
+      executeDiscoveredSkillCommandResult({
+        commandName: 'hkipo',
+        discovered,
+        entrypoint: 'im',
+        chatJid: 'feishu:chat-1',
+        argsText: '--all',
+        args: ['--all'],
+        workspace: {
+          jid: 'web:ipo',
+          folder: 'ipo',
+          name: 'IPO Workspace',
+        },
+      }),
+    ).resolves.toEqual({
+      kind: 'workflow',
+      workflowId: 'hkipo',
+      prompt: '港股 IPO 打新分析',
+      input: { includeClosed: true },
+      ack: '已启动港股 IPO 工作流',
+    });
+  });
 });

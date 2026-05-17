@@ -7,6 +7,7 @@ export const WORKFLOW_END = '__end__';
 
 export type WorkflowNodeType =
   | 'role_task'
+  | 'local_task'
   | 'router'
   | 'parallel'
   | 'join'
@@ -29,6 +30,8 @@ export interface WorkflowNodeDefinition {
   id: string;
   type: WorkflowNodeType;
   roleId?: string;
+  taskId?: string;
+  outputArtifact?: string;
   prompt?: string;
 }
 
@@ -52,6 +55,7 @@ export interface WorkflowDefinition {
 export interface WorkflowDiscoveryOptions {
   workspaceRoot: string;
   knownTools: string[];
+  knownLocalTasks?: string[];
 }
 
 export interface WorkflowDiscoveryResult {
@@ -68,6 +72,7 @@ export interface LoadedWorkflowDefinition {
 
 const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = [
   'role_task',
+  'local_task',
   'router',
   'parallel',
   'join',
@@ -81,6 +86,13 @@ function normalizeText(value: unknown): string {
 function normalizeId(value: unknown): string {
   const normalized = normalizeText(value);
   return /^[a-z][a-z0-9_-]*$/i.test(normalized) ? normalized : '';
+}
+
+function normalizeTaskId(value: unknown): string {
+  const normalized = normalizeText(value);
+  return /^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$/i.test(normalized)
+    ? normalized
+    : '';
 }
 
 function normalizeList(value: unknown): string[] {
@@ -177,6 +189,8 @@ function parseWorkflowNode(raw: unknown): WorkflowNodeDefinition | null {
     id,
     type: type as WorkflowNodeType,
     roleId: normalizeId(record.roleId) || undefined,
+    taskId: normalizeTaskId(record.taskId) || undefined,
+    outputArtifact: normalizeId(record.outputArtifact) || undefined,
     prompt: normalizeText(record.prompt) || undefined,
   };
 }
@@ -282,6 +296,7 @@ function parseWorkflowFile(filePath: string): {
 function validateWorkflow(
   workflow: WorkflowDefinition,
   roles: Map<string, WorkflowRoleDefinition>,
+  localTasks: Set<string>,
 ): string[] {
   const errors: string[] = [];
   const nodeIds = new Set(workflow.nodes.map((node) => node.id));
@@ -311,6 +326,16 @@ function validateWorkflow(
       } else if (declaredRoles.size > 0 && !declaredRoles.has(node.roleId)) {
         errors.push(
           `workflow ${workflow.id} node ${node.id} uses undeclared role ${node.roleId}`,
+        );
+      }
+    } else if (node.type === 'local_task') {
+      if (!node.taskId) {
+        errors.push(
+          `workflow ${workflow.id} node ${node.id} is missing taskId`,
+        );
+      } else if (!localTasks.has(node.taskId)) {
+        errors.push(
+          `workflow ${workflow.id} node ${node.id} references unknown local task ${node.taskId}`,
         );
       }
     }
@@ -369,6 +394,7 @@ export function discoverWorkflowConfigs(
   options: WorkflowDiscoveryOptions,
 ): WorkflowDiscoveryResult {
   const knownTools = new Set(options.knownTools);
+  const knownLocalTasks = new Set(options.knownLocalTasks ?? []);
   const roleRoot = path.join(options.workspaceRoot, '.agents', 'agent-roles');
   const workflowRoot = path.join(options.workspaceRoot, '.agents', 'workflows');
   const errors: string[] = [];
@@ -385,7 +411,11 @@ export function discoverWorkflowConfigs(
     const parsed = parseWorkflowFile(workflowPath);
     errors.push(...parsed.errors);
     if (!parsed.workflow) continue;
-    const validationErrors = validateWorkflow(parsed.workflow, roles);
+    const validationErrors = validateWorkflow(
+      parsed.workflow,
+      roles,
+      knownLocalTasks,
+    );
     errors.push(...validationErrors);
     if (validationErrors.length === 0) workflows.push(parsed.workflow);
   }
@@ -401,10 +431,12 @@ export function loadWorkflowDefinition(options: {
   workspaceRoot: string;
   workflowId: string;
   knownTools: string[];
+  knownLocalTasks?: string[];
 }): LoadedWorkflowDefinition {
   const discovered = discoverWorkflowConfigs({
     workspaceRoot: options.workspaceRoot,
     knownTools: options.knownTools,
+    knownLocalTasks: options.knownLocalTasks,
   });
   const workflow = discovered.workflows.find(
     (candidate) => candidate.id === options.workflowId,

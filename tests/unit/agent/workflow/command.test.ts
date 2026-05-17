@@ -132,4 +132,44 @@ describe('workflow command execution', () => {
 
     db.closeDatabase();
   });
+
+  test('passes structured initial input into workflow runs', async () => {
+    const workspaceRoot = tempDir('cli-claw-workflow-command-input-');
+    writeWorkflowFixture(workspaceRoot);
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: '分析港股 IPO',
+      result: 'IPO 报告完成',
+      stepResults: {},
+      artifacts: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'research 分析港股 IPO',
+      workspaceRoot,
+      runGraph,
+      initialInput: {
+        command: 'hkipo',
+        includeClosed: true,
+      },
+    } as any);
+
+    expect(reply).toContain('IPO 报告完成');
+    expect(runGraph).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialInput: {
+          command: 'hkipo',
+          includeClosed: true,
+        },
+      }),
+    );
+
+    db.closeDatabase();
+  });
 });

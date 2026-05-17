@@ -94,6 +94,7 @@ export interface WebDeps {
     chatJid: string,
     argsText: string,
     userId?: string | null,
+    initialInput?: Record<string, unknown>,
   ) => Promise<string>;
 }
 

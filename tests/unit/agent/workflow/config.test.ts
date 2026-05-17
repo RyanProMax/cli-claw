@@ -221,6 +221,76 @@ describe('workflow config discovery', () => {
     );
   });
 
+  test('loads local task nodes only when task ids are registered', () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'cli-claw-workflow-local-task-'),
+    );
+    tempDirs.push(workspaceRoot);
+
+    writeRole(
+      workspaceRoot,
+      'analyst',
+      {
+        id: 'analyst',
+        name: 'Analyst',
+        allowedTools: 'send_message',
+      },
+      'Use structured artifacts before writing.',
+    );
+    writeWorkflow(workspaceRoot, 'hkipo', {
+      id: 'hkipo',
+      roles: ['analyst'],
+      start: 'ipo_pool_discovery',
+      nodes: [
+        {
+          id: 'ipo_pool_discovery',
+          type: 'local_task',
+          taskId: 'stock.hkipo.fetch_pool',
+          outputArtifact: 'ipo_pool',
+        },
+        {
+          id: 'ranking_report_editor',
+          type: 'role_task',
+          roleId: 'analyst',
+        },
+      ],
+      edges: [
+        { from: 'ipo_pool_discovery', to: 'ranking_report_editor' },
+        { from: 'ranking_report_editor', to: '__end__' },
+      ],
+    });
+    writeWorkflow(workspaceRoot, 'broken-local-task', {
+      id: 'broken-local-task',
+      roles: ['analyst'],
+      start: 'crawl',
+      nodes: [
+        {
+          id: 'crawl',
+          type: 'local_task',
+          taskId: 'shell.rm_everything',
+        },
+      ],
+      edges: [{ from: 'crawl', to: '__end__' }],
+    });
+
+    const discovered = (
+      discoverWorkflowConfigs as (
+        options: Record<string, unknown>,
+      ) => ReturnType<typeof discoverWorkflowConfigs>
+    )({
+      workspaceRoot,
+      knownTools: ['send_message'],
+      knownLocalTasks: ['stock.hkipo.fetch_pool'],
+    });
+
+    expect(discovered.workflows.map((workflow) => workflow.id)).toEqual([
+      'hkipo',
+    ]);
+    expect(discovered.errors).toContain(
+      'workflow broken-local-task node crawl references unknown local task shell.rm_everything',
+    );
+  });
+
   test('rejects workflows with malformed edges', () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'cli-claw-workflow-invalid-edge-'),

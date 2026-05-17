@@ -70,6 +70,9 @@ interface SkillCommandExecutorResponse {
     | {
         type?: unknown;
         content?: unknown;
+        prompt?: unknown;
+        workflowId?: unknown;
+        input?: unknown;
         ack?: unknown;
       };
   error?: unknown;
@@ -83,6 +86,13 @@ export type SkillCommandExecutionResult =
   | {
       kind: 'assistant_prompt';
       prompt: string;
+      ack: string | null;
+    }
+  | {
+      kind: 'workflow';
+      workflowId: string;
+      prompt: string;
+      input: Record<string, unknown>;
       ack: string | null;
     }
   | {
@@ -326,6 +336,11 @@ function findDiscoveredSkillCommand(
   );
 }
 
+function normalizeWorkflowInput(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
 export async function discoverSkillCommands(options: {
   entrypoint: RuntimeCommandEntrypoint;
   roots: string[];
@@ -531,13 +546,42 @@ export async function executeDiscoveredSkillCommandResult(options: {
     if (
       parsed.reply &&
       typeof parsed.reply === 'object' &&
-      typeof parsed.reply.content === 'string' &&
-      parsed.reply.content.trim()
+      (typeof parsed.reply.content === 'string' ||
+        typeof parsed.reply.prompt === 'string')
     ) {
+      const content =
+        typeof parsed.reply.content === 'string'
+          ? parsed.reply.content
+          : typeof parsed.reply.prompt === 'string'
+            ? parsed.reply.prompt
+            : '';
       if (parsed.reply.type === 'assistant_prompt') {
+        if (!content.trim()) {
+          return {
+            kind: 'error',
+            content: `技能命令 /${command.name} 没有返回可展示的结果`,
+          };
+        }
         return {
           kind: 'assistant_prompt',
-          prompt: parsed.reply.content,
+          prompt: content,
+          ack:
+            typeof parsed.reply.ack === 'string' && parsed.reply.ack.trim()
+              ? parsed.reply.ack
+              : null,
+        };
+      }
+
+      if (
+        parsed.reply.type === 'workflow' &&
+        typeof parsed.reply.workflowId === 'string' &&
+        parsed.reply.workflowId.trim()
+      ) {
+        return {
+          kind: 'workflow',
+          workflowId: parsed.reply.workflowId.trim(),
+          prompt: content.trim(),
+          input: normalizeWorkflowInput(parsed.reply.input),
           ack:
             typeof parsed.reply.ack === 'string' && parsed.reply.ack.trim()
               ? parsed.reply.ack
@@ -546,9 +590,15 @@ export async function executeDiscoveredSkillCommandResult(options: {
       }
 
       if (parsed.reply.type === 'final_markdown') {
+        if (!content.trim()) {
+          return {
+            kind: 'error',
+            content: `技能命令 /${command.name} 没有返回可展示的结果`,
+          };
+        }
         return {
           kind: 'final_markdown',
-          content: parsed.reply.content,
+          content,
         };
       }
     }

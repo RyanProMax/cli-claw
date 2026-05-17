@@ -81,10 +81,11 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 - 当前入口不可用的命令：返回明确提示
 - 未知命令：返回“不支持的命令”
 
-skill command 的执行结果有两类：
+skill command 的执行结果有三类：
 
 - 直接回复一段最终 markdown
 - 把 slash command 改写成一段由 skill 生成的 `assistant_prompt` 消息，再继续进入 Agent 主流程；这类消息会使用隔离 runtime session，既不继承也不替换当前 workspace 的主 runtime session
+- 触发一个 workflow，例如 `stock-analysis-skill` 的 `/hkipo` 会返回 `workflowId=hkipo` 和结构化 input，由 Cli Claw 创建独立 workflow run；这条路径不进入用户主会话，也不会生成 `assistant_prompt`
 
 因此，并不是所有 slash command 都会在本地层终止；skill command 可以选择把命令解析结果继续交给 Agent。
 
@@ -103,8 +104,9 @@ skill command 的执行结果有两类：
 说明：
 
 - `/openai` 是当前工作区级配置入口，会持久化到工作区 runtime 配置。
-- `/workflow` 不复用用户会话主 runtime session。它只把当前 Web / IM 会话作为触发入口和结果回填通道；workflow 自身按 `(folder, workflowId)` 生成独立 `workflowContextId` / LangGraph `thread_id`，role node 通过独立 `agentId=workflow:<workflowContextId>` 启动 runner。workflow 定义来自 `.agents/workflows/<id>.json`，runtime role card 来自 `.agents/agent-roles/<id>.md`，role 的 `allowedTools` 会在 runner tool factory 层硬过滤。
+- `/workflow` 不复用用户会话主 runtime session。它只把当前 Web / IM 会话作为触发入口和结果回填通道；workflow 自身按 `(folder, workflowId)` 生成独立 `workflowContextId` / LangGraph `thread_id`，role node 通过独立 `agentId=workflow:<workflowContextId>` 启动 runner。workflow 定义优先来自当前工作区 `.agents/workflows/<id>.json`，缺失时可使用 Cli Claw 内置 `.agents/workflows/<id>.json`；runtime role card 同理优先读取 `.agents/agent-roles/<id>.md`。role 的 `allowedTools` 会在 runner tool factory 层硬过滤。
 - 输入 bare `/workflow` 会列出当前工作区可用 workflow；输入 `/workflow <id> <任务>` 会创建一条 `workflow_runs` 审计记录并执行对应 graph，最终结果回到触发会话。
+- 内置 `hkipo` workflow 是 8 节点 crew：Futu/OpenD IPO 池发现、池标准化、二级热度采集、热度核验、官方文件定位、发行结构/基本面分析、回测校准、最终短报告。用户仍输入 `/hkipo [--all]`；skill executor 只负责把它转成 `hkipo` workflow trigger，`--all` 作为结构化 input 传入 workflow state。
 - 当工作区未显式设置 `openai` 的模型、思考强度或速度时，`/status`、`/openai` 配置卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 OpenAI 环境变量 fallback，避免不同入口看到不同值。
 - `openai` 的模型选项使用内置 preset；若当前 effective model 不在 preset 中，配置卡仍会把它作为当前值展示，避免 `/status` 与 `/openai` 不一致。
 - 普通回复 footer 会始终保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。当当前 runtime usage 可用时，会追加 5h / 7d 剩余额；OpenAI/Codex 通过 Codex CLI 登录态请求 ChatGPT Codex usage API，不依赖 `OPENAI_API_KEY` 或过期的本地 jsonl 快照。
@@ -127,6 +129,7 @@ skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发
 - 结果类型目前支持：
   - `final_markdown`：本地直接返回最终文本
   - `assistant_prompt`：把命令改写成一段独立用户消息，再用隔离 runtime session 继续走 Agent 主流程
+  - `workflow`：返回 `workflowId`、`prompt` 和结构化 `input`，由宿主触发独立 workflow run；例如 `/hkipo --all` 会触发 `hkipo` workflow，并把 `includeClosed=true` 传入 workflow input
 
 这层协议只负责“发现 + 执行 + 回填结果”，不承载任何业务特定语义。
 
@@ -194,6 +197,8 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命
 当输入 `/openai` 时，输入框上方会展示该 Agent 的配置选项；点击后由前端发送实际切换请求。`/openai` 同时展示模型、思考强度和速度。
 
 如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容，并以隔离 runtime session 执行。该 session 不会写回 workspace 主会话；下一条普通消息继续使用原主会话，若历史版本已把上一轮 skill final 的 session 误写成主 session，则会先忽略它并建立新的普通主会话。
+
+若 skill 返回 `workflow`，Web 会保存原 slash command 与 workflow 结果回复，但不会把它入队为普通 Agent 消息；IM 入口同样直接触发 workflow 并把最终结果回到触发会话。
 
 ## 运行时配置命令
 

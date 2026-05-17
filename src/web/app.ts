@@ -340,6 +340,37 @@ async function handleWebSlashCommand(options: {
         rewrittenSourceKind: 'assistant_prompt',
       };
     }
+    if (skillResult?.kind === 'workflow') {
+      const { messageId, timestamp } = persistCommand();
+      if (deps.handleWorkflowCommand) {
+        try {
+          const workflowArgs = [skillResult.workflowId, skillResult.prompt]
+            .filter((part) => part.trim().length > 0)
+            .join(' ');
+          persistReply(
+            await deps.handleWorkflowCommand(
+              displayChatJid,
+              workflowArgs,
+              options.userId,
+              {
+                command: slashCandidate.rawName.trim().toLowerCase(),
+                argsText: slashCandidate.argsText,
+                input: skillResult.input,
+              },
+            ),
+          );
+        } catch (err) {
+          logger.error(
+            { chatJid: displayChatJid, err },
+            '/workflow skill command failed',
+          );
+          persistReply('工作流触发失败，请稍后重试');
+        }
+      } else {
+        persistReply('当前服务未启用工作流命令');
+      }
+      return { handled: true, messageId, timestamp };
+    }
     const { messageId, timestamp } = persistCommand();
     persistReply(
       skillResult?.content ??

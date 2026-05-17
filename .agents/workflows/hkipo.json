@@ -1,0 +1,81 @@
+{
+  "id": "hkipo",
+  "name": "港股 IPO 打新工作流",
+  "description": "基于 Futu IPO 池、二级热度采集、官方文件定位、发行结构与回测校准生成港股 IPO 短报告。",
+  "roles": [
+    "hkipo-pool-normalizer",
+    "hkipo-heat-verifier",
+    "hkipo-structure-fundamental-analyst",
+    "hkipo-ranking-report-editor"
+  ],
+  "start": "ipo_pool_discovery",
+  "nodes": [
+    {
+      "id": "ipo_pool_discovery",
+      "type": "local_task",
+      "taskId": "stock.hkipo.fetch_pool",
+      "outputArtifact": "ipo_pool",
+      "prompt": "调用 Futu/OpenD 获取 IPO 池和基础字段。Futu 不可用时失败，不用网页猜 IPO 池。"
+    },
+    {
+      "id": "pool_normalizer",
+      "type": "role_task",
+      "roleId": "hkipo-pool-normalizer",
+      "outputArtifact": "query_plan",
+      "prompt": "清洗 IPO 池，生成代码、中文名、英文名、阶段和二级热度检索 query plan。"
+    },
+    {
+      "id": "heat_data_crawler",
+      "type": "local_task",
+      "taskId": "stock.hkipo.scan_heat",
+      "outputArtifact": "heat_evidence",
+      "prompt": "按 query plan 抓取孖展/融资倍数、公开认购倍数、一手中签率、暗盘与来源更新时间。"
+    },
+    {
+      "id": "heat_data_verifier",
+      "type": "role_task",
+      "roleId": "hkipo-heat-verifier",
+      "outputArtifact": "verified_heat",
+      "prompt": "核验同日热度、多源冲突、单一券商下限和缺少来源时间的数据降级。"
+    },
+    {
+      "id": "official_doc_crawler",
+      "type": "local_task",
+      "taskId": "stock.hkipo.fetch_official_docs",
+      "outputArtifact": "official_docs",
+      "prompt": "定位 HKEX / 公司公告 / 招股书 / 配发结果等官方文件元数据。"
+    },
+    {
+      "id": "structure_fundamental_analyst",
+      "type": "role_task",
+      "roleId": "hkipo-structure-fundamental-analyst",
+      "outputArtifact": "structure_fundamental",
+      "prompt": "分析绿鞋、基石、保荐、回拨、基本面、估值与关键风险。"
+    },
+    {
+      "id": "backtest_calibrator",
+      "type": "local_task",
+      "taskId": "stock.hkipo.run_backtest",
+      "outputArtifact": "backtest_calibration",
+      "prompt": "调用或准备 HK IPO 回测校准，输出热度分桶和近期首日赔率映射。"
+    },
+    {
+      "id": "ranking_report_editor",
+      "type": "role_task",
+      "roleId": "hkipo-ranking-report-editor",
+      "outputArtifact": "final_report",
+      "prompt": "汇总评分排序和最终短报告。无同日热度时必须写“热度未达当日核验门槛”。"
+    }
+  ],
+  "edges": [
+    { "from": "ipo_pool_discovery", "to": "pool_normalizer" },
+    { "from": "pool_normalizer", "to": "heat_data_crawler" },
+    { "from": "heat_data_crawler", "to": "heat_data_verifier" },
+    { "from": "heat_data_verifier", "to": "official_doc_crawler" },
+    { "from": "official_doc_crawler", "to": "structure_fundamental_analyst" },
+    { "from": "structure_fundamental_analyst", "to": "backtest_calibrator" },
+    { "from": "backtest_calibrator", "to": "ranking_report_editor" },
+    { "from": "ranking_report_editor", "to": "__end__" }
+  ],
+  "maxRetries": 1
+}
