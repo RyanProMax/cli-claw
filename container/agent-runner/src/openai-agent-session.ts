@@ -20,6 +20,46 @@ function atomicWriteJson(filePath: string, value: unknown): void {
   fs.renameSync(tempPath, filePath);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function sanitizeSessionItems(items: AgentInputItem[]): {
+  items: AgentInputItem[];
+  changed: boolean;
+} {
+  let changed = false;
+  const sanitized: AgentInputItem[] = [];
+
+  for (const item of items) {
+    const cloned = structuredClone(item) as unknown;
+    if (!isRecord(cloned)) {
+      sanitized.push(item);
+      continue;
+    }
+
+    if (cloned.type === 'reasoning') {
+      changed = true;
+      continue;
+    }
+
+    if (cloned.type === 'message') {
+      if ('id' in cloned) {
+        delete cloned.id;
+        changed = true;
+      }
+      if ('providerData' in cloned) {
+        delete cloned.providerData;
+        changed = true;
+      }
+    }
+
+    sanitized.push(cloned as AgentInputItem);
+  }
+
+  return { items: sanitized, changed };
+}
+
 export function getOpenAiAgentSessionRoot(): string {
   return path.join(SESSION_ROOT, 'openai-agent');
 }
@@ -50,7 +90,9 @@ export class FileOpenAiAgentSession implements Session {
 
   async addItems(items: AgentInputItem[]): Promise<void> {
     if (items.length === 0) return;
-    const next = [...this.readItems(), ...structuredClone(items)];
+    const { items: sanitizedItems } = sanitizeSessionItems(items);
+    if (sanitizedItems.length === 0) return;
+    const next = [...this.readItems(), ...sanitizedItems];
     this.items = next;
     atomicWriteJson(this.filePath, next);
   }
@@ -72,7 +114,14 @@ export class FileOpenAiAgentSession implements Session {
     if (this.items) return this.items;
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8'));
-      this.items = Array.isArray(parsed) ? (parsed as AgentInputItem[]) : [];
+      const rawItems = Array.isArray(parsed)
+        ? (parsed as AgentInputItem[])
+        : [];
+      const { items, changed } = sanitizeSessionItems(rawItems);
+      this.items = items;
+      if (changed) {
+        atomicWriteJson(this.filePath, items);
+      }
     } catch {
       this.items = [];
     }
@@ -80,6 +129,8 @@ export class FileOpenAiAgentSession implements Session {
   }
 }
 
-export function createOpenAiAgentSession(sessionId?: string): FileOpenAiAgentSession {
+export function createOpenAiAgentSession(
+  sessionId?: string,
+): FileOpenAiAgentSession {
   return new FileOpenAiAgentSession(sessionId);
 }

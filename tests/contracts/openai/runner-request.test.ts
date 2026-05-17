@@ -196,8 +196,13 @@ function responseSnapshot(text = '', status = 'in_progress') {
 function writeSuccessfulResponsesStream(
   res: ServerResponse,
   finalText: string,
-  options: { emptyTerminalOutput?: boolean } = {},
+  options: {
+    emptyTerminalOutput?: boolean;
+    messageId?: string;
+    reasoningId?: string;
+  } = {},
 ): void {
+  const messageId = options.messageId ?? 'msg_1';
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   res.write(
     sse('response.created', {
@@ -210,7 +215,7 @@ function writeSuccessfulResponsesStream(
       type: 'response.output_item.added',
       output_index: 0,
       item: {
-        id: 'msg_1',
+        id: messageId,
         type: 'message',
         status: 'in_progress',
         role: 'assistant',
@@ -218,10 +223,23 @@ function writeSuccessfulResponsesStream(
       },
     }),
   );
+  if (options.reasoningId) {
+    res.write(
+      sse('response.output_item.done', {
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          id: options.reasoningId,
+          type: 'reasoning',
+          summary: [],
+        },
+      }),
+    );
+  }
   res.write(
     sse('response.content_part.added', {
       type: 'response.content_part.added',
-      item_id: 'msg_1',
+      item_id: messageId,
       output_index: 0,
       content_index: 0,
       part: { type: 'output_text', text: '', annotations: [] },
@@ -230,7 +248,7 @@ function writeSuccessfulResponsesStream(
   res.write(
     sse('response.output_text.delta', {
       type: 'response.output_text.delta',
-      item_id: 'msg_1',
+      item_id: messageId,
       output_index: 0,
       content_index: 0,
       delta: finalText,
@@ -239,7 +257,7 @@ function writeSuccessfulResponsesStream(
   res.write(
     sse('response.output_text.done', {
       type: 'response.output_text.done',
-      item_id: 'msg_1',
+      item_id: messageId,
       output_index: 0,
       content_index: 0,
       text: finalText,
@@ -248,7 +266,7 @@ function writeSuccessfulResponsesStream(
   res.write(
     sse('response.content_part.done', {
       type: 'response.content_part.done',
-      item_id: 'msg_1',
+      item_id: messageId,
       output_index: 0,
       content_index: 0,
       part: { type: 'output_text', text: finalText, annotations: [] },
@@ -259,7 +277,7 @@ function writeSuccessfulResponsesStream(
       type: 'response.output_item.done',
       output_index: 0,
       item: {
-        id: 'msg_1',
+        id: messageId,
         type: 'message',
         status: 'completed',
         role: 'assistant',
@@ -477,6 +495,80 @@ describe('P0 OpenAI runner request contract', () => {
         writeSuccessfulResponsesStream(res, finalText, {
           emptyTerminalOutput: true,
         }),
+    );
+  });
+
+  test('does not replay non-persisted Codex response item ids on the next session turn', async () => {
+    await withCaptureServer(
+      async ({ baseUrl, captured }) => {
+        const tempRoot = makeTempDir('cli-claw-p0-openai-session-');
+        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        vi.stubEnv(
+          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          path.join(tempRoot, 'sessions'),
+        );
+        vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
+        vi.stubEnv('no_proxy', '127.0.0.1,localhost');
+
+        const { runOpenAiAgentLoop } =
+          await import('../../../container/agent-runner/src/openai-agent-runtime.ts');
+        const { deps } = buildRunnerDeps(tempRoot);
+        let nextMessageDelivered = false;
+
+        await runOpenAiAgentLoop(
+          {
+            prompt: "what's up from Feishu",
+            groupFolder: 'main',
+            chatJid: 'feishu:oc_p0_session',
+            agentType: 'openai',
+            model: 'gpt-5.5',
+            reasoningEffort: 'xhigh',
+            speedTier: 'fast',
+            turnId: 'om_p0_session_first',
+            messageCursor: {
+              timestamp: '1778942000000',
+              id: 'om_p0_session_first',
+            },
+          },
+          {
+            ...deps,
+            generateTurnId: () => 'om_p0_session_second',
+            waitForIpcMessage: async () => {
+              if (nextMessageDelivered) return null;
+              nextMessageDelivered = true;
+              return {
+                text: '你记得当前会话我们说过些什么吗？总结下',
+                cursor: {
+                  timestamp: '1778942005000',
+                  id: 'om_p0_session_second',
+                },
+              };
+            },
+          },
+        );
+
+        expect(captured).toHaveLength(2);
+        const secondInput = JSON.stringify(captured[1]!.body.input);
+        expect(secondInput).toContain("what's up from Feishu");
+        expect(secondInput).toContain('你记得当前会话我们说过些什么吗？总结下');
+        expect(secondInput).not.toContain('rs_session_leak');
+        expect(secondInput).not.toContain('msg_session_leak');
+      },
+      (_req, res, _body) => {
+        const isFirstTurn = _body.input
+          ? JSON.stringify(_body.input).includes("what's up from Feishu")
+          : false;
+        writeSuccessfulResponsesStream(
+          res,
+          isFirstTurn ? 'first turn ok' : 'second turn ok',
+          {
+            emptyTerminalOutput: true,
+            messageId: isFirstTurn ? 'msg_session_leak' : 'msg_second',
+            reasoningId: isFirstTurn ? 'rs_session_leak' : undefined,
+          },
+        );
+      },
     );
   });
 });
