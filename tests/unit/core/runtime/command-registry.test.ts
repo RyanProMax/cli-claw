@@ -55,7 +55,7 @@ describe('runtime command registry', () => {
     expect(help).toContain('服务命令：');
     expect(help).toContain('/help');
     expect(help).toContain('/bind <workspace>');
-    expect(help).toContain('/where');
+    expect(help).not.toContain('/where');
     expect(help).toContain('/claude');
     expect(help).not.toContain('/openai');
     expect(help).not.toContain('/model');
@@ -77,6 +77,7 @@ describe('runtime command registry', () => {
     expect(imHelp).not.toContain('/usage');
     expect(webHelp).not.toContain('/usage');
     expect(parseRuntimeCommand('/usage')).toBeNull();
+    expect(parseRuntimeCommand('/where')).toBeNull();
     expect(parseRuntimeCommand('/model')).toBeNull();
     expect(parseRuntimeCommand('/effort')).toBeNull();
     expect(parseRuntimeCommand('/speed')).toBeNull();
@@ -236,9 +237,7 @@ describe('runtime command registry', () => {
       argsText: '',
       args: [],
     });
-    expect(
-      parseSlashCommandCandidate('openai', { allowBare: true }),
-    ).toEqual({
+    expect(parseSlashCommandCandidate('openai', { allowBare: true })).toEqual({
       rawName: 'openai',
       argsText: '',
       args: [],

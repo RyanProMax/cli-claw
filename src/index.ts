@@ -2074,8 +2074,6 @@ async function handleCommand(
       return handleSelfCheckCommand(chatJid);
     case 'self-restart':
       return handleSelfRestartCommand(chatJid);
-    case 'where':
-      return handleWhereCommand(chatJid);
     case 'unbind':
       return handleUnbindCommand(chatJid);
     case 'bind':
@@ -2433,10 +2431,6 @@ function handleStatusCommand(chatJid: string): string {
     getAgent,
   });
 
-  const formatQuotaValue = (value: number | undefined): string =>
-    value === undefined ? 'unavailable' : `${value}%`;
-  const formatResetValue = (value: unknown): string =>
-    typeof value === 'string' && value.trim().length > 0 ? value : 'unknown';
   const runtimeIdentity = runtimeTarget?.effectiveRuntimeIdentity ?? null;
   logger.info(
     {
@@ -2468,10 +2462,12 @@ function handleStatusCommand(chatJid: string): string {
       model: runtimeIdentity?.model ?? 'unknown',
       reasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
       speedTier: runtimeIdentity?.speedTier ?? null,
-      primaryRemaining: formatQuotaValue(undefined),
-      primaryReset: formatResetValue(undefined),
-      secondaryRemaining: formatQuotaValue(undefined),
-      secondaryReset: formatResetValue(undefined),
+      primaryRemaining: 'unavailable',
+      primaryReset: 'unknown',
+      secondaryRemaining: 'unavailable',
+      secondaryReset: 'unknown',
+      currentBinding: location.locationLine,
+      replyPolicy: location.replyPolicy ?? null,
       workspaceName: workspace.name,
       currentSessionName,
       sessionCount: workspace.agents.length + 1,
@@ -2736,26 +2732,6 @@ function handleSelfRestartCommand(chatJid: string): string {
   );
 
   return formatSelfRestartAccepted(result);
-}
-
-function handleWhereCommand(chatJid: string): string {
-  const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
-  if (!group) return '当前 IM 未绑定工作区';
-
-  const lookupGroup = (jid: string) =>
-    registeredGroups[jid] ?? getRegisteredGroup(jid);
-  const location = resolveLocationInfo(
-    group,
-    lookupGroup,
-    getAgent,
-    findGroupNameByFolder,
-  );
-
-  const lines = [`📍 当前绑定: ${location.locationLine}`];
-  if (location.replyPolicy) {
-    lines.push(`🔁 回复策略: ${location.replyPolicy}`);
-  }
-  return lines.join('\n');
 }
 
 function handleUnbindCommand(chatJid: string): string {

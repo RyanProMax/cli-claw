@@ -191,6 +191,8 @@ export interface StatusDisplayInfo {
   primaryReset: string;
   secondaryRemaining: string;
   secondaryReset: string;
+  currentBinding?: string | null;
+  replyPolicy?: string | null;
   workspaceName: string;
   currentSessionName: string;
   sessionCount: number;
@@ -226,11 +228,13 @@ export function formatSystemStatus(
     `🧠 当前模型: ${status.model}`,
     `⚙️ 当前推理强度: ${reasoningEffort}`,
     `🚀 当前速度: ${speedTier}`,
-    `⏳ 5h 剩余: ${status.primaryRemaining}（重置时间：${status.primaryReset}）`,
-    `📅 7d 剩余: ${status.secondaryRemaining}（重置时间：${status.secondaryReset}）`,
+    '⏳ 5h 剩余: unavailable（重置时间：unknown）',
+    '📅 7d 剩余: unavailable（重置时间：unknown）',
     '',
     '📊 运行状态',
     '━━━━━━━━━━',
+    ...(status.currentBinding ? [`📍 当前绑定: ${status.currentBinding}`] : []),
+    ...(status.replyPolicy ? [`🔁 回复策略: ${status.replyPolicy}`] : []),
     `🗂️ 当前工作区: ${status.workspaceName}`,
     `💬 当前会话: ${status.currentSessionName}`,
     `🔢 会话数: ${status.sessionCount}`,

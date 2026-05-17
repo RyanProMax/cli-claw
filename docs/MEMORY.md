@@ -30,5 +30,5 @@
 ## 边界
 
 - `.claude/`、`~/.codex/` 下的 settings / skills / config / native sessions 是外部 runtime 状态，不是 Cli Claw 维护的历史上下文。
-- `.agents/*.md` 是仓库执行协议角色定义，`~/.agents/agents/*.md` 是用户级 Agent 定义；二者都不是 Cli Claw 消息历史注入来源。
+- `.agents/roles/*.md` 是仓库执行协议角色定义，`.agents/skills/**/SKILL.md` 是仓库内联 skill 定义，`~/.agents/agents/*.md` 是用户级 Agent 定义；这些文件都不是 Cli Claw 消息历史注入来源。
 - 任何新增“读取历史并拼入 prompt / 工具描述 / 隐藏任务 / 可见正文”的能力，都必须先更新本文和对应 owner 文档，并补真实消息链路回归测试。

@@ -51,7 +51,7 @@ describe('formatLoopStatusSection', () => {
 
       expect(output).toMatch(/^\n\n🔁 循环状态/);
       expect(output).toContain('🛠️ 自迭代维护循环：未启动');
-      expect(output).toContain('🛡️ 用量护栏：正常，7d=67%');
+      expect(output).toContain('🛡️ 用量护栏：未知（用量不可读）');
       expect(output).not.toContain('maintenance_loop');
       expect(output).not.toContain('usage_guard');
       expect(output).not.toContain('not_registered');

@@ -105,14 +105,6 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
-    name: 'where',
-    usage: '/where',
-    description: '查看当前聊天绑定位置',
-    module: 'workspace',
-    availableEntrypoints: ['im'],
-    availabilityByRuntime: 'all',
-  },
-  {
     name: 'bind',
     usage: '/bind <workspace>',
     description: '绑定到指定工作区或会话',

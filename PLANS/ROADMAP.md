@@ -79,7 +79,7 @@
 - Summary: 飞书群聊里的 @机器人 slash command、绑定/建群引导和不可处理原因必须明确可见，不能静默失败。
 - Next action:
   - Strip Feishu mention prefixes using Feishu mention metadata rather than display-text regex.
-  - Add regression tests for `@Name With Space /where`, slash command with images/files, group mention gating, and managed command phrases.
+  - Add regression tests for `@Name With Space /status`, slash command with images/files, group mention gating, and managed command phrases.
   - Send concise visible reasons for mention policy, missing binding, unknown command, or authorization skips when safe.
 
 ### P1 RM-2026-05-16-01 Stock KOL Agent Handoff For Strategy Iteration

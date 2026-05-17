@@ -549,6 +549,7 @@ export function resolveSkillCommandRoots(options: {
       options.homeGroup ?? undefined,
     ) ?? path.join(GROUPS_DIR, options.workspaceGroup.folder);
 
+  roots.push(path.join(workspaceRoot, '.agents', 'skills'));
   roots.push(path.join(workspaceRoot, '.claude', 'skills'));
 
   const normalizedUserId = options.userId?.trim();

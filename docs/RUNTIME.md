@@ -169,7 +169,7 @@ Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自�
 - `CLI_CLAW_RUNTIME_SESSION_DIR/openai-agent/*.json`
   - OpenAI Agents 的文件 session；未设置 `CLI_CLAW_RUNTIME_SESSION_DIR` 时 runner 使用 `/workspace/.cli-claw-runtime/openai-agent`
 
-仓库内还可以追踪与 agent 工作流相关的角色文件，例如 `.agents/*.md`。这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。
+仓库内还可以追踪与 agent 工作流相关的角色和内联技能文件，例如 `.agents/roles/*.md` 与 `.agents/skills/**/SKILL.md`。这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。
 
 应用包根目录从已安装模块位置解析；launch cwd 只参与 host 工作区默认执行目录的物化，不参与后端 build、web build 或 shared 资源定位。
 

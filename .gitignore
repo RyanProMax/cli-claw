@@ -46,7 +46,10 @@ bun.lockb
 .agent/
 .agents/*
 !.agents/
-!.agents/*.md
+!.agents/roles/
+!.agents/roles/*.md
+!.agents/skills/
+!.agents/skills/**
 skills-lock.json
 --connect
 log/

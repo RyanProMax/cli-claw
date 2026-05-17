@@ -8,6 +8,7 @@ import {
   discoverSkillCommands,
   executeDiscoveredSkillCommand,
   executeDiscoveredSkillCommandResult,
+  resolveSkillCommandRoots,
 } from '../../../src/skills/command-dispatch.ts';
 
 function writeSkill(args: {
@@ -95,6 +96,62 @@ describe('skill command dispatch', () => {
       name: 'hkipo',
       description: 'workspace level description',
       skillId: 'workspace-stock-skill',
+    });
+  });
+
+  test('prefers repository-inline .agents skills before legacy workspace skills', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-agents-'),
+    );
+    tempDirs.push(workspaceRoot);
+
+    const roots = resolveSkillCommandRoots({
+      workspaceGroup: {
+        name: 'Workspace',
+        folder: 'workspace',
+        added_at: '2026-05-16T00:00:00.000Z',
+        executionMode: 'host',
+        customCwd: workspaceRoot,
+      },
+    });
+
+    expect(roots[0]).toBe(path.join(workspaceRoot, '.agents', 'skills'));
+    expect(roots[1]).toBe(path.join(workspaceRoot, '.claude', 'skills'));
+
+    writeSkill({
+      rootDir: roots[1],
+      skillId: 'legacy-stock-skill',
+      commands: {
+        hkipo: {
+          description: 'legacy workspace description',
+          entrypoints: ['im'],
+          executor: { command: process.execPath, args: ['reply.js'] },
+        },
+      },
+    });
+
+    writeSkill({
+      rootDir: roots[0],
+      skillId: 'inline-stock-skill',
+      commands: {
+        hkipo: {
+          description: 'repo inline description',
+          entrypoints: ['im'],
+          executor: { command: process.execPath, args: ['reply.js'] },
+        },
+      },
+    });
+
+    const discovered = await discoverSkillCommands({
+      entrypoint: 'im',
+      roots,
+    });
+
+    expect(discovered.commands).toHaveLength(1);
+    expect(discovered.commands[0]).toMatchObject({
+      name: 'hkipo',
+      description: 'repo inline description',
+      skillId: 'inline-stock-skill',
     });
   });
 
@@ -276,7 +333,7 @@ describe('skill command dispatch', () => {
       files: {
         '.env': 'STOCK_ANALYSIS_API_ROOT="~/projects/stock-analysis-api"\n',
         'commands/reply.js': [
-          "process.stdin.resume();",
+          'process.stdin.resume();',
           "process.stdin.on('end', () => {",
           "  process.stdout.write(JSON.stringify({ reply: { type: 'final_markdown', content: process.env.STOCK_ANALYSIS_API_ROOT || 'missing' } }));",
           '});',

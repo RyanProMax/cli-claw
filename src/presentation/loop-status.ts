@@ -197,14 +197,8 @@ function formatScheduledTaskStatus(
   return `${formatTaskStatus(task.status)}，上次=${formatTime(task.last_run)}，下次=${formatTime(task.next_run)}${latestError}`;
 }
 
-function formatUsageGuard(runtimeUsage: UsageProviderResult | null): string {
-  if (!runtimeUsage?.available) {
-    return `未知（${runtimeUsage?.reason ?? '用量不可读'}）`;
-  }
-  const remaining = runtimeUsage.secondaryRemainingPct;
-  if (remaining === undefined) return '未知（7d 不可读）';
-  if (remaining < 30) return `需要暂停，7d=${remaining}%`;
-  return `正常，7d=${remaining}%`;
+function formatUsageGuard(_runtimeUsage: UsageProviderResult | null): string {
+  return '未知（用量不可读）';
 }
 
 export function formatLoopStatusSection(options: LoopStatusOptions): string {
