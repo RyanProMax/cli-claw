@@ -34,6 +34,7 @@ describe('runtime command registry', () => {
     expect(help).toContain('/help');
     expect(help).toContain('/clear');
     expect(help).toContain('/sw <任务描述>');
+    expect(help).toContain('/workflow [id] [任务]');
     expect(help).toContain('/openai');
     expect(help).not.toContain('/claude');
     expect(help).not.toContain('/model');
@@ -56,6 +57,7 @@ describe('runtime command registry', () => {
     expect(help).toContain('/help');
     expect(help).toContain('/bind <workspace[/agent短ID]>');
     expect(help).toContain('/require_mention <true/false>');
+    expect(help).toContain('/workflow [id] [任务]');
     expect(help).not.toContain('/where');
     expect(help).toContain('/openai');
     expect(help).not.toContain('/claude');
@@ -86,6 +88,11 @@ describe('runtime command registry', () => {
       name: 'openai',
       argsText: '',
       args: [],
+    });
+    expect(parseRuntimeCommand('/workflow research 写一份复盘')).toMatchObject({
+      name: 'workflow',
+      argsText: 'research 写一份复盘',
+      args: ['research', '写一份复盘'],
     });
     expect(parseRuntimeCommand('/claude')).toBeNull();
   });

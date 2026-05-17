@@ -183,6 +183,77 @@ export interface TaskRunLog {
   error: string | null;
 }
 
+export interface WorkflowDefinitionCache {
+  folder: string;
+  workflow_id: string;
+  source_path: string;
+  definition_json: Record<string, unknown>;
+  checksum: string | null;
+  updated_at: string;
+}
+
+export interface WorkflowContext {
+  id: string;
+  folder: string;
+  workflow_id: string;
+  thread_id: string;
+  runtime_agent_id: string;
+  active_run_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type WorkflowRunStatus =
+  | 'queued'
+  | 'running'
+  | 'success'
+  | 'error'
+  | 'cancelled';
+
+export interface WorkflowRun {
+  id: string;
+  context_id: string;
+  folder: string;
+  workflow_id: string;
+  thread_id: string;
+  trigger_chat_jid: string;
+  trigger_message_id: string | null;
+  trigger_user_id: string | null;
+  prompt: string;
+  status: WorkflowRunStatus;
+  result: string | null;
+  error: string | null;
+  metadata: Record<string, unknown> | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type WorkflowRunStepStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'error'
+  | 'skipped';
+
+export interface WorkflowRunStep {
+  id: string;
+  run_id: string;
+  node_id: string;
+  role_id: string | null;
+  status: WorkflowRunStepStatus;
+  attempt: number;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // --- Auth types ---
 
 export type UserRole = 'admin' | 'member';

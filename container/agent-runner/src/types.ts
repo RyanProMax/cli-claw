@@ -30,6 +30,25 @@ export interface AgentProcessInput {
   images?: Array<{ data: string; mimeType?: string }>;
   agentId?: string;
   agentName?: string;
+  workflow?: {
+    id: string;
+    name: string;
+    contextId: string;
+    runId: string;
+    threadId: string;
+    nodeId: string;
+    nodeType: string;
+  };
+  role?: {
+    id: string;
+    name: string;
+    description?: string;
+    instructions: string;
+    skillIds: string[];
+    permissionMode: string;
+    allowedTools: string[];
+  };
+  allowedTools?: string[];
 }
 
 export interface AgentProcessOutput {

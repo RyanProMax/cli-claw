@@ -13,6 +13,7 @@
 │   ├── self-restart-watchdog.ts    # 自重启 watchdog 子进程入口
 │   ├── agent/
 │   │   ├── queue/group-queue.ts     # 会话并发控制、重试、排队与后台任务优先级
+│   │   ├── workflow/                # LangGraph workflow/crew 配置、上下文与执行编排
 │   │   ├── runner/
 │   │   │   ├── container-runner.ts  # 本地 Agent 进程执行与生命周期（历史文件名）
 │   │   │   ├── output-parser.ts     # runner 输出解析、错误格式化与 run log
@@ -80,6 +81,11 @@
 ├── shared/                          # 前后端与 runner 共用纯函数/类型
 ├── PLANS/                           # 当前计划、长期 roadmap 与计划模板
 ├── RUNBOOKS/                        # 实施、review、自迭代、handoff 操作规范
+├── .agents/
+│   ├── workflows/                   # 仓库级 workflow/crew graph 配置
+│   ├── agent-roles/                 # runtime role card；会注入 workflow runner
+│   ├── roles/                       # 仓库协作/subagent 角色，不注入 runtime
+│   └── skills/                      # 仓库内联 skill command
 ├── scripts/                         # repo 级验证、review、release 脚本
 ├── ops/                             # 本机 launchd / 运维辅助
 └── docs/                            # 架构、运行时、模块、命令文档

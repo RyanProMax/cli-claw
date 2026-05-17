@@ -363,6 +363,30 @@ async function handleWebSlashCommand(options: {
     return { handled: true, messageId, timestamp };
   }
 
+  if (parsed.name === 'workflow') {
+    const { messageId, timestamp } = persistCommand();
+    if (deps.handleWorkflowCommand) {
+      try {
+        persistReply(
+          await deps.handleWorkflowCommand(
+            displayChatJid,
+            parsed.argsText,
+            options.userId,
+          ),
+        );
+      } catch (err) {
+        logger.error(
+          { chatJid: displayChatJid, err },
+          '/workflow command failed',
+        );
+        persistReply('工作流触发失败，请稍后重试');
+      }
+    } else {
+      persistReply('当前服务未启用工作流命令');
+    }
+    return { handled: true, messageId, timestamp };
+  }
+
   if (parsed.name === 'clear') {
     const { messageId, timestamp } = persistCommand();
     const targetGroup = getRegisteredGroup(options.chatJid);

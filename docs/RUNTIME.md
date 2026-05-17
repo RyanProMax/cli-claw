@@ -32,9 +32,9 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 ## 运行时矩阵
 
-| `agentType` | 底层运行时        | 执行路径        | 当前认证方式                       | 备注                                                                             |
-| ----------- | ----------------- | --------------- | ---------------------------------- | -------------------------------------------------------------------------------- |
-| `openai`    | OpenAI Agents SDK | 本地 Agent 进程 | Codex CLI 登录态（`codex login`）  | backend 通过 Codex app-server 解析 token，runner 使用隔离文件 session 保存上下文 |
+| `agentType` | 底层运行时        | 执行路径        | 当前认证方式                      | 备注                                                                             |
+| ----------- | ----------------- | --------------- | --------------------------------- | -------------------------------------------------------------------------------- |
+| `openai`    | OpenAI Agents SDK | 本地 Agent 进程 | Codex CLI 登录态（`codex login`） | backend 通过 Codex app-server 解析 token，runner 使用隔离文件 session 保存上下文 |
 
 ## 配置规则
 
@@ -162,7 +162,18 @@ Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自�
 - `CLI_CLAW_RUNTIME_SESSION_DIR/openai-agent/*.json`
   - OpenAI Agents 的文件 session；未设置 `CLI_CLAW_RUNTIME_SESSION_DIR` 时 runner 使用工作区内的 `.cli-claw-runtime/openai-agent`
 
-仓库内还可以追踪与 agent 工作流相关的角色和内联技能文件，例如 `.agents/roles/*.md` 与 `.agents/skills/**/SKILL.md`。这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。
+仓库内还可以追踪与 agent 工作流相关的配置文件：
+
+- `.agents/workflows/*.json`：workflow/crew graph 配置，是工作流定义的 source of truth。
+- `.agents/agent-roles/*.md`：runtime role card，会由 backend 解析后显式注入 workflow runner。
+- `.agents/roles/*.md`：仓库协作/subagent 角色，只用于 Codex 协作协议，不注入 runtime。
+- `.agents/skills/**/SKILL.md`：仓库内联 skill 定义。
+
+这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。workflow context 使用内部生成的 thread id / workflow context id；用户会话只触发 workflow run 并接收结果，不提供 thread id，也不共享 workflow 内部 runtime session。
+
+LangGraph checkpoint 使用独立 SQLite 文件 `~/.cli-claw/db/workflow-checkpoints.sqlite`，以内部 `thread_id` 作为恢复维度；workflow run/step 审计仍写入主 `messages.db` 的 `workflow_runs` / `workflow_run_steps` 表。
+
+Workflow role card 的 `allowedTools` 是运行时硬边界：backend 会把 role metadata 显式传入 OpenAI runner，runner tool factory 以 `role.allowedTools` 优先过滤实际可用工具。它不是只写进 prompt 的软提示。
 
 应用包根目录从已安装模块位置解析；launch cwd 只参与 workspace 默认执行目录的物化，不参与后端 build、web build 或 shared 资源定位。
 

@@ -159,6 +159,8 @@ import {
   resolveSkillCommandRoots,
   type SkillCommandDiscoveryResult,
 } from './skills/command-dispatch.js';
+import { executeWorkflowCommand } from './agent/workflow/command.js';
+import { listWorkflowRuns } from './agent/workflow/context.js';
 import { encodeImSlashRewriteMessage } from './messaging/slash-command.js';
 import {
   formatUnknownRuntimeCommandReply,
@@ -2057,9 +2059,30 @@ async function handleCommand(
     case 'sw':
     case 'spawn':
       return handleSpawnCommand(chatJid, rawArgs, chatJid);
+    case 'workflow':
+      return handleWorkflowSlashCommand(chatJid, rawArgs);
     default:
       return null;
   }
+}
+
+async function handleWorkflowSlashCommand(
+  chatJid: string,
+  rawArgs: string,
+  triggerUserId?: string | null,
+): Promise<string> {
+  const target = resolveRuntimeWorkspaceTarget(chatJid, {
+    getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
+    getSiblingJids: getJidsByFolder,
+    getAgent,
+  });
+  if (!target) return '未找到当前工作区';
+  return executeWorkflowCommand({
+    group: target.effectiveGroup,
+    chatJid,
+    argsText: rawArgs,
+    triggerUserId: triggerUserId ?? target.sourceGroup.created_by ?? null,
+  });
 }
 
 function resolveSkillCommandUserId(
@@ -2494,7 +2517,22 @@ async function handleStatusCommand(chatJid: string): Promise<string> {
       )}`
     : '';
 
-  return `${systemStatus}${loopStatus}${lifecycleStatus}`;
+  const recentWorkflowRuns = listWorkflowRuns({
+    folder: location.folder,
+    limit: 3,
+  });
+  const workflowStatus =
+    recentWorkflowRuns.length > 0
+      ? `\n\n工作流运行：\n${recentWorkflowRuns
+          .map(
+            (run) =>
+              `- ${run.workflow_id} ${run.status} (${run.created_at})` +
+              (run.error ? `：${run.error}` : ''),
+          )
+          .join('\n')}`
+      : '';
+
+  return `${systemStatus}${loopStatus}${lifecycleStatus}${workflowStatus}`;
 }
 
 function isSelfIterationAdmin(chatJid: string): boolean {
@@ -9981,6 +10019,7 @@ export async function startCliClaw(
       };
     },
     handleSpawnCommand,
+    handleWorkflowCommand: handleWorkflowSlashCommand,
   });
 
   // Clean expired sessions every hour

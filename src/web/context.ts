@@ -90,6 +90,11 @@ export interface WebDeps {
     message: string,
     sourceImJid?: string,
   ) => Promise<string>;
+  handleWorkflowCommand?: (
+    chatJid: string,
+    argsText: string,
+    userId?: string | null,
+  ) => Promise<string>;
 }
 
 export type Variables = {

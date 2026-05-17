@@ -47,6 +47,12 @@ import {
   Permission,
   PermissionTemplateKey,
   RecordImMessageLifecycleEventInput,
+  WorkflowContext,
+  WorkflowDefinitionCache,
+  WorkflowRun,
+  WorkflowRunStatus,
+  WorkflowRunStep,
+  WorkflowRunStepStatus,
 } from '../domain/types.js';
 import {
   getDefaultPermissions,
@@ -206,6 +212,63 @@ interface DbImMessageLifecycleEventRow {
   created_at: string;
 }
 
+interface DbWorkflowDefinitionCacheRow {
+  folder: string;
+  workflow_id: string;
+  source_path: string;
+  definition_json: string;
+  checksum: string | null;
+  updated_at: string;
+}
+
+interface DbWorkflowContextRow {
+  id: string;
+  folder: string;
+  workflow_id: string;
+  thread_id: string;
+  runtime_agent_id: string;
+  active_run_id: string | null;
+  metadata: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DbWorkflowRunRow {
+  id: string;
+  context_id: string;
+  folder: string;
+  workflow_id: string;
+  thread_id: string;
+  trigger_chat_jid: string;
+  trigger_message_id: string | null;
+  trigger_user_id: string | null;
+  prompt: string;
+  status: WorkflowRunStatus;
+  result: string | null;
+  error: string | null;
+  metadata: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DbWorkflowRunStepRow {
+  id: string;
+  run_id: string;
+  node_id: string;
+  role_id: string | null;
+  status: WorkflowRunStepStatus;
+  attempt: number;
+  input: string | null;
+  output: string | null;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 function mapDbMessageRow(
   row: DbMessageRow,
 ): NewMessage & { is_from_me: boolean } {
@@ -219,6 +282,10 @@ function mapDbMessageRow(
 function parseLifecycleDetails(
   value: string | null,
 ): Record<string, unknown> | null {
+  return parseJsonObject(value);
+}
+
+function parseJsonObject(value: string | null): Record<string, unknown> | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -230,12 +297,49 @@ function parseLifecycleDetails(
   }
 }
 
+function stringifyJsonObject(
+  value: Record<string, unknown> | null | undefined,
+): string | null {
+  return value ? JSON.stringify(value) : null;
+}
+
 function mapImMessageLifecycleEventRow(
   row: DbImMessageLifecycleEventRow,
 ): ImMessageLifecycleEvent {
   return {
     ...row,
     details: parseLifecycleDetails(row.details),
+  };
+}
+
+function mapWorkflowDefinitionCacheRow(
+  row: DbWorkflowDefinitionCacheRow,
+): WorkflowDefinitionCache {
+  return {
+    ...row,
+    definition_json: parseJsonObject(row.definition_json) ?? {},
+  };
+}
+
+function mapWorkflowContextRow(row: DbWorkflowContextRow): WorkflowContext {
+  return {
+    ...row,
+    metadata: parseJsonObject(row.metadata),
+  };
+}
+
+function mapWorkflowRunRow(row: DbWorkflowRunRow): WorkflowRun {
+  return {
+    ...row,
+    metadata: parseJsonObject(row.metadata),
+  };
+}
+
+function mapWorkflowRunStepRow(row: DbWorkflowRunStepRow): WorkflowRunStep {
+  return {
+    ...row,
+    input: parseJsonObject(row.input),
+    output: parseJsonObject(row.output),
   };
 }
 
@@ -424,6 +528,79 @@ export function initDatabase(): void {
       FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id)
     );
     CREATE INDEX IF NOT EXISTS idx_task_run_logs ON task_run_logs(task_id, run_at);
+
+    CREATE TABLE IF NOT EXISTS workflow_definitions (
+      folder TEXT NOT NULL,
+      workflow_id TEXT NOT NULL,
+      source_path TEXT NOT NULL,
+      definition_json TEXT NOT NULL,
+      checksum TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (folder, workflow_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_contexts (
+      id TEXT PRIMARY KEY,
+      folder TEXT NOT NULL,
+      workflow_id TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      runtime_agent_id TEXT NOT NULL,
+      active_run_id TEXT,
+      metadata TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (folder, workflow_id),
+      UNIQUE (thread_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_contexts_folder
+      ON workflow_contexts(folder, workflow_id);
+
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      context_id TEXT NOT NULL,
+      folder TEXT NOT NULL,
+      workflow_id TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      trigger_chat_jid TEXT NOT NULL,
+      trigger_message_id TEXT,
+      trigger_user_id TEXT,
+      prompt TEXT NOT NULL,
+      status TEXT NOT NULL,
+      result TEXT,
+      error TEXT,
+      metadata TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (context_id) REFERENCES workflow_contexts(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_context
+      ON workflow_runs(context_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_folder
+      ON workflow_runs(folder, created_at);
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_status
+      ON workflow_runs(status, updated_at);
+
+    CREATE TABLE IF NOT EXISTS workflow_run_steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      role_id TEXT,
+      status TEXT NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 1,
+      input TEXT,
+      output TEXT,
+      error TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES workflow_runs(id),
+      UNIQUE (run_id, node_id, attempt)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run
+      ON workflow_run_steps(run_id, created_at);
   `);
 
   // State tables (replacing JSON files)
@@ -1553,7 +1730,7 @@ export function initDatabase(): void {
     })();
   }
 
-  const SCHEMA_VERSION = '35';
+  const SCHEMA_VERSION = '36';
   db.prepare(
     'INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)',
   ).run('schema_version', SCHEMA_VERSION);
@@ -2685,6 +2862,332 @@ export function getAllSessions(): Record<string, string> {
     result[row.group_folder] = row.session_id;
   }
   return result;
+}
+
+// --- Workflow persistence accessors ---
+
+export function upsertWorkflowDefinitionCache(input: {
+  folder: string;
+  workflowId: string;
+  sourcePath: string;
+  definitionJson: Record<string, unknown>;
+  checksum?: string | null;
+  updatedAt?: string;
+}): WorkflowDefinitionCache {
+  const updatedAt = input.updatedAt ?? new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workflow_definitions (
+      folder, workflow_id, source_path, definition_json, checksum, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(folder, workflow_id) DO UPDATE SET
+      source_path = excluded.source_path,
+      definition_json = excluded.definition_json,
+      checksum = excluded.checksum,
+      updated_at = excluded.updated_at`,
+  ).run(
+    input.folder,
+    input.workflowId,
+    input.sourcePath,
+    JSON.stringify(input.definitionJson),
+    input.checksum ?? null,
+    updatedAt,
+  );
+  const cached = getWorkflowDefinitionCache(input.folder, input.workflowId);
+  if (!cached) {
+    throw new Error(
+      `Failed to persist workflow definition ${input.workflowId}`,
+    );
+  }
+  return cached;
+}
+
+export function getWorkflowDefinitionCache(
+  folder: string,
+  workflowId: string,
+): WorkflowDefinitionCache | null {
+  const row = db
+    .prepare(
+      'SELECT * FROM workflow_definitions WHERE folder = ? AND workflow_id = ?',
+    )
+    .get(folder, workflowId) as DbWorkflowDefinitionCacheRow | undefined;
+  return row ? mapWorkflowDefinitionCacheRow(row) : null;
+}
+
+export function upsertWorkflowContext(input: {
+  id: string;
+  folder: string;
+  workflowId: string;
+  threadId: string;
+  runtimeAgentId: string;
+  activeRunId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt?: string;
+  updatedAt?: string;
+}): WorkflowContext {
+  const now = new Date().toISOString();
+  const createdAt = input.createdAt ?? now;
+  const updatedAt = input.updatedAt ?? now;
+  db.prepare(
+    `INSERT INTO workflow_contexts (
+      id, folder, workflow_id, thread_id, runtime_agent_id, active_run_id,
+      metadata, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(folder, workflow_id) DO UPDATE SET
+      thread_id = excluded.thread_id,
+      runtime_agent_id = excluded.runtime_agent_id,
+      active_run_id = COALESCE(excluded.active_run_id, workflow_contexts.active_run_id),
+      metadata = COALESCE(excluded.metadata, workflow_contexts.metadata),
+      updated_at = excluded.updated_at`,
+  ).run(
+    input.id,
+    input.folder,
+    input.workflowId,
+    input.threadId,
+    input.runtimeAgentId,
+    input.activeRunId ?? null,
+    stringifyJsonObject(input.metadata),
+    createdAt,
+    updatedAt,
+  );
+  const context = getWorkflowContext(input.folder, input.workflowId);
+  if (!context) {
+    throw new Error(`Failed to persist workflow context ${input.id}`);
+  }
+  return context;
+}
+
+export function getWorkflowContext(
+  folder: string,
+  workflowId: string,
+): WorkflowContext | null {
+  const row = db
+    .prepare(
+      'SELECT * FROM workflow_contexts WHERE folder = ? AND workflow_id = ?',
+    )
+    .get(folder, workflowId) as DbWorkflowContextRow | undefined;
+  return row ? mapWorkflowContextRow(row) : null;
+}
+
+export function getWorkflowContextById(id: string): WorkflowContext | null {
+  const row = db
+    .prepare('SELECT * FROM workflow_contexts WHERE id = ?')
+    .get(id) as DbWorkflowContextRow | undefined;
+  return row ? mapWorkflowContextRow(row) : null;
+}
+
+export function setWorkflowContextActiveRun(
+  contextId: string,
+  runId: string | null,
+): void {
+  db.prepare(
+    'UPDATE workflow_contexts SET active_run_id = ?, updated_at = ? WHERE id = ?',
+  ).run(runId, new Date().toISOString(), contextId);
+}
+
+export function insertWorkflowRun(input: {
+  id: string;
+  contextId: string;
+  folder: string;
+  workflowId: string;
+  threadId: string;
+  triggerChatJid: string;
+  triggerMessageId?: string | null;
+  triggerUserId?: string | null;
+  prompt: string;
+  status?: WorkflowRunStatus;
+  result?: string | null;
+  error?: string | null;
+  metadata?: Record<string, unknown> | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}): WorkflowRun {
+  const now = new Date().toISOString();
+  const createdAt = input.createdAt ?? now;
+  const updatedAt = input.updatedAt ?? now;
+  db.prepare(
+    `INSERT INTO workflow_runs (
+      id, context_id, folder, workflow_id, thread_id, trigger_chat_jid,
+      trigger_message_id, trigger_user_id, prompt, status, result, error,
+      metadata, started_at, completed_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.contextId,
+    input.folder,
+    input.workflowId,
+    input.threadId,
+    input.triggerChatJid,
+    input.triggerMessageId ?? null,
+    input.triggerUserId ?? null,
+    input.prompt,
+    input.status ?? 'queued',
+    input.result ?? null,
+    input.error ?? null,
+    stringifyJsonObject(input.metadata),
+    input.startedAt ?? null,
+    input.completedAt ?? null,
+    createdAt,
+    updatedAt,
+  );
+  setWorkflowContextActiveRun(input.contextId, input.id);
+  const run = getWorkflowRunById(input.id);
+  if (!run) {
+    throw new Error(`Failed to persist workflow run ${input.id}`);
+  }
+  return run;
+}
+
+export function getWorkflowRunById(id: string): WorkflowRun | null {
+  const row = db.prepare('SELECT * FROM workflow_runs WHERE id = ?').get(id) as
+    | DbWorkflowRunRow
+    | undefined;
+  return row ? mapWorkflowRunRow(row) : null;
+}
+
+export function updateWorkflowRunStatus(
+  id: string,
+  input: {
+    status: WorkflowRunStatus;
+    result?: string | null;
+    error?: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+  },
+): WorkflowRun | null {
+  const current = getWorkflowRunById(id);
+  if (!current) return null;
+  const now = new Date().toISOString();
+  const terminal = ['success', 'error', 'cancelled'].includes(input.status);
+  const startedAt =
+    input.startedAt ??
+    current.started_at ??
+    (input.status === 'running' ? now : null);
+  const completedAt =
+    input.completedAt ?? current.completed_at ?? (terminal ? now : null);
+  const result = Object.hasOwn(input, 'result')
+    ? (input.result ?? null)
+    : current.result;
+  const error = Object.hasOwn(input, 'error')
+    ? (input.error ?? null)
+    : current.error;
+
+  db.prepare(
+    `UPDATE workflow_runs
+     SET status = ?, result = ?, error = ?, started_at = ?, completed_at = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(input.status, result, error, startedAt, completedAt, now, id);
+
+  if (terminal) {
+    db.prepare(
+      `UPDATE workflow_contexts
+       SET active_run_id = NULL, updated_at = ?
+       WHERE id = ? AND active_run_id = ?`,
+    ).run(now, current.context_id, id);
+  }
+
+  return getWorkflowRunById(id);
+}
+
+export function upsertWorkflowRunStep(input: {
+  id: string;
+  runId: string;
+  nodeId: string;
+  roleId?: string | null;
+  status: WorkflowRunStepStatus;
+  attempt?: number;
+  input?: Record<string, unknown> | null;
+  output?: Record<string, unknown> | null;
+  error?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}): WorkflowRunStep {
+  const now = new Date().toISOString();
+  const createdAt = input.createdAt ?? now;
+  const updatedAt = input.updatedAt ?? now;
+  const attempt = input.attempt ?? 1;
+  db.prepare(
+    `INSERT INTO workflow_run_steps (
+      id, run_id, node_id, role_id, status, attempt, input, output, error,
+      started_at, completed_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(run_id, node_id, attempt) DO UPDATE SET
+      role_id = excluded.role_id,
+      status = excluded.status,
+      input = excluded.input,
+      output = excluded.output,
+      error = excluded.error,
+      started_at = excluded.started_at,
+      completed_at = excluded.completed_at,
+      updated_at = excluded.updated_at`,
+  ).run(
+    input.id,
+    input.runId,
+    input.nodeId,
+    input.roleId ?? null,
+    input.status,
+    attempt,
+    stringifyJsonObject(input.input),
+    stringifyJsonObject(input.output),
+    input.error ?? null,
+    input.startedAt ?? null,
+    input.completedAt ?? null,
+    createdAt,
+    updatedAt,
+  );
+  const row = db
+    .prepare(
+      'SELECT * FROM workflow_run_steps WHERE run_id = ? AND node_id = ? AND attempt = ?',
+    )
+    .get(input.runId, input.nodeId, attempt) as
+    | DbWorkflowRunStepRow
+    | undefined;
+  if (!row) {
+    throw new Error(`Failed to persist workflow run step ${input.id}`);
+  }
+  return mapWorkflowRunStepRow(row);
+}
+
+export function listWorkflowRunSteps(runId: string): WorkflowRunStep[] {
+  const rows = db
+    .prepare(
+      'SELECT * FROM workflow_run_steps WHERE run_id = ? ORDER BY created_at ASC, id ASC',
+    )
+    .all(runId) as DbWorkflowRunStepRow[];
+  return rows.map(mapWorkflowRunStepRow);
+}
+
+export function listWorkflowRuns(
+  filter: {
+    folder?: string;
+    workflowId?: string;
+    limit?: number;
+  } = {},
+): WorkflowRun[] {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (filter.folder) {
+    where.push('folder = ?');
+    params.push(filter.folder);
+  }
+  if (filter.workflowId) {
+    where.push('workflow_id = ?');
+    params.push(filter.workflowId);
+  }
+  const limit = Math.max(1, Math.min(filter.limit ?? 20, 100));
+  params.push(limit);
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_runs
+       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+    )
+    .all(...params) as DbWorkflowRunRow[];
+  return rows.map(mapWorkflowRunRow);
 }
 
 // --- Registered group accessors ---

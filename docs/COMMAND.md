@@ -17,7 +17,7 @@ Cli Claw 的“命令”分成两层：
 
 | 命令               | 别名                                 | 作用                                                                                           |
 | ------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为 admin 主工作区默认执行目录                                  |
+| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为 admin 主工作区默认执行目录                                 |
 | `cli-claw restart` | -                                    | 读取当前服务保存的 restart 状态并请求一次安全自重启；适合从外部 shell 或 Web operator 环境触发 |
 | `cli-claw help`    | `cli-claw -h` / `cli-claw --help`    | 查看 launcher 帮助                                                                             |
 | `cli-claw version` | `cli-claw -v` / `cli-claw --version` | 输出已安装版本                                                                                 |
@@ -92,16 +92,19 @@ skill command 的执行结果有两类：
 
 以下命令在 IM 与 Web 都可直接识别：
 
-| 命令             | 别名                | 作用                                                                      |
-| ---------------- | ------------------- | ------------------------------------------------------------------------- |
-| `/help`          | -                   | 按模块查看当前入口、当前 runtime 下真正可用的命令                         |
-| `/clear`         | -                   | 清除当前工作区或当前绑定 Agent 的会话上下文                               |
-| `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务                                                  |
-| `/openai`        | -                   | 配置 OpenAI 工作区模型、思考强度和速度；仅当前 runtime 为 `openai` 时可用 |
+| 命令                    | 别名                | 作用                                                                      |
+| ----------------------- | ------------------- | ------------------------------------------------------------------------- |
+| `/help`                 | -                   | 按模块查看当前入口、当前 runtime 下真正可用的命令                         |
+| `/clear`                | -                   | 清除当前工作区或当前绑定 Agent 的会话上下文                               |
+| `/sw <任务描述>`        | `/spawn <任务描述>` | 在当前工作区创建并行任务                                                  |
+| `/workflow [id] [任务]` | -                   | 列出或触发当前工作区 `.agents/workflows` 中定义的 workflow/crew           |
+| `/openai`               | -                   | 配置 OpenAI 工作区模型、思考强度和速度；仅当前 runtime 为 `openai` 时可用 |
 
 说明：
 
 - `/openai` 是当前工作区级配置入口，会持久化到工作区 runtime 配置。
+- `/workflow` 不复用用户会话主 runtime session。它只把当前 Web / IM 会话作为触发入口和结果回填通道；workflow 自身按 `(folder, workflowId)` 生成独立 `workflowContextId` / LangGraph `thread_id`，role node 通过独立 `agentId=workflow:<workflowContextId>` 启动 runner。workflow 定义来自 `.agents/workflows/<id>.json`，runtime role card 来自 `.agents/agent-roles/<id>.md`，role 的 `allowedTools` 会在 runner tool factory 层硬过滤。
+- 输入 bare `/workflow` 会列出当前工作区可用 workflow；输入 `/workflow <id> <任务>` 会创建一条 `workflow_runs` 审计记录并执行对应 graph，最终结果回到触发会话。
 - 当工作区未显式设置 `openai` 的模型、思考强度或速度时，`/status`、`/openai` 配置卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 OpenAI 环境变量 fallback，避免不同入口看到不同值。
 - `openai` 的模型选项使用内置 preset；若当前 effective model 不在 preset 中，配置卡仍会把它作为当前值展示，避免 `/status` 与 `/openai` 不一致。
 - 普通回复 footer 会始终保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。当当前 runtime usage 可用时，会追加 5h / 7d 剩余额；OpenAI/Codex 通过 Codex CLI 登录态请求 ChatGPT Codex usage API，不依赖 `OPENAI_API_KEY` 或过期的本地 jsonl 快照。
@@ -148,6 +151,7 @@ skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发
 
 - `/status` 会以 “Agent” 与 “运行状态” 两段展示当前 runtime 摘要（Agent
   类型、模型、推理强度、OpenAI 速度）、当前绑定位置、回复策略、当前工作区、当前会话、会话数、队列负载和服务进程 cwd；若当前 runtime usage 可读则展示 5h/7d 剩余额和重置时间，无法读取时才显示 `unavailable` / `unknown`。
+- 若当前工作区最近触发过 workflow，`/status` 会追加最近 workflow run 的 `workflow_id`、状态、创建时间和错误摘要；它不会把 workflow 误展示成当前用户会话。
 - Feishu 入口的 `/status` 还会附加最近 Feishu 消息链路事件；当存在最近非 ok 事件时，会单独显示一行紧凑的“飞书异常”，避免投递失败或跳过原因被后续正常事件盖掉。
 - `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-status` 会直接展示当前 backend 解析到的 self-restart launch source、source/build artifact mode 和精确命令，便于判断当前进程是否真的可安全重启；若当前是 `direct_backend` 开发直启路径，或 repo-local source launcher 入口，还会提示长期运行推荐使用 `cli-claw start` / `cli-claw restart`。source launcher 模式下，build 摘要会标注“源码运行，dist build 仅供打包参考”，避免把 dist 指纹误当作当前 backend 代码新旧判断；存在最近非 ok Feishu lifecycle 事件时还会追加全局“飞书异常”摘要。`/self-check` 会复用当前 backend 捕获的 authoritative launch spec，用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，结果会展示候选命令，不会停止或重启当前服务。
 - `/self-restart` 仅管理员可用；backend 只会在当前 launch spec 已通过结构校验时写入 restart intent 并启动独立 watchdog。若当前进程的启动命令不安全或不完整（例如只剩 `bun` 空参数），命令会直接失败，不会生成一个注定错误的 intent。watchdog 会先做 shadow self-check，通过后才停止旧 PID、启动同一启动命令并检查生产端口 `/api/health`。它不是 blue-green/rollback 机制，结果以 `~/.cli-claw/ops/restarts/*.json` 为准；重启成功后，新进程会向发起命令的 IM 会话补发一条成功回执，附带当前服务状态和残留进程检查摘要。若摘要里发现真正孤儿的 runner residue，服务会优先按孤儿 runner 进程组发送 `SIGTERM`，必要时再回退到单个 PID 的 best-effort 清理；普通 backend 启动时也会对残留孤儿 runner 执行同一套 best-effort 清理。
@@ -183,6 +187,7 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命
 - `/clear`
 - `/sw`
 - `/spawn`
+- `/workflow`
 - `/openai`（OpenAI 工作区）
 
 如果在 Web 输入框输入了已知但当前入口不可用的命令（例如 `/bind`），系统会直接返回明确提示，而不会把它当普通消息交给 Agent。

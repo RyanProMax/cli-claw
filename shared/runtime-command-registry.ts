@@ -140,6 +140,14 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
+    name: 'workflow',
+    usage: '/workflow [id] [任务]',
+    description: '列出或触发当前工作区的工作流',
+    module: 'agent',
+    availableEntrypoints: ['im', 'web'],
+    availabilityByRuntime: 'all',
+  },
+  {
     name: 'openai',
     usage: '/openai',
     description: '配置当前工作区 Codex/OpenAI 模型、推理强度和速度',

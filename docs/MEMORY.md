@@ -16,6 +16,7 @@
 - 当前待处理 turn 可以包含连续同源且未提交 cursor 的 pending batch，例如 `A1/A2/B1/A3/B2/B3` 会切成 `A1+A2`、`B1`、`A3`、`B2+B3`；这不是历史上下文注入。`assistant_prompt` 是 skill command 改写出的独立任务边界，不会与前后的普通同源消息合并。
 - 正在执行的 runtime query 不接收新的用户消息；新消息排队到下一轮，避免当前 turn 的流式输出、工具步骤或卡片状态污染下一条消息。runner query 结束并进入 idle 等待后，同来源下一轮才可通过 IPC 复用同一 runtime session。
 - Skill slash command 生成的 `assistant_prompt` 会标记为独立来源，并使用隔离 runtime session 执行：不继承 workspace 主 session，完成后也不替换主 session。若历史版本已经把上一轮 skill final 的 session 写成主 session，下一条普通用户消息会忽略它并建立新的正常主 session。
+- Workflow run 是另一类独立执行上下文：用户会话只触发 workflow 并接收进度/最终结果；workflow 自身按 `(folder, workflowId)` 生成内部 `workflowContextId` / LangGraph `thread_id`，并使用独立 runtime session。workflow state、checkpoint、step output 不能写入用户会话主 runtime session；LangGraph checkpoint 落在独立 SQLite 文件 `~/.cli-claw/db/workflow-checkpoints.sqlite`。
 - 服务重启恢复只用于已入库但尚未提交 cursor 的待处理用户消息；该路径恢复原 runtime session 并发送待处理消息，不拼接 DB 最近历史或 `<system_context>`。
 - 优雅关停 / 自重启 / crash recovery 都不会把正在流式输出的 partial body 持久化成 assistant 正文、发送到 IM，或提交对应用户消息 cursor；启动恢复只清理 `streaming-buffer` / `active_streaming_turns` 临时态，确保未完成用户消息仍按 pending 路径重放。
 - 如果新消息前方存在未消费的 `interrupt_partial` 残留，Cli Claw 不维护 pending resume 状态、不生成确认 prompt、不回放旧中断上下文；只把中断之后当前未提交的连续同源用户消息送入 runtime。
@@ -30,5 +31,5 @@
 ## 边界
 
 - `~/.codex/` 下的 settings / config / native sessions 是外部 runtime 状态，不是 Cli Claw 维护的历史上下文。
-- `.agents/roles/*.md` 是仓库执行协议角色定义，`.agents/skills/**/SKILL.md` 是仓库内联 skill 定义，`~/.agents/agents/*.md` 是用户级 Agent 定义；这些文件都不是 Cli Claw 消息历史注入来源。
+- `.agents/workflows/*.json` 是仓库级 workflow 定义，`.agents/agent-roles/*.md` 是 workflow runtime role card，`.agents/roles/*.md` 是仓库执行协议角色定义，`.agents/skills/**/SKILL.md` 是仓库内联 skill 定义，`~/.agents/agents/*.md` 是用户级 Agent 定义；这些文件都不是 Cli Claw 消息历史注入来源。
 - 任何新增“读取历史并拼入 prompt / 工具描述 / 隐藏任务 / 可见正文”的能力，都必须先更新本文和对应 owner 文档，并补真实消息链路回归测试。

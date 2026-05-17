@@ -2,7 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   discoverSkillCommands,
@@ -13,20 +13,26 @@ describe('web skill command filtering', () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
   test('includes only commands exposed to the current entrypoint in appended help output', async () => {
-    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-cmd-help-'));
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-help-'),
+    );
     tempDirs.push(workspaceRoot);
 
     const skillDir = path.join(workspaceRoot, 'stock-analysis-skill');
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(
       path.join(skillDir, 'SKILL.md'),
-      ['---', 'name: stock-analysis-skill', 'description: test', '---'].join('\n'),
+      ['---', 'name: stock-analysis-skill', 'description: test', '---'].join(
+        '\n',
+      ),
     );
     fs.writeFileSync(
       path.join(skillDir, 'commands.json'),
@@ -60,5 +66,66 @@ describe('web skill command filtering', () => {
     expect(formatSkillCommandHelpLines(discovered.commands)).toEqual([
       '- /hkipo [YYYY-MM-DD]：web + im',
     ]);
+  });
+
+  test('handles /workflow through the web slash command path without enqueueing the main session', async () => {
+    const home = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'cli-claw-web-workflow-'),
+    );
+    tempDirs.push(home);
+    vi.stubEnv('HOME', home);
+
+    const { initDatabase, setRegisteredGroup, getMessagesPage, closeDatabase } =
+      await import('../../../src/storage/db.ts');
+    const { handleWebUserMessageForTests, setWebDepsForTests } =
+      await import('../../../src/web/app.ts');
+    const chatJid = 'web:workflow';
+    const group = {
+      name: 'Workflow Workspace',
+      folder: 'workflow',
+      added_at: '2026-05-17T10:00:00.000Z',
+      is_home: true,
+    };
+    const handleWorkflowCommand = vi
+      .fn()
+      .mockResolvedValue('工作流 投研工作流 (research) 完成：\n投研结论完成');
+    const enqueueMessageCheck = vi.fn();
+
+    initDatabase();
+    setRegisteredGroup(chatJid, group);
+    setWebDepsForTests({
+      queue: { enqueueMessageCheck },
+      getRegisteredGroups: () => ({ [chatJid]: group }),
+      getSessions: () => ({}),
+      processGroupMessages: vi.fn(),
+      formatMessages: vi.fn(),
+      getLastAgentTimestamp: () => ({}),
+      advanceAcceptedCursor: vi.fn(),
+      setLastAgentTimestamp: vi.fn(),
+      advanceGlobalCursor: vi.fn(),
+      handleWorkflowCommand,
+    } as any);
+
+    const result = await handleWebUserMessageForTests(
+      chatJid,
+      '/workflow research 分析英伟达',
+      undefined,
+      'user-1',
+      'User',
+    );
+
+    expect(result.ok).toBe(true);
+    expect(handleWorkflowCommand).toHaveBeenCalledWith(
+      chatJid,
+      'research 分析英伟达',
+      'user-1',
+    );
+    expect(enqueueMessageCheck).not.toHaveBeenCalled();
+    expect(getMessagesPage(chatJid).map((message) => message.content)).toEqual([
+      '工作流 投研工作流 (research) 完成：\n投研结论完成',
+      '/workflow research 分析英伟达',
+    ]);
+
+    closeDatabase();
   });
 });

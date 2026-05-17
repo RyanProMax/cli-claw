@@ -176,6 +176,48 @@ function scheduledTaskPrompt(prompt: string): string {
   ].join('\n');
 }
 
+export function buildOpenAiInstructions(input: AgentProcessInput): string {
+  const instructions: Array<string | null> = [
+    'You are running inside cli-claw as the OpenAI agent runtime.',
+    'Use available tools for messaging, files, skills, groups, and scheduled task operations.',
+    'Do not assume prior conversation context unless it is present in the persisted session.',
+  ];
+
+  if (input.workflow) {
+    instructions.push(
+      '',
+      '[Workflow Runtime]',
+      `Workflow: ${input.workflow.name} (${input.workflow.id})`,
+      `Workflow Context: ${input.workflow.contextId}`,
+      `Workflow Run: ${input.workflow.runId}`,
+      `LangGraph Thread: ${input.workflow.threadId}`,
+      `Node: ${input.workflow.nodeId} (${input.workflow.nodeType})`,
+    );
+  }
+
+  if (input.role) {
+    instructions.push(
+      '',
+      '[Workflow Role]',
+      `Role: ${input.role.name} (${input.role.id})`,
+      input.role.description
+        ? `Role Description: ${input.role.description}`
+        : null,
+      `Permission Mode: ${input.role.permissionMode}`,
+      input.role.skillIds.length > 0
+        ? `Suggested Skills: ${input.role.skillIds.join(', ')}`
+        : null,
+      `Allowed Tools: ${input.role.allowedTools.join(', ') || '(none)'}`,
+      '',
+      input.role.instructions,
+    );
+  }
+
+  return instructions
+    .filter((line): line is string => line !== null)
+    .join('\n');
+}
+
 function decorateStreamEvent(
   event: StreamEvent,
   sessionId: string | undefined,
@@ -297,15 +339,14 @@ export async function runOpenAiAgentLoop(
 
   const { isHome, isAdminHome } = deps.normalizeHomeFlags(agentInput);
   const model = agentInput.model || OPENAI_MODEL;
+  const effectiveAllowedTools = agentInput.role
+    ? agentInput.role.allowedTools
+    : agentInput.allowedTools;
   const agent = new Agent({
     name: agentInput.agentName || 'Cli Claw OpenAI Agent',
     model,
     modelSettings: buildModelSettings(agentInput),
-    instructions: [
-      'You are running inside cli-claw as the OpenAI agent runtime.',
-      'Use available tools for messaging, files, skills, groups, and scheduled task operations.',
-      'Do not assume prior conversation context unless it is present in the persisted session.',
-    ].join('\n'),
+    instructions: buildOpenAiInstructions(agentInput),
     tools: createOpenAiAgentTools({
       chatJid: agentInput.chatJid,
       groupFolder: agentInput.groupFolder,
@@ -314,6 +355,7 @@ export async function runOpenAiAgentLoop(
       isScheduledTask: agentInput.isScheduledTask || false,
       workspaceIpc: deps.workspaceIpc,
       workspaceGroup: deps.workspaceGroup,
+      allowedTools: effectiveAllowedTools,
     }),
   });
 

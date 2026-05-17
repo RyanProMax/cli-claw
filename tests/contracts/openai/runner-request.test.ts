@@ -445,6 +445,73 @@ describe('P0 OpenAI runner request contract', () => {
     );
   });
 
+  test('serializes workflow role instructions and filtered tools into the real SDK request body', async () => {
+    const finalText = 'WORKFLOW_RUNNER_OK';
+    await withCaptureServer(
+      async ({ baseUrl, captured }) => {
+        const tempRoot = makeTempDir('cli-claw-workflow-openai-loop-');
+        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        vi.stubEnv(
+          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          path.join(tempRoot, 'sessions'),
+        );
+        vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
+        vi.stubEnv('no_proxy', '127.0.0.1,localhost');
+
+        const { runOpenAiAgentLoop } =
+          await import('../../../container/agent-runner/src/openai-agent-runtime.ts');
+        const { deps } = buildRunnerDeps(tempRoot);
+
+        await runOpenAiAgentLoop(
+          {
+            prompt: 'workflow prompt',
+            groupFolder: 'workspace-a',
+            chatJid: 'web:workspace-a',
+            agentType: 'openai',
+            model: 'gpt-5.5',
+            reasoningEffort: 'xhigh',
+            speedTier: 'standard',
+            workflow: {
+              id: 'investment-research',
+              name: '投研工作流',
+              contextId: 'wfctx_1',
+              runId: 'wfrun_1',
+              threadId: 'wfctx_1',
+              nodeId: 'research',
+              nodeType: 'role_task',
+            },
+            role: {
+              id: 'analyst',
+              name: '投研分析师',
+              description: '整理公开信息并形成观点',
+              instructions: '只输出可溯源的投研结论。',
+              skillIds: ['stock-analysis-skill'],
+              permissionMode: 'readonly',
+              allowedTools: ['send_message'],
+            },
+          },
+          deps,
+        );
+
+        expect(captured).toHaveLength(1);
+        expect(String(captured[0]!.body.instructions)).toContain(
+          'Workflow: 投研工作流 (investment-research)',
+        );
+        expect(String(captured[0]!.body.instructions)).toContain(
+          'Role: 投研分析师 (analyst)',
+        );
+        expect(String(captured[0]!.body.instructions)).toContain(
+          '只输出可溯源的投研结论。',
+        );
+        const serializedTools = JSON.stringify(captured[0]!.body.tools);
+        expect(serializedTools).toContain('send_message');
+        expect(serializedTools).not.toContain('schedule_task');
+      },
+      (_req, res) => writeSuccessfulResponsesStream(res, finalText),
+    );
+  });
+
   test('stops after one Codex stream when terminal response output is empty', async () => {
     const finalText = 'CODEX_STREAM_DONE_OK';
     await withCaptureServer(

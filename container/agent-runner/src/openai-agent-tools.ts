@@ -14,6 +14,7 @@ export interface OpenAiToolContext {
   isScheduledTask?: boolean;
   workspaceIpc: string;
   workspaceGroup: string;
+  allowedTools?: string[];
 }
 
 function writeIpcFile(dir: string, data: object): string {
@@ -30,7 +31,9 @@ function writeIpcFile(dir: string, data: object): string {
     } catch {
       /* ignore */
     }
-    throw new Error(`IPC write failed (${dir}): ${serializeErrorForOutput(err)}`);
+    throw new Error(
+      `IPC write failed (${dir}): ${serializeErrorForOutput(err)}`,
+    );
   }
   return filename;
 }
@@ -58,7 +61,10 @@ async function pollIpcResult(
   throw new Error(`Timeout waiting for IPC result (${timeoutMs / 1000}s)`);
 }
 
-function validateWorkspacePath(ctx: OpenAiToolContext, filePath: string): string {
+function validateWorkspacePath(
+  ctx: OpenAiToolContext,
+  filePath: string,
+): string {
   const resolved = path.isAbsolute(filePath)
     ? path.resolve(filePath)
     : path.resolve(ctx.workspaceGroup, filePath);
@@ -71,14 +77,23 @@ function validateWorkspacePath(ctx: OpenAiToolContext, filePath: string): string
   return resolved;
 }
 
-function toRelativeWorkspacePath(ctx: OpenAiToolContext, filePath: string): string {
+function toRelativeWorkspacePath(
+  ctx: OpenAiToolContext,
+  filePath: string,
+): string {
   const resolved = validateWorkspacePath(ctx, filePath);
   return path.relative(ctx.workspaceGroup, resolved);
 }
 
-export function createOpenAiAgentTools(
-  ctx: OpenAiToolContext,
-): Tool[] {
+function filterAllowedTools(tools: Tool[], allowedTools?: string[]): Tool[] {
+  if (allowedTools === undefined) return tools;
+  const allowed = new Set(allowedTools);
+  return tools.filter((candidate) =>
+    allowed.has(String((candidate as { name?: unknown }).name || '')),
+  );
+}
+
+export function createOpenAiAgentTools(ctx: OpenAiToolContext): Tool[] {
   const messagesDir = path.join(ctx.workspaceIpc, 'messages');
   const tasksDir = path.join(ctx.workspaceIpc, 'tasks');
   const hasCrossGroupAccess = ctx.isAdminHome;
@@ -115,7 +130,8 @@ export function createOpenAiAgentTools(
       strict: true,
       execute: ({ file_path, caption }) => {
         const resolved = validateWorkspacePath(ctx, file_path);
-        if (!fs.existsSync(resolved)) return `Error: file not found: ${file_path}`;
+        if (!fs.existsSync(resolved))
+          return `Error: file not found: ${file_path}`;
         const stat = fs.statSync(resolved);
         if (stat.size > 10 * 1024 * 1024) {
           return `Error: image file too large (${(stat.size / 1024 / 1024).toFixed(1)}MB). Maximum is 10MB.`;
@@ -153,7 +169,8 @@ export function createOpenAiAgentTools(
       strict: true,
       execute: ({ filePath, fileName }) => {
         const resolved = validateWorkspacePath(ctx, filePath);
-        if (!fs.existsSync(resolved)) return `Error: file not found: ${filePath}`;
+        if (!fs.existsSync(resolved))
+          return `Error: file not found: ${filePath}`;
         const stat = fs.statSync(resolved);
         if (stat.size > 30 * 1024 * 1024) {
           return `Error: file too large (${(stat.size / 1024 / 1024).toFixed(1)}MB). Maximum is 30MB.`;
@@ -272,7 +289,12 @@ export function createOpenAiAgentTools(
 
     taskControlTool('pause_task', 'Pause a scheduled task.', tasksDir, ctx),
     taskControlTool('resume_task', 'Resume a paused task.', tasksDir, ctx),
-    taskControlTool('cancel_task', 'Cancel and delete a scheduled task.', tasksDir, ctx),
+    taskControlTool(
+      'cancel_task',
+      'Cancel and delete a scheduled task.',
+      tasksDir,
+      ctx,
+    ),
 
     tool({
       name: 'register_group',
@@ -305,7 +327,7 @@ export function createOpenAiAgentTools(
     tools.push(createUninstallSkillTool(tasksDir, ctx));
   }
 
-  return tools;
+  return filterAllowedTools(tools, ctx.allowedTools);
 }
 
 function taskControlTool(
@@ -366,7 +388,8 @@ function createInstallSkillTool(
       if (!result.success) {
         return `Failed to install skill "${pkg}": ${result.error || 'Unknown error'}`;
       }
-      const installed = ((result.installed as string[]) || []).join(', ') || pkg;
+      const installed =
+        ((result.installed as string[]) || []).join(', ') || pkg;
       return `Skill installed successfully: ${installed}`;
     },
   });
