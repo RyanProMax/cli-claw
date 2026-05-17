@@ -23,7 +23,7 @@ import {
 } from '../../../../src/agent/runner/output-parser.ts';
 
 describe('agent timeout logging', () => {
-  test('logs controlled host agent timeouts as info instead of error', () => {
+  test('logs controlled agent process timeouts as info instead of error', () => {
     const logsDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'cli-claw-timeout-log-'),
     );
@@ -32,13 +32,14 @@ describe('agent timeout logging', () => {
     const handled = handleTimeoutClose(
       {
         groupName: '飞书私聊',
-        label: 'Host Agent',
-        filePrefix: 'host',
-        identifier: 'host-main-1',
+        label: 'Agent Process',
+        filePrefix: 'agent',
+        identifier: 'agent-main-1',
         logsDir,
         input: {
           prompt: 'hello',
-          isMain: true,
+          isHome: true,
+          isAdminHome: true,
         },
         stdoutState: createStdoutParserState(),
         stderrState: createStderrState(),
@@ -58,17 +59,17 @@ describe('agent timeout logging', () => {
     expect(hoisted.loggerInfo).toHaveBeenCalledWith(
       expect.objectContaining({
         group: '飞书私聊',
-        processId: 'host-main-1',
+        processId: 'agent-main-1',
         duration: 3_715_236,
         code: 0,
       }),
-      'Host Agent timed out',
+      'Agent Process timed out',
     );
     expect(hoisted.loggerError).not.toHaveBeenCalled();
     expect(resolved).toEqual({
       status: 'error',
       result: null,
-      error: 'Host Agent timed out after 1800000ms',
+      error: 'Agent Process timed out after 1800000ms',
     });
   });
 });

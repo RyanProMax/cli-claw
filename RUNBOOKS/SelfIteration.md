@@ -22,7 +22,7 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 - Uses a temporary `HOME`, so candidate data lands under an isolated `~/.cli-claw`.
 - Uses a temporary `WEB_PORT`.
 - Sets `CLI_CLAW_SELF_CHECK=1`, so the candidate skips IM channel connections.
-- Skips CLI launch cwd validation and host workspace default cwd materialization, because the candidate HOME is temporary and should not validate production host workspaces.
+- Skips CLI launch cwd validation and workspace default cwd materialization, because the candidate HOME is temporary and should not validate production workspaces.
 - Polls `http://127.0.0.1:<port>/api/health`.
 - Stops the candidate process and removes the temporary HOME.
 - Leaves the current live service untouched.

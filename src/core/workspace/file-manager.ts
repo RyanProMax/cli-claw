@@ -28,7 +28,7 @@ const SYSTEM_PATHS = ['logs', 'AGENTS.md', 'conversations'];
 /**
  * 获取会话流的文件根目录
  * @param folder 会话流文件夹名（如 main）
- * @param rootOverride 可选的自定义根目录（绝对路径），用于宿主机模式 customCwd
+ * @param rootOverride 可选的自定义根目录（绝对路径），用于工作区 customCwd
  * @returns 绝对路径
  */
 export function getFileRoot(folder: string, rootOverride?: string): string {
@@ -246,8 +246,7 @@ export function createDirectory(
   }
 
   fs.mkdirSync(absolutePath, { recursive: true });
-  // chmod 0o777 确保容器（node/1000）与宿主机用户均可读写
-  // 与 container-runner.ts 的 mkdirForContainer() 行为一致
+  // chmod 0o777 keeps files writable across locally spawned runner processes.
   try {
     fs.chmodSync(absolutePath, 0o777);
   } catch {

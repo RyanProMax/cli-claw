@@ -27,7 +27,6 @@ export interface WebDeps {
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   getSessions: () => Record<string, string>;
   processGroupMessages: (chatJid: string) => Promise<boolean>;
-  ensureTerminalContainerStarted: (chatJid: string) => boolean;
   formatMessages: (messages: NewMessage[], isShared?: boolean) => string;
   getLastAgentTimestamp: () => Record<string, MessageCursor>;
   advanceAcceptedCursor: (jid: string, cursor: MessageCursor) => void;
@@ -191,12 +190,7 @@ export function parseCookie(
   return cookies;
 }
 
-// Host execution helpers
-export function isHostExecutionGroup(group: RegisteredGroup): boolean {
-  return (group.executionMode || 'container') === 'host';
-}
-
-export function hasHostExecutionPermission(user: AuthUser): boolean {
+export function hasLocalWorkspacePermission(user: AuthUser): boolean {
   return user.role === 'admin';
 }
 

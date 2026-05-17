@@ -21,14 +21,15 @@ describe('writeRunLog', () => {
     const logFile = writeRunLog(
       {
         groupName: 'Main',
-        label: 'Host Agent',
-        filePrefix: 'host',
-        identifier: 'host-main-1',
+        label: 'Agent Process',
+        filePrefix: 'agent',
+        identifier: 'agent-main-1',
         logsDir,
         input: {
           prompt: 'hello',
           sessionId: 'session-1',
-          isMain: true,
+          isHome: true,
+          isAdminHome: true,
         },
         stdoutState,
         stderrState,
@@ -39,7 +40,6 @@ describe('writeRunLog', () => {
           chatJid: 'web:main',
           groupFolder: 'main',
           agentType: 'openai',
-          executionMode: 'host',
           selectedRunner: 'openai',
         },
         runtimeBuildInfo: {
@@ -60,7 +60,7 @@ describe('writeRunLog', () => {
     const content = fs.readFileSync(logFile, 'utf8');
     expect(content).toContain('Chat JID: web:main');
     expect(content).toContain('Agent Type: openai');
-    expect(content).toContain('Execution Mode: host');
+    expect(content).not.toContain('Execution Mode:');
     expect(content).toContain('Selected Runner: openai');
     expect(content).toContain('Backend PID: 1234');
     expect(content).toContain('Backend Build Loaded: backend-loaded');

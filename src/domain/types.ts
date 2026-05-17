@@ -1,39 +1,27 @@
 import type { StreamEvent } from '../presentation/stream-event.types.js';
 
-export interface AdditionalMount {
-  hostPath: string; // Absolute path on host (supports ~ for home)
-  containerPath?: string; // Optional — defaults to basename of hostPath. Mounted at /workspace/extra/{value}
-  readonly?: boolean; // Default: true for safety
-}
-
 /**
- * Mount Allowlist - Security configuration for additional mounts
+ * Workspace cwd allowlist - Security configuration for local workspaces
  * Stored at config/mount-allowlist.json in the project root.
  */
 export interface MountAllowlist {
-  // Directories that can be mounted into containers
+  // Directories that can be used as workspace roots
   allowedRoots: AllowedRoot[];
-  // Glob patterns for paths that should never be mounted (e.g., ".ssh", ".gnupg")
+  // Path components that should never be used as workspace roots (e.g., ".ssh", ".gnupg")
   blockedPatterns: string[];
-  // If true, non-main groups can only mount read-only regardless of config
+  // Retained for config shape compatibility; local workspace cwd validation ignores it.
   nonMainReadOnly: boolean;
 }
 
 export interface AllowedRoot {
   // Absolute path or ~ for home (e.g., "~/projects", "/var/repos")
   path: string;
-  // Whether read-write mounts are allowed under this root
+  // Whether read-write workspace operations are allowed under this root
   allowReadWrite: boolean;
   // Optional description for documentation
   description?: string;
 }
 
-export interface ContainerConfig {
-  additionalMounts?: AdditionalMount[];
-  timeout?: number; // Default: 300000 (5 minutes)
-}
-
-export type ExecutionMode = 'container' | 'host';
 export type AgentType = 'openai';
 
 export interface RuntimeIdentity {
@@ -48,17 +36,13 @@ export interface RegisteredGroup {
   name: string;
   folder: string;
   added_at: string;
-  containerConfig?: ContainerConfig;
   agentType?: AgentType; // 默认 'openai'
-  executionMode?: ExecutionMode; // 默认 'container'
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;
-  customCwd?: string; // 宿主机模式的自定义工作目录（绝对路径）
-  initSourcePath?: string; // 容器模式下复制来源的宿主机绝对路径
-  initGitUrl?: string; // 容器模式下 clone 来源的 Git URL
+  customCwd?: string; // 工作区执行目录（绝对路径）
   created_by?: string;
-  is_home?: boolean; // 用户主容器标记
+  is_home?: boolean; // 用户主工作区标记
   target_agent_id?: string; // IM 消息路由到指定 conversation agent
   target_main_jid?: string; // IM 消息路由到指定工作区的主对话（web:{folder}）
   reply_policy?: 'source_only' | 'mirror'; // IM 绑定的回复策略
@@ -179,7 +163,6 @@ export interface ScheduledTask {
   context_mode: 'isolated';
   execution_type: 'agent' | 'script';
   script_command: string | null;
-  execution_mode?: 'host' | 'container' | null;
   workspace_jid?: string | null;
   workspace_folder?: string | null;
   next_run: string | null;
@@ -383,8 +366,7 @@ export type WsMessageOut =
   | { type: 'typing'; chatJid: string; isTyping: boolean; agentId?: string }
   | {
       type: 'status_update';
-      activeContainers: number;
-      activeHostProcesses: number;
+      activeProcesses: number;
       activeTotal: number;
       queueLength: number;
     }
@@ -419,13 +401,7 @@ export type WsMessageOut =
       resultSummary?: string;
       kind?: AgentKind;
     }
-  | { type: 'terminal_output'; chatJid: string; data: string }
-  | { type: 'terminal_started'; chatJid: string }
-  | { type: 'terminal_stopped'; chatJid: string; reason?: string }
-  | { type: 'terminal_error'; chatJid: string; error: string }
   | { type: 'group_created'; jid: string; folder: string; name: string }
-  | { type: 'docker_build_log'; line: string }
-  | { type: 'docker_build_complete'; success: boolean; error?: string }
   | {
       type: 'billing_update';
       userId: string;
@@ -459,18 +435,13 @@ export type WsMessageOut =
       };
     };
 
-export type WsMessageIn =
-  | {
-      type: 'send_message';
-      chatJid: string;
-      content: string;
-      attachments?: MessageAttachment[];
-      agentId?: string;
-    }
-  | { type: 'terminal_start'; chatJid: string; cols: number; rows: number }
-  | { type: 'terminal_input'; chatJid: string; data: string }
-  | { type: 'terminal_resize'; chatJid: string; cols: number; rows: number }
-  | { type: 'terminal_stop'; chatJid: string };
+export type WsMessageIn = {
+  type: 'send_message';
+  chatJid: string;
+  content: string;
+  attachments?: MessageAttachment[];
+  agentId?: string;
+};
 
 // --- Streaming event types (canonical source: shared/stream-event.ts) ---
 export type { StreamEventType } from '../presentation/stream-event.types.js';
@@ -496,7 +467,7 @@ export interface BillingPlan {
   display_price: string | null; // 展示价格文本（如 "¥99/月"）
   highlight: boolean; // 推荐标记
   max_groups: number | null;
-  max_concurrent_containers: number | null;
+  max_concurrent_processes: number | null;
   max_im_channels: number | null;
   max_mcp_servers: number | null;
   max_storage_mb: number | null;

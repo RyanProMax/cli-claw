@@ -1,15 +1,11 @@
 import { Hono } from 'hono';
 import type { Variables } from '../context.js';
 import { authMiddleware } from '../middleware/auth.js';
-import {
-  isHostExecutionGroup,
-  hasHostExecutionPermission,
-  canAccessGroup,
-} from '../context.js';
+import { hasLocalWorkspacePermission, canAccessGroup } from '../context.js';
 import type { AuthUser } from '../../domain/types.js';
 import type { RegisteredGroup } from '../../domain/types.js';
 import { getJidsByFolder, getRegisteredGroup } from '../../storage/db.js';
-import { resolveEffectiveHostWorkspaceCwd } from '../../core/workspace/host-cwd.js';
+import { resolveEffectiveWorkspaceCwd } from '../../core/workspace/workspace-cwd.js';
 import { logger } from '../../core/logger.js';
 import {
   listFiles,
@@ -132,14 +128,13 @@ const SAFE_PREVIEW_MIME_TYPES = new Set([
 
 /**
  * 获取文件操作的根目录覆盖。
- * 宿主机模式下以有效工作目录为根。
+ * 单一进程执行链路下以有效工作目录为根；缺省时使用存储目录。
  */
 export function resolveFileRootOverride(
   group: RegisteredGroup,
   homeGroup?: RegisteredGroup | null,
 ): string | undefined {
-  if (group.executionMode !== 'host') return undefined;
-  return resolveEffectiveHostWorkspaceCwd(group, homeGroup ?? undefined);
+  return resolveEffectiveWorkspaceCwd(group, homeGroup ?? undefined);
 }
 
 function findHomeSiblingGroup(
@@ -164,9 +159,6 @@ function getRequiredFileRootOverride(
     group,
     findHomeSiblingGroup(group),
   );
-  if (group.executionMode === 'host' && !rootOverride) {
-    throw new Error('Host workspace is missing custom_cwd');
-  }
   return rootOverride;
 }
 
@@ -261,13 +253,6 @@ fileRoutes.get('/:jid/files', authMiddleware, (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   try {
     const result = listFiles(
       group.folder,
@@ -294,13 +279,6 @@ fileRoutes.post('/:jid/files', authMiddleware, async (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   try {
     const rootOverride = getRequiredFileRootOverride(group);
     const body = await c.req.parseBody({ all: true });
@@ -397,8 +375,8 @@ fileRoutes.post('/:jid/files/open-directory', authMiddleware, async (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  // 打开本地目录属于宿主机操作，限制为有宿主机权限的用户
-  if (!hasHostExecutionPermission(authUser)) {
+  // 打开本地目录属于本机文件系统操作，限制为管理员。
+  if (!hasLocalWorkspacePermission(authUser)) {
     return c.json(
       { error: 'Insufficient permissions to open local directory' },
       403,
@@ -458,13 +436,6 @@ fileRoutes.get('/:jid/files/download/:path', authMiddleware, (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   try {
     // 解码 base64url 路径
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
@@ -559,13 +530,6 @@ fileRoutes.get('/:jid/files/preview/:path', authMiddleware, (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   try {
     // 解码 base64url 路径
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
@@ -632,13 +596,6 @@ fileRoutes.get('/:jid/files/content/:path', authMiddleware, (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   try {
     const rootOverride = getRequiredFileRootOverride(group);
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
@@ -695,13 +652,6 @@ fileRoutes.put('/:jid/files/content/:path', authMiddleware, async (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   try {
     const rootOverride = getRequiredFileRootOverride(group);
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
@@ -788,13 +738,6 @@ fileRoutes.delete('/:jid/files/:path', authMiddleware, (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   try {
     const rootOverride = getRequiredFileRootOverride(group);
     // 解码 base64url 路径
@@ -836,13 +779,6 @@ fileRoutes.post('/:jid/directories', authMiddleware, async (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   try {
     const body = await c.req.json();
     const { path: parentPath, name } = body;

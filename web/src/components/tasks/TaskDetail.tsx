@@ -421,15 +421,6 @@ export function TaskDetail({ task }: TaskDetailProps) {
           </div>
         )}
 
-        {task.execution_mode && (
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">执行模式</div>
-            <div className="text-sm text-foreground">
-              {task.execution_mode === 'host' ? '宿主机' : 'Docker 容器'}
-            </div>
-          </div>
-        )}
-
         {task.workspace_folder && (
           <div>
             <div className="text-xs text-muted-foreground mb-1">任务工作区</div>

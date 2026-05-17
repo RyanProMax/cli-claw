@@ -22,13 +22,12 @@ function makeTempDir(): string {
 }
 
 describe('createImNewWorkspaceGroup', () => {
-  test('materializes launch cwd when IM /new falls back to host mode', () => {
+  test('materializes launch cwd for a new IM workspace', () => {
     const launchCwd = makeTempDir();
 
     const result = createImNewWorkspaceGroup({
       name: 'Ops',
       userId: 'admin-1',
-      dockerAvailable: false,
       launchCwd,
       allowlist: null,
     });
@@ -39,7 +38,6 @@ describe('createImNewWorkspaceGroup', () => {
         folder: expect.stringMatching(/^flow-/),
         group: expect.objectContaining({
           name: 'Ops',
-          executionMode: 'host',
           customCwd: fs.realpathSync(launchCwd),
           created_by: 'admin-1',
         }),

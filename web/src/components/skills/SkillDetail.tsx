@@ -245,7 +245,7 @@ export function SkillDetail({ skillId, onDeleted }: SkillDetailProps) {
         <p className="text-sm text-muted-foreground">
           {detail.source === 'user'
             ? detail.syncedFromHost
-              ? '从宿主机同步，可启停和删除。重新同步时会恢复'
+              ? '从本机同步，可启停和删除。重新同步时会恢复'
               : detail.packageName
                 ? `通过 ${detail.packageName} 安装，可重新安装以获取最新版本`
                 : '用户级技能可启用/禁用或删除，也可在对话中让 AI 安装或卸载技能'

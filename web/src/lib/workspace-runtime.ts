@@ -1,16 +1,15 @@
-export type WorkspaceAgentType = 'openai' | (string & {});
-export type WorkspaceExecutionMode = 'container' | 'host';
+import type { GroupRuntimeAgentType } from '../types';
+
+export type WorkspaceAgentType = GroupRuntimeAgentType;
 
 export interface WorkspaceRuntimeSelection {
   agentType: WorkspaceAgentType;
-  executionMode: WorkspaceExecutionMode;
 }
 
 export function normalizeWorkspaceRuntimeSelection(
-  selection: WorkspaceRuntimeSelection,
+  _selection: Partial<WorkspaceRuntimeSelection> | null | undefined,
 ): WorkspaceRuntimeSelection {
   return {
-    ...selection,
     agentType: 'openai',
   };
 }

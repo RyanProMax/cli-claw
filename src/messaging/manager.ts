@@ -3,7 +3,7 @@
  *
  * Manages per-user IM connections using the unified IMChannel interface.
  * Each user can have independent IM connections that route messages
- * to their home container.
+ * to their home workspace.
  */
 import {
   type IMChannel,

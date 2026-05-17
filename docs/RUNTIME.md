@@ -1,10 +1,10 @@
 # RUNTIME
 
-> 本文负责：运行时矩阵、`agentType` / `executionMode` 约束、runtime identity、host cwd 和外部运行时契约。工作区 / conversation 身份见 `docs/ARCHITECTURE.md`；记忆机制见 `docs/MEMORY.md`。
+> 本文负责：运行时矩阵、`agentType` 约束、runtime identity、workspace cwd 和外部运行时契约。工作区 / conversation 身份见 `docs/ARCHITECTURE.md`；记忆机制见 `docs/MEMORY.md`。
 
 ## 概览
 
-Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由 `container/agent-runner/` 按工作区运行时配置调用底层 CLI runtime。
+Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由本地 Agent 进程执行。当前物理包路径仍是 `container/agent-runner/`，但它只是 runner package 路径，不代表 Docker 或执行模式。
 
 服务进程本身由外部 launcher `cli-claw start` 启动；源码仓库与同名 `cli-claw` 发布包复用同一个 launcher 入口，负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。源码仓库的 `bun start` / `npm start` 会委托到 `bun src/cli.ts start`，因此仍属于 launcher 入口；`bun src/index.ts` 只用于 direct backend 调试。
 
@@ -16,7 +16,7 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - `/self-status` 还会输出当前进程解析出的 self-restart launch spec：是否可安全自重启、launch source，以及 watchdog/launchd 将复用的精确启动命令。
 - `/self-check` 复用 backend 启动时捕获的 authoritative launch spec 启动候选 backend，并用临时 `WEB_PORT` 轮询候选服务的 `/api/health`；结果会展示实际候选命令，便于确认自检目标与当前服务启动入口一致。
 - 候选进程会使用隔离 `HOME`，因此数据目录落在临时 `~/.cli-claw`，不会写入生产 `~/.cli-claw`。
-- 候选进程会带上 `CLI_CLAW_SELF_CHECK=1`；backend 在该模式下启动 Web/API、DB 和队列基础能力，但跳过 CLI launch cwd 校验、host workspace 默认 cwd 物化和 IM channel 连接，避免临时 HOME 的 allowlist 影响自检，也避免和线上飞书/微信/Telegram/QQ/钉钉连接抢占。
+- 候选进程会带上 `CLI_CLAW_SELF_CHECK=1`；backend 在该模式下启动 Web/API、DB 和队列基础能力，但跳过 CLI launch cwd 校验、workspace 默认 cwd 物化和 IM channel 连接，避免临时 HOME 的 allowlist 影响自检，也避免和线上飞书/微信/Telegram/QQ/钉钉连接抢占。
 - `/self-check` 只验证“当前 build 能否冷启动并健康”，不会停止当前服务，也不会切换端口或执行真实重启。
 - `/self-restart` 不在 backend 进程内重启自身；它写入 `~/.cli-claw/ops/restarts/*.json` intent，并启动独立 watchdog 进程。watchdog 先执行 shadow self-check；失败时不停止当前服务；通过后才停止旧 PID、按同一启动命令启动新进程，并轮询生产端口 `/api/health`。
 - `/self-restart` 使用一份在 backend 启动时捕获并校验过的 authoritative launch spec；若当前进程无法解析出安全的启动命令（例如 argv 缺失 entrypoint、只剩 `bun` 空参数、或明显不是 Cli Claw 入口），命令会直接拒绝受理，而不是写出一个注定重启失败的 intent。
@@ -28,26 +28,25 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 `/self-restart` 不是 blue-green 或 rollback 机制。它能避免“preflight 失败还杀旧进程”的 badcase，但不能保证源码/二进制级回滚；更强的生产发布仍应使用 release 目录、symlink 或系统级 supervisor。
 
-对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 默认使用 `cli-claw start`，也可以通过 `-- COMMAND [ARGS...]` 显式复用 `/self-status` 暴露的 validated launch command；不要另起一套不同的启动脚本。安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` 这类宿主机 runtime 依赖，同时注入 `CLI_CLAW_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
+对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 默认使用 `cli-claw start`，也可以通过 `-- COMMAND [ARGS...]` 显式复用 `/self-status` 暴露的 validated launch command；不要另起一套不同的启动脚本。安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` 这类本机 runtime 依赖，同时注入 `CLI_CLAW_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
 
 ## 运行时矩阵
 
-| `agentType` | 底层运行时        | 支持执行模式         | 当前认证方式                             | 备注                                                                             |
-| ----------- | ----------------- | -------------------- | ---------------------------------------- | -------------------------------------------------------------------------------- |
-| `openai`    | OpenAI Agents SDK | `host` / `container` | 宿主机 Codex CLI 登录态（`codex login`） | backend 通过 Codex app-server 解析 token，runner 使用隔离文件 session 保存上下文 |
+| `agentType` | 底层运行时        | 执行路径        | 当前认证方式                       | 备注                                                                             |
+| ----------- | ----------------- | --------------- | ---------------------------------- | -------------------------------------------------------------------------------- |
+| `openai`    | OpenAI Agents SDK | 本地 Agent 进程 | Codex CLI 登录态（`codex login`）  | backend 通过 Codex app-server 解析 token，runner 使用隔离文件 session 保存上下文 |
 
 ## 选择规则
 
-- 工作区的 `agentType` 决定底层 CLI runtime。
-- 工作区的 `executionMode` 决定 runtime 在宿主机还是 Docker 中运行。
+- 工作区的 `agentType` 决定底层 CLI runtime。当前只支持 `openai`。
+- 所有工作区都通过同一条本地 Agent 进程链路执行；不再有执行模式选择、Docker 构建、Web 终端或模式徽标。
 - 工作区 runtime 配置统一包括：
   - `agentType`
-  - `executionMode`
   - `model`
   - `reasoningEffort`
   - `speedTier`
-- admin 主工作区默认 `host`；member 主工作区默认 `container`。
-- `cli-claw start` 会先校验启动目录是否满足 host allowlist，再把该目录物化到缺失 `customCwd` 的 host 工作区。
+- admin 主工作区默认使用 `cli-claw start` 的启动目录作为 `customCwd`；其他工作区默认使用 `~/.cli-claw/groups/{folder}`，除非 admin 设置 `customCwd`。
+- `cli-claw start` 会先校验启动目录是否满足 workspace allowlist，再把该目录物化到缺失 `customCwd` 的 admin 主工作区。
 
 ## 工作区级 runtime 优先级
 
@@ -69,11 +68,11 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - `reasoningEffort` 只有支持该能力的 runtime 才会真正下发。
 - 不支持 `reasoningEffort` 的 runtime 会忽略该字段，但 `model` 仍可独立生效。
 - `speedTier` 只有 `openai` 支持；对 Codex CLI 登录态，`fast` 会向 OpenAI provider data 下发 Codex 后端实际接受的 `service_tier="priority"`，`standard` 表示不下发 service-tier 覆盖。
-- 非主工作区若继承同 folder 的 home workspace runtime，则会沿用该 home workspace 的 `agentType` / `executionMode` / `model` / `reasoningEffort` / `speedTier`。
+- 非主工作区若继承同 folder 的 home workspace runtime，则会沿用该 home workspace 的 `agentType` / `model` / `reasoningEffort` / `speedTier`。
 
-## Host 工作目录解析
+## 工作区目录解析
 
-host 相关消费者统一使用同一份 effective cwd contract：
+执行、文件 API、脚本任务和 agent 任务统一使用同一份 effective cwd contract：
 
 1. 工作区自身显式设置的 `customCwd`
 2. 同 folder 的 sibling home workspace 的 `customCwd`
@@ -81,9 +80,9 @@ host 相关消费者统一使用同一份 effective cwd contract：
 
 该 cwd 必须是绝对路径、已存在目录，并在配置了 mount allowlist 时落在允许根目录内。
 
-这个 contract 会被 host runtime 执行、文件 API、脚本任务和 agent 任务共同使用。
+这个 contract 会被本地 Agent 进程、文件 API、脚本任务和 agent 任务共同使用。
 
-`customCwd` 只影响 host 执行和文件访问根目录，不改变工作区 ownership，也不改变数据库或 session 在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
+`customCwd` 只影响执行目录和文件访问根目录，不改变工作区 ownership，也不改变数据库或 session 在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
 
 ## 运行时身份
 
@@ -112,7 +111,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - 外层 channel 是消息入口，例如飞书或微信。
 - Workspace conversation 是 Cli Claw 的对话身份，由 `folder` 加可选 `agentId` 决定。
 - Runtime session 是 Codex / OpenAI 自己的会话 ID，持久化在 `sessions` 表。主对话所有 channel 共用 `(folder, 空 agent_id)`；conversation agent 使用 `(folder, agent_id)`。
-- Runner 是正在处理消息的底层 CLI 进程或容器，只在执行期间存在，并可能在 idle timeout 后退出。
+- Runner 是正在处理消息的底层 CLI 进程，只在执行期间存在，并可能在 idle timeout 后退出。
 
 对应关系：
 
@@ -123,7 +122,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - Runner 可以用 runtime session id 恢复底层会话，但恢复过程是 runner 内部动作。恢复期间产生的历史 session 片段或旧工具步骤不得进入 runner stdout；stdout 只发布当前 prompt live 期间产生的事件和最终结果。
 - 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 OpenAI commentary 和可识别的内部包装从主正文剥离，避免 runtime session 细节直接发给用户。
 - 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只允许作为 Web/调试展示的过渡 buffer，不得覆盖新 turn 的最终回复。中断、overflow、compact、crash recovery 的 partial body 不会作为 IM 正文发送或持久化，也不能推进 committed cursor。
-- OpenAI runtime 错误必须在 runner / host 边界格式化为稳定提示；API key、quota/rate limit、context window、invalid model 等诊断不得以低层异常原样进入飞书/Web 正文。
+- OpenAI runtime 错误必须在 runner 边界格式化为稳定提示；API key、quota/rate limit、context window、invalid model 等诊断不得以低层异常原样进入飞书/Web 正文。
 - 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
 
 ### Feishu Streaming Card Presentation
@@ -149,7 +148,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 当前限制：
 
 - `sessions` 表的主键维度仍是 `(folder, agentId)`；主会话使用空 `agent_id`，不再为 IM 主对话创建或保留 `im:<sourceJid>` runtime slot。它不是 `(folder, agentId, agentType)`。
-- 切换 `agentType`、`executionMode`、`model`、`reasoningEffort` 或 `speedTier` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
+- 切换 `agentType`、`model`、`reasoningEffort` 或 `speedTier` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
 - 因此，主对话切换 `agentType` 后不保证恢复切换前的 OpenAI session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
 
 ## 外部运行时契约
@@ -157,15 +156,15 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自原生状态：
 
 - `~/.codex/auth.json`
-  - OpenAI Runtime 的宿主机登录态来源；backend 优先通过 `codex app-server` 获取/刷新 access token，仅在 app-server 不可用且 access token 仍有效时读取该文件兜底
+  - OpenAI Runtime 的 Codex CLI 登录态来源；backend 优先通过 `codex app-server` 获取/刷新 access token，仅在 app-server 不可用且 access token 仍有效时读取该文件兜底
 - `CLI_CLAW_CODEX_ACCESS_TOKEN`
   - backend 注入给 OpenAI runner 的短期运行时凭据，不需要用户手工配置
 - `CLI_CLAW_RUNTIME_SESSION_DIR/openai-agent/*.json`
-  - OpenAI Agents 的文件 session；未设置 `CLI_CLAW_RUNTIME_SESSION_DIR` 时 runner 使用 `/workspace/.cli-claw-runtime/openai-agent`
+  - OpenAI Agents 的文件 session；未设置 `CLI_CLAW_RUNTIME_SESSION_DIR` 时 runner 使用工作区内的 `.cli-claw-runtime/openai-agent`
 
 仓库内还可以追踪与 agent 工作流相关的角色和内联技能文件，例如 `.agents/roles/*.md` 与 `.agents/skills/**/SKILL.md`。这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。
 
-应用包根目录从已安装模块位置解析；launch cwd 只参与 host 工作区默认执行目录的物化，不参与后端 build、web build 或 shared 资源定位。
+应用包根目录从已安装模块位置解析；launch cwd 只参与 workspace 默认执行目录的物化，不参与后端 build、web build 或 shared 资源定位。
 
 ## 运行时变更约束
 

@@ -21,7 +21,7 @@ vi.mock('../../../src/core/runtime/config.js', () => ({
 import { runScript } from '../../../src/agent/script-runner.js';
 
 describe('runScript', () => {
-  test('uses the provided host workspace cwd for script execution', async () => {
+  test('uses the provided workspace cwd for script execution', async () => {
     execMock.mockImplementationOnce((_command, options, callback) => {
       queueMicrotask(() => callback(null, 'done', ''));
       return { exitCode: 0 };

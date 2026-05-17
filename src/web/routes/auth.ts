@@ -202,7 +202,7 @@ authRoutes.post('/setup', async (c) => {
     details: { source: 'setup_wizard', role: 'admin' },
   });
 
-  // Create admin home group (web:main, folder=main, host mode)
+  // Create admin home group (web:main, folder=main)
   try {
     ensureUserHomeGroup(userId, 'admin', username);
   } catch (err) {

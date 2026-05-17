@@ -111,17 +111,6 @@ export function TaskCard({
                   脚本
                 </span>
               )}
-              {task.execution_mode && (
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                    task.execution_mode === 'host'
-                      ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
-                      : 'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-800 dark:text-cyan-300'
-                  }`}
-                >
-                  {task.execution_mode === 'host' ? '宿主机' : 'Docker'}
-                </span>
-              )}
               <span className="text-xs text-muted-foreground">
                 {task.schedule_type === 'cron' && task.schedule_value}
                 {task.schedule_type === 'interval' && `每 ${formatInterval(task.schedule_value)}`}

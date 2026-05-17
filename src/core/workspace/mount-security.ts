@@ -1,7 +1,7 @@
 /**
- * Mount Security Module for cli-claw
+ * Workspace root security module for cli-claw
  *
- * Validates additional mounts against an allowlist stored in the project config/ directory.
+ * Validates local workspace roots against an allowlist stored in the project config/ directory.
  *
  * Allowlist location: config/mount-allowlist.json
  */
@@ -11,18 +11,14 @@ import path from 'path';
 
 import { MOUNT_ALLOWLIST_PATH } from '../config.js';
 import { logger } from '../logger.js';
-import {
-  AdditionalMount,
-  AllowedRoot,
-  MountAllowlist,
-} from '../../domain/types.js';
+import { AllowedRoot, MountAllowlist } from '../../domain/types.js';
 
 // Cache the allowlist in memory - only reloads on process restart
 let cachedAllowlist: MountAllowlist | null = null;
 let allowlistLoadError: string | null = null;
 
 /**
- * Default blocked patterns - paths that should never be mounted
+ * Default blocked patterns - paths that should never be used as workspace roots
  */
 const DEFAULT_BLOCKED_PATTERNS = [
   '.ssh',
@@ -67,8 +63,8 @@ export function loadMountAllowlist(): MountAllowlist | null {
       allowlistLoadError = `Mount allowlist not found at ${MOUNT_ALLOWLIST_PATH}`;
       logger.warn(
         { path: MOUNT_ALLOWLIST_PATH },
-        'Mount allowlist not found - additional mounts will be BLOCKED. ' +
-          'Create the file to enable additional mounts.',
+        'Workspace allowlist not found - custom workspace cwd will be BLOCKED. ' +
+          'Create the file to enable custom workspace roots.',
       );
       return null;
     }
@@ -102,7 +98,7 @@ export function loadMountAllowlist(): MountAllowlist | null {
         allowedRoots: allowlist.allowedRoots.length,
         blockedPatterns: allowlist.blockedPatterns.length,
       },
-      'Mount allowlist loaded successfully',
+      'Workspace allowlist loaded successfully',
     );
 
     return cachedAllowlist;
@@ -113,7 +109,7 @@ export function loadMountAllowlist(): MountAllowlist | null {
         path: MOUNT_ALLOWLIST_PATH,
         error: allowlistLoadError,
       },
-      'Failed to load mount allowlist - additional mounts will be BLOCKED',
+      'Failed to load workspace allowlist - custom workspace cwd will be BLOCKED',
     );
     return null;
   }
@@ -190,194 +186,6 @@ export function findAllowedRoot(
   }
 
   return null;
-}
-
-/**
- * Validate the container path to prevent escaping /workspace/extra/
- */
-function isValidContainerPath(containerPath: string): boolean {
-  // Must not contain .. to prevent path traversal
-  if (containerPath.includes('..')) {
-    return false;
-  }
-
-  // Must not be absolute (it will be prefixed with /workspace/extra/)
-  if (containerPath.startsWith('/')) {
-    return false;
-  }
-
-  // Must not be empty
-  if (!containerPath || containerPath.trim() === '') {
-    return false;
-  }
-
-  return true;
-}
-
-export interface MountValidationResult {
-  allowed: boolean;
-  reason: string;
-  realHostPath?: string;
-  resolvedContainerPath?: string;
-  effectiveReadonly?: boolean;
-}
-
-/**
- * Validate a single additional mount against the allowlist.
- * Returns validation result with reason.
- */
-export function validateMount(
-  mount: AdditionalMount,
-  isMain: boolean,
-): MountValidationResult {
-  const allowlist = loadMountAllowlist();
-
-  // If no allowlist, block all additional mounts
-  if (allowlist === null) {
-    return {
-      allowed: false,
-      reason: `No mount allowlist configured at ${MOUNT_ALLOWLIST_PATH}`,
-    };
-  }
-
-  // Derive containerPath from hostPath basename if not specified
-  const containerPath = mount.containerPath || path.basename(mount.hostPath);
-
-  // Validate container path (cheap check)
-  if (!isValidContainerPath(containerPath)) {
-    return {
-      allowed: false,
-      reason: `Invalid container path: "${containerPath}" - must be relative, non-empty, and not contain ".."`,
-    };
-  }
-
-  // Expand and resolve the host path
-  const expandedPath = expandPath(mount.hostPath);
-  const realPath = getRealPath(expandedPath);
-
-  if (realPath === null) {
-    return {
-      allowed: false,
-      reason: `Host path does not exist: "${mount.hostPath}" (expanded: "${expandedPath}")`,
-    };
-  }
-
-  // Check against blocked patterns
-  const blockedMatch = matchesBlockedPattern(
-    realPath,
-    allowlist.blockedPatterns,
-  );
-  if (blockedMatch !== null) {
-    return {
-      allowed: false,
-      reason: `Path matches blocked pattern "${blockedMatch}": "${realPath}"`,
-    };
-  }
-
-  // Check if under an allowed root
-  const allowedRoot = findAllowedRoot(realPath, allowlist.allowedRoots);
-  if (allowedRoot === null) {
-    return {
-      allowed: false,
-      reason: `Path "${realPath}" is not under any allowed root. Allowed roots: ${allowlist.allowedRoots
-        .map((r) => expandPath(r.path))
-        .join(', ')}`,
-    };
-  }
-
-  // Determine effective readonly status
-  const requestedReadWrite = mount.readonly === false;
-  let effectiveReadonly = true; // Default to readonly
-
-  if (requestedReadWrite) {
-    if (!isMain && allowlist.nonMainReadOnly) {
-      // Non-main groups forced to read-only
-      effectiveReadonly = true;
-      logger.info(
-        {
-          mount: mount.hostPath,
-        },
-        'Mount forced to read-only for non-main group',
-      );
-    } else if (!allowedRoot.allowReadWrite) {
-      // Root doesn't allow read-write
-      effectiveReadonly = true;
-      logger.info(
-        {
-          mount: mount.hostPath,
-          root: allowedRoot.path,
-        },
-        'Mount forced to read-only - root does not allow read-write',
-      );
-    } else {
-      // Read-write allowed
-      effectiveReadonly = false;
-    }
-  }
-
-  return {
-    allowed: true,
-    reason: `Allowed under root "${allowedRoot.path}"${allowedRoot.description ? ` (${allowedRoot.description})` : ''}`,
-    realHostPath: realPath,
-    resolvedContainerPath: containerPath,
-    effectiveReadonly,
-  };
-}
-
-/**
- * Validate all additional mounts for a group.
- * Returns array of validated mounts (only those that passed validation).
- * Logs warnings for rejected mounts.
- */
-export function validateAdditionalMounts(
-  mounts: AdditionalMount[],
-  groupName: string,
-  isMain: boolean,
-): Array<{
-  hostPath: string;
-  containerPath: string;
-  readonly: boolean;
-}> {
-  const validatedMounts: Array<{
-    hostPath: string;
-    containerPath: string;
-    readonly: boolean;
-  }> = [];
-
-  for (const mount of mounts) {
-    const result = validateMount(mount, isMain);
-
-    if (result.allowed) {
-      validatedMounts.push({
-        hostPath: result.realHostPath!,
-        containerPath: `/workspace/extra/${result.resolvedContainerPath}`,
-        readonly: result.effectiveReadonly!,
-      });
-
-      logger.debug(
-        {
-          group: groupName,
-          hostPath: result.realHostPath,
-          containerPath: result.resolvedContainerPath,
-          readonly: result.effectiveReadonly,
-          reason: result.reason,
-        },
-        'Mount validated successfully',
-      );
-    } else {
-      logger.warn(
-        {
-          group: groupName,
-          requestedPath: mount.hostPath,
-          containerPath: mount.containerPath,
-          reason: result.reason,
-        },
-        'Additional mount REJECTED',
-      );
-    }
-  }
-
-  return validatedMounts;
 }
 
 /**

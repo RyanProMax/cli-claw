@@ -1,28 +1,21 @@
 /**
- * Container Runner for cli-claw
- * Spawns agent execution in Docker container and handles IPC
+ * Agent process runner for cli-claw.
+ * Spawns the local OpenAI/Codex runner process and handles IPC.
  */
-import { ChildProcess, execFile, spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
 import { createRequire } from 'module';
 import path from 'path';
 import {
   APP_ROOT,
-  LAUNCH_CWD,
   isInstalledNodeModulesPackageRoot,
   resolveAppPath,
 } from '../../core/app-root.js';
 
-import { CONTAINER_IMAGE, DATA_DIR, GROUPS_DIR } from '../../core/config.js';
+import { DATA_DIR, GROUPS_DIR } from '../../core/config.js';
 import { logger } from '../../core/logger.js';
-import {
-  loadMountAllowlist,
-  validateAdditionalMounts,
-} from '../../core/workspace/mount-security.js';
-import {
-  getSystemSettings,
-  shellQuoteEnvLines,
-} from '../../core/runtime/config.js';
+import { loadMountAllowlist } from '../../core/workspace/mount-security.js';
+import { getSystemSettings } from '../../core/runtime/config.js';
 import { getAgentRuntime } from '../../core/runtime/runtime-registry.js';
 import {
   AgentType,
@@ -68,7 +61,7 @@ function buildHostRuntimePath(options: {
   return entries.join(path.delimiter);
 }
 
-export interface ContainerInput {
+export interface AgentProcessInput {
   prompt: string;
   sessionId?: string;
   groupFolder: string;
@@ -77,8 +70,6 @@ export interface ContainerInput {
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;
-  /** @deprecated Use isHome + isAdminHome instead */
-  isMain: boolean;
   turnId?: string;
   messageCursor?: MessageCursor;
   isHome?: boolean;
@@ -91,7 +82,7 @@ export interface ContainerInput {
   agentName?: string;
 }
 
-export interface ContainerOutput {
+export interface AgentProcessOutput {
   status: 'success' | 'error' | 'stream' | 'closed';
   result: string | null;
   newSessionId?: string;
@@ -104,456 +95,6 @@ export interface ContainerOutput {
   sdkMessageUuid?: string;
   sourceKind?: Exclude<MessageSourceKind, 'user_command'>;
   finalizationReason?: 'completed' | 'interrupted' | 'error';
-}
-
-interface VolumeMount {
-  hostPath: string;
-  containerPath: string;
-  readonly: boolean;
-}
-
-function requireWorkspaceOwner(
-  group: RegisteredGroup,
-  context: string,
-): string {
-  if (!group.created_by) {
-    throw new Error(
-      `Workspace ${group.folder} is missing created_by; ${context} requires an owned workspace`,
-    );
-  }
-  return group.created_by;
-}
-
-/**
- * Create directory with 0o777 permissions for container volume mounts.
- * Fixes uid mismatch between host user and container node user (uid 1000),
- * especially in rootless podman where uid remapping causes permission denied.
- */
-function mkdirForContainer(dirPath: string): void {
-  fs.mkdirSync(dirPath, { recursive: true });
-  try {
-    fs.chmodSync(dirPath, 0o777);
-  } catch {
-    // Ignore — may fail on read-only filesystem or special mounts
-  }
-}
-
-function buildVolumeMounts(
-  group: RegisteredGroup,
-  isAdminHome: boolean,
-  mountUserSkills = true,
-  agentId?: string,
-  ownerHomeFolder?: string,
-  taskRunId?: string,
-  runtimeSessionDir?: string,
-  runtimeEnv: Record<string, string> = {},
-): VolumeMount[] {
-  const mounts: VolumeMount[] = [];
-  const packageRoot = APP_ROOT;
-  const launchCwd = LAUNCH_CWD;
-  const ownerId = requireWorkspaceOwner(group, 'container mounts');
-
-  if (isAdminHome) {
-    // Preserve the launch directory separately from packaged resources.
-    // Admin home continues to see the operator's startup cwd as /workspace/project.
-    mounts.push({
-      hostPath: launchCwd,
-      containerPath: '/workspace/project',
-      readonly: false,
-    });
-
-    // Admin home also gets its group folder as the working directory
-    mounts.push({
-      hostPath: path.join(GROUPS_DIR, group.folder),
-      containerPath: '/workspace/group',
-      readonly: false,
-    });
-  } else {
-    // Member home and non-home groups only get their own folder
-    mounts.push({
-      hostPath: path.join(GROUPS_DIR, group.folder),
-      containerPath: '/workspace/group',
-      readonly: false,
-    });
-  }
-
-  if (runtimeSessionDir) {
-    mkdirForContainer(runtimeSessionDir);
-    mounts.push({
-      hostPath: runtimeSessionDir,
-      containerPath: '/workspace/runtime-session',
-      readonly: false,
-    });
-    runtimeEnv.CLI_CLAW_RUNTIME_SESSION_DIR = '/workspace/runtime-session';
-  }
-
-  // Skills：以只读卷挂载宿主机目录（由 entrypoint 创建符号链接）
-  // 用户的所有 skills 在其所有工作区中全量生效
-  const projectSkillsDir = path.join(packageRoot, 'container', 'skills');
-  const userSkillsDir =
-    mountUserSkills && ownerId ? path.join(DATA_DIR, 'skills', ownerId) : null;
-
-  // Ensure user skills directory exists so it can always be mounted.
-  // Skills may be installed after the group is created; without pre-creating,
-  // the existsSync check would skip mounting and the container would never see them.
-  if (userSkillsDir) {
-    fs.mkdirSync(userSkillsDir, { recursive: true });
-  }
-
-  // 全量挂载：用户的所有 skills 在所有工作区中生效
-  if (fs.existsSync(projectSkillsDir)) {
-    mounts.push({
-      hostPath: projectSkillsDir,
-      containerPath: '/workspace/project-skills',
-      readonly: true,
-    });
-  }
-  if (userSkillsDir) {
-    mounts.push({
-      hostPath: userSkillsDir,
-      containerPath: '/workspace/user-skills',
-      readonly: true,
-    });
-  }
-
-  // Per-group IPC namespace: each group gets its own IPC directory
-  // Sub-agents get their own IPC subdirectory under agents/{agentId}/
-  // Isolated tasks get their own IPC subdirectory under tasks-run/{taskRunId}/
-  // Use 0o777 so container (node/1000) and host (agent/1002) can both read/write.
-  const groupIpcDir = agentId
-    ? path.join(DATA_DIR, 'ipc', group.folder, 'agents', agentId)
-    : taskRunId
-      ? path.join(DATA_DIR, 'ipc', group.folder, 'tasks-run', taskRunId)
-      : path.join(DATA_DIR, 'ipc', group.folder);
-  mkdirForContainer(groupIpcDir);
-  // All agents (main + sub/conversation) get agents/ subdir for spawn/message IPC
-  // Use chmod 777 so both host (agent/1002) and container (node/1000) can write
-  for (const sub of ['messages', 'tasks', 'input', 'agents'] as const) {
-    const subDir = path.join(groupIpcDir, sub);
-    fs.mkdirSync(subDir, { recursive: true });
-    try {
-      fs.chmodSync(subDir, 0o777);
-    } catch {
-      /* ignore if already correct */
-    }
-  }
-  mounts.push({
-    hostPath: groupIpcDir,
-    containerPath: '/workspace/ipc',
-    readonly: false,
-  });
-
-  // Per-container environment file (keeps credentials out of process listings).
-  const envDir = path.join(DATA_DIR, 'env', group.folder);
-  fs.mkdirSync(envDir, { recursive: true });
-  const envLines: string[] = [];
-  for (const [key, value] of Object.entries(runtimeEnv)) {
-    const normalized = value.trim();
-    if (normalized) envLines.push(`${key}=${normalized}`);
-  }
-  for (const envName of [
-    'OPENAI_MODEL',
-    'OPENAI_REASONING_EFFORT',
-    'OPENAI_SERVICE_TIER',
-    'SERVICE_TIER',
-  ]) {
-    const value = process.env[envName]?.trim();
-    if (value) envLines.push(`${envName}=${value}`);
-  }
-  if (envLines.length > 0) {
-    const envFilePath = path.join(envDir, 'env');
-    const quotedLines = shellQuoteEnvLines(envLines);
-    fs.writeFileSync(envFilePath, quotedLines.join('\n') + '\n', {
-      mode: 0o600,
-    });
-    try {
-      fs.chmodSync(envFilePath, 0o600);
-    } catch (err) {
-      logger.warn(
-        { group: group.name, err },
-        'Failed to enforce env file permissions',
-      );
-    }
-    mounts.push({
-      hostPath: envDir,
-      containerPath: '/workspace/env-dir',
-      readonly: true,
-    });
-  }
-
-  // Mount agent-runner source from host — recompiled on container startup.
-  // Bypasses Docker 镜像构建缓存，确保代码变更生效。
-  const agentRunnerSrc = path.join(
-    packageRoot,
-    'container',
-    'agent-runner',
-    'src',
-  );
-  mounts.push({
-    hostPath: agentRunnerSrc,
-    containerPath: '/app/src',
-    readonly: true,
-  });
-
-  // Additional mounts validated against external allowlist (tamper-proof from containers)
-  if (group.containerConfig?.additionalMounts) {
-    const validatedMounts = validateAdditionalMounts(
-      group.containerConfig.additionalMounts,
-      group.name,
-      isAdminHome,
-    );
-    mounts.push(...validatedMounts);
-  }
-
-  return mounts;
-}
-
-function buildContainerArgs(
-  mounts: VolumeMount[],
-  containerName: string,
-): string[] {
-  const args: string[] = ['run', '-i', '--rm', '--name', containerName];
-
-  // Docker: -v with :ro suffix for readonly
-  for (const mount of mounts) {
-    if (mount.readonly) {
-      args.push('-v', `${mount.hostPath}:${mount.containerPath}:ro`);
-    } else {
-      args.push('-v', `${mount.hostPath}:${mount.containerPath}`);
-    }
-  }
-
-  args.push(CONTAINER_IMAGE);
-
-  return args;
-}
-
-export async function runContainerAgent(
-  group: RegisteredGroup,
-  input: ContainerInput,
-  onProcess: (proc: ChildProcess, containerName: string) => void,
-  onOutput?: (output: ContainerOutput) => Promise<void>,
-  ownerHomeFolder?: string,
-): Promise<ContainerOutput> {
-  const startTime = Date.now();
-  const agentType: AgentType = 'openai';
-  const selectedRunner = agentType;
-  const runtimeBuildLogFields = getRuntimeBuildLogFields();
-
-  const groupDir = path.join(GROUPS_DIR, group.folder);
-  mkdirForContainer(groupDir);
-
-  try {
-    const runtime = getAgentRuntime(agentType);
-    const runtimePreparation = await runtime.prepareContainer({
-      group,
-      agentId: input.agentId ?? null,
-    });
-    // Determine if this is an admin home container (full privileges)
-    const isAdminHome = !!group.is_home && group.folder === 'main';
-    // Per-user skills: always mount if the group has an owner
-    const shouldMountUserSkills = !!group.created_by;
-    const mounts = buildVolumeMounts(
-      group,
-      isAdminHome,
-      shouldMountUserSkills,
-      input.agentId,
-      ownerHomeFolder,
-      input.taskRunId,
-      runtimePreparation.hostSessionDir,
-      runtimePreparation.env,
-    );
-    const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
-    const agentSuffix = input.agentId
-      ? `-${input.agentId.replace(/[^a-zA-Z0-9-]/g, '-')}`
-      : '';
-    const containerName = `cli-claw-${safeName}${agentSuffix}-${Date.now()}`;
-    const containerArgs = buildContainerArgs(mounts, containerName);
-
-    logger.debug(
-      {
-        group: group.name,
-        containerName,
-        mounts: mounts.map(
-          (m) =>
-            `${m.hostPath} -> ${m.containerPath}${m.readonly ? ' (ro)' : ''}`,
-        ),
-        containerArgs: containerArgs.join(' '),
-      },
-      'Container mount configuration',
-    );
-
-    logger.info(
-      {
-        requestedAgentType: input.agentType || group.agentType || 'openai',
-        effectiveAgentType: agentType,
-        group: group.name,
-        folder: group.folder,
-        chatJid: input.chatJid,
-        agentType,
-        selectedRunner,
-        executionMode: 'container',
-        sessionId: input.sessionId || null,
-        agentId: input.agentId || null,
-        containerName,
-        mountCount: mounts.length,
-        isMain: input.isMain,
-        ...runtimeBuildLogFields,
-      },
-      'Spawning container agent',
-    );
-
-    const logsDir = path.join(GROUPS_DIR, group.folder, 'logs');
-    fs.mkdirSync(logsDir, { recursive: true });
-
-    const result = await new Promise<ContainerOutput>((resolve) => {
-      const container = spawn('docker', containerArgs, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      onProcess(container, containerName);
-
-      const stdoutState = createStdoutParserState();
-      const stderrState = createStderrState();
-
-      // Write input and close stdin (容器需要 EOF 来刷新 stdin 管道)
-      container.stdin.on('error', (err) => {
-        logger.error(
-          { group: group.name, err },
-          'Container stdin write failed',
-        );
-        container.kill();
-      });
-      container.stdin.write(JSON.stringify({ ...input, agentType }));
-      container.stdin.end();
-
-      let timedOut = false;
-      const timeoutMs =
-        group.containerConfig?.timeout || getSystemSettings().containerTimeout;
-
-      const killOnTimeout = () => {
-        timedOut = true;
-        logger.info(
-          { group: group.name, containerName },
-          'Container timeout, stopping gracefully',
-        );
-        execFile(
-          'docker',
-          ['stop', containerName],
-          { timeout: 15000 },
-          (err) => {
-            if (err) {
-              logger.warn(
-                { group: group.name, containerName, err },
-                'Graceful stop failed, force killing',
-              );
-              container.kill('SIGKILL');
-            }
-          },
-        );
-      };
-
-      let timeout = setTimeout(killOnTimeout, timeoutMs);
-
-      const resetTimeout = () => {
-        clearTimeout(timeout);
-        timeout = setTimeout(killOnTimeout, timeoutMs);
-      };
-
-      // Attach stdout/stderr handlers using shared parser
-      attachStdoutHandler(container.stdout, stdoutState, {
-        groupName: group.name,
-        label: 'Container',
-        onOutput,
-        resetTimeout,
-      });
-      attachStderrHandler(container.stderr, stderrState, group.name, {
-        container: group.folder,
-      });
-
-      container.on('close', (code, signal) => {
-        clearTimeout(timeout);
-        const duration = Date.now() - startTime;
-
-        const closeCtx: CloseHandlerContext = {
-          groupName: group.name,
-          label: 'Container',
-          filePrefix: 'container',
-          identifier: containerName,
-          logsDir,
-          input: {
-            ...input,
-            agentType,
-            executionMode: 'container',
-            agentId: input.agentId,
-          },
-          stdoutState,
-          stderrState,
-          onOutput,
-          resolvePromise: resolve,
-          startTime,
-          timeoutMs,
-          agentIdentity: {
-            chatJid: input.chatJid,
-            groupFolder: group.folder,
-            agentType,
-            executionMode: 'container',
-            selectedRunner,
-            agentId: input.agentId || null,
-          },
-          runtimeBuildInfo: runtimeBuildLogFields,
-          extraSummaryLines: [
-            ``,
-            `=== Mounts ===`,
-            mounts
-              .map((m) => `${m.containerPath}${m.readonly ? ' (ro)' : ''}`)
-              .join('\n'),
-          ],
-          extraVerboseLines: [
-            `=== Container Args ===`,
-            containerArgs.join(' '),
-            ``,
-            `=== Mounts (detailed) ===`,
-            mounts
-              .map(
-                (m) =>
-                  `${m.hostPath} -> ${m.containerPath}${m.readonly ? ' (ro)' : ''}`,
-              )
-              .join('\n'),
-          ],
-        };
-
-        if (handleTimeoutClose(closeCtx, code, duration, timedOut)) return;
-        const logFile = writeRunLog(closeCtx, code, duration);
-        if (handleNonZeroExit(closeCtx, code, signal, duration, logFile))
-          return;
-        handleSuccessClose(closeCtx, duration);
-      });
-
-      container.on('error', (err) => {
-        clearTimeout(timeout);
-        logger.error(
-          { group: group.name, containerName, error: err },
-          'Container spawn error',
-        );
-        resolve({
-          status: 'error',
-          result: null,
-          error: `Container spawn error: ${err.message}`,
-        });
-      });
-    });
-
-    return result;
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    logger.error({ group: group.name, err }, 'Container agent setup failed');
-    return {
-      status: 'error',
-      result: null,
-      error: `Container setup error: ${error}`,
-    };
-  }
 }
 
 export function writeTasksSnapshot(
@@ -569,17 +110,14 @@ export function writeTasksSnapshot(
     next_run: string | null;
   }>,
 ): void {
-  // Write filtered tasks to the group's IPC directory
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  // Admin home sees all tasks, others only see their own
   const filteredTasks = isAdminHome
     ? tasks
     : tasks.filter((t) => t.groupFolder === groupFolder);
 
   const tasksFile = path.join(groupIpcDir, 'current_tasks.json');
-  // 删除后重建：容器创建的文件归属 node(1000) 用户，宿主机进程无法覆写
   try {
     fs.unlinkSync(tasksFile);
   } catch {
@@ -595,11 +133,6 @@ export interface AvailableGroup {
   isRegistered: boolean;
 }
 
-/**
- * Write available groups snapshot for the container to read.
- * Only admin home can see all available groups (for activation).
- * Other groups see nothing (they can't activate groups).
- */
 export function writeGroupsSnapshot(
   groupFolder: string,
   isAdminHome: boolean,
@@ -609,7 +142,6 @@ export function writeGroupsSnapshot(
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  // Admin home sees all groups; others see nothing (they can't activate groups)
   const visibleGroups = isAdminHome ? groups : [];
 
   const groupsFile = path.join(groupIpcDir, 'available_groups.json');
@@ -632,8 +164,7 @@ export function writeGroupsSnapshot(
 }
 
 /**
- * 杀死进程及其所有子进程。
- * 如果进程以 detached 模式启动（独立进程组），使用负 PID 杀整个进程组。
+ * Kill a detached runner process and its child process group.
  */
 export function killProcessTree(
   proc: ChildProcess,
@@ -655,122 +186,87 @@ export function killProcessTree(
   return false;
 }
 
-/**
- * Run agent directly on the host machine (no Docker container).
- * Used for host execution mode — the agent gets full access to the host filesystem.
- */
-export async function runHostAgent(
+export async function runAgentProcess(
   group: RegisteredGroup,
-  input: ContainerInput,
+  input: AgentProcessInput,
   onProcess: (proc: ChildProcess, identifier: string) => void,
-  onOutput?: (output: ContainerOutput) => Promise<void>,
-  ownerHomeFolder?: string,
+  onOutput?: (output: AgentProcessOutput) => Promise<void>,
   options?: { executionCwd?: string },
-): Promise<ContainerOutput> {
+): Promise<AgentProcessOutput> {
   const startTime = Date.now();
   const setupInstallHint = 'npm --prefix container/agent-runner install';
   const setupBuildHint = 'npm --prefix container/agent-runner run build';
-  const hostModeSetupError = (message: string): ContainerOutput => ({
+  const setupError = (message: string): AgentProcessOutput => ({
     status: 'error',
-    result: `宿主机模式启动失败：${message}`,
+    result: `Agent 进程启动失败：${message}`,
     error: message,
   });
 
-  // 1. 确定存储目录与实际执行目录
   const storageGroupDir = path.join(GROUPS_DIR, group.folder);
   fs.mkdirSync(storageGroupDir, { recursive: true });
 
   const initialExecutionCwd =
-    options?.executionCwd ||
-    (group.executionMode === 'host' ? group.customCwd : storageGroupDir);
-  if (!initialExecutionCwd) {
-    return hostModeSetupError(
-      'Host workspace is missing custom_cwd. Run cli-claw start from the target directory or set custom_cwd explicitly.',
-    );
-  }
+    options?.executionCwd || group.customCwd || storageGroupDir;
   if (!path.isAbsolute(initialExecutionCwd)) {
-    return hostModeSetupError(`工作目录必须是绝对路径：${initialExecutionCwd}`);
+    return setupError(`工作目录必须是绝对路径：${initialExecutionCwd}`);
   }
-  // Resolve symlinks to prevent TOCTOU attacks
+
   let groupDir = initialExecutionCwd;
   try {
     groupDir = fs.realpathSync(groupDir);
   } catch {
-    return hostModeSetupError(`工作目录不存在或无法解析：${groupDir}`);
+    return setupError(`工作目录不存在或无法解析：${groupDir}`);
   }
   if (!fs.statSync(groupDir).isDirectory()) {
-    return hostModeSetupError(`工作目录不是目录：${groupDir}`);
+    return setupError(`工作目录不是目录：${groupDir}`);
   }
 
-  // Runtime allowlist validation for host CWD (defense-in-depth: web.ts validates at creation,
-  // but re-check here in case allowlist was tightened or path was injected via DB)
-  if (group.executionMode === 'host') {
-    const allowlist = loadMountAllowlist();
-    if (
-      allowlist &&
-      allowlist.allowedRoots &&
-      allowlist.allowedRoots.length > 0
-    ) {
-      let allowed = false;
-      for (const root of allowlist.allowedRoots) {
-        const expandedRoot = root.path.startsWith('~')
-          ? path.join(
-              process.env.HOME || '/Users/user',
-              root.path.slice(root.path.startsWith('~/') ? 2 : 1),
-            )
-          : path.resolve(root.path);
+  const allowlist = loadMountAllowlist();
+  if (allowlist?.allowedRoots?.length) {
+    let allowed = false;
+    for (const root of allowlist.allowedRoots) {
+      const expandedRoot = root.path.startsWith('~')
+        ? path.join(
+            process.env.HOME || '/Users/user',
+            root.path.slice(root.path.startsWith('~/') ? 2 : 1),
+          )
+        : path.resolve(root.path);
 
-        let realRoot: string;
-        try {
-          realRoot = fs.realpathSync(expandedRoot);
-        } catch {
-          continue;
-        }
-
-        const relative = path.relative(realRoot, groupDir);
-        if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
-          allowed = true;
-          break;
-        }
+      let realRoot: string;
+      try {
+        realRoot = fs.realpathSync(expandedRoot);
+      } catch {
+        continue;
       }
 
-      if (!allowed) {
-        return hostModeSetupError(
-          `工作目录 ${groupDir} 不在允许的根目录下，请检查 mount-allowlist.json`,
-        );
+      const relative = path.relative(realRoot, groupDir);
+      if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+        allowed = true;
+        break;
       }
+    }
+
+    if (!allowed) {
+      return setupError(
+        `工作目录 ${groupDir} 不在允许的根目录下，请检查 mount-allowlist.json`,
+      );
     }
   }
 
   fs.mkdirSync(path.join(storageGroupDir, 'logs'), { recursive: true });
 
-  // 2. 确保目录结构（宿主机模式下限制目录权限）
-  // Sub-agents get their own IPC and session directories
-  // Isolated tasks get their own IPC subdirectory under tasks-run/{taskRunId}/
   const groupIpcDir = input.agentId
     ? path.join(DATA_DIR, 'ipc', group.folder, 'agents', input.agentId)
     : input.taskRunId
       ? path.join(DATA_DIR, 'ipc', group.folder, 'tasks-run', input.taskRunId)
       : path.join(DATA_DIR, 'ipc', group.folder);
-  fs.mkdirSync(path.join(groupIpcDir, 'messages'), {
-    recursive: true,
-    mode: 0o700,
-  });
-  fs.mkdirSync(path.join(groupIpcDir, 'tasks'), {
-    recursive: true,
-    mode: 0o700,
-  });
-  fs.mkdirSync(path.join(groupIpcDir, 'input'), {
-    recursive: true,
-    mode: 0o700,
-  });
-  // All agents (main + sub/conversation) get agents/ subdir for spawn/message IPC
-  fs.mkdirSync(path.join(groupIpcDir, 'agents'), {
-    recursive: true,
-    mode: 0o700,
-  });
+  for (const sub of ['messages', 'tasks', 'input', 'agents'] as const) {
+    fs.mkdirSync(path.join(groupIpcDir, sub), {
+      recursive: true,
+      mode: 0o700,
+    });
+  }
 
-  // 3. 构建环境变量
   const hostEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
   };
@@ -781,7 +277,7 @@ export async function runHostAgent(
   try {
     delete hostEnv[LEGACY_OPENAI_TOKEN_ENV];
     const runtime = getAgentRuntime(agentType);
-    const runtimePreparation = await runtime.prepareHost({
+    const runtimePreparation = await runtime.prepareRuntime({
       group,
       agentId: input.agentId ?? null,
     });
@@ -801,23 +297,22 @@ export async function runHostAgent(
       hostEnv['CLI_CLAW_LAUNCHD_SERVICE_NAME'] = launchdServiceName;
     }
 
-    // 路径映射
     hostEnv['CLI_CLAW_WORKSPACE_GROUP'] = groupDir;
     hostEnv['CLI_CLAW_WORKSPACE_IPC'] = groupIpcDir;
 
-    // 6. 编译检查
     const agentRunnerRoot = resolveAppPath('container', 'agent-runner');
     const agentRunnerManifestPath = path.join(agentRunnerRoot, 'package.json');
     const agentRunnerDist = path.join(agentRunnerRoot, 'dist', 'index.js');
     if (!fs.existsSync(agentRunnerManifestPath)) {
       logger.error(
         { group: group.name, agentRunnerRoot },
-        'Host agent preflight failed: packaged agent-runner manifest missing',
+        'Agent process preflight failed: packaged agent-runner manifest missing',
       );
-      return hostModeSetupError(
-        '缺少 container/agent-runner 资源。当前安装不支持 packaged host-mode agent-runner，请改用源码仓库运行或补齐该目录后重试。',
+      return setupError(
+        '缺少 container/agent-runner 资源。请使用源码仓库运行或补齐该目录后重试。',
       );
     }
+
     const requiredDeps = ['@openai/agents', 'openai'];
     const agentRunnerRequire = createRequire(agentRunnerManifestPath);
     const missingDeps = requiredDeps.filter((dep) => {
@@ -832,23 +327,23 @@ export async function runHostAgent(
       const missing = missingDeps.join(', ');
       logger.error(
         { group: group.name, missingDeps },
-        'Host agent preflight failed: dependencies missing',
+        'Agent process preflight failed: dependencies missing',
       );
-      return hostModeSetupError(
+      return setupError(
         `缺少 agent-runner 依赖（${missing}）。请先执行：${setupInstallHint}`,
       );
     }
+
     if (!fs.existsSync(agentRunnerDist)) {
       logger.error(
         { group: group.name, agentRunnerDist },
-        'Host agent preflight failed: dist not found',
+        'Agent process preflight failed: dist not found',
       );
-      return hostModeSetupError(
+      return setupError(
         `agent-runner 产物缺失。请先执行：${setupBuildHint}；若这是安装包环境，请确认包含 container/agent-runner/dist。`,
       );
     }
-    // Auto-rebuild only in local/dev checkouts. Installed npm packages may
-    // normalize mtimes such that src appears slightly newer than dist.
+
     if (!isInstalledNodeModulesPackageRoot(APP_ROOT)) {
       try {
         const distMtime = fs.statSync(agentRunnerDist).mtimeMs;
@@ -878,7 +373,7 @@ export async function runHostAgent(
           }
         }
       } catch {
-        // Best effort, don't block execution
+        // Best effort, do not block execution.
       }
     }
 
@@ -891,27 +386,26 @@ export async function runHostAgent(
         chatJid: input.chatJid,
         agentType,
         selectedRunner,
-        executionMode: 'host',
         sessionId: input.sessionId || null,
         agentId: input.agentId || null,
         workingDir: groupDir,
-        isMain: input.isMain,
+        isHome: input.isHome ?? false,
+        isAdminHome: input.isAdminHome ?? false,
         ...runtimeBuildLogFields,
       },
-      'Spawning host agent',
+      'Spawning agent process',
     );
 
     const logsDir = path.join(storageGroupDir, 'logs');
 
-    const hostResult = await new Promise<ContainerOutput>((resolve) => {
+    return await new Promise<AgentProcessOutput>((resolve) => {
       let settled = false;
-      const resolveOnce = (output: ContainerOutput): void => {
+      const resolveOnce = (output: AgentProcessOutput): void => {
         if (settled) return;
         settled = true;
         resolve(output);
       };
 
-      // 7. 启动进程
       const proc = spawn('node', [agentRunnerDist], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: hostEnv,
@@ -919,27 +413,24 @@ export async function runHostAgent(
         detached: true,
       });
 
-      const processId = `host-${group.folder}-${Date.now()}`;
+      const processId = `agent-${group.folder}-${Date.now()}`;
       onProcess(proc, processId);
 
       const stdoutState = createStdoutParserState();
       const stderrState = createStderrState();
 
-      // 8. stdin 输入
       proc.stdin.on('error', (err) => {
         logger.error(
           { group: group.name, err },
-          'Host agent stdin write failed',
+          'Agent process stdin write failed',
         );
         killProcessTree(proc);
       });
       proc.stdin.write(JSON.stringify({ ...input, agentType }));
       proc.stdin.end();
 
-      // 9. 超时管理
       let timedOut = false;
-      const timeoutMs =
-        group.containerConfig?.timeout || getSystemSettings().containerTimeout;
+      const timeoutMs = getSystemSettings().processTimeout;
 
       let killTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -947,7 +438,7 @@ export async function runHostAgent(
         timedOut = true;
         logger.info(
           { group: group.name, processId },
-          'Host agent timeout, killing',
+          'Agent process timeout, killing',
         );
         killProcessTree(proc, 'SIGTERM');
         killTimer = setTimeout(() => {
@@ -964,18 +455,16 @@ export async function runHostAgent(
         timeout = setTimeout(killOnTimeout, timeoutMs);
       };
 
-      // 10. stdout/stderr 解析
       attachStdoutHandler(proc.stdout, stdoutState, {
         groupName: group.name,
-        label: 'Host agent',
+        label: 'Agent process',
         onOutput,
         resetTimeout,
       });
       attachStderrHandler(proc.stderr, stderrState, group.name, {
-        host: group.folder,
+        process: group.folder,
       });
 
-      // 11. close 事件处理
       proc.on('close', (code, signal) => {
         clearTimeout(timeout);
         if (killTimer) clearTimeout(killTimer);
@@ -983,14 +472,13 @@ export async function runHostAgent(
 
         const closeCtx: CloseHandlerContext = {
           groupName: group.name,
-          label: 'Host Agent',
-          filePrefix: 'host',
+          label: 'Agent Process',
+          filePrefix: 'agent',
           identifier: processId,
           logsDir,
           input: {
             ...input,
             agentType,
-            executionMode: 'host',
             agentId: input.agentId,
           },
           stdoutState,
@@ -1003,7 +491,6 @@ export async function runHostAgent(
             chatJid: input.chatJid,
             groupFolder: group.folder,
             agentType,
-            executionMode: 'host',
             selectedRunner,
             agentId: input.agentId || null,
           },
@@ -1015,11 +502,11 @@ export async function runHostAgent(
             );
             const userFacingError =
               (missingPackageMatch
-                ? `宿主机模式启动失败：缺少依赖 ${missingPackageMatch[1]}。请先执行：${setupInstallHint}`
+                ? `Agent 进程启动失败：缺少依赖 ${missingPackageMatch[1]}。请先执行：${setupInstallHint}`
                 : null) || formatUserFacingRuntimeError(stderrContent);
             return {
               result: userFacingError,
-              error: `Host agent exited with ${exitLabel}: ${stderrContent.slice(-200)}`,
+              error: `Agent process exited with ${exitLabel}: ${stderrContent.slice(-200)}`,
             };
           },
         };
@@ -1035,20 +522,18 @@ export async function runHostAgent(
         clearTimeout(timeout);
         logger.error(
           { group: group.name, processId, error: err },
-          'Host agent spawn error',
+          'Agent process spawn error',
         );
         resolveOnce({
           status: 'error',
           result: null,
-          error: `Host agent spawn error: ${err.message}`,
+          error: `Agent process spawn error: ${err.message}`,
         });
       });
     });
-
-    return hostResult;
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    logger.error({ group: group.name, err }, 'Host agent setup failed');
-    return hostModeSetupError(error);
+    logger.error({ group: group.name, err }, 'Agent process setup failed');
+    return setupError(error);
   }
 }

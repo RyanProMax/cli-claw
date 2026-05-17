@@ -28,9 +28,9 @@ interface FieldConfig {
 
 const fields: FieldConfig[] = [
   {
-    key: 'containerTimeout',
-    label: '容器最大运行时间',
-    description: '单个容器/进程的最长运行时间',
+    key: 'processTimeout',
+    label: '进程最大运行时间',
+    description: '单个 Agent 进程的最长运行时间',
     unit: '分钟',
     toDisplay: (v) => Math.round(v / 60000),
     toStored: (v) => v * 60000,
@@ -40,8 +40,8 @@ const fields: FieldConfig[] = [
   },
   {
     key: 'idleTimeout',
-    label: '容器空闲超时',
-    description: '最后一次输出后无新消息则关闭容器',
+    label: '进程空闲超时',
+    description: '最后一次输出后无新消息则关闭进程',
     unit: '分钟',
     toDisplay: (v) => Math.round(v / 60000),
     toStored: (v) => v * 60000,
@@ -50,9 +50,9 @@ const fields: FieldConfig[] = [
     step: 1,
   },
   {
-    key: 'containerMaxOutputSize',
+    key: 'processMaxOutputSize',
     label: '单次输出上限',
-    description: '单次容器运行的最大输出大小',
+    description: '单次 Agent 进程的最大输出大小',
     unit: 'MB',
     toDisplay: (v) => Math.round(v / 1048576),
     toStored: (v) => v * 1048576,
@@ -61,20 +61,9 @@ const fields: FieldConfig[] = [
     step: 1,
   },
   {
-    key: 'maxConcurrentContainers',
-    label: '最大并发容器数',
-    description: '同时运行的 Docker 容器数量上限',
-    unit: '个',
-    toDisplay: (v) => v,
-    toStored: (v) => v,
-    min: 1,
-    max: 100,
-    step: 1,
-  },
-  {
-    key: 'maxConcurrentHostProcesses',
-    label: '最大并发宿主机进程数',
-    description: '同时运行的宿主机模式进程数量上限',
+    key: 'maxConcurrentProcesses',
+    label: '最大并发进程数',
+    description: '同时运行的 Agent 进程数量上限',
     unit: '个',
     toDisplay: (v) => v,
     toStored: (v) => v,
@@ -225,7 +214,7 @@ export function SystemSettingsSection() {
       setBillingCurrencyRate(data.billingCurrencyRate ?? 1);
       // 刷新计费状态，更新导航栏可见性
       loadBillingStatus();
-      toast.success('系统参数已保存，新参数将对后续启动的容器/进程生效');
+      toast.success('系统参数已保存，新参数将对后续启动的进程生效');
     } catch (err) {
       toast.error(getErrorMessage(err, '保存系统参数失败'));
     } finally {
@@ -250,7 +239,7 @@ export function SystemSettingsSection() {
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        调整容器运行参数和安全限制。修改后无需重启，新参数对后续创建的容器/进程立即生效。
+        调整 Agent 进程运行参数和安全限制。修改后无需重启，新参数对后续创建的进程立即生效。
       </p>
 
       <div className="space-y-5">

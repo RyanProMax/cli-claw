@@ -6,8 +6,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 const tempHomes: string[] = [];
 const runnerMocks = vi.hoisted(() => ({
-  runHostAgent: vi.fn(),
-  runContainerAgent: vi.fn(),
+  runAgentProcess: vi.fn(),
   writeGroupsSnapshot: vi.fn(),
   writeTasksSnapshot: vi.fn(),
 }));
@@ -109,8 +108,7 @@ const imMocks = vi.hoisted(() => {
 });
 
 vi.mock('../../../src/agent/runner/container-runner.js', () => ({
-  runHostAgent: runnerMocks.runHostAgent,
-  runContainerAgent: runnerMocks.runContainerAgent,
+  runAgentProcess: runnerMocks.runAgentProcess,
   writeGroupsSnapshot: runnerMocks.writeGroupsSnapshot,
   writeTasksSnapshot: runnerMocks.writeTasksSnapshot,
 }));
@@ -359,7 +357,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Main',
       folder: 'main',
       added_at: '2026-04-29T15:00:00.000Z',
-      executionMode: 'host',
       is_home: true,
       activation_mode: 'auto',
     } as const;
@@ -401,7 +398,6 @@ describe('restart recovery cursor handling', () => {
       getRegisteredGroups: () => ({ [chatJid]: group }),
       getSessions: () => sessions,
       processGroupMessages: vi.fn(),
-      ensureTerminalContainerStarted: vi.fn(),
       formatMessages: (messages: any[]) =>
         messages.map((message) => message.content).join('\n'),
       getLastAgentTimestamp: () => ({}),
@@ -451,7 +447,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Feishu Smoke',
       folder: 'main',
       added_at: '2026-05-17T09:00:00.000Z',
-      executionMode: 'host',
       agentType: 'openai',
       activation_mode: 'auto',
     } as const;
@@ -481,7 +476,6 @@ describe('restart recovery cursor handling', () => {
       getRegisteredGroups: () => ({ [chatJid]: group }),
       getSessions: () => ({}),
       processGroupMessages: vi.fn(),
-      ensureTerminalContainerStarted: vi.fn(),
       formatMessages: (messages: any[]) =>
         messages.map((message) => message.content).join('\n'),
       getLastAgentTimestamp: () => ({}),
@@ -1212,7 +1206,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Main',
       folder: 'main',
       added_at: '2026-04-28T08:00:00.000Z',
-      executionMode: 'host',
       is_home: true,
       activation_mode: 'auto',
     });
@@ -1291,7 +1284,7 @@ describe('restart recovery cursor handling', () => {
       }),
     );
 
-    runnerMocks.runHostAgent.mockImplementation(
+    runnerMocks.runAgentProcess.mockImplementation(
       async (_group, _input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'success',
@@ -1305,8 +1298,8 @@ describe('restart recovery cursor handling', () => {
 
     await expect(processGroupMessages('web:main')).resolves.toBe(true);
 
-    expect(runnerMocks.runHostAgent).toHaveBeenCalledOnce();
-    const prompt = runnerMocks.runHostAgent.mock.calls[0][1].prompt;
+    expect(runnerMocks.runAgentProcess).toHaveBeenCalledOnce();
+    const prompt = runnerMocks.runAgentProcess.mock.calls[0][1].prompt;
     expect(prompt).toContain('当前来源 A 的新问题');
     expect(prompt).not.toContain('已提交的旧消息');
     expect(prompt).not.toContain('旧任务历史上下文');
@@ -1328,7 +1321,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Main',
       folder: 'main',
       added_at: '2026-04-28T09:00:00.000Z',
-      executionMode: 'host',
       is_home: true,
       activation_mode: 'auto',
     });
@@ -1380,7 +1372,7 @@ describe('restart recovery cursor handling', () => {
     );
     db.setRouterState('last_committed_cursor', JSON.stringify({}));
 
-    runnerMocks.runHostAgent.mockImplementation(
+    runnerMocks.runAgentProcess.mockImplementation(
       async (_group, _input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'success',
@@ -1396,8 +1388,8 @@ describe('restart recovery cursor handling', () => {
     recoverPendingMessagesForTests();
     await expect(processGroupMessages('web:main')).resolves.toBe(true);
 
-    expect(runnerMocks.runHostAgent).toHaveBeenCalledOnce();
-    const prompt = runnerMocks.runHostAgent.mock.calls[0][1].prompt;
+    expect(runnerMocks.runAgentProcess).toHaveBeenCalledOnce();
+    const prompt = runnerMocks.runAgentProcess.mock.calls[0][1].prompt;
     expect(prompt).toContain('当前重启后必须处理的问题');
     expect(prompt).not.toContain('上一轮历史上下文');
     expect(prompt).not.toContain('上一轮中断正文');
@@ -1429,7 +1421,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Main',
       folder: 'main',
       added_at: '2026-04-29T06:00:00.000Z',
-      executionMode: 'host',
       is_home: true,
       activation_mode: 'auto',
     });
@@ -1437,7 +1428,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Feishu',
       folder: 'main',
       added_at: '2026-04-29T06:00:00.000Z',
-      executionMode: 'host',
       activation_mode: 'auto',
       target_main_jid: 'web:main',
       reply_policy: 'source_only',
@@ -1492,7 +1482,7 @@ describe('restart recovery cursor handling', () => {
       }),
     );
 
-    runnerMocks.runHostAgent.mockImplementation(
+    runnerMocks.runAgentProcess.mockImplementation(
       async (_group, _input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'stream',
@@ -1535,8 +1525,8 @@ describe('restart recovery cursor handling', () => {
     recoverPendingMessagesForTests();
     await expect(processGroupMessages('web:main')).resolves.toBe(true);
 
-    expect(runnerMocks.runHostAgent).toHaveBeenCalledOnce();
-    const prompt = runnerMocks.runHostAgent.mock.calls[0][1].prompt;
+    expect(runnerMocks.runAgentProcess).toHaveBeenCalledOnce();
+    const prompt = runnerMocks.runAgentProcess.mock.calls[0][1].prompt;
     expect(prompt).toContain('检查 clic-claw PLANS/');
     expect(prompt).not.toContain('港股 IPO');
     expect(prompt).not.toContain('hkexnews');
@@ -1586,7 +1576,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Feishu',
       folder: 'main',
       added_at: '2026-05-14T06:00:00.000Z',
-      executionMode: 'host',
       activation_mode: 'auto',
     });
     db.ensureChatExists('feishu:oc_test');
@@ -1609,7 +1598,7 @@ describe('restart recovery cursor handling', () => {
       JSON.stringify({ 'feishu:oc_test': previousCursor }),
     );
 
-    runnerMocks.runHostAgent.mockImplementation(
+    runnerMocks.runAgentProcess.mockImplementation(
       async (_group, _input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'stream',
@@ -1669,7 +1658,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Feishu',
       folder: 'main',
       added_at: '2026-05-14T06:00:00.000Z',
-      executionMode: 'host',
       activation_mode: 'auto',
     });
     db.ensureChatExists('feishu:oc_test');
@@ -1692,7 +1680,7 @@ describe('restart recovery cursor handling', () => {
       JSON.stringify({ 'feishu:oc_test': previousCursor }),
     );
 
-    runnerMocks.runHostAgent.mockImplementation(
+    runnerMocks.runAgentProcess.mockImplementation(
       async (_group, _input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'stream',
@@ -1752,7 +1740,6 @@ describe('restart recovery cursor handling', () => {
       name: 'Main',
       folder: 'main',
       added_at: '2026-04-28T08:00:00.000Z',
-      executionMode: 'host',
       is_home: true,
       activation_mode: 'auto',
     });
@@ -1804,7 +1791,7 @@ describe('restart recovery cursor handling', () => {
       { sourceJid: 'web:B' },
     );
 
-    runnerMocks.runHostAgent.mockImplementation(
+    runnerMocks.runAgentProcess.mockImplementation(
       async (_group, _input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'success',
@@ -1818,8 +1805,8 @@ describe('restart recovery cursor handling', () => {
 
     await expect(processGroupMessages('web:main')).resolves.toBe(true);
 
-    expect(runnerMocks.runHostAgent).toHaveBeenCalledOnce();
-    const prompt = runnerMocks.runHostAgent.mock.calls[0][1].prompt;
+    expect(runnerMocks.runAgentProcess).toHaveBeenCalledOnce();
+    const prompt = runnerMocks.runAgentProcess.mock.calls[0][1].prompt;
     expect(prompt).toContain('当前来源 A 的新问题');
     expect(prompt).not.toContain('旧任务历史上下文');
     expect(prompt).not.toContain('旧任务中断过程文本');

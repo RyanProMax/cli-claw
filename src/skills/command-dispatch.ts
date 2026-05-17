@@ -3,7 +3,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 
 import { DATA_DIR, GROUPS_DIR } from '../core/config.js';
-import { resolveEffectiveHostWorkspaceCwd } from '../core/workspace/host-cwd.js';
+import { resolveEffectiveWorkspaceCwd } from '../core/workspace/workspace-cwd.js';
 import { type RuntimeCommandEntrypoint } from '../core/runtime/command-registry.js';
 import { validateSkillPath } from './utils.js';
 import type { RegisteredGroup } from '../domain/types.js';
@@ -578,7 +578,7 @@ export function resolveSkillCommandRoots(options: {
 }): string[] {
   const roots: string[] = [];
   const workspaceRoot =
-    resolveEffectiveHostWorkspaceCwd(
+    resolveEffectiveWorkspaceCwd(
       options.workspaceGroup,
       options.homeGroup ?? undefined,
     ) ?? path.join(GROUPS_DIR, options.workspaceGroup.folder);

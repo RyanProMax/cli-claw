@@ -9,13 +9,13 @@
  * - Cleanup of residual tool states
  */
 
-import type { ContainerOutput, StreamEvent } from './types.js';
+import type { AgentProcessOutput, StreamEvent } from './types.js';
 import { extractSkillName, summarizeToolInput } from './utils.js';
 
 /** Tools with specialized input_json_delta handling — generic accumulation is skipped for these. */
 const SPECIAL_TOOLS = ['Skill', 'Task', 'Agent', 'AskUserQuestion', 'TodoWrite'];
 
-type EmitFn = (output: ContainerOutput) => void;
+type EmitFn = (output: AgentProcessOutput) => void;
 type LogFn = (message: string) => void;
 export class StreamEventProcessor {
   private readonly emit: EmitFn;
@@ -580,7 +580,7 @@ export class StreamEventProcessor {
       return true;
     }
     // task_started / task_progress — emit a status event to keep stdout activity alive.
-    // Without this, long-running tasks produce no stdout output, and the host's
+    // Without this, long-running tasks produce no stdout output, and the backend's
     // stuck-runner detector may kill the process after 6 minutes of silence.
     // Also build sdkTaskId → toolUseId mapping for task_notification translation.
     if (message.subtype === 'task_started' || message.subtype === 'task_progress') {

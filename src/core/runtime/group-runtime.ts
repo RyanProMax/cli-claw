@@ -5,11 +5,10 @@ import {
 import { getAgentRuntime, normalizeRuntimeId } from './runtime-registry.js';
 import type {
   AgentType,
-  ExecutionMode,
   RegisteredGroup,
   RuntimeIdentity,
 } from '../../domain/types.js';
-import { resolveEffectiveHostWorkspaceCwd } from '../workspace/host-cwd.js';
+import { resolveEffectiveWorkspaceCwd } from '../workspace/workspace-cwd.js';
 
 function normalizeRuntimeText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -32,46 +31,6 @@ export function normalizeAgentType(raw: string | null | undefined): AgentType {
   return normalizeRuntimeId(raw);
 }
 
-export function enforceAgentExecutionMode(
-  agentType: AgentType,
-  executionMode: ExecutionMode,
-): string | null {
-  void agentType;
-  void executionMode;
-  return null;
-}
-
-export function validateGroupRuntimeUpdate(options: {
-  isHome: boolean;
-  currentExecutionMode: ExecutionMode;
-  nextAgentType: AgentType;
-  nextExecutionMode: ExecutionMode;
-}): string | null {
-  if (
-    options.isHome &&
-    options.nextExecutionMode !== options.currentExecutionMode
-  ) {
-    return 'Cannot change execution mode of home containers';
-  }
-
-  return enforceAgentExecutionMode(
-    options.nextAgentType,
-    options.nextExecutionMode,
-  );
-}
-
-export function hasRuntimeBoundaryChange(options: {
-  currentAgentType: AgentType;
-  currentExecutionMode: ExecutionMode;
-  nextAgentType: AgentType;
-  nextExecutionMode: ExecutionMode;
-}): boolean {
-  return (
-    options.currentAgentType !== options.nextAgentType ||
-    options.currentExecutionMode !== options.nextExecutionMode
-  );
-}
-
 export function buildEffectiveGroupFromHomeSibling(
   group: RegisteredGroup,
   homeGroup: RegisteredGroup,
@@ -79,11 +38,10 @@ export function buildEffectiveGroupFromHomeSibling(
   return {
     ...group,
     agentType: homeGroup.agentType ?? group.agentType,
-    executionMode: homeGroup.executionMode ?? group.executionMode,
     model: homeGroup.model ?? group.model,
     reasoningEffort: homeGroup.reasoningEffort ?? group.reasoningEffort,
     speedTier: homeGroup.speedTier ?? group.speedTier,
-    customCwd: resolveEffectiveHostWorkspaceCwd(group, homeGroup),
+    customCwd: resolveEffectiveWorkspaceCwd(group, homeGroup),
     created_by: group.created_by || homeGroup.created_by,
     is_home: true,
   };

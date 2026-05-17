@@ -174,10 +174,8 @@ export function resolveBoundChatTarget(
 // ─── System Status Formatting ─────────────────────────────────
 
 export interface QueueStatusInfo {
-  activeContainerCount: number;
-  activeHostProcessCount: number;
-  maxContainers: number;
-  maxHostProcesses: number;
+  activeProcessCount: number;
+  maxProcesses: number;
   waitingCount: number;
   waitingGroupJids: string[];
 }
@@ -239,7 +237,7 @@ export function formatSystemStatus(
     `💬 当前会话: ${status.currentSessionName}`,
     `🔢 会话数: ${status.sessionCount}`,
     `⚡ 状态: ${statusText}`,
-    `📦 负载: ${queueStatus.activeContainerCount}/${queueStatus.maxContainers} 容器, ${queueStatus.activeHostProcessCount}/${queueStatus.maxHostProcesses} 进程`,
+    `📦 负载: ${queueStatus.activeProcessCount}/${queueStatus.maxProcesses} 进程`,
     `📍 cwd: ${status.cwd}`,
   ];
 

@@ -11,11 +11,10 @@
 │   ├── cli.ts                      # npm 二进制入口；分发 start / help / version
 │   ├── reset-admin.ts              # 管理员密码重置入口
 │   ├── self-restart-watchdog.ts    # 自重启 watchdog 子进程入口
-│   ├── pty-worker.cjs              # terminal worker，保留 CommonJS
 │   ├── agent/
 │   │   ├── queue/group-queue.ts     # 会话并发控制、重试、排队与后台任务优先级
 │   │   ├── runner/
-│   │   │   ├── container-runner.ts  # Docker / host 执行、卷挂载、Agent 生命周期
+│   │   │   ├── container-runner.ts  # 本地 Agent 进程执行与生命周期（历史文件名）
 │   │   │   ├── output-parser.ts     # runner 输出解析、错误格式化与 run log
 │   │   │   ├── workspace-reset.ts   # runtime session 清理与工作区重置
 │   │   │   ├── context-compaction.ts# 消息上下文压缩
@@ -34,7 +33,7 @@
 │   │   ├── utils.ts                 # backend 通用工具
 │   │   ├── runtime/                 # agent/runtime 选择、配置、用量与 Codex CLI 登录态
 │   │   ├── self/                    # self-check、startup launch、自重启实现
-│   │   └── workspace/               # host cwd、mount allowlist、文件管理安全边界
+│   │   └── workspace/               # workspace cwd、allowlist、文件管理安全边界
 │   ├── storage/
 │   │   ├── db.ts                    # SQLite 数据层 facade；后续再拆 repositories
 │   │   └── sqlite-compat.ts         # better-sqlite3 兼容加载
@@ -63,7 +62,6 @@
 │   │   ├── app.ts                   # Hono 应用、WebSocket、静态资源托管
 │   │   ├── context.ts               # Web deps、会话、权限、工作区访问 helper
 │   │   ├── middleware/auth.ts       # Web auth middleware
-│   │   ├── terminal-manager.ts      # terminal sessions
 │   │   └── routes/                  # HTTP API routes
 │   ├── skills/
 │   │   ├── command-dispatch.ts      # skill command 发现、冲突检查与 executor 执行
@@ -78,7 +76,7 @@
 ├── web/
 │   └── src/                         # React frontend
 ├── container/
-│   └── agent-runner/                # 容器内 agent runner
+│   └── agent-runner/                # Agent runner package（历史路径，非 Docker 执行）
 ├── shared/                          # 前后端与 runner 共用纯函数/类型
 ├── PLANS/                           # 当前计划、长期 roadmap 与计划模板
 ├── RUNBOOKS/                        # 实施、review、自迭代、handoff 操作规范

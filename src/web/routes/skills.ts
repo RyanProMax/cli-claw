@@ -780,7 +780,7 @@ async function installSkillForUser(
 }
 
 /**
- * Sync host-level skills to a user's directory.
+ * Sync local package skills to a user's directory.
  * Standalone function usable from both the API route and the auto-sync timer.
  */
 async function syncHostSkillsForUser(userId: string): Promise<{
@@ -792,7 +792,7 @@ async function syncHostSkillsForUser(userId: string): Promise<{
     const userDir = getUserSkillsDir(userId);
     fs.mkdirSync(userDir, { recursive: true });
 
-    // 1. 扫描宿主机 skills
+    // 1. 扫描本机 skills
     const hostSkillNames: string[] = [];
     if (fs.existsSync(hostDir)) {
       for (const entry of fs.readdirSync(hostDir, { withFileTypes: true })) {
@@ -850,7 +850,7 @@ async function syncHostSkillsForUser(userId: string): Promise<{
       newSyncedList.push(name);
     }
 
-    // 5. 删除宿主机已移除的（仅清理之前同步来的）
+    // 5. 删除本机已移除的（仅清理之前同步来的）
     const hostSkillSet = new Set(hostSkillNames);
     for (const name of previouslySynced) {
       if (!hostSkillSet.has(name) && existingUserSkills.has(name)) {
@@ -870,11 +870,11 @@ async function syncHostSkillsForUser(userId: string): Promise<{
   });
 }
 
-// Sync host-level skills — API endpoint (admin only).
+// Sync local package skills — API endpoint (admin only).
 skillsRoutes.post('/sync-host', authMiddleware, async (c) => {
   const authUser = c.get('user') as AuthUser;
   if (authUser.role !== 'admin') {
-    return c.json({ error: 'Only admin can sync host skills' }, 403);
+    return c.json({ error: 'Only admin can sync local skills' }, 403);
   }
 
   const result = await syncHostSkillsForUser(authUser.id);

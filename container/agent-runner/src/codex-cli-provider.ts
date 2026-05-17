@@ -314,7 +314,7 @@ export function configureCodexCliOpenAiProvider(): ModelProvider {
   const accessToken = normalizeText(process.env.CLI_CLAW_CODEX_ACCESS_TOKEN);
   if (!accessToken) {
     throw new Error(
-      'Codex CLI login is required. Run `codex login` on the host, then retry.',
+      'Codex CLI login is required. Run `codex login`, then retry.',
     );
   }
 

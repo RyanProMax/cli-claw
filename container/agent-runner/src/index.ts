@@ -1,9 +1,9 @@
 /**
  * cli-claw Agent Runner
- * Runs inside a container, receives config via stdin, outputs result to stdout.
+ * Runs as the local agent process, receives config via stdin, outputs result to stdout.
  *
  * Input protocol:
- *   Stdin: Full ContainerInput JSON (read until EOF)
+ *   Stdin: Full AgentProcessInput JSON (read until EOF)
  *   IPC:   Follow-up messages written as JSON files to /workspace/ipc/input/
  *          Files: {type:"message", text:"..."}.json - polled and consumed
  *          Sentinel: /workspace/ipc/input/_close signals session end
@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 
-import type { ContainerInput, ContainerOutput } from './types.js';
+import type { AgentProcessInput, AgentProcessOutput } from './types.js';
 export type { StreamEventType, StreamEvent } from './types.js';
 
 import {
@@ -61,7 +61,7 @@ const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---CLI_CLAW_OUTPUT_END---';
 
 function asOpenAiRuntimeIdentity(
-  value: ContainerOutput['runtimeIdentity'] | undefined,
+  value: AgentProcessOutput['runtimeIdentity'] | undefined,
 ): RuntimeIdentityState | null {
   if (value?.agentType !== 'openai') return null;
   return {
@@ -73,7 +73,7 @@ function asOpenAiRuntimeIdentity(
   };
 }
 
-function writeOutput(output: ContainerOutput): void {
+function writeOutput(output: AgentProcessOutput): void {
   const runtimeIdentity = mergeRuntimeIdentityState(
     activeRuntimeIdentity,
     asOpenAiRuntimeIdentity(
@@ -104,15 +104,11 @@ function generateTurnId(): string {
   return `ipc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function normalizeHomeFlags(input: ContainerInput): {
+function normalizeHomeFlags(input: AgentProcessInput): {
   isHome: boolean;
   isAdminHome: boolean;
 } {
-  if (input.isHome !== undefined) {
-    return { isHome: !!input.isHome, isAdminHome: !!input.isAdminHome };
-  }
-  const legacy = !!input.isMain;
-  return { isHome: legacy, isAdminHome: legacy };
+  return { isHome: !!input.isHome, isAdminHome: !!input.isAdminHome };
 }
 
 function shouldClose(): boolean {
@@ -416,7 +412,7 @@ function forceExitWithSafetyNet(code: number): never {
 function buildVisibleRuntimeErrorOutput(
   errorMessage: string,
   sessionId?: string,
-): ContainerOutput {
+): AgentProcessOutput {
   const friendlyError = formatOpenAiRuntimeError(errorMessage);
   return {
     status: 'error',
@@ -429,18 +425,18 @@ function buildVisibleRuntimeErrorOutput(
 }
 
 async function main(): Promise<void> {
-  let containerInput: ContainerInput;
+  let agentInput: AgentProcessInput;
 
   try {
     const stdinData = await readStdin();
-    containerInput = JSON.parse(stdinData) as ContainerInput;
+    agentInput = JSON.parse(stdinData) as AgentProcessInput;
     activeRuntimeIdentity = buildOpenAiRuntimeIdentity({
-      model: containerInput.model ?? null,
-      reasoningEffort: containerInput.reasoningEffort ?? null,
-      speedTier: containerInput.speedTier ?? null,
+      model: agentInput.model ?? null,
+      reasoningEffort: agentInput.reasoningEffort ?? null,
+      speedTier: agentInput.speedTier ?? null,
     });
     log(
-      `Received input for group: ${containerInput.groupFolder}, chatJid: ${containerInput.chatJid}, agentType: openai, session: ${containerInput.sessionId || 'new'}, runnerPid: ${process.pid}`,
+      `Received input for group: ${agentInput.groupFolder}, chatJid: ${agentInput.chatJid}, agentType: openai, session: ${agentInput.sessionId || 'new'}, runnerPid: ${process.pid}`,
     );
   } catch (err) {
     writeOutput(
@@ -451,9 +447,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  latestSessionId = containerInput.sessionId;
+  latestSessionId = agentInput.sessionId;
   log(`Selected runner: openai, runnerPid: ${process.pid}`);
-  await runOpenAiAgentLoop(containerInput, {
+  await runOpenAiAgentLoop(agentInput, {
     workspaceGroup: WORKSPACE_GROUP,
     workspaceIpc: WORKSPACE_IPC,
     ipcInputDir: IPC_INPUT_DIR,

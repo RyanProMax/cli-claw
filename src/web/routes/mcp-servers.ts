@@ -302,11 +302,11 @@ mcpServersRoutes.delete('/:id', authMiddleware, async (c) => {
   return c.json({ success: true });
 });
 
-// POST /sync-host — sync from host MCP configs (admin only)
+// POST /sync-host — sync from local MCP configs (admin only)
 mcpServersRoutes.post('/sync-host', authMiddleware, async (c) => {
   const authUser = c.get('user') as AuthUser;
   if (authUser.role !== 'admin') {
-    return c.json({ error: 'Only admin can sync host MCP servers' }, 403);
+    return c.json({ error: 'Only admin can sync local MCP servers' }, 403);
   }
 
   let hostServers: Record<string, any> = {};
@@ -333,7 +333,7 @@ mcpServersRoutes.post('/sync-host', authMiddleware, async (c) => {
       updated: 0,
       deleted: 0,
       skipped: 0,
-      message: 'No MCP servers found in host config files',
+      message: 'No MCP servers found in local config files',
     });
   }
 

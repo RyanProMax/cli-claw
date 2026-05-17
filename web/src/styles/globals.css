@@ -707,12 +707,6 @@ pre code.hljs {
   }
 }
 
-/* Terminal visual safety: avoid last line clipping at the bottom edge */
-.terminal-panel .xterm-viewport {
-  padding-bottom: 8px;
-  box-sizing: border-box;
-}
-
 :root {
   --app-scrollbar-thumb: rgba(100, 116, 139, 0.38);
   --app-scrollbar-thumb-hover: rgba(100, 116, 139, 0.6);

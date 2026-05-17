@@ -115,8 +115,6 @@ export const openaiRuntime: AgentRuntime = {
   capabilities: {
     supportsReasoningEffort: true,
     supportsSpeedTier: true,
-    supportsHostExecution: true,
-    supportsContainerExecution: true,
   },
   defaults: getOpenAiRuntimeDefaults,
   modelCatalog(options: RuntimeModelOptionsDiscoveryOptions = {}) {
@@ -143,11 +141,8 @@ export const openaiRuntime: AgentRuntime = {
   normalizeSpeedTier(rawValue: string) {
     return normalizeSpeedTierPreset(rawValue);
   },
-  prepareHost(context: RuntimeLaunchContext) {
+  prepareRuntime(context: RuntimeLaunchContext) {
     return prepareOpenAiRuntime(context, runtimeSessionDir(context));
-  },
-  prepareContainer(context: RuntimeLaunchContext) {
-    return prepareOpenAiRuntime(context, '/workspace/runtime-session');
   },
   usage() {
     return getOpenAiCodexUsageSnapshot();

@@ -28,13 +28,12 @@ describe('GroupQueue shared-runner IPC recovery', () => {
   test('preserves waiting order when drainWaiting releases a slot', async () => {
     const { GroupQueue } = await loadGroupQueueModule();
     const { saveSystemSettings } = await import('../../../../src/core/runtime/config.js');
-    saveSystemSettings({ maxConcurrentHostProcesses: 1 });
+    saveSystemSettings({ maxConcurrentProcesses: 1 });
 
     const queue = new GroupQueue();
     const calls: string[] = [];
     const fakeProcess = { pid: 11223, killed: false } as any;
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' || groupJid === 'feishu:chat-1'
         ? 'main'
@@ -79,13 +78,12 @@ describe('GroupQueue shared-runner IPC recovery', () => {
   test('drains pending messages before low-priority background tasks', async () => {
     const { GroupQueue } = await loadGroupQueueModule();
     const { saveSystemSettings } = await import('../../../../src/core/runtime/config.js');
-    saveSystemSettings({ maxConcurrentHostProcesses: 1 });
+    saveSystemSettings({ maxConcurrentProcesses: 1 });
 
     const queue = new GroupQueue();
     const calls: string[] = [];
     const fakeProcess = { pid: 11224, killed: false } as any;
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' ? 'main' : groupJid,
     );
@@ -151,7 +149,6 @@ describe('GroupQueue shared-runner IPC recovery', () => {
       '_close',
     );
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' ? 'main' : groupJid,
     );
@@ -208,7 +205,6 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     const fakeProcess = { pid: 12345, killed: false } as any;
     const inputDir = path.join(DATA_DIR, 'ipc', 'main', 'input');
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' || groupJid === 'web:sibling' ? 'main' : groupJid,
     );
@@ -276,7 +272,6 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     const fakeProcess = { pid: 22345, killed: false } as any;
     const inputDir = path.join(DATA_DIR, 'ipc', 'main', 'input');
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' || groupJid === 'feishu:chat-1'
         ? 'main'
@@ -339,7 +334,6 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     const fakeProcess = { pid: 22348, killed: false } as any;
     const inputDir = path.join(DATA_DIR, 'ipc', 'main', 'input');
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' || groupJid === 'feishu:chat-1'
         ? 'main'
@@ -404,7 +398,6 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     const fakeProcess = { pid: 22347, killed: false } as any;
     const inputDir = path.join(DATA_DIR, 'ipc', 'main', 'input');
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' ? 'main' : groupJid,
     );
@@ -462,7 +455,6 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     const fakeProcess = { pid: 22346, killed: false } as any;
     const inputDir = path.join(DATA_DIR, 'ipc', 'main', 'input');
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' || groupJid === 'feishu:chat-1'
         ? 'main'
@@ -541,7 +533,6 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     const drainPath = path.join(inputDir, '_drain');
     const calls: string[] = [];
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' || groupJid === 'feishu:chat-1'
         ? 'main'
@@ -607,7 +598,6 @@ describe('GroupQueue shared-runner IPC recovery', () => {
     const fakeProcess = { pid: 34567, killed: false } as any;
     const calls: string[] = [];
 
-    queue.setHostModeChecker(() => true);
     queue.setSerializationKeyResolver((groupJid: string) =>
       groupJid === 'web:main' || groupJid === 'web:sibling' ? 'main' : groupJid,
     );

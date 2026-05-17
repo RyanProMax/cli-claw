@@ -271,10 +271,10 @@ function insertScheduledTask(cliClawDb, task) {
       `
       INSERT INTO scheduled_tasks (
         id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
-        context_mode, execution_type, script_command, execution_mode, next_run,
+        context_mode, execution_type, script_command, next_run,
         status, created_at, created_by, notify_channels
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
     .run(
@@ -287,7 +287,6 @@ function insertScheduledTask(cliClawDb, task) {
       task.context_mode,
       task.execution_type,
       null,
-      task.execution_mode,
       task.next_run,
       task.status,
       task.created_at,
@@ -357,7 +356,6 @@ export function bridgeStockHandoffs(options = {}) {
           schedule_value: now,
           context_mode: 'isolated',
           execution_type: 'agent',
-          execution_mode: 'host',
           next_run: now,
           status: 'active',
           created_at: now,

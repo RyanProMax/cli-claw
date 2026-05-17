@@ -111,7 +111,6 @@ describe('skill command dispatch', () => {
         name: 'Workspace',
         folder: 'workspace',
         added_at: '2026-05-16T00:00:00.000Z',
-        executionMode: 'host',
         customCwd: workspaceRoot,
       },
     });

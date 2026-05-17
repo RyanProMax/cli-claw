@@ -5,10 +5,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import {
-  materializeHostWorkspaceDefaultCwd,
-  resolveEffectiveHostWorkspaceCwd,
-  validateHostWorkspaceCwd,
-} from '../../../../src/core/workspace/host-cwd.js';
+  materializeWorkspaceDefaultCwd,
+  resolveEffectiveWorkspaceCwd,
+  validateWorkspaceCwd,
+} from '../../../../src/core/workspace/workspace-cwd.js';
 
 const tempDirs: string[] = [];
 
@@ -22,18 +22,18 @@ afterEach(() => {
 });
 
 function makeTempWorkspace(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-host-cwd-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-workspace-cwd-'));
   tempDirs.push(dir);
   return dir;
 }
 
-describe('validateHostWorkspaceCwd', () => {
+describe('validateWorkspaceCwd', () => {
   test('accepts an absolute cwd under an allowed root and normalizes it', () => {
     const root = makeTempWorkspace();
     const workspace = path.join(root, 'workspace');
     fs.mkdirSync(workspace);
 
-    const result = validateHostWorkspaceCwd(workspace, {
+    const result = validateWorkspaceCwd(workspace, {
       allowlist: {
         allowedRoots: [{ path: root, allowReadWrite: true }],
         blockedPatterns: [],
@@ -46,7 +46,7 @@ describe('validateHostWorkspaceCwd', () => {
   });
 
   test('rejects a relative cwd', () => {
-    const result = validateHostWorkspaceCwd('workspace', {
+    const result = validateWorkspaceCwd('workspace', {
       allowlist: null,
       fieldLabel: 'launch cwd',
     });
@@ -62,7 +62,7 @@ describe('validateHostWorkspaceCwd', () => {
     fs.mkdirSync(workspace);
     const otherRoot = makeTempWorkspace();
 
-    const result = validateHostWorkspaceCwd(workspace, {
+    const result = validateWorkspaceCwd(workspace, {
       allowlist: {
         allowedRoots: [{ path: otherRoot, allowReadWrite: true }],
         blockedPatterns: [],
@@ -79,19 +79,18 @@ describe('validateHostWorkspaceCwd', () => {
   });
 });
 
-describe('materializeHostWorkspaceDefaultCwd', () => {
-  test('fills in missing host customCwd from the launch cwd', () => {
+describe('materializeWorkspaceDefaultCwd', () => {
+  test('fills in missing customCwd from the launch cwd', () => {
     const root = makeTempWorkspace();
     const launchCwd = path.join(root, 'launch');
     fs.mkdirSync(launchCwd);
 
-    const result = materializeHostWorkspaceDefaultCwd(
+    const result = materializeWorkspaceDefaultCwd(
       {
         name: 'Main',
         folder: 'main',
         added_at: '2026-04-05T10:00:00.000Z',
-        agentType: 'claude',
-        executionMode: 'host',
+        agentType: 'openai',
         created_by: 'admin-1',
         is_home: true,
       },
@@ -113,20 +112,19 @@ describe('materializeHostWorkspaceDefaultCwd', () => {
     });
   });
 
-  test('keeps an existing host customCwd unchanged', () => {
+  test('keeps an existing customCwd unchanged', () => {
     const root = makeTempWorkspace();
     const launchCwd = path.join(root, 'launch');
     fs.mkdirSync(launchCwd);
     const projectDir = path.join(root, 'project');
     fs.mkdirSync(projectDir);
 
-    const result = materializeHostWorkspaceDefaultCwd(
+    const result = materializeWorkspaceDefaultCwd(
       {
         name: 'Main',
         folder: 'main',
         added_at: '2026-04-05T10:00:00.000Z',
-        agentType: 'claude',
-        executionMode: 'host',
+        agentType: 'openai',
         customCwd: projectDir,
         created_by: 'admin-1',
         is_home: true,
@@ -147,15 +145,14 @@ describe('materializeHostWorkspaceDefaultCwd', () => {
   });
 });
 
-describe('resolveEffectiveHostWorkspaceCwd', () => {
+describe('resolveEffectiveWorkspaceCwd', () => {
   test('keeps the existing home-sibling inheritance behavior', () => {
     expect(
-      resolveEffectiveHostWorkspaceCwd(
+      resolveEffectiveWorkspaceCwd(
         {
           name: 'Ops',
           folder: 'main',
           added_at: '2026-04-05T10:00:00.000Z',
-          executionMode: 'host',
           customCwd: '/srv/main',
           created_by: 'member-1',
           is_home: false,
@@ -164,7 +161,6 @@ describe('resolveEffectiveHostWorkspaceCwd', () => {
           name: 'Main',
           folder: 'main',
           added_at: '2026-04-05T09:00:00.000Z',
-          executionMode: 'host',
           customCwd: '/srv/home',
           created_by: 'admin-1',
           is_home: true,
@@ -175,12 +171,11 @@ describe('resolveEffectiveHostWorkspaceCwd', () => {
 
   test('falls back to the workspace customCwd when the home sibling has none', () => {
     expect(
-      resolveEffectiveHostWorkspaceCwd(
+      resolveEffectiveWorkspaceCwd(
         {
           name: 'Ops',
           folder: 'main',
           added_at: '2026-04-05T10:00:00.000Z',
-          executionMode: 'host',
           customCwd: '/srv/main',
           created_by: 'member-1',
           is_home: false,
@@ -189,7 +184,6 @@ describe('resolveEffectiveHostWorkspaceCwd', () => {
           name: 'Main',
           folder: 'main',
           added_at: '2026-04-05T09:00:00.000Z',
-          executionMode: 'host',
           created_by: 'admin-1',
           is_home: true,
         },

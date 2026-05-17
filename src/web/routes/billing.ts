@@ -209,8 +209,8 @@ billingRoutes.post(
       display_price: validation.data.display_price ?? null,
       highlight: validation.data.highlight ?? false,
       max_groups: validation.data.max_groups ?? null,
-      max_concurrent_containers:
-        validation.data.max_concurrent_containers ?? null,
+      max_concurrent_processes:
+        validation.data.max_concurrent_processes ?? null,
       max_im_channels: validation.data.max_im_channels ?? null,
       max_mcp_servers: validation.data.max_mcp_servers ?? null,
       max_storage_mb: validation.data.max_storage_mb ?? null,

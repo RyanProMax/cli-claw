@@ -5,28 +5,26 @@ import { LAUNCH_CWD } from '../app-root.js';
 import { findAllowedRoot, loadMountAllowlist } from './mount-security.js';
 import type { MountAllowlist, RegisteredGroup } from '../../domain/types.js';
 
-export interface HostWorkspaceCwdValidationOptions {
+export interface WorkspaceCwdValidationOptions {
   allowlist?: MountAllowlist | null;
   fieldLabel?: string;
 }
 
-export type HostWorkspaceCwdValidationResult =
-  | { cwd: string }
-  | { error: string };
+export type WorkspaceCwdValidationResult = { cwd: string } | { error: string };
 
-export interface HostWorkspaceDefaultMaterializationResult {
+export interface WorkspaceDefaultMaterializationResult {
   group: RegisteredGroup;
   materialized: boolean;
 }
 
-export interface HostWorkspaceDefaultMaterializationError {
+export interface WorkspaceDefaultMaterializationError {
   error: string;
 }
 
-export function validateHostWorkspaceCwd(
+export function validateWorkspaceCwd(
   cwd: string,
-  options: HostWorkspaceCwdValidationOptions = {},
-): HostWorkspaceCwdValidationResult {
+  options: WorkspaceCwdValidationOptions = {},
+): WorkspaceCwdValidationResult {
   const fieldLabel = options.fieldLabel ?? 'custom_cwd';
 
   if (!path.isAbsolute(cwd)) {
@@ -62,7 +60,7 @@ export function validateHostWorkspaceCwd(
   return { cwd: normalizedCwd };
 }
 
-export function materializeHostWorkspaceDefaultCwd(
+export function materializeWorkspaceDefaultCwd(
   group: RegisteredGroup,
   launchCwdOrOptions:
     | string
@@ -76,8 +74,8 @@ export function materializeHostWorkspaceDefaultCwd(
     fieldLabel?: string;
   } = {},
 ):
-  | HostWorkspaceDefaultMaterializationResult
-  | HostWorkspaceDefaultMaterializationError {
+  | WorkspaceDefaultMaterializationResult
+  | WorkspaceDefaultMaterializationError {
   const options =
     typeof launchCwdOrOptions === 'string'
       ? {
@@ -86,12 +84,8 @@ export function materializeHostWorkspaceDefaultCwd(
         }
       : launchCwdOrOptions;
 
-  if ((group.executionMode ?? 'container') !== 'host') {
-    return { group, materialized: false };
-  }
-
   if (group.customCwd) {
-    const validation = validateHostWorkspaceCwd(group.customCwd, {
+    const validation = validateWorkspaceCwd(group.customCwd, {
       allowlist: options.allowlist,
       fieldLabel: options.fieldLabel ?? 'custom_cwd',
     });
@@ -108,7 +102,7 @@ export function materializeHostWorkspaceDefaultCwd(
   }
 
   const launchCwd = options.launchCwd ?? LAUNCH_CWD;
-  const validation = validateHostWorkspaceCwd(launchCwd, {
+  const validation = validateWorkspaceCwd(launchCwd, {
     allowlist: options.allowlist,
     fieldLabel: options.fieldLabel ?? 'launch cwd',
   });
@@ -125,17 +119,9 @@ export function materializeHostWorkspaceDefaultCwd(
   };
 }
 
-export function resolveEffectiveHostWorkspaceCwd(
+export function resolveEffectiveWorkspaceCwd(
   group: RegisteredGroup,
   homeGroup?: RegisteredGroup | null,
 ): string | undefined {
-  const effectiveExecutionMode = group.is_home
-    ? group.executionMode
-    : (homeGroup?.executionMode ?? group.executionMode);
-
-  if ((effectiveExecutionMode ?? 'container') !== 'host') {
-    return undefined;
-  }
-
   return homeGroup?.customCwd || group.customCwd;
 }

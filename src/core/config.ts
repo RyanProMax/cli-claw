@@ -2,8 +2,6 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import os from 'os';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { APP_ROOT } from './app-root.js';
 
 export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'cli-claw';
@@ -21,8 +19,6 @@ export const STORE_DIR = path.join(DATA_DIR, 'db');
 export const GROUPS_DIR = path.join(DATA_DIR, 'groups');
 export const MAIN_GROUP_FOLDER = 'main';
 
-export const CONTAINER_IMAGE =
-  process.env.CONTAINER_IMAGE || 'cli-claw-agent:latest';
 // Timezone for scheduled tasks (cron expressions, etc.)
 // Uses TZ env var with Asia/Shanghai fallback
 export const TIMEZONE =
@@ -42,7 +38,7 @@ export const SESSION_COOKIE_NAME_PLAIN = 'cli-claw-session';
 const SESSION_SECRET_FILE = path.join(DATA_DIR, 'config', 'session-secret.key');
 
 function getOrCreateSessionSecret(): string {
-  // 1. Environment variable (highest priority — allows container/operator override)
+  // 1. Environment variable (highest priority — allows operator override)
   if (process.env.WEB_SESSION_SECRET) {
     return process.env.WEB_SESSION_SECRET;
   }
@@ -122,18 +118,3 @@ export function isWeChatBypassingProxy(): boolean {
 // Proxy trust configuration
 // Set TRUST_PROXY=true when behind a reverse proxy (nginx, Cloudflare, etc.)
 export const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
-
-// Docker availability check (cached for the lifetime of the process)
-const execFileAsync = promisify(execFile);
-let _dockerAvailable: boolean | null = null;
-
-export async function isDockerAvailable(): Promise<boolean> {
-  if (_dockerAvailable !== null) return _dockerAvailable;
-  try {
-    await execFileAsync('docker', ['info'], { timeout: 10000 });
-    _dockerAvailable = true;
-  } catch {
-    _dockerAvailable = false;
-  }
-  return _dockerAvailable;
-}

@@ -1,6 +1,6 @@
 /**
  * Shared MCP server loading utilities.
- * Used by container-runner (Docker + Host modes) and routes/mcp-servers.
+ * Used by the agent process runner and routes/mcp-servers.
  */
 import fs from 'fs';
 import path from 'path';

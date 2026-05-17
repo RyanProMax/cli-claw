@@ -37,7 +37,7 @@ interface FormState {
   max_groups: string;
   max_im_channels: string;
   max_mcp_servers: string;
-  max_concurrent_containers: string;
+  max_concurrent_processes: string;
   max_storage_mb: string;
   allow_overage: boolean;
   is_default: boolean;
@@ -65,7 +65,7 @@ const INITIAL: FormState = {
   max_groups: '',
   max_im_channels: '',
   max_mcp_servers: '',
-  max_concurrent_containers: '',
+  max_concurrent_processes: '',
   max_storage_mb: '',
   allow_overage: false,
   is_default: false,
@@ -102,9 +102,9 @@ function planToForm(plan: BillingPlan): FormState {
       plan.max_im_channels != null ? String(plan.max_im_channels) : '',
     max_mcp_servers:
       plan.max_mcp_servers != null ? String(plan.max_mcp_servers) : '',
-    max_concurrent_containers:
-      plan.max_concurrent_containers != null
-        ? String(plan.max_concurrent_containers)
+    max_concurrent_processes:
+      plan.max_concurrent_processes != null
+        ? String(plan.max_concurrent_processes)
         : '',
     max_storage_mb:
       plan.max_storage_mb != null ? String(plan.max_storage_mb) : '',
@@ -195,7 +195,7 @@ export default function PlanFormDialog({
         max_groups: optNum(form.max_groups),
         max_im_channels: optNum(form.max_im_channels),
         max_mcp_servers: optNum(form.max_mcp_servers),
-        max_concurrent_containers: optNum(form.max_concurrent_containers),
+        max_concurrent_processes: optNum(form.max_concurrent_processes),
         max_storage_mb: optNum(form.max_storage_mb),
         allow_overage: form.allow_overage,
         is_default: form.is_default,
@@ -389,12 +389,12 @@ export default function PlanFormDialog({
                 onChange={(e) => set('max_mcp_servers', e.target.value)}
               />
             </Field>
-            <Field label="并发容器上限">
+            <Field label="并发进程上限">
               <Input
                 type="number"
-                value={form.max_concurrent_containers}
+                value={form.max_concurrent_processes}
                 onChange={(e) =>
-                  set('max_concurrent_containers', e.target.value)
+                  set('max_concurrent_processes', e.target.value)
                 }
               />
             </Field>

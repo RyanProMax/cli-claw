@@ -10,7 +10,6 @@ import {
   X,
   Paperclip,
   Image as ImageIcon,
-  TerminalSquare,
   Loader2,
 } from 'lucide-react';
 import { useFileStore } from '../../stores/files';
@@ -45,7 +44,6 @@ interface MessageInputProps {
   groupJid?: string;
   disabled?: boolean;
   onResetSession?: () => void;
-  onToggleTerminal?: () => void;
 }
 
 export function MessageInput({
@@ -53,7 +51,6 @@ export function MessageInput({
   groupJid,
   disabled = false,
   onResetSession,
-  onToggleTerminal,
 }: MessageInputProps) {
   const [content, setContent] = useState('');
   const [showActions, setShowActions] = useState(false);
@@ -467,9 +464,6 @@ export function MessageInput({
     try {
       await updateGroupRuntime(groupJid, {
         agent_type: group.agent_type ?? 'openai',
-        execution_mode:
-          group.execution_mode ??
-          'container',
         model: command === 'model' ? value : (group.model ?? null),
         reasoning_effort:
           command === 'effort'
@@ -741,17 +735,6 @@ export function MessageInput({
                   title="清除上下文"
                 >
                   <Brush className="w-4.5 h-4.5" />
-                </button>
-              )}
-              {onToggleTerminal && (
-                <button
-                  type="button"
-                  onClick={onToggleTerminal}
-                  className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-brand-50 text-muted-foreground hover:text-primary transition-all cursor-pointer"
-                  title="终端"
-                  aria-label="终端"
-                >
-                  <TerminalSquare className="w-4.5 h-4.5" />
                 </button>
               )}
             </div>

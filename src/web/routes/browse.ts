@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Variables } from '../context.js';
-import { hasHostExecutionPermission } from '../context.js';
+import { hasLocalWorkspacePermission } from '../context.js';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../../domain/types.js';
 import { logger } from '../../core/logger.js';
@@ -70,7 +70,7 @@ function listSubdirectories(
 // GET /api/browse/directories?path=xxx
 browseRoutes.get('/directories', authMiddleware, (c) => {
   const authUser = c.get('user') as AuthUser;
-  if (!hasHostExecutionPermission(authUser)) {
+  if (!hasLocalWorkspacePermission(authUser)) {
     return c.json({ error: 'Insufficient permissions' }, 403);
   }
 
@@ -179,7 +179,7 @@ browseRoutes.get('/directories', authMiddleware, (c) => {
 // POST /api/browse/directories — create a new folder
 browseRoutes.post('/directories', authMiddleware, async (c) => {
   const authUser = c.get('user') as AuthUser;
-  if (!hasHostExecutionPermission(authUser)) {
+  if (!hasLocalWorkspacePermission(authUser)) {
     return c.json({ error: 'Insufficient permissions' }, 403);
   }
 

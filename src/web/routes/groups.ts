@@ -10,24 +10,20 @@ import type {
   AgentType,
   AuthUser,
   RegisteredGroup,
-  ExecutionMode,
   MessageHistoryCursor,
 } from '../../domain/types.js';
 import { checkGroupLimit } from '../../core/billing.js';
-import { DATA_DIR, GROUPS_DIR, isDockerAvailable } from '../../core/config.js';
+import { DATA_DIR, GROUPS_DIR } from '../../core/config.js';
 import { LAUNCH_CWD } from '../../core/app-root.js';
 import {
   buildEffectiveGroupFromHomeSibling,
-  enforceAgentExecutionMode,
-  hasRuntimeBoundaryChange,
   normalizeAgentType,
   resolveEffectiveRuntimeIdentity,
-  validateGroupRuntimeUpdate,
 } from '../../core/runtime/group-runtime.js';
 import {
-  materializeHostWorkspaceDefaultCwd,
-  validateHostWorkspaceCwd,
-} from '../../core/workspace/host-cwd.js';
+  materializeWorkspaceDefaultCwd,
+  validateWorkspaceCwd,
+} from '../../core/workspace/workspace-cwd.js';
 import {
   normalizeReasoningEffortPreset,
   normalizeSpeedTierPreset,
@@ -40,12 +36,7 @@ import {
   normalizeAvailableRuntimeModelPreset,
 } from '../../core/runtime/model-options.js';
 import {
-  getRuntimeBuildStatus,
-  isRuntimeBuildStale,
-} from '../../core/runtime/build.js';
-import {
-  isHostExecutionGroup,
-  hasHostExecutionPermission,
+  hasLocalWorkspacePermission,
   canAccessGroup,
   canModifyGroup,
   canDeleteGroup,
@@ -90,24 +81,11 @@ import {
 } from '../../storage/db.js';
 import { logger } from '../../core/logger.js';
 import { getOpenAiRuntimeDefaults } from '../../core/runtime/config.js';
-import {
-  loadMountAllowlist,
-  findAllowedRoot,
-  matchesBlockedPattern,
-} from '../../core/workspace/mount-security.js';
 import crypto from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import fs from 'node:fs';
-import fsp from 'node:fs/promises';
 import path from 'node:path';
-import net from 'node:net';
-import { z } from 'zod';
 import { broadcastNewMessage, invalidateAllowedUserCache } from '../app.js';
 import { getStreamingSession } from '../../messaging/providers/feishu/streaming-card.js';
-import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
-
-const execFileAsync = promisify(execFile);
 
 function normalizeOptionalRuntimeModel(
   agentType: AgentType,
@@ -189,56 +167,6 @@ function readHistoryCursorQuery(
   };
 }
 
-/**
- * 检查 hostname 是否为内网地址（SSRF 防护）。
- * 拒绝 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x, ::1, fd00::, fe80:: 等。
- */
-function isPrivateHostname(hostname: string): boolean {
-  // localhost 变体
-  if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
-
-  // IPv6: 移除方括号
-  const cleaned = hostname.replace(/^\[|\]$/g, '');
-
-  if (net.isIPv6(cleaned)) {
-    const lower = cleaned.toLowerCase();
-    if (lower === '::1' || lower === '::') return true;
-    // fd00::/8 (unique local) 和 fe80::/10 (link-local)
-    if (lower.startsWith('fd') || lower.startsWith('fe80')) return true;
-    // ::ffff:127.0.0.1 等 IPv4-mapped IPv6
-    if (lower.startsWith('::ffff:')) {
-      const ipv4Part = lower.slice(7);
-      return isPrivateIPv4(ipv4Part);
-    }
-    return false;
-  }
-
-  if (net.isIPv4(cleaned)) {
-    return isPrivateIPv4(cleaned);
-  }
-
-  return false;
-}
-
-function isPrivateIPv4(ip: string): boolean {
-  const parts = ip.split('.').map(Number);
-  if (parts.length !== 4 || parts.some((p) => isNaN(p))) return false;
-  const [a, b] = parts;
-  // 127.0.0.0/8
-  if (a === 127) return true;
-  // 10.0.0.0/8
-  if (a === 10) return true;
-  // 172.16.0.0/12
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  // 192.168.0.0/16
-  if (a === 192 && b === 168) return true;
-  // 169.254.0.0/16 (link-local)
-  if (a === 169 && b === 254) return true;
-  // 0.0.0.0
-  if (a === 0) return true;
-  return false;
-}
-
 const groupRoutes = new Hono<{ Variables: Variables }>();
 
 // --- Helper functions ---
@@ -261,7 +189,6 @@ interface GroupPayloadItem {
   deletable: boolean;
   lastMessage?: string;
   lastMessageTime?: string;
-  execution_mode: 'container' | 'host';
   custom_cwd?: string;
   is_home?: boolean;
   is_my_home?: boolean;
@@ -275,7 +202,7 @@ interface GroupPayloadItem {
 function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
   const groups = getAllRegisteredGroups();
   const chats = new Map(getAllChats().map((chat) => [chat.jid, chat]));
-  const isAdmin = hasHostExecutionPermission(user);
+  const isAdmin = hasLocalWorkspacePermission(user);
   const isSharedAdminHomeGroup = (
     jid: string,
     group: RegisteredGroup,
@@ -294,7 +221,6 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
   for (const [jid, group] of Object.entries(groups)) {
     const isHome = !!group.is_home;
     const isWeb = jid.startsWith('web:');
-    const isHost = isHostExecutionGroup(group);
     const isSharedAdminHome = isSharedAdminHomeGroup(jid, group);
 
     // Hide IM channels that belong to a home folder.
@@ -302,16 +228,8 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
     if (!isWeb && !isHome && homeFolders.has(group.folder)) continue;
 
     // Hide other users' home groups from the chat sidebar.
-    // Each user only sees their own home container.
+    // Each user only sees their own home workspace.
     if (isHome && group.created_by !== user.id && !isSharedAdminHome) continue;
-
-    // Host execution groups require admin unless it's the user's own home group
-    if (
-      isHost &&
-      !isAdmin &&
-      !(isHome && (group.created_by === user.id || isSharedAdminHome))
-    )
-      continue;
 
     // User isolation: all users only see their own groups + shared groups
     if (!canAccessGroup({ id: user.id, role: user.role }, { ...group, jid }))
@@ -384,7 +302,6 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
         latest?.timestamp ||
         chats.get(jid)?.last_message_time ||
         group.added_at,
-      execution_mode: group.executionMode || 'container',
       custom_cwd: isAdmin ? group.customCwd : undefined,
       is_home: isHome || undefined,
       is_my_home:
@@ -479,9 +396,6 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   }
 
   const agentType = normalizeAgentType(validation.data.agent_type);
-  const executionMode =
-    validation.data.execution_mode ||
-    ((await isDockerAvailable()) ? 'container' : 'host');
   const model = normalizeOptionalRuntimeModel(agentType, validation.data.model);
   if (validation.data.model && !model) {
     return c.json(
@@ -521,18 +435,8 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     );
   }
   const customCwd = validation.data.custom_cwd; // Schema already trims and converts empty to undefined
-  const initSourcePath = validation.data.init_source_path;
-  const initGitUrl = validation.data.init_git_url;
   const authUser = c.get('user') as AuthUser;
   let normalizedCustomCwd: string | undefined;
-
-  const runtimeError = enforceAgentExecutionMode(
-    agentType,
-    executionMode as ExecutionMode,
-  );
-  if (runtimeError) {
-    return c.json({ error: runtimeError }, 400);
-  }
 
   // Billing: check group limit
   const groupLimit = checkGroupLimit(authUser.id, authUser.role);
@@ -540,150 +444,20 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     return c.json({ error: groupLimit.reason }, 403);
   }
 
-  // 互斥校验：init_source_path 和 init_git_url 不能同时指定
-  if (initSourcePath && initGitUrl) {
-    return c.json(
-      { error: 'init_source_path and init_git_url are mutually exclusive' },
-      400,
-    );
-  }
-
-  // init_source_path / init_git_url 仅 container 模式可用
-  if (executionMode === 'host' && (initSourcePath || initGitUrl)) {
-    return c.json(
-      {
-        error:
-          'init_source_path and init_git_url are only valid for container mode',
-      },
-      400,
-    );
-  }
-
-  if (executionMode === 'host') {
-    if (!hasHostExecutionPermission(authUser)) {
+  if (customCwd) {
+    if (!hasLocalWorkspacePermission(authUser)) {
+      return c.json({ error: 'Insufficient permissions for custom_cwd' }, 403);
+    }
+    const validation = validateWorkspaceCwd(customCwd, {
+      fieldLabel: 'custom_cwd',
+    });
+    if ('error' in validation) {
       return c.json(
-        { error: 'Insufficient permissions for host execution mode' },
-        403,
+        { error: validation.error },
+        validation.error.includes('under an allowed root') ? 403 : 400,
       );
     }
-    if (customCwd) {
-      const validation = validateHostWorkspaceCwd(customCwd, {
-        fieldLabel: 'custom_cwd',
-      });
-      if ('error' in validation) {
-        return c.json(
-          { error: validation.error },
-          validation.error.includes('under an allowed root') ? 403 : 400,
-        );
-      }
-      normalizedCustomCwd = validation.cwd;
-    }
-  } else if (customCwd) {
-    return c.json({ error: 'custom_cwd is only valid for host mode' }, 400);
-  }
-
-  // 验证 init_source_path
-  if (initSourcePath) {
-    if (!hasHostExecutionPermission(authUser)) {
-      return c.json(
-        { error: 'Insufficient permissions: init_source_path requires admin' },
-        403,
-      );
-    }
-    if (!path.isAbsolute(initSourcePath)) {
-      return c.json(
-        { error: 'init_source_path must be an absolute path' },
-        400,
-      );
-    }
-
-    let realPath: string;
-    try {
-      const stat = fs.statSync(initSourcePath);
-      if (!stat.isDirectory()) {
-        return c.json(
-          { error: 'init_source_path must be an existing directory' },
-          400,
-        );
-      }
-      realPath = fs.realpathSync(initSourcePath);
-    } catch {
-      return c.json(
-        { error: 'init_source_path directory does not exist' },
-        400,
-      );
-    }
-
-    // 白名单校验
-    const allowlist = loadMountAllowlist();
-    if (
-      allowlist &&
-      allowlist.allowedRoots &&
-      allowlist.allowedRoots.length > 0
-    ) {
-      const allowedRoot = findAllowedRoot(realPath, allowlist.allowedRoots);
-      if (!allowedRoot) {
-        const allowedPaths = allowlist.allowedRoots
-          .map((r) => r.path)
-          .join(', ');
-        return c.json(
-          {
-            error: `init_source_path must be under an allowed root. Allowed roots: ${allowedPaths}. Check config/mount-allowlist.json`,
-          },
-          403,
-        );
-      }
-
-      // 敏感路径过滤
-      const blockedMatch = matchesBlockedPattern(
-        realPath,
-        allowlist.blockedPatterns,
-      );
-      if (blockedMatch) {
-        return c.json(
-          {
-            error: `init_source_path matches blocked pattern "${blockedMatch}"`,
-          },
-          403,
-        );
-      }
-    }
-  }
-
-  // 验证 init_git_url（SSRF 防护 + admin 权限）
-  if (initGitUrl) {
-    if (!hasHostExecutionPermission(authUser)) {
-      return c.json(
-        { error: 'Insufficient permissions: init_git_url requires admin' },
-        403,
-      );
-    }
-    if (initGitUrl.length > 2000) {
-      return c.json(
-        { error: 'init_git_url is too long (max 2000 characters)' },
-        400,
-      );
-    }
-
-    let gitUrl: URL;
-    try {
-      gitUrl = new URL(initGitUrl);
-    } catch {
-      return c.json({ error: 'init_git_url is not a valid URL' }, 400);
-    }
-
-    // 仅允许 https 协议（HTTP 明文传输存在中间人攻击风险）
-    if (gitUrl.protocol !== 'https:') {
-      return c.json({ error: 'init_git_url must use https protocol' }, 400);
-    }
-
-    // 阻止内网地址
-    if (isPrivateHostname(gitUrl.hostname)) {
-      return c.json(
-        { error: 'init_git_url must not point to a private/internal address' },
-        400,
-      );
-    }
+    normalizedCustomCwd = validation.cwd;
   }
 
   const jid = `web:${crypto.randomUUID()}`;
@@ -695,17 +469,14 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     folder,
     added_at: now,
     agentType,
-    executionMode: executionMode as ExecutionMode,
     model,
     reasoningEffort,
     speedTier,
-    customCwd: executionMode === 'host' ? normalizedCustomCwd : undefined,
-    initSourcePath: executionMode !== 'host' ? initSourcePath : undefined,
-    initGitUrl: executionMode !== 'host' ? initGitUrl : undefined,
+    customCwd: normalizedCustomCwd,
     created_by: authUser.id,
   };
 
-  const materializedGroup = materializeHostWorkspaceDefaultCwd(group, {
+  const materializedGroup = materializeWorkspaceDefaultCwd(group, {
     launchCwd: LAUNCH_CWD,
     fieldLabel: 'CLI launch cwd',
   });
@@ -720,52 +491,6 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   // Register creator as owner in group_members
   addGroupMember(folder, authUser.id, 'owner', authUser.id);
 
-  // 工作区初始化
-  const groupDir = path.join(GROUPS_DIR, folder);
-
-  try {
-    if (initSourcePath) {
-      await fsp.mkdir(groupDir, { recursive: true });
-      await fsp.cp(initSourcePath, groupDir, { recursive: true });
-      logger.info(
-        { folder, source: initSourcePath },
-        'Workspace initialized from local directory',
-      );
-    }
-
-    if (initGitUrl) {
-      await execFileAsync(
-        'git',
-        ['clone', '--depth', '1', initGitUrl, groupDir],
-        {
-          timeout: 120_000,
-        },
-      );
-      logger.info(
-        { folder, url: initGitUrl },
-        'Workspace initialized from git clone',
-      );
-    }
-  } catch (err) {
-    // 初始化失败时清理
-    logger.error(
-      { folder, err },
-      'Workspace initialization failed, cleaning up',
-    );
-    fs.rmSync(groupDir, { recursive: true, force: true });
-    deleteRegisteredGroup(jid);
-    deleteChatHistory(jid);
-    delete deps.getRegisteredGroups()[jid];
-
-    const errMsg = serializeErrorForOutput(err);
-    return c.json({ error: `Workspace initialization failed: ${errMsg}` }, 500);
-  }
-
-  // 容器模式工作区创建后立即启动容器预热，避免用户打开终端时还需等待
-  if (executionMode === 'container') {
-    deps.ensureTerminalContainerStarted(jid);
-  }
-
   return c.json({
     success: true,
     jid,
@@ -774,11 +499,10 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       folder: group.folder,
       added_at: group.added_at,
       agent_type: normalizeAgentType(group.agentType),
-      execution_mode: group.executionMode || 'container',
       model: group.model ?? null,
       reasoning_effort: group.reasoningEffort ?? null,
       speed_tier: group.speedTier ?? null,
-      custom_cwd: hasHostExecutionPermission(authUser)
+      custom_cwd: hasLocalWorkspacePermission(authUser)
         ? materializedGroup.group.customCwd
         : undefined,
       kind: 'web',
@@ -815,7 +539,6 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     is_pinned,
     activation_mode,
     agent_type,
-    execution_mode,
     model,
     reasoning_effort,
     speed_tier,
@@ -828,20 +551,11 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     is_pinned === undefined &&
     activation_mode === undefined &&
     agent_type === undefined &&
-    execution_mode === undefined &&
     model === undefined &&
     reasoning_effort === undefined &&
     speed_tier === undefined
   ) {
     return c.json({ error: 'No fields to update' }, 400);
-  }
-
-  // member 用户不允许使用 host 模式（安全限制）
-  if (execution_mode === 'host' && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
   }
 
   // Pin/unpin only requires canAccessGroup (it's a per-user preference)
@@ -850,7 +564,6 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     !name &&
     activation_mode === undefined &&
     agent_type === undefined &&
-    execution_mode === undefined &&
     model === undefined &&
     reasoning_effort === undefined &&
     speed_tier === undefined;
@@ -876,15 +589,6 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     if (!jid.startsWith('web:') && authUser.role !== 'admin') {
       return c.json({ error: 'This group cannot be edited' }, 403);
     }
-    if (
-      isHostExecutionGroup(existing) &&
-      !hasHostExecutionPermission(authUser)
-    ) {
-      return c.json(
-        { error: 'Insufficient permissions for host execution mode' },
-        403,
-      );
-    }
   }
 
   // Handle pin/unpin (per-user, separate table)
@@ -900,7 +604,6 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     name ||
     activation_mode !== undefined ||
     agent_type !== undefined ||
-    execution_mode !== undefined ||
     model !== undefined ||
     reasoning_effort !== undefined ||
     speed_tier !== undefined
@@ -909,10 +612,6 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
       agent_type !== undefined
         ? normalizeAgentType(agent_type)
         : normalizeAgentType(existing.agentType);
-    const nextExecutionMode =
-      execution_mode !== undefined
-        ? (execution_mode as ExecutionMode)
-        : existing.executionMode || 'container';
     const currentRuntimeIdentity = resolveRuntimeIdentityForGroup(existing);
     const currentModelForNextAgent =
       currentRuntimeIdentity.agentType === nextAgentType
@@ -969,72 +668,21 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         400,
       );
     }
-    const runtimeBoundaryChanged = hasRuntimeBoundaryChange({
-      currentAgentType: normalizeAgentType(existing.agentType),
-      currentExecutionMode: existing.executionMode || 'container',
-      nextAgentType,
-      nextExecutionMode,
-    });
     const runtimeSettingsChanged =
-      runtimeBoundaryChanged ||
+      normalizeAgentType(existing.agentType) !== nextAgentType ||
       (existing.model ?? null) !== nextModel ||
       (existing.reasoningEffort ?? null) !== nextReasoningEffort ||
       (existing.speedTier ?? null) !== nextSpeedTier;
-    const runtimeError = validateGroupRuntimeUpdate({
-      isHome: !!existing.is_home,
-      currentExecutionMode: existing.executionMode || 'container',
-      nextAgentType,
-      nextExecutionMode,
-    });
-    if (runtimeError) {
-      return c.json(
-        { error: runtimeError },
-        runtimeError === 'Cannot change execution mode of home containers'
-          ? 403
-          : 400,
-      );
-    }
-
-    if (runtimeBoundaryChanged && isRuntimeBuildStale()) {
-      const buildStatus = getRuntimeBuildStatus();
-      logger.warn(
-        {
-          jid,
-          folder: existing.folder,
-          previousAgentType: normalizeAgentType(existing.agentType),
-          nextAgentType,
-          previousExecutionMode: existing.executionMode || 'container',
-          nextExecutionMode,
-          buildStatus,
-        },
-        'Rejected workspace runtime change because backend process is stale',
-      );
-      return c.json(
-        {
-          error:
-            'Runtime change requires a backend restart because the current process is older than the on-disk build',
-          stale_build: true,
-        },
-        409,
-      );
-    }
 
     const updated: RegisteredGroup = {
       name: name || existing.name,
       folder: existing.folder,
       added_at: existing.added_at,
-      containerConfig: existing.containerConfig,
       agentType: nextAgentType,
-      executionMode:
-        execution_mode !== undefined
-          ? (execution_mode as ExecutionMode)
-          : existing.executionMode,
       model: nextModel,
       reasoningEffort: nextReasoningEffort,
       speedTier: nextSpeedTier,
       customCwd: existing.customCwd,
-      initSourcePath: existing.initSourcePath,
-      initGitUrl: existing.initGitUrl,
       created_by: existing.created_by,
       is_home: existing.is_home,
       target_agent_id: existing.target_agent_id,
@@ -1047,7 +695,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
           : existing.activation_mode,
     };
 
-    const materializedGroup = materializeHostWorkspaceDefaultCwd(updated, {
+    const materializedGroup = materializeWorkspaceDefaultCwd(updated, {
       launchCwd: LAUNCH_CWD,
       fieldLabel: 'CLI launch cwd',
     });
@@ -1070,8 +718,6 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
             folder: persistedGroup.folder,
             previousAgentType: normalizeAgentType(existing.agentType),
             nextAgentType,
-            previousExecutionMode: existing.executionMode || 'container',
-            nextExecutionMode,
             previousModel: existing.model ?? null,
             nextModel,
             previousReasoningEffort: existing.reasoningEffort ?? null,
@@ -1096,8 +742,6 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
           folder: persistedGroup.folder,
           previousAgentType: normalizeAgentType(existing.agentType),
           nextAgentType,
-          previousExecutionMode: existing.executionMode || 'container',
-          nextExecutionMode,
           previousModel: existing.model ?? null,
           nextModel,
           previousReasoningEffort: existing.reasoningEffort ?? null,
@@ -1129,13 +773,6 @@ groupRoutes.delete('/:jid', authMiddleware, async (c) => {
 
   if (!jid.startsWith('web:')) {
     return c.json({ error: 'This group cannot be deleted' }, 403);
-  }
-
-  if (isHostExecutionGroup(existing) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
   }
 
   // Block deletion if any IM binding exists (agent or main conversation)
@@ -1182,18 +819,12 @@ groupRoutes.delete('/:jid', authMiddleware, async (c) => {
     );
   }
 
-  // Wait for container to fully stop before cleaning up its files
+  // Wait for the runner to fully stop before cleaning up its files.
   try {
     await deps.queue.stopGroup(jid);
   } catch (err) {
-    logger.error(
-      { jid, err },
-      'Failed to stop container before deleting group',
-    );
-    return c.json(
-      { error: 'Failed to stop container, group not deleted' },
-      500,
-    );
+    logger.error({ jid, err }, 'Failed to stop runner before deleting group');
+    return c.json({ error: 'Failed to stop runner, group not deleted' }, 500);
   }
   deleteGroupData(jid, existing.folder);
   removeFlowArtifacts(existing.folder);
@@ -1205,7 +836,7 @@ groupRoutes.delete('/:jid', authMiddleware, async (c) => {
   return c.json({ success: true });
 });
 
-// POST /api/groups/:jid/stop - 停止当前运行的容器/进程
+// POST /api/groups/:jid/stop - 停止当前运行的进程
 groupRoutes.post('/:jid/stop', authMiddleware, async (c) => {
   const deps = getWebDeps();
   if (!deps) return c.json({ error: 'Server not initialized' }, 500);
@@ -1223,11 +854,11 @@ groupRoutes.post('/:jid/stop', authMiddleware, async (c) => {
     return c.json({ success: true });
   } catch (err) {
     logger.error({ jid, err }, 'Failed to stop group');
-    return c.json({ error: 'Failed to stop container' }, 500);
+    return c.json({ error: 'Failed to stop runner' }, 500);
   }
 });
 
-// POST /api/groups/:jid/interrupt - 中断当前查询（不杀容器）
+// POST /api/groups/:jid/interrupt - 中断当前查询
 groupRoutes.post('/:jid/interrupt', authMiddleware, async (c) => {
   const deps = getWebDeps();
   if (!deps) return c.json({ error: 'Server not initialized' }, 500);
@@ -1301,13 +932,6 @@ groupRoutes.post('/:jid/reset-session', authMiddleware, async (c) => {
   ) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   // Read optional agentId from request body
   let agentId: string | undefined;
   try {
@@ -1343,12 +967,9 @@ groupRoutes.post('/:jid/reset-session', authMiddleware, async (c) => {
   } catch (err) {
     logger.error(
       { jid, agentId, err },
-      'Failed to stop containers before resetting session',
+      'Failed to stop runners before resetting session',
     );
-    return c.json(
-      { error: 'Failed to stop container, session not reset' },
-      500,
-    );
+    return c.json({ error: 'Failed to stop runner, session not reset' }, 500);
   }
 
   // 2. Delete runtime session files so the next turn starts fresh.
@@ -1434,7 +1055,7 @@ groupRoutes.post('/:jid/reset-session', authMiddleware, async (c) => {
 
   logger.info(
     { jid, folder: group.folder, agentId },
-    'Session reset: cleared session files and stopped containers',
+    'Session reset: cleared session files and stopped runners',
   );
 
   return c.json({ success: true, dividerMessageId });
@@ -1454,13 +1075,6 @@ groupRoutes.post('/:jid/clear-history', authMiddleware, async (c) => {
   ) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   // Collect all JIDs sharing the same folder (e.g., web:main + feishu groups)
   const siblingJids = getJidsByFolder(group.folder);
 
@@ -1472,10 +1086,10 @@ groupRoutes.post('/:jid/clear-history', authMiddleware, async (c) => {
   } catch (err) {
     logger.error(
       { jid, siblingJids, err },
-      'Failed to stop containers before clearing history',
+      'Failed to stop runner processes before clearing history',
     );
     return c.json(
-      { error: 'Failed to stop container, history not cleared' },
+      { error: 'Failed to stop runner process, history not cleared' },
       500,
     );
   }
@@ -1531,13 +1145,6 @@ groupRoutes.get('/:jid/messages', authMiddleware, async (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   const before = readHistoryCursorQuery(c, 'before');
   const after = readHistoryCursorQuery(c, 'after');
   const agentIdParam = c.req.query('agentId');

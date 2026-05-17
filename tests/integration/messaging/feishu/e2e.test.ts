@@ -33,8 +33,7 @@ const hoisted = vi.hoisted(() => {
     createdCards,
     updatedCards,
     streamedContents,
-    runHostAgent: vi.fn(),
-    runContainerAgent: vi.fn(),
+    runAgentProcess: vi.fn(),
     writeGroupsSnapshot: vi.fn(),
     writeTasksSnapshot: vi.fn(),
     wsStartSpy: vi.fn().mockResolvedValue(undefined),
@@ -132,15 +131,13 @@ vi.mock('../../../../src/web/app.js', () => ({
   broadcastAgentStatus: vi.fn(),
   broadcastGroupCreated: vi.fn(),
   broadcastBillingUpdate: vi.fn(),
-  shutdownTerminals: vi.fn(),
   shutdownWebServer: vi.fn(),
   getActiveStreamingTexts: vi.fn(() => new Map()),
   clearStreamingSnapshot: vi.fn(),
 }));
 
 vi.mock('../../../../src/agent/runner/container-runner.js', () => ({
-  runHostAgent: hoisted.runHostAgent,
-  runContainerAgent: hoisted.runContainerAgent,
+  runAgentProcess: hoisted.runAgentProcess,
   writeGroupsSnapshot: hoisted.writeGroupsSnapshot,
   writeTasksSnapshot: hoisted.writeTasksSnapshot,
 }));
@@ -212,7 +209,6 @@ async function driveQueuedFeishuSuccessPath(_: {
   const emptyCursor = { timestamp: '', id: '' };
   const queue = new GroupQueue();
 
-  queue.setHostModeChecker(() => true);
   queue.setSerializationKeyResolver((groupJid: string) => groupJid);
 
   let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -340,7 +336,6 @@ async function driveQueuedFeishuOpenAIStaticFinalPath(_: {
   const emptyCursor = { timestamp: '', id: '' };
   const queue = new GroupQueue();
 
-  queue.setHostModeChecker(() => true);
   queue.setSerializationKeyResolver((groupJid: string) => groupJid);
 
   let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -453,8 +448,7 @@ afterEach(() => {
   hoisted.createdCards.length = 0;
   hoisted.updatedCards.length = 0;
   hoisted.streamedContents.length = 0;
-  hoisted.runHostAgent.mockReset();
-  hoisted.runContainerAgent.mockReset();
+  hoisted.runAgentProcess.mockReset();
   hoisted.writeGroupsSnapshot.mockReset();
   hoisted.writeTasksSnapshot.mockReset();
   Object.keys(hoisted.handlers).forEach((key) => delete hoisted.handlers[key]);
@@ -636,7 +630,6 @@ describe('Feishu in-process E2E harness', () => {
       name: 'Feishu Process Group',
       folder: 'feishu-process-group',
       added_at: '2026-04-28T09:00:00.000Z',
-      executionMode: 'host',
       agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
@@ -703,7 +696,7 @@ describe('Feishu in-process E2E harness', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     };
-    hoisted.runHostAgent.mockImplementation(
+    hoisted.runAgentProcess.mockImplementation(
       async (_group, input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'stream',
@@ -748,8 +741,8 @@ describe('Feishu in-process E2E harness', () => {
 
     await expect(processGroupMessages(chatJid)).resolves.toBe(true);
 
-    expect(hoisted.runHostAgent).toHaveBeenCalledOnce();
-    const prompt = hoisted.runHostAgent.mock.calls[0][1].prompt;
+    expect(hoisted.runAgentProcess).toHaveBeenCalledOnce();
+    const prompt = hoisted.runAgentProcess.mock.calls[0][1].prompt;
     expect(prompt).toContain('请只处理这条飞书消息');
     for (const snippet of forbiddenSnippets) {
       expect(prompt).not.toContain(snippet);
@@ -815,7 +808,7 @@ describe('Feishu in-process E2E harness', () => {
     const userId = 'user-feishu-openai-error';
     const messageId = 'om_openai_error_no_raw_json';
     const friendlyError =
-      'OpenAI runtime request was rejected by Codex backend (400). Check the latest host log for the request id, update and restart cli-claw, then retry.';
+      'OpenAI runtime request was rejected by Codex backend (400). Check the latest process log for the request id, update and restart cli-claw, then retry.';
     const rawError =
       '{ "name": "Error", "message": "400 status code (no body)", "status": 400, "headers": {}, "requestID": null }';
     const forbiddenSnippets = [
@@ -830,7 +823,6 @@ describe('Feishu in-process E2E harness', () => {
       name: 'Feishu OpenAI Error',
       folder: 'feishu-openai-error',
       added_at: '2026-05-16T13:10:00.000Z',
-      executionMode: 'host',
       agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
@@ -872,7 +864,7 @@ describe('Feishu in-process E2E harness', () => {
       speedTier: 'fast',
       supportsReasoningEffort: true,
     };
-    hoisted.runHostAgent.mockImplementation(
+    hoisted.runAgentProcess.mockImplementation(
       async (_group, input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'stream',
@@ -978,7 +970,6 @@ describe('Feishu in-process E2E harness', () => {
       name: 'Feishu Cursor Boundary',
       folder: 'feishu-cursor-boundary',
       added_at: '2026-04-29T09:00:00.000Z',
-      executionMode: 'host',
       agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
@@ -1021,7 +1012,7 @@ describe('Feishu in-process E2E harness', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     };
-    hoisted.runHostAgent.mockImplementation(
+    hoisted.runAgentProcess.mockImplementation(
       async (_group, input, _onProcess, onOutput) => {
         const reusedTurnId = 'turn-reused-after-restart';
         await onOutput?.({
@@ -1142,20 +1133,19 @@ describe('Feishu in-process E2E harness', () => {
     const replayedPresentationText = [
       '我会先按技能指引查看 Futu 相关说明。',
       'Futu_OpenD 已启动，127.0.0.1:11111 也能连通。',
-      '建议把 execution_mode 从 container 改为 host。',
+      '建议把历史配置项带进当前回答。',
     ].join('\n');
     const forbiddenSnippets = [
       'Futu',
       'Futu_OpenD',
       '127.0.0.1:11111',
-      'execution_mode',
+      '历史配置项',
     ];
 
     db.setRegisteredGroup(chatJid, {
       name: 'Feishu OpenAI Current Cursor Replay',
       folder: 'feishu-current-cursor-replay',
       added_at: '2026-04-30T10:37:00.000Z',
-      executionMode: 'host',
       agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
@@ -1198,7 +1188,7 @@ describe('Feishu in-process E2E harness', () => {
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
     };
-    hoisted.runHostAgent.mockImplementation(
+    hoisted.runAgentProcess.mockImplementation(
       async (_group, input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'stream',
@@ -1293,7 +1283,6 @@ describe('Feishu in-process E2E harness', () => {
       name: 'Feishu Current Live Stream',
       folder: 'feishu-current-live-stream',
       added_at: '2026-05-05T03:19:00.000Z',
-      executionMode: 'host',
       agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
@@ -1336,7 +1325,7 @@ describe('Feishu in-process E2E harness', () => {
       reasoningEffort: 'xhigh',
       supportsReasoningEffort: true,
     };
-    hoisted.runHostAgent.mockImplementation(
+    hoisted.runAgentProcess.mockImplementation(
       async (_group, input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'stream',
@@ -1440,7 +1429,6 @@ describe('Feishu in-process E2E harness', () => {
       name: 'Feishu Restart Residue Card',
       folder: 'feishu-restart-residue-card',
       added_at: '2026-04-29T09:10:00.000Z',
-      executionMode: 'host',
       agentType: 'openai',
       activation_mode: 'auto',
       created_by: userId,
@@ -1531,7 +1519,7 @@ describe('Feishu in-process E2E harness', () => {
       reasoningEffort: 'high',
       supportsReasoningEffort: true,
     };
-    hoisted.runHostAgent.mockImplementation(
+    hoisted.runAgentProcess.mockImplementation(
       async (_group, input, _onProcess, onOutput) => {
         await onOutput?.({
           status: 'stream',
@@ -1573,7 +1561,7 @@ describe('Feishu in-process E2E harness', () => {
 
     await expect(processGroupMessages(chatJid)).resolves.toBe(true);
 
-    const prompt = hoisted.runHostAgent.mock.calls[0][1].prompt;
+    const prompt = hoisted.runAgentProcess.mock.calls[0][1].prompt;
     expect(prompt).toContain('检查 cli-claw PLANS');
     for (const snippet of forbiddenSnippets) {
       expect(prompt).not.toContain(snippet);
@@ -1645,7 +1633,6 @@ describe('Feishu in-process E2E harness', () => {
       name: 'Feishu Skill Session Isolation',
       folder: 'main',
       added_at: '2026-04-29T15:00:00.000Z',
-      executionMode: 'host',
       agentType: 'openai',
       activation_mode: 'auto',
       is_home: true,
@@ -1750,7 +1737,7 @@ describe('Feishu in-process E2E harness', () => {
     });
     await expect(wakeup).resolves.toBe('woke');
 
-    hoisted.runHostAgent.mockImplementation(
+    hoisted.runAgentProcess.mockImplementation(
       async (_group, input, _onProcess, onOutput) => {
         const leaked = input.sessionId === 'sess-hkipo-skill';
         const resultText = leaked
@@ -1796,8 +1783,8 @@ describe('Feishu in-process E2E harness', () => {
 
     await expect(processGroupMessages(chatJid)).resolves.toBe(true);
 
-    expect(hoisted.runHostAgent).toHaveBeenCalledOnce();
-    expect(hoisted.runHostAgent.mock.calls[0][1].sessionId).toBeUndefined();
+    expect(hoisted.runAgentProcess).toHaveBeenCalledOnce();
+    expect(hoisted.runAgentProcess.mock.calls[0][1].sessionId).toBeUndefined();
 
     const sentInteractiveCards = hoisted.createSpy.mock.calls
       .map((call) => call[0]?.data)

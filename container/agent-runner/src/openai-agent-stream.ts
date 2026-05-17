@@ -1,4 +1,4 @@
-import type { ContainerOutput, StreamEvent } from './types.js';
+import type { AgentProcessOutput, StreamEvent } from './types.js';
 
 export interface RuntimeIdentityState {
   agentType: 'openai';
@@ -8,7 +8,7 @@ export interface RuntimeIdentityState {
   supportsReasoningEffort?: boolean | null;
 }
 
-type EmitOutput = (output: ContainerOutput) => void;
+type EmitOutput = (output: AgentProcessOutput) => void;
 type AssistantMessagePhase = NonNullable<StreamEvent['assistantMessagePhase']>;
 
 function normalizeText(value: string | null | undefined): string | null {
@@ -76,7 +76,7 @@ export function formatOpenAiRuntimeError(errorMessage: string): string {
       normalized,
     )
   ) {
-    return 'Codex CLI login is missing or expired. Run `codex login` on the host, then retry.';
+    return 'Codex CLI login is missing or expired. Run `codex login`, then retry.';
   }
   if (
     /context[_ ]window|maximum context|prompt is too long|token limit/i.test(
@@ -99,7 +99,7 @@ export function formatOpenAiRuntimeError(errorMessage: string): string {
       normalized,
     )
   ) {
-    return 'OpenAI runtime request was rejected by Codex backend (400). Check the latest host log for the request id, update and restart cli-claw, then retry.';
+    return 'OpenAI runtime request was rejected by Codex backend (400). Check the latest process log for the request id, update and restart cli-claw, then retry.';
   }
   return normalized;
 }

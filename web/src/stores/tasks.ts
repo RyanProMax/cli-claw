@@ -18,7 +18,6 @@ export interface ScheduledTask {
   status: 'active' | 'paused' | 'completed' | 'parsing';
   created_at: string;
   notify_channels?: string[] | null;
-  execution_mode?: 'host' | 'container' | null;
   workspace_jid?: string | null;
   workspace_folder?: string | null;
 }
@@ -45,7 +44,6 @@ interface TasksState {
     scheduleType: 'cron' | 'interval' | 'once',
     scheduleValue: string,
     executionType?: 'agent' | 'script',
-    executionMode?: 'host' | 'container',
     scriptCommand?: string,
     notifyChannels?: string[] | null,
   ) => Promise<void>;
@@ -92,7 +90,6 @@ export const useTasksStore = create<TasksState>((set, get) => ({
     scheduleType: 'cron' | 'interval' | 'once',
     scheduleValue: string,
     executionType?: 'agent' | 'script',
-    executionMode?: 'host' | 'container',
     scriptCommand?: string,
     notifyChannels?: string[] | null,
   ) => {
@@ -109,9 +106,6 @@ export const useTasksStore = create<TasksState>((set, get) => ({
       };
       if (executionType) {
         body.execution_type = executionType;
-      }
-      if (executionMode) {
-        body.execution_mode = executionMode;
       }
       if (scriptCommand) {
         body.script_command = scriptCommand;

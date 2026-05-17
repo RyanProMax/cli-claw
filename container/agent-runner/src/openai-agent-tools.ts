@@ -179,7 +179,6 @@ export function createOpenAiAgentTools(
         schedule_value: z.string(),
         execution_type: z.enum(['agent', 'script']).default('agent'),
         script_command: z.string().max(4096).optional(),
-        execution_mode: z.enum(['host', 'container']).optional(),
         target_group_jid: z.string().optional(),
       }),
       strict: true,
@@ -192,7 +191,7 @@ export function createOpenAiAgentTools(
           return 'Error: script mode requires script_command.';
         }
         if (execType === 'script' && !ctx.isAdminHome) {
-          return 'Error: only admin home container can create script tasks.';
+          return 'Error: only admin home workspace can create script tasks.';
         }
         if (args.schedule_type === 'cron') {
           try {
@@ -226,7 +225,6 @@ export function createOpenAiAgentTools(
           timestamp: new Date().toISOString(),
         };
         if (execType === 'script') data.script_command = args.script_command;
-        if (args.execution_mode) data.execution_mode = args.execution_mode;
         const filename = writeIpcFile(tasksDir, data);
         return `Task scheduled [${execType}] (${filename}): ${args.schedule_type} - ${args.schedule_value}`;
       },
@@ -284,19 +282,17 @@ export function createOpenAiAgentTools(
         jid: z.string(),
         name: z.string(),
         folder: z.string(),
-        execution_mode: z.enum(['container', 'host']).optional(),
       }),
       strict: true,
-      execute: ({ jid, name, folder, execution_mode }) => {
+      execute: ({ jid, name, folder }) => {
         if (!hasCrossGroupAccess) {
-          return 'Error: only the admin home container can register new groups.';
+          return 'Error: only the admin home workspace can register new groups.';
         }
         writeIpcFile(tasksDir, {
           type: 'register_group',
           jid,
           name,
           folder,
-          executionMode: execution_mode,
           timestamp: new Date().toISOString(),
         });
         return `Group "${name}" registered.`;
@@ -329,7 +325,6 @@ function taskControlTool(
         type: name,
         taskId: task_id,
         groupFolder: ctx.groupFolder,
-        isMain: ctx.isAdminHome,
         timestamp: new Date().toISOString(),
       });
       return `Task ${task_id} ${action} requested.`;

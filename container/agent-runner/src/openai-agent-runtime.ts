@@ -8,8 +8,8 @@ import {
   type ModelSettings,
 } from '@openai/agents';
 import type {
-  ContainerInput,
-  ContainerOutput,
+  AgentProcessInput,
+  AgentProcessOutput,
   ImageMediaType,
   StreamEvent,
 } from './types.js';
@@ -51,9 +51,9 @@ export interface OpenAiAgentRuntimeDeps {
   ipcInputDir: string;
   ipcInputCloseSentinel: string;
   ipcInputInterruptSentinel: string;
-  writeOutput: (output: ContainerOutput) => void;
+  writeOutput: (output: AgentProcessOutput) => void;
   log: (message: string) => void;
-  normalizeHomeFlags: (input: ContainerInput) => {
+  normalizeHomeFlags: (input: AgentProcessInput) => {
     isHome: boolean;
     isAdminHome: boolean;
   };
@@ -103,7 +103,7 @@ export function resolveCodexServiceTier(
 
 export function buildOpenAiRuntimeIdentity(
   requestedRuntime?: Pick<
-    ContainerInput,
+    AgentProcessInput,
     'model' | 'reasoningEffort' | 'speedTier'
   >,
 ): RuntimeIdentityState {
@@ -142,7 +142,7 @@ function buildInputItems(
   return [{ role: 'user', content } as AgentInputItem];
 }
 
-export function buildModelSettings(input: ContainerInput): ModelSettings {
+export function buildModelSettings(input: AgentProcessInput): ModelSettings {
   const reasoningEffort =
     normalizeRuntimeText(input.reasoningEffort ?? undefined) ??
     normalizeRuntimeText(OPENAI_REASONING_EFFORT);
@@ -179,7 +179,7 @@ function scheduledTaskPrompt(prompt: string): string {
 function decorateStreamEvent(
   event: StreamEvent,
   sessionId: string | undefined,
-  input: ContainerInput,
+  input: AgentProcessInput,
 ): StreamEvent {
   return {
     ...event,
@@ -191,7 +191,7 @@ function decorateStreamEvent(
 
 async function runOpenAiTurn(
   agent: Agent,
-  input: ContainerInput,
+  input: AgentProcessInput,
   prompt: string,
   images: Array<{ data: string; mimeType?: string }> | undefined,
   sessionId: string | undefined,
@@ -279,12 +279,12 @@ async function runOpenAiTurn(
 }
 
 export async function runOpenAiAgentLoop(
-  containerInput: ContainerInput,
+  agentInput: AgentProcessInput,
   deps: OpenAiAgentRuntimeDeps,
 ): Promise<void> {
   const modelProvider = configureCodexCliOpenAiProvider();
 
-  let sessionId = containerInput.sessionId;
+  let sessionId = agentInput.sessionId;
   deps.setLatestSessionId(sessionId);
 
   fs.mkdirSync(deps.ipcInputDir, { recursive: true });
@@ -295,32 +295,32 @@ export async function runOpenAiAgentLoop(
   }
   deps.cleanupStartupInterruptSentinel();
 
-  const { isHome, isAdminHome } = deps.normalizeHomeFlags(containerInput);
-  const model = containerInput.model || OPENAI_MODEL;
+  const { isHome, isAdminHome } = deps.normalizeHomeFlags(agentInput);
+  const model = agentInput.model || OPENAI_MODEL;
   const agent = new Agent({
-    name: containerInput.agentName || 'Cli Claw OpenAI Agent',
+    name: agentInput.agentName || 'Cli Claw OpenAI Agent',
     model,
-    modelSettings: buildModelSettings(containerInput),
+    modelSettings: buildModelSettings(agentInput),
     instructions: [
       'You are running inside cli-claw as the OpenAI agent runtime.',
       'Use available tools for messaging, files, skills, groups, and scheduled task operations.',
       'Do not assume prior conversation context unless it is present in the persisted session.',
     ].join('\n'),
     tools: createOpenAiAgentTools({
-      chatJid: containerInput.chatJid,
-      groupFolder: containerInput.groupFolder,
+      chatJid: agentInput.chatJid,
+      groupFolder: agentInput.groupFolder,
       isHome,
       isAdminHome,
-      isScheduledTask: containerInput.isScheduledTask || false,
+      isScheduledTask: agentInput.isScheduledTask || false,
       workspaceIpc: deps.workspaceIpc,
       workspaceGroup: deps.workspaceGroup,
     }),
   });
 
-  let prompt = containerInput.isScheduledTask
-    ? scheduledTaskPrompt(containerInput.prompt)
-    : containerInput.prompt;
-  let promptImages = containerInput.images;
+  let prompt = agentInput.isScheduledTask
+    ? scheduledTaskPrompt(agentInput.prompt)
+    : agentInput.prompt;
+  let promptImages = agentInput.images;
   const pendingDrain = deps.drainIpcInput();
   if (pendingDrain.messages.length > 0) {
     deps.log(
@@ -345,13 +345,13 @@ export async function runOpenAiAgentLoop(
     deps.clearInterruptRequested();
     deps.emitTurnInitEvent(
       sessionId,
-      containerInput.turnId,
-      containerInput.messageCursor,
+      agentInput.turnId,
+      agentInput.messageCursor,
     );
 
     const turnResult = await runOpenAiTurn(
       agent,
-      containerInput,
+      agentInput,
       prompt,
       promptImages,
       sessionId,
@@ -360,7 +360,7 @@ export async function runOpenAiAgentLoop(
     );
     sessionId = turnResult.sessionId;
     deps.setLatestSessionId(sessionId);
-    containerInput.messageCursor = undefined;
+    agentInput.messageCursor = undefined;
 
     if (turnResult.closed) {
       deps.writeOutput({
@@ -378,7 +378,7 @@ export async function runOpenAiAgentLoop(
         streamEvent: decorateStreamEvent(
           { eventType: 'status', statusText: 'interrupted' },
           sessionId,
-          containerInput,
+          agentInput,
         ),
         newSessionId: sessionId,
       });
@@ -394,7 +394,7 @@ export async function runOpenAiAgentLoop(
     if (nextMessage === null) break;
     prompt = nextMessage.text;
     promptImages = nextMessage.images;
-    containerInput.turnId = deps.generateTurnId();
-    containerInput.messageCursor = nextMessage.cursor;
+    agentInput.turnId = deps.generateTurnId();
+    agentInput.messageCursor = nextMessage.cursor;
   }
 }

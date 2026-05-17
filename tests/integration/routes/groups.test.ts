@@ -17,8 +17,7 @@ const mocks = vi.hoisted(() => ({
   getWebDeps: vi.fn(),
   canAccessGroup: vi.fn(),
   canModifyGroup: vi.fn(),
-  hasHostExecutionPermission: vi.fn(),
-  isHostExecutionGroup: vi.fn(),
+  hasLocalWorkspacePermission: vi.fn(),
   stopGroup: vi.fn(),
   isRuntimeBuildStale: vi.fn(),
   getRuntimeBuildStatus: vi.fn(),
@@ -27,10 +26,10 @@ const mocks = vi.hoisted(() => ({
   fsExistsSync: vi.fn(),
   fsReaddirSync: vi.fn(),
   fsRmSync: vi.fn(),
-  materializeHostWorkspaceDefaultCwd: vi.fn(),
+  materializeWorkspaceDefaultCwd: vi.fn(),
   resetWorkspaceRuntimeState: vi.fn(),
-  validateHostWorkspaceCwd: vi.fn(),
-  resolveEffectiveHostWorkspaceCwd: vi.fn(),
+  validateWorkspaceCwd: vi.fn(),
+  resolveEffectiveWorkspaceCwd: vi.fn(),
   clearSessionJsonlFiles: vi.fn(),
   canDeleteGroup: vi.fn(),
   canManageGroupMembers: vi.fn(),
@@ -100,8 +99,7 @@ vi.mock('../../../src/web/context.js', () => ({
   canModifyGroup: mocks.canModifyGroup,
   canDeleteGroup: mocks.canDeleteGroup,
   canManageGroupMembers: mocks.canManageGroupMembers,
-  hasHostExecutionPermission: mocks.hasHostExecutionPermission,
-  isHostExecutionGroup: mocks.isHostExecutionGroup,
+  hasLocalWorkspacePermission: mocks.hasLocalWorkspacePermission,
   MAX_GROUP_NAME_LEN: 40,
 }));
 
@@ -127,10 +125,10 @@ vi.mock('../../../src/core/runtime/model-options.js', () => ({
     mocks.normalizeAvailableRuntimeModelPreset,
 }));
 
-vi.mock('../../../src/core/workspace/host-cwd.js', () => ({
-  materializeHostWorkspaceDefaultCwd: mocks.materializeHostWorkspaceDefaultCwd,
-  validateHostWorkspaceCwd: mocks.validateHostWorkspaceCwd,
-  resolveEffectiveHostWorkspaceCwd: mocks.resolveEffectiveHostWorkspaceCwd,
+vi.mock('../../../src/core/workspace/workspace-cwd.js', () => ({
+  materializeWorkspaceDefaultCwd: mocks.materializeWorkspaceDefaultCwd,
+  validateWorkspaceCwd: mocks.validateWorkspaceCwd,
+  resolveEffectiveWorkspaceCwd: mocks.resolveEffectiveWorkspaceCwd,
 }));
 
 vi.mock('../../../src/web/app.js', () => ({
@@ -182,7 +180,6 @@ describe('group runtime stale-build guard', () => {
         created_by: 'admin-1',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
       },
     };
     sessions = { main: 'session-1' };
@@ -202,11 +199,7 @@ describe('group runtime stale-build guard', () => {
     mocks.listAgentsByJid.mockReturnValue([]);
     mocks.canAccessGroup.mockReturnValue(true);
     mocks.canModifyGroup.mockReturnValue(true);
-    mocks.hasHostExecutionPermission.mockReturnValue(true);
-    mocks.isHostExecutionGroup.mockImplementation(
-      (group: { executionMode?: string }) =>
-        (group.executionMode || 'container') === 'host',
-    );
+    mocks.hasLocalWorkspacePermission.mockReturnValue(true);
     mocks.stopGroup.mockResolvedValue(undefined);
     mocks.resetWorkspaceRuntimeState.mockImplementation(
       async (deps: any, jid: string, group: any) => {
@@ -215,9 +208,9 @@ describe('group runtime stale-build guard', () => {
         return undefined;
       },
     );
-    mocks.materializeHostWorkspaceDefaultCwd.mockImplementation(
+    mocks.materializeWorkspaceDefaultCwd.mockImplementation(
       (group: any) => {
-        if (group.executionMode === 'host' && !group.customCwd) {
+        if (!group.customCwd) {
           return {
             group: { ...group, customCwd: '/launch/cwd' },
             materialized: true,
@@ -307,27 +300,6 @@ describe('group runtime stale-build guard', () => {
     });
   });
 
-  test('returns 409 with stale_build marker for execution-mode-changing patch when backend is stale', async () => {
-    registeredGroups['web:main'].is_home = false;
-    mocks.isRuntimeBuildStale.mockReturnValue(true);
-    const app = createApp();
-
-    const res = await app.request('/api/groups/web:main', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ execution_mode: 'container' }),
-    });
-
-    expect(res.status).toBe(409);
-    await expect(res.json()).resolves.toEqual(
-      expect.objectContaining({
-        stale_build: true,
-      }),
-    );
-    expect(mocks.setRegisteredGroup).not.toHaveBeenCalled();
-    expect(registeredGroups['web:main'].executionMode).toBe('host');
-  });
-
   test('still allows non-runtime patch fields when backend is stale', async () => {
     mocks.isRuntimeBuildStale.mockReturnValue(true);
     const app = createApp();
@@ -349,29 +321,6 @@ describe('group runtime stale-build guard', () => {
     expect(mocks.stopGroup).not.toHaveBeenCalled();
   });
 
-  test('still allows execution-mode-changing patch when backend build is fresh', async () => {
-    registeredGroups['web:main'].is_home = false;
-    const app = createApp();
-
-    const res = await app.request('/api/groups/web:main', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ execution_mode: 'container' }),
-    });
-
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual(
-      expect.objectContaining({
-        success: true,
-      }),
-    );
-    expect(mocks.setRegisteredGroup).toHaveBeenCalledOnce();
-    expect(registeredGroups['web:main'].agentType).toBe('openai');
-    expect(registeredGroups['web:main'].executionMode).toBe('container');
-    expect(mocks.stopGroup).toHaveBeenCalledWith('web:main', { force: true });
-    expect(sessions.main).toBeUndefined();
-  });
-
   test('includes shared admin web:main home workspace with its actual runtime in group list', async () => {
     registeredGroups = {
       'web:main': {
@@ -381,7 +330,6 @@ describe('group runtime stale-build guard', () => {
         created_by: 'admin-2',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
       },
       'feishu:ops-room': {
         name: 'Ops Room',
@@ -389,7 +337,6 @@ describe('group runtime stale-build guard', () => {
         added_at: '2026-04-04T10:05:00.000Z',
         created_by: 'admin-2',
         is_home: false,
-        executionMode: 'host',
       },
     };
     mocks.getRegisteredGroup.mockImplementation(
@@ -411,11 +358,11 @@ describe('group runtime stale-build guard', () => {
     expect(payload.groups['web:main']).toEqual(
       expect.objectContaining({
         agent_type: 'openai',
-        execution_mode: 'host',
         is_home: true,
         is_my_home: true,
       }),
     );
+    expect(payload.groups['web:main']).not.toHaveProperty('execution_mode');
   });
 
   test('persists workspace model, reasoning effort, and speed tier on patch', async () => {
@@ -476,7 +423,6 @@ describe('group runtime stale-build guard', () => {
     registeredGroups['web:main'] = {
       ...registeredGroups['web:main'],
       agentType: 'openai',
-      executionMode: 'host',
       model: null,
     };
     const app = createApp();
@@ -497,7 +443,7 @@ describe('group runtime stale-build guard', () => {
     );
   });
 
-  test('materializes the launch cwd when creating a host workspace without custom_cwd', async () => {
+  test('materializes the launch cwd when creating a workspace without custom_cwd', async () => {
     const app = createApp();
 
     const res = await app.request('/api/groups', {
@@ -505,7 +451,6 @@ describe('group runtime stale-build guard', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         name: 'Ops',
-        execution_mode: 'host',
       }),
     });
 
@@ -518,55 +463,16 @@ describe('group runtime stale-build guard', () => {
         }),
       }),
     );
-    expect(mocks.materializeHostWorkspaceDefaultCwd).toHaveBeenCalled();
+    const payload = (await app.request('/api/groups').then((r) => r.json())) as {
+      groups: Record<string, any>;
+    };
+    expect(Object.values(payload.groups).every((g) => !('execution_mode' in g))).toBe(
+      true,
+    );
+    expect(mocks.materializeWorkspaceDefaultCwd).toHaveBeenCalled();
     expect(mocks.setRegisteredGroup).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        executionMode: 'host',
-        customCwd: '/launch/cwd',
-      }),
-    );
-  });
-
-  test('materializes the launch cwd when converting a workspace to host mode', async () => {
-    registeredGroups = {
-      ...registeredGroups,
-      'web:ops': {
-        name: 'Ops',
-        folder: 'ops',
-        added_at: '2026-04-04T10:10:00.000Z',
-        created_by: 'admin-1',
-        is_home: false,
-        agentType: 'openai',
-        executionMode: 'container',
-      },
-    };
-    mocks.getRegisteredGroup.mockImplementation(
-      (jid: string) => registeredGroups[jid],
-    );
-    mocks.getAllRegisteredGroups.mockImplementation(() => registeredGroups);
-
-    const app = createApp();
-
-    const res = await app.request('/api/groups/web:ops', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        execution_mode: 'host',
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual(
-      expect.objectContaining({
-        success: true,
-      }),
-    );
-    expect(mocks.materializeHostWorkspaceDefaultCwd).toHaveBeenCalled();
-    expect(mocks.setRegisteredGroup).toHaveBeenCalledWith(
-      'web:ops',
-      expect.objectContaining({
-        executionMode: 'host',
         customCwd: '/launch/cwd',
       }),
     );

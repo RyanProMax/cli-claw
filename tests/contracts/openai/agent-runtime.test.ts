@@ -75,7 +75,7 @@ describe('OpenAI agent runtime settings', () => {
     );
 
     expect(formatted).toBe(
-      'OpenAI runtime request was rejected by Codex backend (400). Check the latest host log for the request id, update and restart cli-claw, then retry.',
+      'OpenAI runtime request was rejected by Codex backend (400). Check the latest process log for the request id, update and restart cli-claw, then retry.',
     );
     expect(formatted).not.toContain('"headers"');
     expect(formatted).not.toContain('"requestID"');

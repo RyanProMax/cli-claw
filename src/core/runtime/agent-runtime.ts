@@ -8,8 +8,6 @@ export type RuntimeId = 'openai';
 export interface RuntimeCapabilities {
   supportsReasoningEffort: boolean;
   supportsSpeedTier: boolean;
-  supportsHostExecution: boolean;
-  supportsContainerExecution: boolean;
 }
 
 export interface RuntimeDefaults {
@@ -43,7 +41,6 @@ export interface AgentRuntime {
   ): string | null;
   normalizeReasoningEffort(rawValue: string): string | null;
   normalizeSpeedTier(rawValue: string): string | null;
-  prepareHost(context: RuntimeLaunchContext): Promise<RuntimePreparation>;
-  prepareContainer(context: RuntimeLaunchContext): Promise<RuntimePreparation>;
+  prepareRuntime(context: RuntimeLaunchContext): Promise<RuntimePreparation>;
   usage(): Promise<UsageProviderResult>;
 }

@@ -561,7 +561,7 @@ export function checkStorageLimit(
   return { allowed: true };
 }
 
-export function getUserConcurrentContainerLimit(
+export function getUserConcurrentProcessLimit(
   userId: string,
   userRole: string,
 ): number | null {
@@ -570,7 +570,7 @@ export function getUserConcurrentContainerLimit(
   const effective = getUserEffectivePlan(userId);
   if (!effective) return null;
 
-  return effective.plan.max_concurrent_containers;
+  return effective.plan.max_concurrent_processes;
 }
 
 export function applyAdminBalanceAdjustment(

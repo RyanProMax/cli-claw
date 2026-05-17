@@ -20,6 +20,6 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   logger.error({ err: reason }, 'Unhandled rejection');
   // 不立即退出：unhandled rejection 通常非致命（如 API 超时未 catch），
-  // 立即 exit 会导致长期运行服务丢失正在处理的消息和容器管理状态。
+  // 立即 exit 会导致长期运行服务丢失正在处理的消息和运行状态。
   // uncaughtException 仍保持 exit(1)，因为异常会破坏进程状态。
 });

@@ -20,7 +20,6 @@ import {
   BillingAuditLog,
   BillingPlan,
   DailyUsage,
-  ExecutionMode,
   GroupMember,
   ImMessageLifecycleEvent,
   InviteCode,
@@ -258,6 +257,14 @@ function ensureColumn(
   );
 }
 
+function selectColumnOrDefault(
+  tableName: string,
+  columnName: string,
+  fallbackSql: string,
+): string {
+  return hasColumn(tableName, columnName) ? columnName : fallbackSql;
+}
+
 function assertSchema(
   tableName: string,
   requiredColumns: string[],
@@ -436,9 +443,21 @@ export function initDatabase(): void {
       name TEXT NOT NULL,
       folder TEXT NOT NULL,
       added_at TEXT NOT NULL,
-      container_config TEXT,
+      agent_type TEXT DEFAULT 'openai',
+      model TEXT,
+      reasoning_effort TEXT,
+      speed_tier TEXT,
+      custom_cwd TEXT,
       created_by TEXT,
-      is_home INTEGER DEFAULT 0
+      is_home INTEGER DEFAULT 0,
+      selected_skills TEXT,
+      target_agent_id TEXT,
+      target_main_jid TEXT,
+      reply_policy TEXT DEFAULT 'source_only',
+      require_mention INTEGER DEFAULT 0,
+      mcp_mode TEXT DEFAULT 'inherit',
+      selected_mcps TEXT,
+      activation_mode TEXT DEFAULT 'auto'
     );
   `);
 
@@ -573,7 +592,7 @@ export function initDatabase(): void {
       display_price TEXT,
       highlight INTEGER NOT NULL DEFAULT 0,
       max_groups INTEGER,
-      max_concurrent_containers INTEGER,
+      max_concurrent_processes INTEGER,
       max_im_channels INTEGER,
       max_mcp_servers INTEGER,
       max_storage_mb INTEGER,
@@ -689,6 +708,16 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_daily_usage_user_date ON daily_usage(user_id, date);
   `);
 
+  if (
+    hasColumn('billing_plans', 'max_concurrent_containers') &&
+    !hasColumn('billing_plans', 'max_concurrent_processes')
+  ) {
+    db.exec(
+      'ALTER TABLE billing_plans RENAME COLUMN max_concurrent_containers TO max_concurrent_processes',
+    );
+  }
+  ensureColumn('billing_plans', 'max_concurrent_processes', 'INTEGER');
+
   // Token usage tracking tables
   db.exec(`
     CREATE TABLE IF NOT EXISTS usage_records (
@@ -752,18 +781,11 @@ export function initDatabase(): void {
   ensureColumn('invite_codes', 'permissions', "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn('users', 'avatar_emoji', 'TEXT');
   ensureColumn('users', 'avatar_color', 'TEXT');
-  ensureColumn(
-    'registered_groups',
-    'execution_mode',
-    "TEXT DEFAULT 'container'",
-  );
   ensureColumn('registered_groups', 'agent_type', "TEXT DEFAULT 'openai'");
   ensureColumn('registered_groups', 'model', 'TEXT');
   ensureColumn('registered_groups', 'reasoning_effort', 'TEXT');
   ensureColumn('registered_groups', 'speed_tier', 'TEXT');
   ensureColumn('registered_groups', 'custom_cwd', 'TEXT');
-  ensureColumn('registered_groups', 'init_source_path', 'TEXT');
-  ensureColumn('registered_groups', 'init_git_url', 'TEXT');
   ensureColumn('messages', 'attachments', 'TEXT');
   ensureColumn('messages', 'source_jid', 'TEXT');
   ensureColumn('registered_groups', 'created_by', 'TEXT');
@@ -777,7 +799,6 @@ export function initDatabase(): void {
   ensureColumn('scheduled_tasks', 'execution_type', "TEXT DEFAULT 'agent'");
   ensureColumn('scheduled_tasks', 'script_command', 'TEXT');
   ensureColumn('scheduled_tasks', 'notify_channels', 'TEXT');
-  ensureColumn('scheduled_tasks', 'execution_mode', 'TEXT');
   ensureColumn('scheduled_tasks', 'workspace_jid', 'TEXT');
   ensureColumn('scheduled_tasks', 'workspace_folder', 'TEXT');
   ensureColumn('registered_groups', 'selected_skills', 'TEXT');
@@ -832,22 +853,194 @@ export function initDatabase(): void {
           name TEXT NOT NULL,
           folder TEXT NOT NULL,
           added_at TEXT NOT NULL,
-          container_config TEXT,
           agent_type TEXT DEFAULT 'openai',
-          execution_mode TEXT DEFAULT 'container',
+          model TEXT,
+          reasoning_effort TEXT,
+          speed_tier TEXT,
           custom_cwd TEXT,
-          init_source_path TEXT,
-          init_git_url TEXT,
           created_by TEXT,
           is_home INTEGER DEFAULT 0
         );
-        INSERT INTO registered_groups_new SELECT jid, name, folder, added_at, container_config, 'openai', execution_mode, custom_cwd, NULL, NULL, NULL, 0 FROM registered_groups;
+        INSERT INTO registered_groups_new (jid, name, folder, added_at, agent_type, custom_cwd, created_by, is_home)
+          SELECT jid, name, folder, added_at, 'openai', custom_cwd, NULL, 0 FROM registered_groups;
         DROP TABLE registered_groups;
         ALTER TABLE registered_groups_new RENAME TO registered_groups;
       `);
     })();
   }
   ensureColumn('registered_groups', 'speed_tier', 'TEXT');
+
+  if (
+    [
+      'container_config',
+      'execution_mode',
+      'init_source_path',
+      'init_git_url',
+    ].some((column) => hasColumn('registered_groups', column))
+  ) {
+    const source = {
+      agent_type: selectColumnOrDefault(
+        'registered_groups',
+        'agent_type',
+        "'openai'",
+      ),
+      model: selectColumnOrDefault('registered_groups', 'model', 'NULL'),
+      reasoning_effort: selectColumnOrDefault(
+        'registered_groups',
+        'reasoning_effort',
+        'NULL',
+      ),
+      speed_tier: selectColumnOrDefault(
+        'registered_groups',
+        'speed_tier',
+        'NULL',
+      ),
+      custom_cwd: selectColumnOrDefault(
+        'registered_groups',
+        'custom_cwd',
+        'NULL',
+      ),
+      created_by: selectColumnOrDefault(
+        'registered_groups',
+        'created_by',
+        'NULL',
+      ),
+      is_home: selectColumnOrDefault('registered_groups', 'is_home', '0'),
+      selected_skills: selectColumnOrDefault(
+        'registered_groups',
+        'selected_skills',
+        'NULL',
+      ),
+      target_agent_id: selectColumnOrDefault(
+        'registered_groups',
+        'target_agent_id',
+        'NULL',
+      ),
+      target_main_jid: selectColumnOrDefault(
+        'registered_groups',
+        'target_main_jid',
+        'NULL',
+      ),
+      reply_policy: selectColumnOrDefault(
+        'registered_groups',
+        'reply_policy',
+        "'source_only'",
+      ),
+      require_mention: selectColumnOrDefault(
+        'registered_groups',
+        'require_mention',
+        '0',
+      ),
+      activation_mode: selectColumnOrDefault(
+        'registered_groups',
+        'activation_mode',
+        "'auto'",
+      ),
+      mcp_mode: selectColumnOrDefault(
+        'registered_groups',
+        'mcp_mode',
+        "'inherit'",
+      ),
+      selected_mcps: selectColumnOrDefault(
+        'registered_groups',
+        'selected_mcps',
+        'NULL',
+      ),
+    };
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE registered_groups_new (
+          jid TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          folder TEXT NOT NULL,
+          added_at TEXT NOT NULL,
+          agent_type TEXT DEFAULT 'openai',
+          model TEXT,
+          reasoning_effort TEXT,
+          speed_tier TEXT,
+          custom_cwd TEXT,
+          created_by TEXT,
+          is_home INTEGER DEFAULT 0,
+          selected_skills TEXT,
+          target_agent_id TEXT,
+          target_main_jid TEXT,
+          reply_policy TEXT DEFAULT 'source_only',
+          require_mention INTEGER DEFAULT 0,
+          activation_mode TEXT DEFAULT 'auto',
+          mcp_mode TEXT DEFAULT 'inherit',
+          selected_mcps TEXT
+        );
+        INSERT INTO registered_groups_new (
+          jid, name, folder, added_at, agent_type, model, reasoning_effort,
+          speed_tier, custom_cwd, created_by, is_home, selected_skills,
+          target_agent_id, target_main_jid, reply_policy, require_mention,
+          activation_mode, mcp_mode, selected_mcps
+        )
+        SELECT
+          jid, name, folder, added_at, ${source.agent_type}, ${source.model},
+          ${source.reasoning_effort}, ${source.speed_tier}, ${source.custom_cwd},
+          ${source.created_by}, ${source.is_home}, ${source.selected_skills},
+          ${source.target_agent_id}, ${source.target_main_jid},
+          ${source.reply_policy}, ${source.require_mention},
+          ${source.activation_mode}, ${source.mcp_mode}, ${source.selected_mcps}
+        FROM registered_groups;
+        DROP TABLE registered_groups;
+        ALTER TABLE registered_groups_new RENAME TO registered_groups;
+      `);
+    })();
+  }
+
+  if (hasColumn('scheduled_tasks', 'execution_mode')) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE scheduled_tasks_new (
+          id TEXT PRIMARY KEY,
+          group_folder TEXT NOT NULL,
+          chat_jid TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          schedule_type TEXT NOT NULL,
+          schedule_value TEXT NOT NULL,
+          context_mode TEXT DEFAULT 'isolated',
+          execution_type TEXT DEFAULT 'agent',
+          script_command TEXT,
+          next_run TEXT,
+          last_run TEXT,
+          last_result TEXT,
+          status TEXT DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          created_by TEXT,
+          notify_channels TEXT,
+          workspace_jid TEXT,
+          workspace_folder TEXT
+        );
+        INSERT INTO scheduled_tasks_new (
+          id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+          context_mode, execution_type, script_command, next_run, last_run,
+          last_result, status, created_at, created_by, notify_channels,
+          workspace_jid, workspace_folder
+        )
+        SELECT
+          id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+          context_mode, execution_type, script_command, next_run, last_run,
+          last_result, status, created_at, created_by, notify_channels,
+          workspace_jid, workspace_folder
+        FROM scheduled_tasks;
+        DROP TABLE scheduled_tasks;
+        ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks;
+      `);
+    })();
+  }
+
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_next_run ON scheduled_tasks(next_run)',
+  );
+  db.exec('CREATE INDEX IF NOT EXISTS idx_status ON scheduled_tasks(status)');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_rg_target_agent ON registered_groups(target_agent_id)',
+  );
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_rg_target_main ON registered_groups(target_main_jid)',
+  );
 
   // v19→v20 migration: add token_usage column to messages
   ensureColumn('messages', 'token_usage', 'TEXT');
@@ -886,21 +1079,30 @@ export function initDatabase(): void {
       'name',
       'folder',
       'added_at',
-      'container_config',
       'agent_type',
-      'execution_mode',
+      'model',
+      'reasoning_effort',
       'speed_tier',
       'custom_cwd',
-      'init_source_path',
-      'init_git_url',
       'created_by',
       'is_home',
       'selected_skills',
       'target_agent_id',
       'target_main_jid',
       'reply_policy',
+      'require_mention',
+      'activation_mode',
+      'mcp_mode',
+      'selected_mcps',
     ],
-    ['trigger_pattern', 'requires_trigger'],
+    [
+      'trigger_pattern',
+      'requires_trigger',
+      'container_config',
+      'execution_mode',
+      'init_source_path',
+      'init_git_url',
+    ],
   );
 
   assertSchema('users', [
@@ -2119,8 +2321,8 @@ export function createTask(
 ): void {
   db.prepare(
     `
-    INSERT INTO scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, execution_type, script_command, execution_mode, next_run, status, created_at, created_by, notify_channels)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, execution_type, script_command, next_run, status, created_at, created_by, notify_channels)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     task.id,
@@ -2132,7 +2334,6 @@ export function createTask(
     'isolated',
     task.execution_type || 'agent',
     task.script_command ?? null,
-    task.execution_mode ?? null,
     task.next_run,
     task.status,
     task.created_at,
@@ -2155,7 +2356,6 @@ function mapTaskRow(row: unknown): ScheduledTask {
   }
   // Normalize new nullable fields
   r.context_mode = 'isolated';
-  if (r.execution_mode === undefined) r.execution_mode = null;
   if (r.workspace_jid === undefined) r.workspace_jid = null;
   if (r.workspace_folder === undefined) r.workspace_folder = null;
   return r as ScheduledTask;
@@ -2192,7 +2392,6 @@ export function updateTask(
       | 'schedule_value'
       | 'context_mode'
       | 'execution_type'
-      | 'execution_mode'
       | 'script_command'
       | 'next_run'
       | 'status'
@@ -2222,10 +2421,6 @@ export function updateTask(
   if (updates.execution_type !== undefined) {
     fields.push('execution_type = ?');
     values.push(updates.execution_type);
-  }
-  if (updates.execution_mode !== undefined) {
-    fields.push('execution_mode = ?');
-    values.push(updates.execution_mode);
   }
   if (updates.script_command !== undefined) {
     fields.push('script_command = ?');
@@ -2494,34 +2689,17 @@ export function getAllSessions(): Record<string, string> {
 
 // --- Registered group accessors ---
 
-function parseExecutionMode(
-  raw: string | null,
-  context: string,
-): ExecutionMode {
-  if (raw === 'container' || raw === 'host') return raw;
-  if (raw !== null && raw !== '') {
-    console.warn(
-      `Invalid execution_mode "${raw}" for ${context}, falling back to "container"`,
-    );
-  }
-  return 'container';
-}
-
 /** Raw row shape from registered_groups table — single source of truth for column mapping. */
 type RegisteredGroupRow = {
   jid: string;
   name: string;
   folder: string;
   added_at: string;
-  container_config: string | null;
   agent_type: string | null;
-  execution_mode: string | null;
   model: string | null;
   reasoning_effort: string | null;
   speed_tier: string | null;
   custom_cwd: string | null;
-  init_source_path: string | null;
-  init_git_url: string | null;
   created_by: string | null;
   is_home: number;
   selected_skills: string | null;
@@ -2547,17 +2725,11 @@ function parseGroupRow(
     name: row.name,
     folder: row.folder,
     added_at: row.added_at,
-    containerConfig: row.container_config
-      ? JSON.parse(row.container_config)
-      : undefined,
     agentType: parseAgentType(row.agent_type),
-    executionMode: parseExecutionMode(row.execution_mode, `group ${row.jid}`),
     model: row.model ?? null,
     reasoningEffort: row.reasoning_effort ?? null,
     speedTier: row.speed_tier ?? null,
     customCwd: row.custom_cwd ?? undefined,
-    initSourcePath: row.init_source_path ?? undefined,
-    initGitUrl: row.init_git_url ?? undefined,
     created_by: row.created_by ?? undefined,
     is_home: row.is_home === 1,
     target_agent_id: row.target_agent_id ?? undefined,
@@ -2595,22 +2767,18 @@ export function getRegisteredGroup(
 
 export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, agent_type, execution_mode, model, reasoning_effort, speed_tier, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, agent_type, model, reasoning_effort, speed_tier, custom_cwd, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
     group.folder,
     group.added_at,
-    group.containerConfig ? JSON.stringify(group.containerConfig) : null,
     group.agentType ?? 'openai',
-    group.executionMode ?? 'container',
     group.model ?? null,
     group.reasoningEffort ?? null,
     group.speedTier ?? null,
     group.customCwd ?? null,
-    group.initSourcePath ?? null,
-    group.initGitUrl ?? null,
     group.created_by ?? null,
     group.is_home ? 1 : 0,
     null, // selected_skills: deprecated, always null (user-level skills apply globally)
@@ -2634,16 +2802,6 @@ export function getJidsByFolder(folder: string): string[] {
     .prepare('SELECT jid FROM registered_groups WHERE folder = ?')
     .all(folder) as Array<{ jid: string }>;
   return rows.map((r) => r.jid);
-}
-
-/** Check if any registered group uses container execution mode (efficient targeted query). */
-export function hasContainerModeGroups(): boolean {
-  const row = db
-    .prepare(
-      "SELECT 1 FROM registered_groups WHERE execution_mode = 'container' OR execution_mode IS NULL LIMIT 1",
-    )
-    .get();
-  return row !== undefined;
 }
 
 export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
@@ -2718,8 +2876,7 @@ export function getUserHomeGroup(
 
 /**
  * Ensure a user has a home group. If not, create one.
- * Admin gets folder='main' with executionMode='host'.
- * Member gets folder='home-{userId}' with executionMode='container'.
+ * Admin gets folder='main'. Member gets folder='home-{userId}'.
  * Returns the JID of the home group.
  */
 export function ensureUserHomeGroup(
@@ -2741,7 +2898,7 @@ export function ensureUserHomeGroup(
     const existingMain = getRegisteredGroup(jid);
     if (existingMain) {
       // web:main already exists.
-      // Ensure is_home, created_by, and executionMode are correct for owner-based routing.
+      // Ensure is_home and created_by are correct for owner-based routing.
       const patched = { ...existingMain };
       let changed = false;
       if (!patched.is_home) {
@@ -2750,11 +2907,6 @@ export function ensureUserHomeGroup(
       }
       if (!patched.created_by) {
         patched.created_by = userId;
-        changed = true;
-      }
-      // Admin home container must use host mode
-      if (patched.executionMode !== 'host') {
-        patched.executionMode = 'host';
         changed = true;
       }
       if (changed) {
@@ -2772,7 +2924,6 @@ export function ensureUserHomeGroup(
     folder,
     added_at: now,
     agentType: 'openai',
-    executionMode: isAdmin ? 'host' : 'container',
     created_by: userId,
     is_home: true,
   };
@@ -2981,7 +3132,7 @@ function normalizeHistoryCursor(
 }
 
 /**
- * 多 JID 分页查询（用于主容器合并 web:main + feishu:xxx 消息）。
+ * 多 JID 分页查询（用于主工作区合并 web:main + feishu:xxx 消息）。
  */
 export function getMessagesPageMulti(
   chatJids: string[],
@@ -3039,7 +3190,7 @@ export function getMessagesPageMulti(
 }
 
 /**
- * 多 JID 增量查询（用于主容器轮询合并消息）。
+ * 多 JID 增量查询（用于主工作区轮询合并消息）。
  */
 export function getMessagesAfterMulti(
   chatJids: string[],
@@ -3147,12 +3298,8 @@ export function getGroupsByOwner(
     name: string;
     folder: string;
     added_at: string;
-    container_config: string | null;
     agent_type: string | null;
-    execution_mode: string | null;
     custom_cwd: string | null;
-    init_source_path: string | null;
-    init_git_url: string | null;
     created_by: string | null;
     is_home: number;
     selected_skills: string | null;
@@ -3163,14 +3310,8 @@ export function getGroupsByOwner(
     name: row.name,
     folder: row.folder,
     added_at: row.added_at,
-    containerConfig: row.container_config
-      ? JSON.parse(row.container_config)
-      : undefined,
     agentType: parseAgentType(row.agent_type),
-    executionMode: parseExecutionMode(row.execution_mode, `group ${row.jid}`),
     customCwd: row.custom_cwd ?? undefined,
-    initSourcePath: row.init_source_path ?? undefined,
-    initGitUrl: row.init_git_url ?? undefined,
     created_by: row.created_by ?? undefined,
     is_home: row.is_home === 1,
   }));
@@ -4452,7 +4593,7 @@ export function createBillingPlan(plan: BillingPlan): void {
       `INSERT INTO billing_plans (id, name, description, tier, monthly_cost_usd, monthly_token_quota, monthly_cost_quota,
        daily_cost_quota, weekly_cost_quota, daily_token_quota, weekly_token_quota,
        rate_multiplier, trial_days, sort_order, display_price, highlight,
-       max_groups, max_concurrent_containers, max_im_channels, max_mcp_servers, max_storage_mb,
+       max_groups, max_concurrent_processes, max_im_channels, max_mcp_servers, max_storage_mb,
        allow_overage, features, is_default, is_active, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
@@ -4473,7 +4614,7 @@ export function createBillingPlan(plan: BillingPlan): void {
       plan.display_price,
       plan.highlight ? 1 : 0,
       plan.max_groups,
-      plan.max_concurrent_containers,
+      plan.max_concurrent_processes,
       plan.max_im_channels,
       plan.max_mcp_servers,
       plan.max_storage_mb,
@@ -4558,9 +4699,9 @@ export function updateBillingPlan(
     fields.push('max_groups = ?');
     values.push(updates.max_groups);
   }
-  if (updates.max_concurrent_containers !== undefined) {
-    fields.push('max_concurrent_containers = ?');
-    values.push(updates.max_concurrent_containers);
+  if (updates.max_concurrent_processes !== undefined) {
+    fields.push('max_concurrent_processes = ?');
+    values.push(updates.max_concurrent_processes);
   }
   if (updates.max_im_channels !== undefined) {
     fields.push('max_im_channels = ?');
@@ -4648,9 +4789,9 @@ function mapBillingPlanRow(row: Record<string, unknown>): BillingPlan {
       typeof row.display_price === 'string' ? row.display_price : null,
     highlight: !!(row.highlight as number),
     max_groups: row.max_groups != null ? Number(row.max_groups) : null,
-    max_concurrent_containers:
-      row.max_concurrent_containers != null
-        ? Number(row.max_concurrent_containers)
+    max_concurrent_processes:
+      row.max_concurrent_processes != null
+        ? Number(row.max_concurrent_processes)
         : null,
     max_im_channels:
       row.max_im_channels != null ? Number(row.max_im_channels) : null,

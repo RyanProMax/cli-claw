@@ -15,11 +15,10 @@ export interface SessionInfo {
 }
 
 export interface SystemSettings {
-  containerTimeout: number;
+  processTimeout: number;
   idleTimeout: number;
-  containerMaxOutputSize: number;
-  maxConcurrentContainers: number;
-  maxConcurrentHostProcesses: number;
+  processMaxOutputSize: number;
+  maxConcurrentProcesses: number;
   maxLoginAttempts: number;
   loginLockoutMinutes: number;
   maxConcurrentScripts: number;

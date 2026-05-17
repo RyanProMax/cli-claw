@@ -4,7 +4,6 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
-import { TerminalManager } from './terminal-manager.js';
 import { resolveAppPath } from '../core/app-root.js';
 
 // Web context and shared utilities
@@ -18,21 +17,13 @@ import {
   lastActiveCache,
   LAST_ACTIVE_DEBOUNCE_MS,
   parseCookie,
-  isHostExecutionGroup,
-  hasHostExecutionPermission,
   canAccessGroup,
   getCachedSessionWithUser,
   invalidateSessionCache,
 } from './context.js';
 
 // Schemas
-import {
-  MessageCreateSchema,
-  TerminalStartSchema,
-  TerminalInputSchema,
-  TerminalResizeSchema,
-  TerminalStopSchema,
-} from '../core/schemas.js';
+import { MessageCreateSchema } from '../core/schemas.js';
 
 // Middleware
 import { authMiddleware } from './middleware/auth.js';
@@ -44,7 +35,7 @@ import configRoutes, { injectConfigDeps } from './routes/config.js';
 import tasksRoutes from './routes/tasks.js';
 import adminRoutes from './routes/admin.js';
 import fileRoutes from './routes/files.js';
-import monitorRoutes, { injectMonitorDeps } from './routes/monitor.js';
+import monitorRoutes from './routes/monitor.js';
 import skillsRoutes from './routes/skills.js';
 import browseRoutes from './routes/browse.js';
 import agentRoutes from './routes/agents.js';
@@ -123,31 +114,6 @@ import {
 // --- App Setup ---
 
 const app = new Hono<{ Variables: Variables }>();
-const terminalManager = new TerminalManager();
-const wsTerminals = new Map<WebSocket, string>(); // ws → groupJid
-const terminalOwners = new Map<string, WebSocket>(); // groupJid → ws
-
-function normalizeTerminalSize(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  const intValue = Math.floor(value);
-  if (intValue < min) return min;
-  if (intValue > max) return max;
-  return intValue;
-}
-
-function releaseTerminalOwnership(ws: WebSocket, groupJid: string): void {
-  if (wsTerminals.get(ws) === groupJid) {
-    wsTerminals.delete(ws);
-  }
-  if (terminalOwners.get(groupJid) === ws) {
-    terminalOwners.delete(groupJid);
-  }
-}
 
 // --- CORS Middleware ---
 const CORS_ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS || '';
@@ -226,13 +192,6 @@ app.post('/api/messages', authMiddleware, async (c) => {
   if (!canAccessGroup(authUser, group)) {
     return c.json({ error: 'Access denied' }, 403);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
   const result = await handleWebUserMessage(
     chatJid,
     content.trim(),
@@ -751,7 +710,7 @@ async function handleWebUserMessage(
     }
   }
 
-  // Only advance per-group cursor when we piped directly into a running container.
+  // Only advance per-group cursor when we piped directly into a running process.
   //
   // When piped to active, we also mark the group as having pending IPC-injected
   // messages. If the agent crashes without processing them, the close handler
@@ -1056,13 +1015,6 @@ function setupWebSocket(server: any): WebSocketServer {
       }
     }
 
-    const cleanupTerminalForWs = () => {
-      const termJid = wsTerminals.get(ws);
-      if (!termJid) return;
-      terminalManager.stop(termJid);
-      releaseTerminalOwnership(ws, termJid);
-    };
-
     ws.on('message', async (data) => {
       if (!deps) return;
 
@@ -1140,16 +1092,6 @@ function setupWebSocket(server: any): WebSocketServer {
               );
               return;
             }
-            if (isHostExecutionGroup(targetGroup)) {
-              if (session.role !== 'admin') {
-                sendWsError('宿主机模式需要管理员权限', chatJid);
-                logger.warn(
-                  { chatJid, userId: session.user_id },
-                  'WebSocket send_message blocked: host mode requires admin',
-                );
-                return;
-              }
-            }
           }
 
           const commandResult = await handleWebSlashCommand({
@@ -1190,255 +1132,6 @@ function setupWebSocket(server: any): WebSocketServer {
               'WebSocket message rejected',
             );
           }
-        } else if (msg.type === 'terminal_start') {
-          try {
-            // Schema 验证
-            const startValidation = TerminalStartSchema.safeParse(msg);
-            if (!startValidation.success) {
-              ws.send(
-                JSON.stringify({
-                  type: 'terminal_error',
-                  chatJid: msg.chatJid || '',
-                  error: '终端启动参数无效',
-                }),
-              );
-              return;
-            }
-            const chatJid = startValidation.data.chatJid.trim();
-            if (!chatJid) {
-              ws.send(
-                JSON.stringify({
-                  type: 'terminal_error',
-                  chatJid: '',
-                  error: 'chatJid 无效',
-                }),
-              );
-              return;
-            }
-            const group = deps.getRegisteredGroups()[chatJid];
-            if (!group) {
-              ws.send(
-                JSON.stringify({
-                  type: 'terminal_error',
-                  chatJid,
-                  error: '群组不存在',
-                }),
-              );
-              return;
-            }
-            // Permission: user must be able to access the group
-            const groupWithJid = { ...group, jid: chatJid };
-            if (
-              !canAccessGroup(
-                { id: session.user_id, role: session.role },
-                groupWithJid,
-              )
-            ) {
-              ws.send(
-                JSON.stringify({
-                  type: 'terminal_error',
-                  chatJid,
-                  error: '无权访问该群组终端',
-                }),
-              );
-              return;
-            }
-            if ((group.executionMode || 'container') === 'host') {
-              ws.send(
-                JSON.stringify({
-                  type: 'terminal_error',
-                  chatJid,
-                  error: '宿主机模式不支持终端',
-                }),
-              );
-              return;
-            }
-            // 查找活跃的容器
-            const status = deps.queue.getStatus();
-            const groupStatus = status.groups.find((g) => g.jid === chatJid);
-            if (!groupStatus || !groupStatus.active) {
-              deps.ensureTerminalContainerStarted(chatJid);
-              ws.send(
-                JSON.stringify({
-                  type: 'terminal_error',
-                  chatJid,
-                  error: '工作区启动中，请稍后重试',
-                }),
-              );
-              return;
-            }
-            if (!groupStatus.containerName) {
-              ws.send(
-                JSON.stringify({
-                  type: 'terminal_error',
-                  chatJid,
-                  error: '工作区启动中，请稍后重试',
-                }),
-              );
-              return;
-            }
-            const cols = normalizeTerminalSize(msg.cols, 80, 20, 300);
-            const rows = normalizeTerminalSize(msg.rows, 24, 8, 120);
-            // 停止该 ws 之前的终端
-            const prevJid = wsTerminals.get(ws);
-            if (prevJid && prevJid !== chatJid) {
-              terminalManager.stop(prevJid);
-              releaseTerminalOwnership(ws, prevJid);
-            }
-
-            // 若该 group 已被其它 ws 占用，先释放旧 owner，防止后续 close 误杀新会话
-            const existingOwner = terminalOwners.get(chatJid);
-            if (existingOwner && existingOwner !== ws) {
-              terminalManager.stop(chatJid);
-              releaseTerminalOwnership(existingOwner, chatJid);
-              if (existingOwner.readyState === WebSocket.OPEN) {
-                existingOwner.send(
-                  JSON.stringify({
-                    type: 'terminal_stopped',
-                    chatJid,
-                    reason: '终端被其他连接接管',
-                  }),
-                );
-              }
-            }
-
-            terminalManager.start(
-              chatJid,
-              groupStatus.containerName,
-              cols,
-              rows,
-              (data) => {
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(
-                    JSON.stringify({ type: 'terminal_output', chatJid, data }),
-                  );
-                }
-              },
-              (_exitCode, _signal) => {
-                if (terminalOwners.get(chatJid) === ws) {
-                  releaseTerminalOwnership(ws, chatJid);
-                }
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(
-                    JSON.stringify({
-                      type: 'terminal_stopped',
-                      chatJid,
-                      reason: '终端进程已退出',
-                    }),
-                  );
-                }
-              },
-            );
-            wsTerminals.set(ws, chatJid);
-            terminalOwners.set(chatJid, ws);
-            ws.send(JSON.stringify({ type: 'terminal_started', chatJid }));
-          } catch (err) {
-            logger.error(
-              { err, chatJid: msg.chatJid },
-              'Error starting terminal',
-            );
-            const detail =
-              err instanceof Error && err.message
-                ? err.message.slice(0, 160)
-                : 'unknown';
-            ws.send(
-              JSON.stringify({
-                type: 'terminal_error',
-                chatJid: msg.chatJid,
-                error: `启动终端失败 (${detail})`,
-              }),
-            );
-          }
-        } else if (msg.type === 'terminal_input') {
-          const inputValidation = TerminalInputSchema.safeParse(msg);
-          if (!inputValidation.success) {
-            ws.send(
-              JSON.stringify({
-                type: 'terminal_error',
-                chatJid: msg.chatJid || '',
-                error: '终端输入参数无效',
-              }),
-            );
-            return;
-          }
-          const ownerJid = wsTerminals.get(ws);
-          if (
-            ownerJid !== inputValidation.data.chatJid ||
-            terminalOwners.get(inputValidation.data.chatJid) !== ws
-          ) {
-            ws.send(
-              JSON.stringify({
-                type: 'terminal_error',
-                chatJid: inputValidation.data.chatJid,
-                error: '终端会话已失效',
-              }),
-            );
-            return;
-          }
-          terminalManager.write(
-            inputValidation.data.chatJid,
-            inputValidation.data.data,
-          );
-        } else if (msg.type === 'terminal_resize') {
-          const resizeValidation = TerminalResizeSchema.safeParse(msg);
-          if (!resizeValidation.success) {
-            ws.send(
-              JSON.stringify({
-                type: 'terminal_error',
-                chatJid: msg.chatJid || '',
-                error: '终端调整参数无效',
-              }),
-            );
-            return;
-          }
-          const ownerJid = wsTerminals.get(ws);
-          if (
-            ownerJid !== resizeValidation.data.chatJid ||
-            terminalOwners.get(resizeValidation.data.chatJid) !== ws
-          ) {
-            ws.send(
-              JSON.stringify({
-                type: 'terminal_error',
-                chatJid: resizeValidation.data.chatJid,
-                error: '终端会话已失效',
-              }),
-            );
-            return;
-          }
-          const cols = normalizeTerminalSize(
-            resizeValidation.data.cols,
-            80,
-            20,
-            300,
-          );
-          const rows = normalizeTerminalSize(
-            resizeValidation.data.rows,
-            24,
-            8,
-            120,
-          );
-          terminalManager.resize(resizeValidation.data.chatJid, cols, rows);
-        } else if (msg.type === 'terminal_stop') {
-          const stopValidation = TerminalStopSchema.safeParse(msg);
-          if (!stopValidation.success) {
-            return;
-          }
-          const ownerJid = wsTerminals.get(ws);
-          if (
-            ownerJid !== stopValidation.data.chatJid ||
-            terminalOwners.get(stopValidation.data.chatJid) !== ws
-          ) {
-            return;
-          }
-          terminalManager.stop(stopValidation.data.chatJid);
-          releaseTerminalOwnership(ws, stopValidation.data.chatJid);
-          ws.send(
-            JSON.stringify({
-              type: 'terminal_stopped',
-              chatJid: stopValidation.data.chatJid,
-              reason: '用户关闭终端',
-            }),
-          );
         }
       } catch (err) {
         logger.error({ err }, 'Error handling WebSocket message');
@@ -1448,13 +1141,11 @@ function setupWebSocket(server: any): WebSocketServer {
     ws.on('close', () => {
       logger.info('WebSocket client disconnected');
       wsClients.delete(ws);
-      cleanupTerminalForWs();
     });
 
     ws.on('error', (err) => {
       logger.error({ err }, 'WebSocket error');
       wsClients.delete(ws);
-      cleanupTerminalForWs();
     });
   });
 
@@ -1620,12 +1311,6 @@ function computeGroupAllowedUserIds(chatJid: string): Set<string> | null {
   return allowed;
 }
 
-/** Check if a chatJid belongs to a host-mode group (for broadcast filtering) */
-function isHostGroupJid(chatJid: string): boolean {
-  const group = getRegisteredGroup(chatJid);
-  return !!group && isHostExecutionGroup(group);
-}
-
 /**
  * Normalize chatJid for WebSocket broadcasts.
  * IM groups (Feishu/Telegram) that share a folder with an is_home group are mapped
@@ -1652,7 +1337,7 @@ export function broadcastToWebClients(chatJid: string, text: string): void {
   const allowedUserIds = getGroupAllowedUserIds(chatJid);
   safeBroadcast(
     { type: 'agent_reply', chatJid: jid, text, timestamp },
-    isHostGroupJid(chatJid),
+    false,
     allowedUserIds,
   );
 }
@@ -1680,7 +1365,7 @@ export function broadcastNewMessage(
     ...(effectiveAgentId ? { agentId: effectiveAgentId } : {}),
     ...(source ? { source } : {}),
   };
-  safeBroadcast(wsMsg, isHostGroupJid(baseChatJid), allowedUserIds);
+  safeBroadcast(wsMsg, false, allowedUserIds);
 }
 
 export function broadcastTyping(chatJid: string, isTyping: boolean): void {
@@ -1688,7 +1373,7 @@ export function broadcastTyping(chatJid: string, isTyping: boolean): void {
   const allowedUserIds = getGroupAllowedUserIds(chatJid);
   safeBroadcast(
     { type: 'typing', chatJid: jid, isTyping },
-    isHostGroupJid(chatJid),
+    false,
     allowedUserIds,
   );
 }
@@ -1978,7 +1663,7 @@ export function broadcastStreamEvent(
   const msg: WsMessageOut = agentId
     ? { type: 'stream_event', chatJid: jid, event, agentId }
     : { type: 'stream_event', chatJid: jid, event };
-  safeBroadcast(msg, isHostGroupJid(chatJid), allowedUserIds);
+  safeBroadcast(msg, false, allowedUserIds);
 
   // Accumulate snapshot for both main and agent streams.
   // Agent streams use virtual JID format (jid#agent:agentId) as the key.
@@ -2037,7 +1722,7 @@ export function broadcastAgentStatus(
     prompt,
     resultSummary,
   };
-  safeBroadcast(msg, isHostGroupJid(chatJid), allowedUserIds);
+  safeBroadcast(msg, false, allowedUserIds);
 }
 
 export function broadcastRunnerState(
@@ -2051,7 +1736,7 @@ export function broadcastRunnerState(
     chatJid: jid,
     state,
   };
-  safeBroadcast(msg, isHostGroupJid(chatJid), allowedUserIds);
+  safeBroadcast(msg, false, allowedUserIds);
 
   // Clear streaming snapshots when runner goes idle (main + all agent snapshots)
   if (state === 'idle') {
@@ -2070,17 +1755,6 @@ export function broadcastRunnerState(
   }
 }
 
-export function broadcastDockerBuildLog(line: string): void {
-  safeBroadcast({ type: 'docker_build_log', line }, true);
-}
-
-export function broadcastDockerBuildComplete(
-  success: boolean,
-  error?: string,
-): void {
-  safeBroadcast({ type: 'docker_build_complete', success, error }, true);
-}
-
 function broadcastStatus(): void {
   if (!deps) return;
 
@@ -2090,8 +1764,7 @@ function broadcastStatus(): void {
   safeBroadcast(
     {
       type: 'status_update',
-      activeContainers: queueStatus.activeContainerCount,
-      activeHostProcesses: queueStatus.activeHostProcessCount,
+      activeProcesses: queueStatus.activeProcessCount,
       activeTotal: queueStatus.activeCount,
       queueLength: queueStatus.waitingCount,
     },
@@ -2109,10 +1782,6 @@ export function startWebServer(webDeps: WebDeps): void {
   deps = webDeps;
   setWebDeps(webDeps);
   injectConfigDeps(webDeps);
-  injectMonitorDeps({
-    broadcastDockerBuildLog,
-    broadcastDockerBuildComplete,
-  });
 
   httpServer = serve(
     {
@@ -2125,26 +1794,6 @@ export function startWebServer(webDeps: WebDeps): void {
   );
 
   wss = setupWebSocket(httpServer);
-
-  // Register container exit callback for terminal cleanup
-  webDeps.queue.setOnContainerExit((groupJid: string) => {
-    if (terminalManager.has(groupJid)) {
-      const ownerWs = terminalOwners.get(groupJid);
-      terminalManager.stop(groupJid);
-      if (ownerWs) {
-        releaseTerminalOwnership(ownerWs, groupJid);
-        if (ownerWs.readyState === WebSocket.OPEN) {
-          ownerWs.send(
-            JSON.stringify({
-              type: 'terminal_stopped',
-              chatJid: groupJid,
-              reason: '工作区已停止',
-            }),
-          );
-        }
-      }
-    }
-  });
 
   // Register runner state change callback for sidebar indicators
   webDeps.queue.setOnRunnerStateChange(broadcastRunnerState);
@@ -2162,10 +1811,6 @@ export function setWebDepsForTests(webDeps: WebDeps): void {
 }
 
 export { handleWebUserMessage as handleWebUserMessageForTests };
-
-export function shutdownTerminals(): void {
-  terminalManager.shutdown();
-}
 
 export async function shutdownWebServer(): Promise<void> {
   if (statusInterval) {

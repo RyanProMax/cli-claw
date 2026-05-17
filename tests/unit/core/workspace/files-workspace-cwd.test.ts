@@ -4,28 +4,23 @@ import { resolveFileRootOverride } from '../../../../src/web/routes/files.js';
 import type { RegisteredGroup } from '../../../../src/domain/types.js';
 
 describe('resolveFileRootOverride', () => {
-  test('uses the host workspace cwd contract for host groups', () => {
+  test('uses the workspace cwd contract for all groups', () => {
     const hostGroup = {
-      executionMode: 'host',
       customCwd: '/srv/project',
     } as RegisteredGroup;
 
     const launchOnlyHostGroup = {
-      executionMode: 'host',
     } as RegisteredGroup;
 
     const memberHostGroup = {
-      executionMode: 'host',
     } as RegisteredGroup;
 
     const homeHostGroup = {
-      executionMode: 'host',
       customCwd: '/srv/home',
       is_home: true,
     } as RegisteredGroup;
 
     const containerGroup = {
-      executionMode: 'container',
       customCwd: '/srv/project',
     } as RegisteredGroup;
 
@@ -34,6 +29,6 @@ describe('resolveFileRootOverride', () => {
     expect(resolveFileRootOverride(memberHostGroup, homeHostGroup)).toBe(
       '/srv/home',
     );
-    expect(resolveFileRootOverride(containerGroup)).toBeUndefined();
+    expect(resolveFileRootOverride(containerGroup)).toBe('/srv/project');
   });
 });

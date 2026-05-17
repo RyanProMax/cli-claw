@@ -11,7 +11,7 @@ import type {
   StreamRuntimeIdentity,
 } from './stream-event.types.js';
 
-export interface ContainerInput {
+export interface AgentProcessInput {
   prompt: string;
   sessionId?: string;
   turnId?: string;
@@ -22,11 +22,9 @@ export interface ContainerInput {
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;
-  /** @deprecated Use isHome + isAdminHome instead. Kept for backward compatibility with older host processes. */
-  isMain?: boolean;
-  /** Whether this is the user's home container (admin or member). */
+  /** Whether this is the user's home workspace (admin or member). */
   isHome?: boolean;
-  /** Whether this is the admin's home container (full privileges). */
+  /** Whether this is the admin's home workspace (full privileges). */
   isAdminHome?: boolean;
   isScheduledTask?: boolean;
   images?: Array<{ data: string; mimeType?: string }>;
@@ -34,7 +32,7 @@ export interface ContainerInput {
   agentName?: string;
 }
 
-export interface ContainerOutput {
+export interface AgentProcessOutput {
   status: 'success' | 'error' | 'stream' | 'closed';
   result: string | null;
   newSessionId?: string;

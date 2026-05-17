@@ -20,10 +20,16 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 
 - `docs/ARCHITECTURE.md`：系统分层、关键数据流、主进程与 runner 边界。
 - `docs/MODULE.md`：唯一维护的 repo tree / 模块清单。
-- `docs/RUNTIME.md`：`agentType` / `executionMode`、runtime identity、外部运行时契约。
+- `docs/RUNTIME.md`：`agentType`、runtime identity、工作区 cwd、外部运行时契约。
 - `docs/MEMORY.md`：记忆层级、触发时机、存储路径、读取方式与增长边界。
 - `docs/ENGINEERING.md`：实施流程、验证、review/commit 规则。
 - `docs/COMMAND.md`：统一命令注册表与入口差异。
+
+## 输出语言
+
+- Agent 内部分析、工具调用、代码标识、命令和 commit message 可以使用英文。
+- 面向用户输出的执行计划、文档说明、阶段总结、handoff 和最终总结必须使用中文；引用英文 API、命令、字段或错误信息时保留原文，并补充中文说明。
+- 新增或更新仓库协作协议、计划和 runbook 时，正文以中文为主；必要的英文术语、文件名、命令名和接口名可保留原文。
 
 ## 执行协议文件
 
@@ -78,7 +84,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 
 出现以下变化时，必须更新对应 owner 文档，而不是在多个入口重复复制说明：
 
-- 架构分层、执行模式、消息流、权限边界变更
+- 架构分层、执行路径、消息流、权限边界变更
 - 工作区 / Memory / MCP / Skills / 运行时目录约定变更
 - 新增或重命名关键模块、页面、路由、核心 store
 - 影响协作入口、验证方式、review / handoff 流程的工程规则变更

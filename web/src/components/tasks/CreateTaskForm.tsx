@@ -22,7 +22,6 @@ interface CreateTaskFormProps {
     scheduleType: 'cron' | 'interval' | 'once';
     scheduleValue: string;
     executionType: 'agent' | 'script';
-    executionMode?: 'host' | 'container';
     scriptCommand: string;
     notifyChannels: string[] | null;
   }) => Promise<void>;
@@ -45,7 +44,6 @@ export function CreateTaskForm({ onSubmit, onClose, isAdmin }: CreateTaskFormPro
     scheduleType: 'cron' as 'cron' | 'interval' | 'once',
     scheduleValue: '',
     executionType: 'agent' as 'agent' | 'script',
-    executionMode: (isAdmin ? 'host' : 'container') as 'host' | 'container',
     scriptCommand: '',
   });
   const [intervalNumber, setIntervalNumber] = useState('');
@@ -140,7 +138,6 @@ export function CreateTaskForm({ onSubmit, onClose, isAdmin }: CreateTaskFormPro
         scheduleType: formData.scheduleType,
         scheduleValue: finalScheduleValue,
         executionType: formData.executionType,
-        executionMode: formData.executionMode,
         scriptCommand: formData.scriptCommand,
         notifyChannels,
       });
@@ -306,32 +303,6 @@ export function CreateTaskForm({ onSubmit, onClose, isAdmin }: CreateTaskFormPro
                   {isScript
                     ? '直接执行 Shell 命令，零 API 消耗，适合确定性任务'
                     : '启动完整 Codex/OpenAI Agent，消耗 API tokens'}
-                </p>
-              </div>
-            )}
-
-            {/* Execution Mode */}
-            {isAdmin && (
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  执行模式
-                </label>
-                <Select
-                  value={formData.executionMode}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, executionMode: value as 'host' | 'container' })
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="host">宿主机</SelectItem>
-                    <SelectItem value="container">Docker 容器</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  宿主机模式直接在服务器上运行，Docker 容器模式在隔离环境中运行
                 </p>
               </div>
             )}

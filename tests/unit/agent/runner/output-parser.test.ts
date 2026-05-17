@@ -10,7 +10,7 @@ import {
 describe('formatUserFacingRuntimeError', () => {
   test('formats OpenAI usage-limit errors into a user-facing retry message', () => {
     const stderr = `
-      Host agent exited with code 1:
+      Agent process exited with code 1:
       OpenAI API error: insufficient_quota; try again at 1:41 AM.
     `;
 
@@ -21,10 +21,10 @@ describe('formatUserFacingRuntimeError', () => {
 
   test('formats OpenAI login errors into a user-facing login hint', () => {
     const stderr =
-      'Codex CLI login is required. Run `codex login` on the host, then retry.';
+      'Codex CLI login is required. Run `codex login`, then retry.';
 
     expect(formatUserFacingRuntimeError(stderr)).toBe(
-      'Codex CLI 登录态缺失或已过期。请在宿主机执行 `codex login` 后重试。',
+      'Codex CLI 登录态缺失或已过期。请执行 `codex login` 后重试。',
     );
   });
 
@@ -44,7 +44,7 @@ describe('formatUserFacingRuntimeError', () => {
     const formatted = formatUserFacingRuntimeError(stderr);
 
     expect(formatted).toBe(
-      'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新 host 日志中的 request id，更新并重启 cli-claw 后重试。',
+      'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新进程日志中的 request id，更新并重启 cli-claw 后重试。',
     );
     expect(formatted).not.toContain('"headers"');
     expect(formatted).not.toContain('"requestID"');
@@ -64,13 +64,14 @@ describe('formatUserFacingRuntimeError', () => {
     const handled = handleNonZeroExit(
       {
         groupName: 'main',
-        label: 'Host Agent',
-        filePrefix: 'host',
+        label: 'Agent Process',
+        filePrefix: 'agent',
         identifier: '123',
         logsDir: '/tmp',
         input: {
           prompt: 'hello',
-          isMain: true,
+          isHome: true,
+          isAdminHome: true,
         },
         stdoutState,
         stderrState: createStderrState(),
@@ -84,7 +85,7 @@ describe('formatUserFacingRuntimeError', () => {
       1,
       null,
       50,
-      '/tmp/host.log',
+      '/tmp/agent.log',
     );
 
     expect(handled).toBe(true);

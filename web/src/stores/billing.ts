@@ -12,7 +12,7 @@ export interface BillingPlan {
   monthly_token_quota: number | null;
   monthly_cost_quota: number | null;
   max_groups: number | null;
-  max_concurrent_containers: number | null;
+  max_concurrent_processes: number | null;
   max_im_channels: number | null;
   max_mcp_servers: number | null;
   max_storage_mb: number | null;

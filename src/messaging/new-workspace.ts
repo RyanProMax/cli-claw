@@ -1,13 +1,12 @@
 import crypto from 'crypto';
 
 import { LAUNCH_CWD } from '../core/app-root.js';
-import { materializeHostWorkspaceDefaultCwd } from '../core/workspace/host-cwd.js';
+import { materializeWorkspaceDefaultCwd } from '../core/workspace/workspace-cwd.js';
 import type { MountAllowlist, RegisteredGroup } from '../domain/types.js';
 
 export interface CreateImNewWorkspaceGroupOptions {
   name: string;
   userId: string;
-  dockerAvailable: boolean;
   launchCwd?: string;
   allowlist?: MountAllowlist | null;
 }
@@ -33,11 +32,10 @@ export function createImNewWorkspaceGroup(
     name: options.name,
     folder,
     added_at: now,
-    executionMode: options.dockerAvailable ? 'container' : 'host',
     created_by: options.userId,
   };
 
-  const materialized = materializeHostWorkspaceDefaultCwd(group, {
+  const materialized = materializeWorkspaceDefaultCwd(group, {
     launchCwd: options.launchCwd ?? LAUNCH_CWD,
     allowlist: options.allowlist,
     fieldLabel: 'CLI launch cwd',

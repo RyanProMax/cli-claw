@@ -2,10 +2,8 @@ import { describe, expect, test } from 'vitest';
 
 import {
   buildEffectiveGroupFromHomeSibling,
-  hasRuntimeBoundaryChange,
   normalizeAgentType,
   resolveEffectiveRuntimeIdentity,
-  validateGroupRuntimeUpdate,
 } from '../../../../src/core/runtime/group-runtime.js';
 
 describe('normalizeAgentType', () => {
@@ -20,86 +18,15 @@ describe('normalizeAgentType', () => {
   });
 });
 
-describe('validateGroupRuntimeUpdate', () => {
-  test('allows home workspaces to change agent when execution mode stays the same', () => {
-    expect(
-      validateGroupRuntimeUpdate({
-        isHome: true,
-        currentExecutionMode: 'host',
-        nextAgentType: 'openai',
-        nextExecutionMode: 'host',
-      }),
-    ).toBeNull();
-  });
-
-  test('rejects execution mode changes for home workspaces', () => {
-    expect(
-      validateGroupRuntimeUpdate({
-        isHome: true,
-        currentExecutionMode: 'host',
-        nextAgentType: 'openai',
-        nextExecutionMode: 'container',
-      }),
-    ).toBe('Cannot change execution mode of home containers');
-  });
-
-  test('allows OpenAI container execution mode', () => {
-    expect(
-      validateGroupRuntimeUpdate({
-        isHome: false,
-        currentExecutionMode: 'container',
-        nextAgentType: 'openai',
-        nextExecutionMode: 'container',
-      }),
-    ).toBeNull();
-  });
-});
-
-describe('hasRuntimeBoundaryChange', () => {
-  test('returns false when legacy agent aliases normalize to the same OpenAI runtime', () => {
-    expect(
-      hasRuntimeBoundaryChange({
-        currentAgentType: normalizeAgentType('claude'),
-        currentExecutionMode: 'host',
-        nextAgentType: normalizeAgentType('openai'),
-        nextExecutionMode: 'host',
-      }),
-    ).toBe(false);
-  });
-
-  test('returns true when execution mode changes', () => {
-    expect(
-      hasRuntimeBoundaryChange({
-        currentAgentType: 'openai',
-        currentExecutionMode: 'container',
-        nextAgentType: 'openai',
-        nextExecutionMode: 'host',
-      }),
-    ).toBe(true);
-  });
-
-  test('returns false when runtime boundary stays the same', () => {
-    expect(
-      hasRuntimeBoundaryChange({
-        currentAgentType: 'openai',
-        currentExecutionMode: 'host',
-        nextAgentType: 'openai',
-        nextExecutionMode: 'host',
-      }),
-    ).toBe(false);
-  });
-});
-
 describe('buildEffectiveGroupFromHomeSibling', () => {
-  test('inherits openai host runtime from the sibling home workspace', () => {
+  test('inherits openai runtime settings and cwd from the sibling home workspace', () => {
     expect(
       buildEffectiveGroupFromHomeSibling(
         {
           name: 'Feishu Ops',
           folder: 'main',
           added_at: '2026-04-05T10:00:00.000Z',
-          agentType: 'claude',
-          executionMode: 'container',
+          agentType: 'claude' as never,
           is_home: false,
           created_by: 'admin-1',
         },
@@ -108,7 +35,6 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
           folder: 'main',
           added_at: '2026-04-05T09:00:00.000Z',
           agentType: 'openai',
-          executionMode: 'host',
           customCwd: '/srv/main',
           created_by: 'admin-1',
           is_home: true,
@@ -117,7 +43,6 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
     ).toEqual(
       expect.objectContaining({
         agentType: 'openai',
-        executionMode: 'host',
         customCwd: '/srv/main',
         is_home: true,
         folder: 'main',
@@ -141,7 +66,6 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
           folder: 'main',
           added_at: '2026-04-05T09:00:00.000Z',
           agentType: 'openai',
-          executionMode: 'host',
           created_by: 'admin-1',
           is_home: true,
         },
@@ -150,7 +74,6 @@ describe('buildEffectiveGroupFromHomeSibling', () => {
       expect.objectContaining({
         created_by: 'member-1',
         agentType: 'openai',
-        executionMode: 'host',
         is_home: true,
       }),
     );
@@ -166,7 +89,6 @@ describe('resolveEffectiveRuntimeIdentity', () => {
         added_at: '2026-04-12T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
       }),
     ).toEqual({
       agentType: 'openai',
@@ -186,7 +108,6 @@ describe('resolveEffectiveRuntimeIdentity', () => {
           added_at: '2026-04-12T00:00:00.000Z',
           is_home: true,
           agentType: 'openai',
-          executionMode: 'host',
         },
         {
           openAiModel: 'gpt-5.4',
@@ -211,7 +132,6 @@ describe('resolveEffectiveRuntimeIdentity', () => {
         added_at: '2026-04-12T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4-mini',
         reasoningEffort: 'high',
         speedTier: 'fast',

@@ -155,7 +155,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
       },
       'feishu:room': {
         name: 'Project Room',
@@ -178,7 +177,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4-mini',
         reasoningEffort: 'medium',
       },
@@ -216,7 +214,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
       },
@@ -226,7 +223,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: false,
         agentType: 'openai',
-        executionMode: 'host',
       },
     });
 
@@ -265,7 +261,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4-mini',
       },
     });
@@ -308,7 +303,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4-mini',
       },
     });
@@ -334,7 +328,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
       },
     });
 
@@ -360,7 +353,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4-mini',
       },
     });
@@ -399,7 +391,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
       },
@@ -427,7 +418,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
       },
@@ -455,7 +445,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
       },
@@ -482,7 +471,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
       },
     });
 
@@ -515,7 +503,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
       },
     });
 
@@ -541,7 +528,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-12T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         reasoningEffort: 'high',
       },
     });
@@ -566,7 +552,6 @@ describe('runtime command handler', () => {
         added_at: '2026-04-05T00:00:00.000Z',
         is_home: true,
         agentType: 'openai',
-        executionMode: 'host',
         model: 'gpt-5.4',
         reasoningEffort: 'medium',
         speedTier: 'standard',

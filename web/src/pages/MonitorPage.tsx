@@ -1,21 +1,17 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useMonitorStore } from '../stores/monitor';
-import { useAuthStore } from '../stores/auth';
-import { ContainerStatus } from '../components/monitor/ContainerStatus';
+import { ProcessStatus } from '../components/monitor/ProcessStatus';
 import { QueueStatus } from '../components/monitor/QueueStatus';
 import { SystemInfo } from '../components/monitor/SystemInfo';
 import { GroupStatusCard } from '../components/monitor/GroupStatusCard';
-import { RefreshCw, AlertTriangle, CheckCircle, Hammer, Loader2 } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { SkeletonStatCards } from '@/components/common/Skeletons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { wsManager } from '../api/ws';
 
 export function MonitorPage() {
-  const { status, loading, loadStatus, building, buildLogs, buildResult, buildDockerImage, clearBuildResult } = useMonitorStore();
-  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const { status, loading, loadStatus } = useMonitorStore();
 
   useEffect(() => {
     loadStatus();
@@ -26,37 +22,6 @@ export function MonitorPage() {
 
     return () => clearInterval(interval);
   }, [loadStatus]);
-
-  // WebSocket listeners for docker build progress
-  useEffect(() => {
-    const unsubLog = wsManager.on('docker_build_log', (data: { line: string }) => {
-      useMonitorStore.setState((s) => ({
-        buildLogs: [...s.buildLogs.slice(-199), data.line],
-      }));
-    });
-    const unsubComplete = wsManager.on('docker_build_complete', (data: { success: boolean; error?: string }) => {
-      useMonitorStore.setState({
-        building: false,
-        buildResult: { success: data.success, error: data.error },
-      });
-      loadStatus();
-    });
-
-    return () => {
-      unsubLog();
-      unsubComplete();
-    };
-  }, [loadStatus]);
-
-  // Auto-scroll build logs to bottom
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [buildLogs]);
-
-  const handleBuild = async () => {
-    clearBuildResult();
-    await buildDockerImage();
-  };
 
   return (
     <div className="min-h-full bg-background p-4 lg:p-8">
@@ -79,82 +44,9 @@ export function MonitorPage() {
 
         {status && (
           <div className="space-y-6">
-            {/* Docker 镜像状态 */}
-            <Card>
-              <CardContent>
-                <h2 className="text-lg font-semibold text-foreground mb-4">
-                  Docker 镜像
-                </h2>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {status.dockerImageExists ? (
-                    <>
-                      <CheckCircle className="w-5 h-5 text-success" />
-                      <span className="text-sm text-success font-medium">镜像已就绪</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="w-5 h-5 text-error" />
-                      <span className="text-sm text-error font-medium">镜像不存在，Docker 模式的工作区将无法运行</span>
-                    </>
-                  )}
-                </div>
-                <Button
-                  onClick={handleBuild}
-                  disabled={building || !isAdmin}
-                  title={!isAdmin ? '仅管理员可构建镜像' : undefined}
-                >
-                  {building ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      构建中...
-                    </>
-                  ) : (
-                    <>
-                      <Hammer className="w-4 h-4" />
-                      {status.dockerImageExists ? '重新构建' : '构建镜像'}
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              {/* Build logs */}
-              {building && buildLogs.length > 0 && (
-                <div className="mt-4">
-                  <div className="bg-[#0f172a] dark:bg-[#0a0f1a] rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs text-green-400">
-                    {buildLogs.map((line, i) => (
-                      <div key={i} className="whitespace-pre-wrap break-all">{line}</div>
-                    ))}
-                    <div ref={logEndRef} />
-                  </div>
-                </div>
-              )}
-
-              {buildResult && (
-                <div className={`mt-4 p-4 rounded-lg border ${buildResult.success ? 'bg-success-bg border-success/20' : 'bg-error-bg border-error/20'}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    {buildResult.success ? (
-                      <CheckCircle className="w-4 h-4 text-success" />
-                    ) : (
-                      <AlertTriangle className="w-4 h-4 text-error" />
-                    )}
-                    <span className={`text-sm font-medium ${buildResult.success ? 'text-success' : 'text-error'}`}>
-                      {buildResult.success ? '构建成功（已使用最新 runtime SDK/CLI）' : '构建失败'}
-                    </span>
-                  </div>
-                  {buildResult.error && (
-                    <pre className="text-xs text-error bg-error-bg rounded p-3 mt-2 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
-                      {buildResult.error}
-                    </pre>
-                  )}
-                </div>
-              )}
-              </CardContent>
-            </Card>
-
             {/* 统计卡片 */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <ContainerStatus status={status} />
+              <ProcessStatus status={status} />
               <QueueStatus status={status} />
               <SystemInfo status={status} />
             </div>
@@ -214,7 +106,7 @@ export function MonitorPage() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-sm text-muted-foreground font-mono text-xs">
-                            {group.displayName || group.containerName || '-'}
+                            {group.displayName || group.processName || '-'}
                           </td>
                         </tr>
                       ))}

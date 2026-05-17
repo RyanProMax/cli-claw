@@ -7,7 +7,7 @@ import { useGroupsStore } from '../stores/groups';
 import { ChatView } from '../components/chat/ChatView';
 import { ChatGroupItem } from '../components/chat/ChatGroupItem';
 import { ConfirmDialog } from '../components/common';
-import { CreateContainerDialog } from '../components/chat/CreateContainerDialog';
+import { CreateWorkspaceDialog } from '../components/chat/CreateWorkspaceDialog';
 import { WorkspaceRuntimeDialog } from '../components/chat/WorkspaceRuntimeDialog';
 import { EmojiAvatar } from '../components/common/EmojiAvatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -65,8 +65,8 @@ export function ChatPage() {
   }, [groups]);
   const hasAnyGroup = mainGroup || pinnedGroups.length > 0 || mySections.length > 0 || collabSections.length > 0;
 
-  // Sync URL param to store selection. No auto-redirect to home container —
-  // users land on the welcome screen and choose a container manually.
+  // Sync URL param to store selection. No auto-redirect to the home workspace —
+  // users land on the welcome screen and choose a workspace manually.
   useEffect(() => {
     if (!groupFolder) return;
     if (routeGroupJid && currentGroup !== routeGroupJid) {
@@ -271,7 +271,7 @@ export function ChatPage() {
         confirmVariant="danger"
         loading={clearLoading}
       />
-      <CreateContainerDialog
+      <CreateWorkspaceDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
@@ -281,9 +281,7 @@ export function ChatPage() {
           open={runtimeState.open}
           jid={runtimeState.jid}
           name={runtimeGroup.name}
-          isHome={!!runtimeGroup.is_home}
           currentAgentType={runtimeGroup.agent_type || 'openai'}
-          currentExecutionMode={runtimeGroup.execution_mode || 'container'}
           onClose={() => setRuntimeState({ open: false, jid: '' })}
         />
       )}

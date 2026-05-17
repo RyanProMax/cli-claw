@@ -3,8 +3,6 @@ import {
   ChevronDown,
   ChevronRight,
   AlertTriangle,
-  Monitor,
-  Box,
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -20,32 +18,29 @@ import { Input } from '@/components/ui/input';
 import { DirectoryBrowser } from '../shared/DirectoryBrowser';
 import { useChatStore } from '../../stores/chat';
 import { useAuthStore } from '../../stores/auth';
-import { normalizeWorkspaceRuntimeSelection } from '../../lib/workspace-runtime';
 
-interface CreateContainerDialogProps {
+interface CreateWorkspaceDialogProps {
   open: boolean;
   onClose: () => void;
   onCreated: (jid: string, folder: string) => void;
 }
 
-export function CreateContainerDialog({
+export function CreateWorkspaceDialog({
   open,
   onClose,
   onCreated,
-}: CreateContainerDialogProps) {
+}: CreateWorkspaceDialogProps) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [executionMode, setExecutionMode] = useState<'container' | 'host'>('container');
   const [customCwd, setCustomCwd] = useState('');
 
   const createFlow = useChatStore((s) => s.createFlow);
-  const canHostExec = useAuthStore((s) => s.user?.role === 'admin');
+  const canSetCustomCwd = useAuthStore((s) => s.user?.role === 'admin');
 
   const reset = () => {
     setName('');
     setAdvancedOpen(false);
-    setExecutionMode('container');
     setCustomCwd('');
   };
 
@@ -60,16 +55,9 @@ export function CreateContainerDialog({
 
     setLoading(true);
     try {
-      const runtime = normalizeWorkspaceRuntimeSelection({
-        agentType: 'openai',
-        executionMode,
-      });
       const options: Record<string, string> = {};
-      options.agent_type = runtime.agentType;
-      if (runtime.executionMode === 'host') {
-        options.execution_mode = 'host';
-        if (customCwd.trim()) options.custom_cwd = customCwd.trim();
-      }
+      options.agent_type = 'openai';
+      if (canSetCustomCwd && customCwd.trim()) options.custom_cwd = customCwd.trim();
       const created = await createFlow(trimmed, Object.keys(options).length ? options : undefined);
       if (created) {
         onCreated(created.jid, created.folder);
@@ -108,59 +96,8 @@ export function CreateContainerDialog({
             <div className="rounded-lg border p-3">
               <div className="text-sm font-medium">Codex/OpenAI</div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                支持 Docker 与宿主机两种执行模式，复用 Codex CLI 登录态
+                使用本地 Codex/OpenAI runner 进程，复用服务端登录态
               </p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">执行模式</label>
-            <div className="space-y-2">
-              <label className="flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer hover:bg-accent/50">
-                <input
-                  type="radio"
-                  name="execution_mode"
-                  value="container"
-                  checked={executionMode === 'container'}
-                  onChange={() => {
-                    setExecutionMode('container');
-                    setCustomCwd('');
-                    setAdvancedOpen(false);
-                  }}
-                  className="mt-0.5 accent-primary"
-                />
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <Box className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Docker 模式</span>
-                    <span className="text-xs text-primary font-medium">推荐</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">在隔离的 Docker 环境中执行</p>
-                </div>
-              </label>
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${canHostExec ? 'cursor-pointer hover:bg-accent/50' : 'opacity-50 cursor-not-allowed'}`}>
-                <input
-                  type="radio"
-                  name="execution_mode"
-                  value="host"
-                  checked={executionMode === 'host'}
-                  onChange={() => {
-                    if (!canHostExec) return;
-                    setExecutionMode('host');
-                  }}
-                  disabled={!canHostExec}
-                  className="mt-0.5 accent-primary"
-                />
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <Monitor className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">宿主机模式</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {canHostExec ? '直接在服务器上执行' : '需要管理员权限'}
-                  </p>
-                </div>
-              </label>
             </div>
           </div>
 
@@ -171,16 +108,7 @@ export function CreateContainerDialog({
             </p>
           </div>
 
-          {executionMode === 'host' && (
-            <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-              <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                宿主机模式下 Agent 可访问完整文件系统和工具链，请谨慎使用。
-              </p>
-            </div>
-          )}
-
-          {executionMode === 'host' && (
+          {canSetCustomCwd && (
             <div className="border rounded-lg overflow-hidden">
               <button
                 type="button"

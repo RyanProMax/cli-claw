@@ -10,7 +10,6 @@ export const TaskPatchSchema = z.object({
   schedule_type: z.enum(['cron', 'interval', 'once']).optional(),
   schedule_value: z.string().optional(),
   execution_type: z.enum(['agent', 'script']).optional(),
-  execution_mode: z.enum(['host', 'container']).optional(),
   script_command: z.string().max(4096).nullable().optional(),
   status: z.enum(['active', 'paused']).optional(),
   next_run: z.string().optional(),
@@ -33,7 +32,6 @@ export const TaskCreateSchema = z
     schedule_type: z.enum(['cron', 'interval', 'once']),
     schedule_value: z.string().min(1),
     execution_type: z.enum(['agent', 'script']).optional(),
-    execution_mode: z.enum(['host', 'container']).optional(),
     script_command: z.string().max(4096).optional(),
     notify_channels: z
       .array(z.enum(['feishu', 'telegram', 'qq', 'wechat', 'dingtalk']))
@@ -118,19 +116,10 @@ export const MessageCreateSchema = z
 export const GroupCreateSchema = z.object({
   name: z.string().min(1).max(MAX_GROUP_NAME_LEN),
   agent_type: z.enum(['openai']).optional(),
-  execution_mode: z.enum(['container', 'host']).optional(),
   model: z.string().max(128).optional(),
   reasoning_effort: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
   speed_tier: z.enum(['standard', 'fast']).optional(),
   custom_cwd: z
-    .string()
-    .optional()
-    .transform((val) => (val && val.trim() ? val.trim() : undefined)),
-  init_source_path: z
-    .string()
-    .optional()
-    .transform((val) => (val && val.trim() ? val.trim() : undefined)),
-  init_git_url: z
     .string()
     .optional()
     .transform((val) => (val && val.trim() ? val.trim() : undefined)),
@@ -147,7 +136,6 @@ export const GroupPatchSchema = z.object({
     .enum(['auto', 'always', 'when_mentioned', 'disabled'])
     .optional(),
   agent_type: z.enum(['openai']).optional(),
-  execution_mode: z.enum(['container', 'host']).optional(),
   model: z.string().max(128).nullable().optional(),
   reasoning_effort: z
     .enum(['low', 'medium', 'high', 'xhigh'])
@@ -174,16 +162,10 @@ export const RegistrationConfigSchema = z.object({
 });
 
 export const SystemSettingsSchema = z.object({
-  containerTimeout: z.number().int().min(60000).max(86400000).optional(),
+  processTimeout: z.number().int().min(60000).max(86400000).optional(),
   idleTimeout: z.number().int().min(60000).max(86400000).optional(),
-  containerMaxOutputSize: z
-    .number()
-    .int()
-    .min(1048576)
-    .max(104857600)
-    .optional(),
-  maxConcurrentContainers: z.number().int().min(1).max(100).optional(),
-  maxConcurrentHostProcesses: z.number().int().min(1).max(50).optional(),
+  processMaxOutputSize: z.number().int().min(1048576).max(104857600).optional(),
+  maxConcurrentProcesses: z.number().int().min(1).max(50).optional(),
   maxLoginAttempts: z.number().int().min(1).max(100).optional(),
   loginLockoutMinutes: z.number().int().min(1).max(1440).optional(),
   maxConcurrentScripts: z.number().int().min(1).max(50).optional(),
@@ -338,28 +320,6 @@ export const QQConfigSchema = z
     { message: 'At least one config field must be provided' },
   );
 
-// Terminal WebSocket message schemas
-export const TerminalStartSchema = z.object({
-  chatJid: z.string().min(1),
-  cols: z.number().int().optional(),
-  rows: z.number().int().optional(),
-});
-
-export const TerminalInputSchema = z.object({
-  chatJid: z.string().min(1),
-  data: z.string().min(1).max(8192),
-});
-
-export const TerminalResizeSchema = z.object({
-  chatJid: z.string().min(1),
-  cols: z.number().int().optional(),
-  rows: z.number().int().optional(),
-});
-
-export const TerminalStopSchema = z.object({
-  chatJid: z.string().min(1),
-});
-
 // --- Billing schemas ---
 
 export const BillingPlanCreateSchema = z.object({
@@ -384,7 +344,7 @@ export const BillingPlanCreateSchema = z.object({
   display_price: z.string().max(64).nullable().optional(),
   highlight: z.boolean().optional(),
   max_groups: z.number().int().min(0).nullable().optional(),
-  max_concurrent_containers: z.number().int().min(0).nullable().optional(),
+  max_concurrent_processes: z.number().int().min(0).nullable().optional(),
   max_im_channels: z.number().int().min(0).nullable().optional(),
   max_mcp_servers: z.number().int().min(0).nullable().optional(),
   max_storage_mb: z.number().int().min(0).nullable().optional(),

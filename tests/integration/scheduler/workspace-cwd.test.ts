@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { runScriptMock, runHostAgentMock } = vi.hoisted(() => ({
+const { runScriptMock, runAgentProcessMock } = vi.hoisted(() => ({
   runScriptMock: vi.fn(),
-  runHostAgentMock: vi.fn(),
+  runAgentProcessMock: vi.fn(),
 }));
 
 vi.mock('../../../src/agent/script-runner.js', () => ({
@@ -11,8 +11,7 @@ vi.mock('../../../src/agent/script-runner.js', () => ({
 }));
 
 vi.mock('../../../src/agent/runner/container-runner.js', () => ({
-  runHostAgent: runHostAgentMock,
-  runContainerAgent: vi.fn(),
+  runAgentProcess: runAgentProcessMock,
   writeTasksSnapshot: vi.fn(),
 }));
 
@@ -55,7 +54,6 @@ const sourceGroup: RegisteredGroup = {
   name: 'Main',
   folder: 'main',
   added_at: '2026-04-05T09:00:00.000Z',
-  executionMode: 'host',
   customCwd: '/srv/source',
   is_home: true,
 };
@@ -71,7 +69,6 @@ function buildTask(overrides: Partial<ScheduledTask>): ScheduledTask {
     context_mode: 'isolated',
     execution_type: 'agent',
     script_command: null,
-    execution_mode: 'host',
     next_run: null,
     status: 'active',
     created_at: '2026-04-05T10:00:00.000Z',
@@ -79,12 +76,12 @@ function buildTask(overrides: Partial<ScheduledTask>): ScheduledTask {
   };
 }
 
-describe('task scheduler host cwd forwarding', () => {
+describe('task scheduler workspace cwd forwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  test('passes the source host cwd to script tasks', async () => {
+  test('passes the source workspace cwd to script tasks', async () => {
     const task = buildTask({
       execution_type: 'script',
       script_command: 'echo done',
@@ -123,7 +120,7 @@ describe('task scheduler host cwd forwarding', () => {
     );
   });
 
-  test('passes the source host cwd to host agent tasks without changing storage ownership', async () => {
+  test('passes the source cwd to agent tasks without changing storage ownership', async () => {
     const task = buildTask({});
     const groups = {
       'web:source': sourceGroup,
@@ -143,27 +140,26 @@ describe('task scheduler host cwd forwarding', () => {
     };
 
     vi.mocked((await import('../../../src/storage/db.js')).getTaskById).mockReturnValue(task);
-    runHostAgentMock.mockResolvedValue({
+    runAgentProcessMock.mockResolvedValue({
       status: 'success',
       result: 'ok',
     });
 
     await runTask(task, deps as never, { manualRun: true });
-    expect(runHostAgentMock.mock.calls[0][0]).toEqual(
+    expect(runAgentProcessMock.mock.calls[0][0]).toEqual(
       expect.objectContaining({
         folder: expect.stringMatching(/^task-/),
-        executionMode: 'host',
         customCwd: '/srv/source',
       }),
     );
-    expect(runHostAgentMock.mock.calls[0][5]).toEqual(
+    expect(runAgentProcessMock.mock.calls[0][4]).toEqual(
       expect.objectContaining({
         executionCwd: '/srv/source',
       }),
     );
   });
 
-  test('inherits source OpenAI runtime settings for host agent tasks', async () => {
+  test('inherits source OpenAI runtime settings for agent tasks', async () => {
     const task = buildTask({});
     const openAiSourceGroup: RegisteredGroup = {
       ...sourceGroup,
@@ -190,14 +186,14 @@ describe('task scheduler host cwd forwarding', () => {
     };
 
     vi.mocked((await import('../../../src/storage/db.js')).getTaskById).mockReturnValue(task);
-    runHostAgentMock.mockResolvedValue({
+    runAgentProcessMock.mockResolvedValue({
       status: 'success',
       result: 'ok',
     });
 
     await runTask(task, deps as never, { manualRun: true });
 
-    expect(runHostAgentMock.mock.calls[0][0]).toEqual(
+    expect(runAgentProcessMock.mock.calls[0][0]).toEqual(
       expect.objectContaining({
         agentType: 'openai',
         model: 'gpt-5.4-mini',
@@ -205,7 +201,7 @@ describe('task scheduler host cwd forwarding', () => {
         speedTier: 'fast',
       }),
     );
-    expect(runHostAgentMock.mock.calls[0][1]).toEqual(
+    expect(runAgentProcessMock.mock.calls[0][1]).toEqual(
       expect.objectContaining({
         agentType: 'openai',
         model: 'gpt-5.4-mini',
@@ -215,7 +211,7 @@ describe('task scheduler host cwd forwarding', () => {
     );
   });
 
-  test('marks host agent login runtime text as a task error', async () => {
+  test('marks agent login runtime text as a task error', async () => {
     const task = buildTask({
       id: 'task-login-error',
       next_run: '2026-04-05T10:00:00.000Z',
@@ -239,7 +235,7 @@ describe('task scheduler host cwd forwarding', () => {
 
     const db = await import('../../../src/storage/db.js');
     vi.mocked(db.getTaskById).mockReturnValue(task);
-    runHostAgentMock.mockResolvedValue({
+    runAgentProcessMock.mockResolvedValue({
       status: 'success',
       result: 'Not logged in · Please run /login',
     });
@@ -252,13 +248,13 @@ describe('task scheduler host cwd forwarding', () => {
         status: 'error',
         result: 'Not logged in · Please run /login',
         error:
-          'Codex CLI 登录态缺失或已过期。请在宿主机执行 `codex login` 后重试。',
+          'Codex CLI 登录态缺失或已过期。请执行 `codex login` 后重试。',
       }),
     );
     expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
       'task-login-error',
       '2026-04-05T10:00:00.000Z',
-      'Error: Codex CLI 登录态缺失或已过期。请在宿主机执行 `codex login` 后重试。',
+      'Error: Codex CLI 登录态缺失或已过期。请执行 `codex login` 后重试。',
     );
   });
 
@@ -270,9 +266,9 @@ describe('task scheduler host cwd forwarding', () => {
     const groups = {
       'web:source': sourceGroup,
     } as Record<string, RegisteredGroup>;
-    let releaseHostAgent!: () => void;
-    const hostAgentDone = new Promise<void>((resolve) => {
-      releaseHostAgent = resolve;
+    let releaseAgentProcess!: () => void;
+    const agentProcessDone = new Promise<void>((resolve) => {
+      releaseAgentProcess = resolve;
     });
 
     const deps = {
@@ -290,13 +286,13 @@ describe('task scheduler host cwd forwarding', () => {
 
     const db = await import('../../../src/storage/db.js');
     vi.mocked(db.getTaskById).mockReturnValue(task);
-    runHostAgentMock.mockImplementation(async (...args: unknown[]) => {
+    runAgentProcessMock.mockImplementation(async (...args: unknown[]) => {
       const onOutput = args[3] as (output: {
         status: 'success';
         result: string;
       }) => Promise<void>;
       await onOutput({ status: 'success', result: 'ok' });
-      await hostAgentDone;
+      await agentProcessDone;
       return { status: 'success', result: 'ok' };
     });
 
@@ -314,7 +310,7 @@ describe('task scheduler host cwd forwarding', () => {
       null,
       'ok',
     );
-    releaseHostAgent();
+    releaseAgentProcess();
     await running;
     expect(getRunningTaskIds()).not.toContain('task-finalizing');
   });

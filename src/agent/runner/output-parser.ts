@@ -1,6 +1,5 @@
 /**
- * Shared output parsing and process lifecycle logic for container-runner.
- * Extracted from runContainerAgent() and runHostAgent() to eliminate duplication.
+ * Shared output parsing and process lifecycle logic for the agent process runner.
  */
 import fs from 'fs';
 import path from 'path';
@@ -9,7 +8,7 @@ import { serializeErrorForOutput } from '../../../shared/dist/error-serializatio
 
 import { getSystemSettings } from '../../core/runtime/config.js';
 import { logger } from '../../core/logger.js';
-import type { ContainerOutput } from './container-runner.js';
+import type { AgentProcessOutput } from './container-runner.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 export const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
@@ -23,7 +22,7 @@ export interface StdoutParserState {
   parseBuffer: string;
   newSessionId: string | undefined;
   outputChain: Promise<void>;
-  lastErrorOutput: ContainerOutput | null;
+  lastErrorOutput: AgentProcessOutput | null;
   hasSuccessOutput: boolean;
   /** True when agent emitted a { status: 'closed' } marker (exit due to _close sentinel). */
   hasClosedOutput: boolean;
@@ -33,9 +32,9 @@ export interface StdoutParserState {
 
 export interface StdoutParserOptions {
   groupName: string;
-  /** Label used in log messages, e.g. "Container" or "Host agent" */
+  /** Label used in log messages, e.g. "Agent process" */
   label: string;
-  onOutput?: (output: ContainerOutput) => Promise<void>;
+  onOutput?: (output: AgentProcessOutput) => Promise<void>;
   resetTimeout: () => void;
 }
 
@@ -64,7 +63,7 @@ export function attachStdoutHandler(
     // Always accumulate for logging
     if (!state.stdoutTruncated) {
       const remaining =
-        getSystemSettings().containerMaxOutputSize - state.stdout.length;
+        getSystemSettings().processMaxOutputSize - state.stdout.length;
       if (chunk.length > remaining) {
         state.stdout += chunk.slice(0, remaining);
         state.stdoutTruncated = true;
@@ -108,7 +107,7 @@ export function attachStdoutHandler(
         );
 
         try {
-          const parsed: ContainerOutput = JSON.parse(jsonStr);
+          const parsed: AgentProcessOutput = JSON.parse(jsonStr);
           if (parsed.newSessionId) {
             state.newSessionId = parsed.newSessionId;
           }
@@ -169,7 +168,7 @@ export function attachStderrHandler(
   stream: Readable,
   state: StderrState,
   groupName: string,
-  /** Log context key: { container: folder } or { host: folder } */
+  /** Structured log context for runner stderr. */
   logContext: Record<string, string>,
 ): void {
   stream.on('data', (data) => {
@@ -182,13 +181,13 @@ export function attachStderrHandler(
     // Timeout only resets on actual output (OUTPUT_MARKER in stdout).
     if (state.stderrTruncated) return;
     const remaining =
-      getSystemSettings().containerMaxOutputSize - state.stderr.length;
+      getSystemSettings().processMaxOutputSize - state.stderr.length;
     if (chunk.length > remaining) {
       state.stderr += chunk.slice(0, remaining);
       state.stderrTruncated = true;
       logger.warn(
         { group: groupName, size: state.stderr.length },
-        `${Object.keys(logContext)[0] === 'container' ? 'Container' : 'Host agent'} stderr truncated due to size limit`,
+        'Agent process stderr truncated due to size limit',
       );
     } else {
       state.stderr += chunk;
@@ -200,34 +199,33 @@ export function attachStderrHandler(
 
 export interface CloseHandlerContext {
   groupName: string;
-  /** "Container" or "Host Agent" — used for log titles */
+  /** Human-readable runner label used for log titles. */
   label: string;
-  /** "container" or "host" — used for log filenames */
+  /** Short process label used for log filenames */
   filePrefix: string;
-  /** containerName or processId */
+  /** Process identifier */
   identifier: string;
   logsDir: string;
   input: {
     prompt: string;
     sessionId?: string;
-    isMain: boolean;
+    isHome?: boolean;
+    isAdminHome?: boolean;
     chatJid?: string;
     groupFolder?: string;
     agentType?: string;
-    executionMode?: string;
     agentId?: string;
   };
   stdoutState: StdoutParserState;
   stderrState: StderrState;
-  onOutput?: (output: ContainerOutput) => Promise<void>;
-  resolvePromise: (output: ContainerOutput) => void;
+  onOutput?: (output: AgentProcessOutput) => Promise<void>;
+  resolvePromise: (output: AgentProcessOutput) => void;
   startTime: number;
   timeoutMs: number;
   agentIdentity?: {
     chatJid?: string;
     groupFolder?: string;
     agentType?: string;
-    executionMode?: string;
     selectedRunner?: string;
     agentId?: string | null;
   };
@@ -243,7 +241,7 @@ export interface CloseHandlerContext {
   };
   /** Extra log lines for the "Input Summary" section (e.g. Mounts, Working Directory) */
   extraSummaryLines?: string[];
-  /** Extra log lines for verbose/error section (e.g. Container Args, detailed Mounts) */
+  /** Extra log lines for verbose/error section. */
   extraVerboseLines?: string[];
   /** Custom error enrichment: given stderr, return { result, error } overrides */
   enrichError?: (
@@ -273,7 +271,7 @@ export function handleTimeoutClose(
       `=== ${ctx.label} Run Log (TIMEOUT) ===`,
       `Timestamp: ${new Date().toISOString()}`,
       `Group: ${ctx.groupName}`,
-      `${ctx.label === 'Container' ? 'Container' : 'Process ID'}: ${ctx.identifier}`,
+      `Process ID: ${ctx.identifier}`,
       `Duration: ${duration}ms`,
       `Exit Code: ${code}`,
     ].join('\n'),
@@ -282,8 +280,7 @@ export function handleTimeoutClose(
   logger.info(
     {
       group: ctx.groupName,
-      [ctx.filePrefix === 'container' ? 'containerName' : 'processId']:
-        ctx.identifier,
+      processId: ctx.identifier,
       duration,
       code,
     },
@@ -316,7 +313,8 @@ export function writeRunLog(
     `=== ${ctx.label} Run Log ===`,
     `Timestamp: ${new Date().toISOString()}`,
     `Group: ${ctx.groupName}`,
-    `IsMain: ${ctx.input.isMain}`,
+    `Is Home: ${ctx.input.isHome ? 'yes' : 'no'}`,
+    `Is Admin Home: ${ctx.input.isAdminHome ? 'yes' : 'no'}`,
     `Duration: ${duration}ms`,
     `Exit Code: ${code}`,
     `Stdout Truncated: ${ctx.stdoutState.stdoutTruncated}`,
@@ -352,9 +350,6 @@ export function writeRunLog(
   }
   if (ctx.agentIdentity?.agentType) {
     logLines.push(`Agent Type: ${ctx.agentIdentity.agentType}`);
-  }
-  if (ctx.agentIdentity?.executionMode) {
-    logLines.push(`Execution Mode: ${ctx.agentIdentity.executionMode}`);
   }
   if (ctx.agentIdentity?.selectedRunner) {
     logLines.push(`Selected Runner: ${ctx.agentIdentity.selectedRunner}`);
@@ -580,7 +575,7 @@ export function handleSuccessClose(
       ctx.groupName,
       `${ctx.filePrefix} success path`,
       () => {
-        // Propagate 'closed' status so the host can distinguish a _close-interrupted
+        // Propagate 'closed' status so the backend can distinguish a _close-interrupted
         // exit from a normal completion and avoid committing the message cursor.
         const finalStatus = hasClosedOutput
           ? ('closed' as const)
@@ -623,7 +618,7 @@ function parseLegacyOutput(ctx: CloseHandlerContext): void {
       jsonLine = lines[lines.length - 1];
     }
 
-    const output: ContainerOutput = JSON.parse(jsonLine);
+    const output: AgentProcessOutput = JSON.parse(jsonLine);
 
     logger.info(
       {
@@ -684,7 +679,7 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
       normalized,
     )
   ) {
-    return 'Codex CLI 登录态缺失或已过期。请在宿主机执行 `codex login` 后重试。';
+    return 'Codex CLI 登录态缺失或已过期。请执行 `codex login` 后重试。';
   }
 
   if (
@@ -707,7 +702,7 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
       normalized,
     )
   ) {
-    return 'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新 host 日志中的 request id，更新并重启 cli-claw 后重试。';
+    return 'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新进程日志中的 request id，更新并重启 cli-claw 后重试。';
   }
 
   return null;

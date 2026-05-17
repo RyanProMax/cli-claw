@@ -14,7 +14,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { GROUPS_DIR } from '../../core/config.js';
 import { canAccessGroup } from '../context.js';
 import { getJidsByFolder, getRegisteredGroup } from '../../storage/db.js';
-import { resolveEffectiveHostWorkspaceCwd } from '../../core/workspace/host-cwd.js';
+import { resolveEffectiveWorkspaceCwd } from '../../core/workspace/workspace-cwd.js';
 import {
   parseFrontmatter,
   validateSkillId,
@@ -29,22 +29,17 @@ const workspaceConfigRoutes = new Hono<{ Variables: Variables }>();
 
 /**
  * Resolve the workspace root directory for a registered group.
- * Host mode uses the effective host cwd contract; container mode keeps storage under ~/.cli-claw/groups/{folder}/.
+ * Uses the effective workspace cwd contract; falls back to storage under ~/.cli-claw/groups/{folder}/.
  */
 export function getWorkspaceRoot(
   group: RegisteredGroup & { jid: string },
   homeGroup?: RegisteredGroup | null,
 ): string {
-  if (group.executionMode === 'host') {
-    const effectiveCwd = resolveEffectiveHostWorkspaceCwd(
-      group,
-      homeGroup ?? undefined,
-    );
-    if (!effectiveCwd) {
-      throw new Error('Host workspace is missing custom_cwd');
-    }
-    return effectiveCwd;
-  }
+  const effectiveCwd = resolveEffectiveWorkspaceCwd(
+    group,
+    homeGroup ?? undefined,
+  );
+  if (effectiveCwd) return effectiveCwd;
   return path.join(GROUPS_DIR, group.folder);
 }
 

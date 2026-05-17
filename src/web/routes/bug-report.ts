@@ -340,8 +340,7 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
     'Node.js': process.version,
     操作系统: `${os.platform()} ${os.release()}`,
     架构: os.arch(),
-    活跃容器数: String(queueStatus?.activeContainerCount ?? 'N/A'),
-    活跃宿主机进程: String(queueStatus?.activeHostProcessCount ?? 'N/A'),
+    活跃进程数: String(queueStatus?.activeProcessCount ?? 'N/A'),
     等待队列: String(queueStatus?.waitingCount ?? 'N/A'),
     截图数量: String(screenshots?.length || 0),
   };

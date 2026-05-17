@@ -33,7 +33,6 @@ export function TasksPage() {
     scheduleType: 'cron' | 'interval' | 'once';
     scheduleValue: string;
     executionType: 'agent' | 'script';
-    executionMode?: 'host' | 'container';
     scriptCommand: string;
     notifyChannels: string[] | null;
   }) => {
@@ -42,7 +41,6 @@ export function TasksPage() {
       data.scheduleType,
       data.scheduleValue,
       data.executionType,
-      data.executionMode,
       data.scriptCommand,
       data.notifyChannels,
     );

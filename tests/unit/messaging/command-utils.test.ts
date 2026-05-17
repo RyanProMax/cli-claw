@@ -175,10 +175,8 @@ describe('formatSystemStatus', () => {
     expect(
       formatSystemStatus(
         {
-          activeContainerCount: 0,
-          activeHostProcessCount: 0,
-          maxContainers: 20,
-          maxHostProcesses: 5,
+          activeProcessCount: 0,
+          maxProcesses: 5,
           waitingCount: 0,
           waitingGroupJids: [],
         },
@@ -220,7 +218,7 @@ describe('formatSystemStatus', () => {
         '💬 当前会话: 主对话',
         '🔢 会话数: 3',
         '⚡ 状态: 空闲',
-        '📦 负载: 0/20 容器, 0/5 进程',
+        '📦 负载: 0/5 进程',
         '📍 cwd: /Users/ryan/projects/cli-claw',
       ].join('\n'),
     );

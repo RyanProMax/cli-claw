@@ -2,13 +2,13 @@ import { Server } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { SystemStatus } from '../../stores/monitor';
 
-interface ContainerStatusProps {
+interface ProcessStatusProps {
   status: SystemStatus;
 }
 
-export function ContainerStatus({ status }: ContainerStatusProps) {
-  const maxConcurrent = Math.max(1, status.maxConcurrentContainers || 20);
-  const percentage = (status.activeContainers / maxConcurrent) * 100;
+export function ProcessStatus({ status }: ProcessStatusProps) {
+  const maxConcurrent = Math.max(1, status.maxConcurrentProcesses || 5);
+  const percentage = (status.activeProcesses / maxConcurrent) * 100;
   const progressWidth = Math.min(100, percentage);
 
   return (
@@ -19,9 +19,9 @@ export function ContainerStatus({ status }: ContainerStatusProps) {
           <Server className="w-6 h-6 text-primary" />
         </div>
         <div>
-          <h3 className="text-sm font-medium text-muted-foreground">活跃工作区</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">活跃进程</h3>
           <p className="text-2xl font-bold text-foreground">
-            {status.activeContainers} / {maxConcurrent}
+            {status.activeProcesses} / {maxConcurrent}
           </p>
         </div>
       </div>
@@ -41,9 +41,9 @@ export function ContainerStatus({ status }: ContainerStatusProps) {
       </div>
 
       <div className="mt-2 text-xs text-muted-foreground">
-        {percentage > 80 && '工作区使用率较高'}
-        {percentage > 60 && percentage <= 80 && '工作区使用正常'}
-        {percentage <= 60 && '工作区资源充足'}
+        {percentage > 80 && '进程使用率较高'}
+        {percentage > 60 && percentage <= 80 && '进程使用正常'}
+        {percentage <= 60 && '进程资源充足'}
         </div>
       </CardContent>
     </Card>

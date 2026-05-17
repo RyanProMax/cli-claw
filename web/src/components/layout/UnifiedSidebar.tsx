@@ -13,7 +13,7 @@ import { BugReportDialog } from '../common/BugReportDialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ChatGroupItem } from '../chat/ChatGroupItem';
-import { CreateContainerDialog } from '../chat/CreateContainerDialog';
+import { CreateWorkspaceDialog } from '../chat/CreateWorkspaceDialog';
 import { RenameDialog } from '../chat/RenameDialog';
 import { WorkspaceRuntimeDialog } from '../chat/WorkspaceRuntimeDialog';
 import { SkeletonCardList } from '@/components/common/Skeletons';
@@ -304,16 +304,14 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
     </div>
 
         <BugReportDialog open={showBugReport} onClose={() => setShowBugReport(false)} />
-        <CreateContainerDialog open={createOpen} onClose={() => setCreateOpen(false)} onCreated={handleCreated} />
+        <CreateWorkspaceDialog open={createOpen} onClose={() => setCreateOpen(false)} onCreated={handleCreated} />
         <RenameDialog open={renameState.open} jid={renameState.jid} currentName={renameState.name} onClose={() => setRenameState({ open: false, jid: '', name: '' })} />
         {runtimeGroup && (
           <WorkspaceRuntimeDialog
             open={runtimeState.open}
             jid={runtimeState.jid}
             name={runtimeGroup.name}
-            isHome={!!runtimeGroup.is_home}
             currentAgentType={runtimeGroup.agent_type || 'openai'}
-            currentExecutionMode={runtimeGroup.execution_mode || 'container'}
             onClose={() => setRuntimeState({ open: false, jid: '' })}
           />
         )}

@@ -15,9 +15,8 @@ import {
   getSystemSettings,
 } from '../../core/runtime/config.js';
 import {
-  ContainerOutput,
-  runContainerAgent,
-  runHostAgent,
+  AgentProcessOutput,
+  runAgentProcess,
   writeTasksSnapshot,
 } from '../runner/container-runner.js';
 import {
@@ -30,7 +29,6 @@ import {
   getDueTasks,
   getTaskById,
   getUserById,
-  getUserHomeGroup,
   logTaskRunStart,
   updateTaskRunLog,
   setRegisteredGroup,
@@ -39,18 +37,14 @@ import {
   updateTaskWorkspace,
 } from '../../storage/db.js';
 import { GroupQueue } from '../queue/group-queue.js';
-import { resolveEffectiveHostWorkspaceCwd } from '../../core/workspace/host-cwd.js';
+import { resolveEffectiveWorkspaceCwd } from '../../core/workspace/workspace-cwd.js';
 import { logger } from '../../core/logger.js';
 import { resolveTaskOwner } from '../task-utils.js';
 import { resolveEffectiveRuntimeIdentity } from '../../core/runtime/group-runtime.js';
 import { removeFlowArtifacts } from '../../core/workspace/file-manager.js';
 import { hasScriptCapacity, runScript } from '../script-runner.js';
 import type { StreamEvent } from '../../presentation/stream-event.types.js';
-import {
-  ExecutionMode,
-  RegisteredGroup,
-  ScheduledTask,
-} from '../../domain/types.js';
+import { RegisteredGroup, ScheduledTask } from '../../domain/types.js';
 import {
   checkBillingAccessFresh,
   isBillingEnabled,
@@ -105,28 +99,6 @@ function findHomeSiblingGroup(
   );
 }
 
-function resolveTaskExecutionMode(
-  task: ScheduledTask,
-  deps: SchedulerDependencies,
-): ExecutionMode {
-  if (task.execution_mode === 'host' || task.execution_mode === 'container') {
-    return task.execution_mode;
-  }
-  // Legacy fallback: inherit from the original group
-  const groups = deps.registeredGroups();
-  const group = groups[task.chat_jid];
-  if (group) {
-    if (!group.is_home) {
-      const homeSibling = Object.values(groups).find(
-        (g) => g.folder === group.folder && g.is_home,
-      );
-      if (homeSibling) return homeSibling.executionMode || 'container';
-    }
-    return group.executionMode || 'container';
-  }
-  return 'container';
-}
-
 function ensureTaskWorkspace(
   task: ScheduledTask,
   deps: SchedulerDependencies,
@@ -155,8 +127,6 @@ function ensureTaskWorkspace(
   const shortName = firstLine.slice(0, 12).trim() || task.id.slice(0, 6);
   const name = shortName;
 
-  const executionMode = resolveTaskExecutionMode(task, deps);
-
   const sourceGroup = Object.values(deps.registeredGroups()).find(
     (g) => g.folder === task.group_folder,
   );
@@ -167,15 +137,14 @@ function ensureTaskWorkspace(
   );
   const sourceRuntimeGroup = sourceHomeGroup || sourceGroup;
   const sourceWorkspaceCwd = sourceGroup
-    ? resolveEffectiveHostWorkspaceCwd(sourceGroup, sourceHomeGroup)
+    ? resolveEffectiveWorkspaceCwd(sourceGroup, sourceHomeGroup)
     : undefined;
 
   const group: RegisteredGroup = {
     name,
     folder,
     added_at: new Date().toISOString(),
-    executionMode,
-    customCwd: executionMode === 'host' ? sourceWorkspaceCwd : undefined,
+    customCwd: sourceWorkspaceCwd,
     created_by: ownerId,
     agentType: sourceRuntimeGroup?.agentType,
     model: sourceRuntimeGroup?.model,
@@ -202,7 +171,7 @@ function ensureTaskWorkspace(
   task.workspace_folder = folder;
 
   logger.info(
-    { taskId: task.id, folder, jid, executionMode, ownerId },
+    { taskId: task.id, folder, jid, ownerId },
     'Created task workspace',
   );
 
@@ -219,7 +188,7 @@ export interface SchedulerDependencies {
   onProcess: (
     groupJid: string,
     proc: ChildProcess,
-    containerName: string | null,
+    processName: string | null,
     groupFolder: string,
     displayName?: string,
     taskRunId?: string,
@@ -252,7 +221,9 @@ export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
 }
 
-function classifyAgentTaskOutputError(output: ContainerOutput): string | null {
+function classifyAgentTaskOutputError(
+  output: AgentProcessOutput,
+): string | null {
   if (output.status === 'error') {
     return output.error || output.result || 'Unknown error';
   }
@@ -402,13 +373,13 @@ export async function runTask(
     speedTier: workspaceGroup.speedTier ?? sourceRuntimeGroup?.speedTier,
   };
   const sourceWorkspaceCwd = sourceWorkspaceGroup
-    ? resolveEffectiveHostWorkspaceCwd(
+    ? resolveEffectiveWorkspaceCwd(
         sourceWorkspaceGroup,
         findHomeSiblingGroup(sourceWorkspaceGroup, workspaceGroups),
       )
     : undefined;
 
-  // Update tasks snapshot for container to read (filtered by group)
+  // Update tasks snapshot for the runner to read (filtered by group)
   const isHome = false; // Task workspaces are never home
   const isAdminHome = false;
   const tasks = getAllTasks();
@@ -468,7 +439,7 @@ export async function runTask(
   const sessionId = sessions[workspace.folder];
 
   // Idle timer: writes _close sentinel after idleTimeout of no output,
-  // so the container exits instead of hanging at waitForIpcMessage forever.
+  // so the runner exits instead of hanging at waitForIpcMessage forever.
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
   const resetIdleTimer = () => {
@@ -476,16 +447,13 @@ export async function runTask(
     idleTimer = setTimeout(() => {
       logger.debug(
         { taskId: task.id },
-        'Scheduled task idle timeout, closing container stdin',
+        'Scheduled task idle timeout, closing runner stdin',
       );
       deps.queue.closeStdin(effectiveJid);
     }, getSystemSettings().idleTimeout);
   };
 
   try {
-    const executionMode = resolveTaskExecutionMode(task, deps);
-    const runAgent =
-      executionMode === 'host' ? runHostAgent : runContainerAgent;
     const openAiDefaults = getOpenAiRuntimeDefaults();
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
       taskRuntimeGroup,
@@ -496,12 +464,7 @@ export async function runTask(
       },
     );
 
-    // Resolve owner's home folder for user-scoped skill mounts.
-    const ownerHomeFolder = workspaceGroup.created_by
-      ? getUserHomeGroup(workspaceGroup.created_by)?.folder || workspace.folder
-      : workspace.folder;
-
-    const output = await runAgent(
+    const output = await runAgentProcess(
       taskRuntimeGroup,
       {
         prompt: task.prompt,
@@ -512,7 +475,6 @@ export async function runTask(
         model: effectiveRuntimeIdentity.model ?? null,
         reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
         speedTier: effectiveRuntimeIdentity.speedTier ?? null,
-        isMain: isAdminHome,
         isHome,
         isAdminHome,
         isScheduledTask: true,
@@ -522,12 +484,12 @@ export async function runTask(
         deps.onProcess(
           effectiveJid,
           proc,
-          executionMode === 'container' ? identifier : null,
+          null,
           workspace.folder,
           identifier,
           options?.taskRunId,
         ),
-      async (streamedOutput: ContainerOutput) => {
+      async (streamedOutput: AgentProcessOutput) => {
         // Broadcast stream events to WebSocket clients viewing the task workspace
         if (streamedOutput.status === 'stream' && streamedOutput.streamEvent) {
           deps.broadcastStreamEvent?.(
@@ -551,7 +513,6 @@ export async function runTask(
           finalizeRunLog();
         }
       },
-      ownerHomeFolder,
       sourceWorkspaceCwd ? { executionCwd: sourceWorkspaceCwd } : undefined,
     );
 
@@ -696,7 +657,7 @@ export async function runScriptTask(
     deps.registeredGroups(),
   );
   const sourceWorkspaceCwd = sourceWorkspaceGroup
-    ? resolveEffectiveHostWorkspaceCwd(
+    ? resolveEffectiveWorkspaceCwd(
         sourceWorkspaceGroup,
         findHomeSiblingGroup(sourceWorkspaceGroup, deps.registeredGroups()),
       )

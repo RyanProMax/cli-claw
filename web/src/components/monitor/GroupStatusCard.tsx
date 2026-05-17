@@ -7,7 +7,7 @@ interface GroupStatusCardProps {
     active: boolean;
     pendingMessages: boolean;
     pendingTasks: number;
-    containerName: string | null;
+    processName: string | null;
     displayName: string | null;
   };
 }
@@ -41,7 +41,7 @@ export function GroupStatusCard({ group }: GroupStatusCardProps) {
         <div className="flex items-center justify-between">
           <span>进程标识</span>
           <span className="text-foreground font-mono truncate ml-2 max-w-[60%] text-right">
-            {group.displayName || group.containerName || '-'}
+            {group.displayName || group.processName || '-'}
           </span>
         </div>
         </div>

@@ -17,7 +17,7 @@ Cli Claw 的“命令”分成两层：
 
 | 命令               | 别名                                 | 作用                                                                                           |
 | ------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为 host 工作区默认启动目录                                    |
+| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为 admin 主工作区默认执行目录                                  |
 | `cli-claw restart` | -                                    | 读取当前服务保存的 restart 状态并请求一次安全自重启；适合从外部 shell 或 Web operator 环境触发 |
 | `cli-claw help`    | `cli-claw -h` / `cli-claw --help`    | 查看 launcher 帮助                                                                             |
 | `cli-claw version` | `cli-claw -v` / `cli-claw --version` | 输出已安装版本                                                                                 |
@@ -28,7 +28,7 @@ Cli Claw 的“命令”分成两层：
 - 长期运行的标准入口是安装到 PATH 上的 `cli-claw start` / `cli-claw restart`。
 - 源码仓库里的 `bun start` / `npm start` 只是开发便利入口；它们委托到 `bun src/cli.ts start`，仍先进入 launcher 层，再启动 backend。若本机 PATH 还找不到已安装的 `cli-claw`，在仓库目录可临时使用 `bun src/cli.ts start` / `bun src/cli.ts restart` 作为 repo-local fallback。不要再把 `bun src/index.ts` 当作推荐启动方式。
 - `bun src/index.ts` / `bun dist/index.js` 属于 direct backend 调试路径；服务可识别并在 `/self-status` 中标注为开发直启，不作为长期 supervisor 或安全重启的推荐入口。
-- `cli-claw start` 会先校验当前目录是否符合 host allowlist，再为缺失 `custom_cwd` 的 host 工作区物化默认值。
+- `cli-claw start` 会先校验当前目录是否符合 workspace allowlist，再为缺失 `custom_cwd` 的 admin 主工作区物化默认值。
 - `cli-claw restart` 不会在当前 shell 里直接 kill/拉起服务，也不会用调用方当前目录或 argv 推导新启动命令。它只读取当前 backend 持久化到 `~/.cli-claw/ops/current-backend.json` 的 authoritative restart state，写入 restart intent，再交给 watchdog 执行。若当前服务由 `launchd` 托管，watchdog 会改为 `launchctl kickstart -k ...` 保持 supervision。
 - `cli-claw restart` 只表示“安全重启请求已被受理”。最终是否完成，以 `~/.cli-claw/ops/restarts/*.json`、`/self-status` 或 IM 成功回执为准；若找不到 current backend state、保存的 PID 已不存在、launch spec 不安全、或 watchdog 缺失，launcher 会以非零状态失败，而不是尝试猜测启动方式。
 - 从 IM 让 agent 自己操作服务时，优先使用显式应用内命令 `/self-restart` 或受管重启短语。普通 IM-origin agent 工具调用即使命中了 `cli-claw restart` 这类 safe launcher 字面命令，也会被 restart guard 拦截；Web operator 环境和外部 shell 才适合直接调用 `cli-claw restart`。

@@ -5,39 +5,23 @@ import {
 } from '../../../web/src/lib/workspace-runtime.js';
 
 describe('normalizeWorkspaceRuntimeSelection', () => {
-  test('preserves OpenAI container mode', () => {
+  test('keeps OpenAI as the only runtime selection', () => {
     expect(
       normalizeWorkspaceRuntimeSelection({
         agentType: 'openai',
-        executionMode: 'container',
       }),
     ).toEqual({
       agentType: 'openai',
-      executionMode: 'container',
     });
   });
 
-  test('maps legacy Claude container mode to OpenAI', () => {
+  test('maps unknown runtime input to OpenAI', () => {
     expect(
       normalizeWorkspaceRuntimeSelection({
-        agentType: 'claude',
-        executionMode: 'container',
-      }),
+        agentType: 'unknown',
+      } as never),
     ).toEqual({
       agentType: 'openai',
-      executionMode: 'container',
-    });
-  });
-
-  test('maps legacy Claude host mode to OpenAI', () => {
-    expect(
-      normalizeWorkspaceRuntimeSelection({
-        agentType: 'claude',
-        executionMode: 'host',
-      }),
-    ).toEqual({
-      agentType: 'openai',
-      executionMode: 'host',
     });
   });
 });

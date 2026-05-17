@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../stores/chat';
 import { useAuthStore } from '../../stores/auth';
@@ -14,7 +14,6 @@ import { useTheme } from '../../hooks/useTheme';
 import { cn } from '@/lib/utils';
 import { wsManager } from '../../api/ws';
 import { api } from '../../api/client';
-import { TerminalPanel } from './TerminalPanel';
 import { GroupMembersPanel } from './GroupMembersPanel';
 import { WorkspaceSkillsPanel } from './WorkspaceSkillsPanel';
 import { WorkspaceMcpPanel } from './WorkspaceMcpPanel';
@@ -34,9 +33,6 @@ const SIDEBAR_TABS = [
 ];
 
 const POLL_INTERVAL_MS = 2000;
-const TERMINAL_MIN_HEIGHT = 150;
-const TERMINAL_DEFAULT_HEIGHT = 300;
-const TERMINAL_MAX_RATIO = 0.7;
 
 // Stable empty references to avoid infinite re-render loops in Zustand selectors
 const EMPTY_AGENTS: import('../../types').AgentInfo[] = [];
@@ -58,11 +54,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetAgentId, setResetAgentId] = useState<string | null>(null);
-  // Desktop: visible controls panel height, mounted controls terminal lifecycle.
-  const [terminalVisible, setTerminalVisible] = useState(false);
-  const [terminalMounted, setTerminalMounted] = useState(false);
-  const [terminalHeight, setTerminalHeight] = useState(TERMINAL_DEFAULT_HEIGHT);
-  const [mobileTerminal, setMobileTerminal] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   // null = dialog closed; MAIN_BINDING = main conversation; other = agent id
   const [bindingAgentId, setBindingAgentId] = useState<string | null>(null);
@@ -76,9 +67,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
 
   // Drag state refs (not reactive — only used in event handlers)
   const containerRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef(false);
-  const dragStartYRef = useRef(0);
-  const dragStartHeightRef = useRef(0);
 
   // Individual selectors: avoid re-renders from unrelated store changes (e.g. streaming)
   const group = useChatStore(s => s.groups[groupJid]);
@@ -111,7 +99,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   const agentHasMore = useChatStore(s => s.agentHasMore);
 
   const currentUser = useAuthStore(s => s.user);
-  const canUseTerminal = group?.execution_mode !== 'host';
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const isCodexWorkspace = group?.agent_type === 'openai' || !group?.agent_type;
 
@@ -305,87 +292,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
     setResetAgentId(null);
   };
 
-  // --- Drag resize handlers (mouse + touch) ---
-  const startDrag = useCallback((startY: number) => {
-    isDraggingRef.current = true;
-    dragStartYRef.current = startY;
-    dragStartHeightRef.current = terminalHeight;
-
-    const calcHeight = (currentY: number) => {
-      const delta = dragStartYRef.current - currentY;
-      const maxHeight = containerRef.current
-        ? containerRef.current.clientHeight * TERMINAL_MAX_RATIO
-        : 600;
-      return Math.min(maxHeight, Math.max(TERMINAL_MIN_HEIGHT, dragStartHeightRef.current + delta));
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current) return;
-      setTerminalHeight(calcHeight(e.clientY));
-    };
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!isDraggingRef.current) return;
-      setTerminalHeight(calcHeight(e.touches[0].clientY));
-    };
-
-    const cleanup = () => {
-      isDraggingRef.current = false;
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', cleanup);
-      document.removeEventListener('touchmove', handleTouchMove);
-      document.removeEventListener('touchend', cleanup);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', cleanup);
-    document.addEventListener('touchmove', handleTouchMove, { passive: true });
-    document.addEventListener('touchend', cleanup);
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-  }, [terminalHeight]);
-
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    startDrag(e.clientY);
-  }, [startDrag]);
-
-  const handleTouchDragStart = useCallback((e: React.TouchEvent) => {
-    startDrag(e.touches[0].clientY);
-  }, [startDrag]);
-
-  // Toggle terminal: desktop = bottom panel, mobile = modal
-  const handleTerminalToggle = useCallback(() => {
-    if (!canUseTerminal) return;
-    // Use matchMedia to detect desktop vs mobile
-    if (window.matchMedia('(min-width: 1024px)').matches) {
-      if (!terminalMounted) {
-        setTerminalMounted(true);
-        setTerminalVisible(true);
-      } else {
-        setTerminalVisible(prev => !prev);
-      }
-    } else {
-      setMobileTerminal(true);
-    }
-  }, [canUseTerminal, terminalMounted]);
-
-  // Switching groups should not carry terminal UI/session into the next page.
-  useEffect(() => {
-    setTerminalVisible(false);
-    setTerminalMounted(false);
-    setMobileTerminal(false);
-  }, [groupJid]);
-
-  // If current group is host mode, force-close any mounted terminal.
-  useEffect(() => {
-    if (canUseTerminal) return;
-    setTerminalVisible(false);
-    setTerminalMounted(false);
-    setMobileTerminal(false);
-  }, [canUseTerminal]);
-
   const openMobileFiles = () => {
     setMobileActionsOpen(false);
     setMobilePanel('files');
@@ -425,14 +331,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                 <span className="inline-flex items-center gap-0.5">
                   <Users className="w-3 h-3" />
                   {group.member_count ?? 0} 人协作
-                </span>
-              </>
-            )}
-            {!isWaiting && group.execution_mode && (
-              <>
-                <span className="text-muted-foreground/40">·</span>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${group.execution_mode === 'host' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800' : 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-300 dark:border-sky-800'}`}>
-                  {group.execution_mode === 'host' ? '宿主机' : 'Docker'}
                 </span>
               </>
             )}
@@ -503,7 +401,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         </div>
       </div>
 
-      {/* IM channel setup banner for home container without IM */}
+      {/* IM channel setup banner for home workspace without IM */}
       {isOwnHome && imStatus && !imStatus.feishu && !imStatus.telegram && !imBannerDismissed && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
           <Link className="w-4 h-4 flex-shrink-0" />
@@ -595,7 +493,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                 onSend={handleSend}
                 groupJid={groupJid}
                 onResetSession={() => { setResetAgentId(null); setShowResetConfirm(true); }}
-                onToggleTerminal={canUseTerminal ? handleTerminalToggle : undefined}
               />
             </>
           )}
@@ -650,39 +547,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           </div>
         </div>
       </div>
-
-      {/* Desktop: Bottom terminal panel with drag handle */}
-      {canUseTerminal && terminalMounted && (
-        <>
-          {/* Drag handle */}
-          {terminalVisible && (
-            <div
-              onMouseDown={handleDragStart}
-              onTouchStart={handleTouchDragStart}
-              className="hidden lg:flex h-1 bg-muted hover:bg-brand-400 cursor-row-resize items-center justify-center transition-colors group"
-            >
-              <div className="w-8 h-0.5 rounded-full bg-muted-foreground group-hover:bg-primary transition-colors" />
-            </div>
-          )}
-          {/* Terminal panel */}
-          <div
-            className={`hidden lg:block flex-shrink-0 overflow-hidden transition-[height] duration-200 ${
-              terminalVisible ? 'border-t border-border' : 'border-t-0'
-            }`}
-            style={{ height: terminalVisible ? terminalHeight : 0 }}
-          >
-            <TerminalPanel
-              groupJid={groupJid}
-              visible={terminalVisible}
-              onHide={() => setTerminalVisible(false)}
-              onDelete={() => {
-                setTerminalVisible(false);
-                setTerminalMounted(false);
-              }}
-            />
-          </div>
-        </>
-      )}
 
       {/* Mobile: file panel sheet */}
       <Sheet open={mobilePanel === 'files'} onOpenChange={(v) => !v && setMobilePanel(null)}>
@@ -741,23 +605,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         </SheetContent>
       </Sheet>
 
-      {/* Mobile: Terminal sheet */}
-      <Sheet open={mobileTerminal} onOpenChange={(v) => !v && setMobileTerminal(false)}>
-        <SheetContent side="bottom" className="h-[85dvh] p-0">
-          <SheetHeader className="px-4 pt-4 pb-2">
-            <SheetTitle>终端</SheetTitle>
-          </SheetHeader>
-          <div className="flex-1 overflow-hidden h-[calc(85dvh-56px)]">
-            <TerminalPanel
-              groupJid={groupJid}
-              visible
-              onHide={() => setMobileTerminal(false)}
-              onDelete={() => setMobileTerminal(false)}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
       {/* Mobile: Action Sheet */}
       <Sheet open={mobileActionsOpen} onOpenChange={(v) => !v && setMobileActionsOpen(false)}>
         <SheetContent side="bottom" className="pb-[env(safe-area-inset-bottom)]">
@@ -791,17 +638,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                 className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
               >
                 成员管理
-              </button>
-            )}
-            {canUseTerminal && (
-              <button
-                onClick={() => {
-                  setMobileActionsOpen(false);
-                  setMobileTerminal(true);
-                }}
-                className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
-              >
-                终端
               </button>
             )}
           </div>

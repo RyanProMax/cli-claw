@@ -35,7 +35,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 
 当前接入的运行时：
 
-- `openai`：OpenAI Agents SDK，复用宿主机 Codex CLI 登录态
+- `openai`：OpenAI Agents SDK，复用本机 Codex CLI 登录态
 
 主进程负责多用户隔离、消息路由、队列调度、持久化和 Web / IM 体验；真正的推理、工具调用和会话循环由底层 CLI runtime 执行。
 
@@ -43,24 +43,23 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 
 - 多用户工作区：每个用户拥有隔离的工作区、权限、运行时设置和消息审计。
 - 多入口接入：通过 Web 与多种 IM 通道访问同一工作区，消息统一路由。
-- Codex/OpenAI 执行：同一平台内支持 host 与 container 两种执行模式。
+- Codex/OpenAI 执行：所有工作区统一通过本地 Agent 进程运行。
 - 流式体验：思考、文本、工具调用、任务事件和结果实时回传。
 - 文件与任务：工作区文件管理、定时任务和 MCP 能力统一接入。
 - 移动端 PWA：适配手机访问、查看执行状态和继续会话。
 
 ### 运行时概览
 
-| `agentType` | 底层运行时        | 支持执行模式         | 认证方式                    |
-| ----------- | ----------------- | -------------------- | --------------------------- |
-| `openai`    | OpenAI Agents SDK | `host` / `container` | 复用宿主机 Codex CLI 登录态 |
+| `agentType` | 底层运行时        | 执行路径              | 认证方式                 |
+| ----------- | ----------------- | --------------------- | ------------------------ |
+| `openai`    | OpenAI Agents SDK | 本地 Agent 进程       | 复用 Codex CLI 登录态    |
 
 ## 快速开始
 
 ### 前置要求
 
 - [Node.js](https://nodejs.org) >= 20
-- [Docker](https://www.docker.com/)（仅容器模式需要）
-- 在宿主机执行 `codex login`
+- 执行 `codex login`
 
 ### 通过同名 launcher 启动
 
@@ -82,7 +81,7 @@ cli-claw start
 - `cli-claw help` / `-h` / `--help` 查看 launcher 帮助。
 - `cli-claw version` / `-v` / `--version` 查看已安装版本。
 - 应用自身资源从安装包根目录解析，不依赖你启动时的当前目录。
-- `cli-claw start` 会把“你启动命令时所在的目录”当作 host 工作区默认执行目录，并在缺失时物化到 `custom_cwd`。
+- `cli-claw start` 会把“你启动命令时所在的目录”当作 admin 主工作区默认执行目录，并在缺失时物化到 `custom_cwd`。
 - 数据库存储、sessions、logs、downloads 和工作区元数据仍保留在 `~/.cli-claw`，不会迁到启动目录。
 
 ### 安全重启
@@ -116,24 +115,12 @@ make start
 首次进入后按设置向导完成：
 
 1. 创建管理员账号
-2. 确认宿主机已执行 `codex login`
+2. 确认已执行 `codex login`
 3. 如需 IM 通道，在 Web 设置页补充对应凭据
-
-### 容器模式
-
-如果需要容器模式，先构建镜像：
-
-```bash
-./container/build.sh
-```
-
-这个命令是源码仓库相对路径，适用于 clone 后的开发 / 自建部署场景；不是在任意 launch cwd 下都可直接执行的全局命令。
-
-member 用户注册后默认会创建容器模式的主工作区；admin 主工作区默认使用宿主机模式。
 
 ### 启动目录与数据目录
 
-- host 工作区的默认执行 / 文件根目录来自 `cli-claw start` 的启动目录。
+- admin 主工作区的默认执行 / 文件根目录来自 `cli-claw start` 的启动目录。
 - 这个默认值会持久化到 `custom_cwd`，避免运行时依赖隐式内存 fallback。
 - 工作区拥有的存储路径不变，仍以 `~/.cli-claw/groups/{folder}` 和 `~/.cli-claw/*` 下的数据为准。
 

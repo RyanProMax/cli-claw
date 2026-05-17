@@ -363,7 +363,7 @@ export async function resolveCodexCliRuntimeAuth(
   if (fromAuthJson) return fromAuthJson;
 
   throw new Error(
-    'Codex CLI login is required. Run `codex login` on the host, then retry.',
+    'Codex CLI login is required. Run `codex login`, then retry.',
   );
 }
 

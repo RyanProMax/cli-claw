@@ -925,11 +925,10 @@ export function saveUserDingTalkConfig(
 const SYSTEM_SETTINGS_FILE = path.join(CONFIG_DIR, 'system-settings.json');
 
 export interface SystemSettings {
-  containerTimeout: number;
+  processTimeout: number;
   idleTimeout: number;
-  containerMaxOutputSize: number;
-  maxConcurrentContainers: number;
-  maxConcurrentHostProcesses: number;
+  processMaxOutputSize: number;
+  maxConcurrentProcesses: number;
   maxLoginAttempts: number;
   loginLockoutMinutes: number;
   maxConcurrentScripts: number;
@@ -946,11 +945,10 @@ export interface SystemSettings {
 }
 
 const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
-  containerTimeout: 1800000,
+  processTimeout: 1800000,
   idleTimeout: 1800000,
-  containerMaxOutputSize: 10485760,
-  maxConcurrentContainers: 20,
-  maxConcurrentHostProcesses: 5,
+  processMaxOutputSize: 10485760,
+  maxConcurrentProcesses: 5,
   maxLoginAttempts: 5,
   loginLockoutMinutes: 15,
   maxConcurrentScripts: 10,
@@ -986,29 +984,24 @@ function readSystemSettingsFromFile(): SystemSettings | null {
     fs.readFileSync(SYSTEM_SETTINGS_FILE, 'utf-8'),
   ) as Record<string, unknown>;
   return {
-    containerTimeout:
-      typeof raw.containerTimeout === 'number' && raw.containerTimeout > 0
-        ? raw.containerTimeout
-        : DEFAULT_SYSTEM_SETTINGS.containerTimeout,
+    processTimeout:
+      typeof raw.processTimeout === 'number' && raw.processTimeout > 0
+        ? raw.processTimeout
+        : DEFAULT_SYSTEM_SETTINGS.processTimeout,
     idleTimeout:
       typeof raw.idleTimeout === 'number' && raw.idleTimeout > 0
         ? raw.idleTimeout
         : DEFAULT_SYSTEM_SETTINGS.idleTimeout,
-    containerMaxOutputSize:
-      typeof raw.containerMaxOutputSize === 'number' &&
-      raw.containerMaxOutputSize > 0
-        ? raw.containerMaxOutputSize
-        : DEFAULT_SYSTEM_SETTINGS.containerMaxOutputSize,
-    maxConcurrentContainers:
-      typeof raw.maxConcurrentContainers === 'number' &&
-      raw.maxConcurrentContainers > 0
-        ? raw.maxConcurrentContainers
-        : DEFAULT_SYSTEM_SETTINGS.maxConcurrentContainers,
-    maxConcurrentHostProcesses:
-      typeof raw.maxConcurrentHostProcesses === 'number' &&
-      raw.maxConcurrentHostProcesses > 0
-        ? raw.maxConcurrentHostProcesses
-        : DEFAULT_SYSTEM_SETTINGS.maxConcurrentHostProcesses,
+    processMaxOutputSize:
+      typeof raw.processMaxOutputSize === 'number' &&
+      raw.processMaxOutputSize > 0
+        ? raw.processMaxOutputSize
+        : DEFAULT_SYSTEM_SETTINGS.processMaxOutputSize,
+    maxConcurrentProcesses:
+      typeof raw.maxConcurrentProcesses === 'number' &&
+      raw.maxConcurrentProcesses > 0
+        ? raw.maxConcurrentProcesses
+        : DEFAULT_SYSTEM_SETTINGS.maxConcurrentProcesses,
     maxLoginAttempts:
       typeof raw.maxLoginAttempts === 'number' && raw.maxLoginAttempts > 0
         ? raw.maxLoginAttempts
@@ -1058,25 +1051,21 @@ function readSystemSettingsFromFile(): SystemSettings | null {
 
 function buildEnvFallbackSettings(): SystemSettings {
   return {
-    containerTimeout: parseIntEnv(
-      process.env.CONTAINER_TIMEOUT,
-      DEFAULT_SYSTEM_SETTINGS.containerTimeout,
+    processTimeout: parseIntEnv(
+      process.env.PROCESS_TIMEOUT,
+      DEFAULT_SYSTEM_SETTINGS.processTimeout,
     ),
     idleTimeout: parseIntEnv(
       process.env.IDLE_TIMEOUT,
       DEFAULT_SYSTEM_SETTINGS.idleTimeout,
     ),
-    containerMaxOutputSize: parseIntEnv(
-      process.env.CONTAINER_MAX_OUTPUT_SIZE,
-      DEFAULT_SYSTEM_SETTINGS.containerMaxOutputSize,
+    processMaxOutputSize: parseIntEnv(
+      process.env.PROCESS_MAX_OUTPUT_SIZE,
+      DEFAULT_SYSTEM_SETTINGS.processMaxOutputSize,
     ),
-    maxConcurrentContainers: parseIntEnv(
-      process.env.MAX_CONCURRENT_CONTAINERS,
-      DEFAULT_SYSTEM_SETTINGS.maxConcurrentContainers,
-    ),
-    maxConcurrentHostProcesses: parseIntEnv(
-      process.env.MAX_CONCURRENT_HOST_PROCESSES,
-      DEFAULT_SYSTEM_SETTINGS.maxConcurrentHostProcesses,
+    maxConcurrentProcesses: parseIntEnv(
+      process.env.MAX_CONCURRENT_PROCESSES,
+      DEFAULT_SYSTEM_SETTINGS.maxConcurrentProcesses,
     ),
     maxLoginAttempts: parseIntEnv(
       process.env.MAX_LOGIN_ATTEMPTS,
@@ -1164,21 +1153,16 @@ export function saveSystemSettings(
   const merged: SystemSettings = { ...existing, ...partial };
 
   // Range validation
-  if (merged.containerTimeout < 60000) merged.containerTimeout = 60000; // min 1 min
-  if (merged.containerTimeout > 86400000) merged.containerTimeout = 86400000; // max 24 hours
+  if (merged.processTimeout < 60000) merged.processTimeout = 60000; // min 1 min
+  if (merged.processTimeout > 86400000) merged.processTimeout = 86400000; // max 24 hours
   if (merged.idleTimeout < 60000) merged.idleTimeout = 60000;
   if (merged.idleTimeout > 86400000) merged.idleTimeout = 86400000;
-  if (merged.containerMaxOutputSize < 1048576)
-    merged.containerMaxOutputSize = 1048576; // min 1MB
-  if (merged.containerMaxOutputSize > 104857600)
-    merged.containerMaxOutputSize = 104857600; // max 100MB
-  if (merged.maxConcurrentContainers < 1) merged.maxConcurrentContainers = 1;
-  if (merged.maxConcurrentContainers > 100)
-    merged.maxConcurrentContainers = 100;
-  if (merged.maxConcurrentHostProcesses < 1)
-    merged.maxConcurrentHostProcesses = 1;
-  if (merged.maxConcurrentHostProcesses > 50)
-    merged.maxConcurrentHostProcesses = 50;
+  if (merged.processMaxOutputSize < 1048576)
+    merged.processMaxOutputSize = 1048576; // min 1MB
+  if (merged.processMaxOutputSize > 104857600)
+    merged.processMaxOutputSize = 104857600; // max 100MB
+  if (merged.maxConcurrentProcesses < 1) merged.maxConcurrentProcesses = 1;
+  if (merged.maxConcurrentProcesses > 50) merged.maxConcurrentProcesses = 50;
   if (merged.maxLoginAttempts < 1) merged.maxLoginAttempts = 1;
   if (merged.maxLoginAttempts > 100) merged.maxLoginAttempts = 100;
   if (merged.loginLockoutMinutes < 1) merged.loginLockoutMinutes = 1;

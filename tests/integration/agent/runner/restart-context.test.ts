@@ -5,7 +5,7 @@ import {
   writeSelfRestartRequestChatJidToEnv,
 } from '../../../../src/core/self/self-restart.js';
 
-describe('host restart context env', () => {
+describe('agent restart context env', () => {
   test('stores direct IM chat jids for external restart callbacks', () => {
     const env: NodeJS.ProcessEnv = {};
     writeSelfRestartRequestChatJidToEnv(env, 'feishu:chat-1');

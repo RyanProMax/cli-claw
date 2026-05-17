@@ -2,11 +2,8 @@
 
 import { Hono } from 'hono';
 import * as crypto from 'node:crypto';
-import fs from 'fs';
-import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 import { sdkQuery } from '../../agent/runner/sdk-query.js';
-import { GROUPS_DIR } from '../../core/config.js';
 import { removeFlowArtifacts } from '../../core/workspace/file-manager.js';
 import type { Variables } from '../context.js';
 import { authMiddleware } from '../middleware/auth.js';
@@ -26,12 +23,7 @@ import {
 } from '../../storage/db.js';
 import type { AuthUser } from '../../domain/types.js';
 import { TIMEZONE } from '../../core/config.js';
-import {
-  isHostExecutionGroup,
-  hasHostExecutionPermission,
-  canAccessGroup,
-  getWebDeps,
-} from '../context.js';
+import { canAccessGroup, getWebDeps } from '../context.js';
 import { getRunningTaskIds } from '../../agent/scheduler/index.js';
 
 const tasksRoutes = new Hono<{ Variables: Variables }>();
@@ -42,10 +34,6 @@ tasksRoutes.get('/', authMiddleware, (c) => {
   const authUser = c.get('user') as AuthUser;
   const allGroups = getAllRegisteredGroups();
   const tasks = getAllTasks().filter((task) => {
-    // Host-mode tasks are only visible to admin
-    if (task.execution_mode === 'host' && authUser.role !== 'admin') {
-      return false;
-    }
     const group = allGroups[task.chat_jid];
     // Conservative: if group can't be resolved, only admin can see (may be orphaned task)
     if (!group) return authUser.role === 'admin';
@@ -55,8 +43,6 @@ tasksRoutes.get('/', authMiddleware, (c) => {
         { ...group, jid: task.chat_jid },
       )
     )
-      return false;
-    if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser))
       return false;
     return true;
   });
@@ -112,28 +98,11 @@ tasksRoutes.post('/', authMiddleware, async (c) => {
   if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
 
   // Only admin can create script tasks
   const execType = execution_type || 'agent';
   if (execType === 'script' && authUser.role !== 'admin') {
     return c.json({ error: '只有管理员可以创建脚本类型任务' }, 403);
-  }
-
-  // Determine execution_mode
-  let taskExecutionMode: 'host' | 'container';
-  if (authUser.role === 'admin') {
-    taskExecutionMode = validation.data.execution_mode || 'host';
-  } else {
-    if (validation.data.execution_mode === 'host') {
-      return c.json({ error: '只有管理员可以创建宿主机任务' }, 403);
-    }
-    taskExecutionMode = 'container';
   }
 
   const taskId = crypto.randomUUID();
@@ -173,7 +142,6 @@ tasksRoutes.post('/', authMiddleware, async (c) => {
     schedule_value,
     context_mode: 'isolated',
     execution_type: execType,
-    execution_mode: taskExecutionMode,
     script_command: script_command ?? null,
     next_run: nextRun,
     status: 'active',
@@ -198,12 +166,6 @@ tasksRoutes.patch('/:id', authMiddleware, async (c) => {
     if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
       return c.json({ error: 'Task not found' }, 404);
     }
-    if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-      return c.json(
-        { error: 'Insufficient permissions for host execution mode' },
-        403,
-      );
-    }
   }
   const body = await c.req.json().catch(() => ({}));
 
@@ -222,11 +184,6 @@ tasksRoutes.patch('/:id', authMiddleware, async (c) => {
       validation.data.script_command !== undefined);
   if (isScriptTask && authUser.role !== 'admin') {
     return c.json({ error: '只有管理员可以创建或修改脚本类型任务' }, 403);
-  }
-
-  // Only admin can set execution_mode to 'host'
-  if (validation.data.execution_mode === 'host' && authUser.role !== 'admin') {
-    return c.json({ error: '只有管理员可以设置宿主机执行模式' }, 403);
   }
 
   // Auto-recalculate next_run when schedule changes (avoid pulling cron-parser into frontend)
@@ -282,12 +239,6 @@ tasksRoutes.delete('/:id', authMiddleware, (c) => {
     if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
       return c.json({ error: 'Task not found' }, 404);
     }
-    if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-      return c.json(
-        { error: 'Insufficient permissions for host execution mode' },
-        403,
-      );
-    }
   }
   // Only admin can delete script tasks
   if (existing.execution_type === 'script' && authUser.role !== 'admin') {
@@ -339,12 +290,6 @@ tasksRoutes.post('/:id/run', authMiddleware, (c) => {
     if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
       return c.json({ error: 'Task not found' }, 404);
     }
-    if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-      return c.json(
-        { error: 'Insufficient permissions for host execution mode' },
-        403,
-      );
-    }
   }
 
   // Only admin can run script tasks
@@ -374,12 +319,6 @@ tasksRoutes.get('/:id/logs', authMiddleware, (c) => {
   } else {
     if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
       return c.json({ error: 'Task not found' }, 404);
-    }
-    if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
-      return c.json(
-        { error: 'Insufficient permissions for host execution mode' },
-        403,
-      );
     }
   }
   const limitRaw = parseInt(c.req.query('limit') || '20', 10);
@@ -472,9 +411,6 @@ tasksRoutes.post('/ai', authMiddleware, async (c) => {
   const taskId = crypto.randomUUID();
   const now = new Date().toISOString();
 
-  // Determine execution_mode
-  const taskExecutionMode = authUser.role === 'admin' ? 'host' : 'container';
-
   // Create task immediately with 'parsing' status and description as prompt
   createTask({
     id: taskId,
@@ -485,7 +421,6 @@ tasksRoutes.post('/ai', authMiddleware, async (c) => {
     schedule_value: '0 0 * * *', // placeholder, will be updated after parsing
     context_mode: 'isolated',
     execution_type: 'agent',
-    execution_mode: taskExecutionMode,
     script_command: null,
     next_run: null,
     status: 'parsing',

@@ -16,24 +16,21 @@ import { CronExpressionParser } from 'cron-parser';
 
 import {
   ASSISTANT_NAME,
-  CONTAINER_IMAGE,
   DATA_DIR,
   GROUPS_DIR,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
   TIMEZONE,
   WEB_PORT,
-  isDockerAvailable,
   updateWeChatNoProxy,
 } from './core/config.js';
 import { LAUNCH_CWD, resolveAppPath } from './core/app-root.js';
 import { interruptibleSleep } from './messaging/notifier.js';
 import {
   AvailableGroup,
-  ContainerInput,
-  ContainerOutput,
-  runContainerAgent,
-  runHostAgent,
+  AgentProcessInput,
+  AgentProcessOutput,
+  runAgentProcess,
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './agent/runner/container-runner.js';
@@ -48,7 +45,6 @@ import {
   getAllChats,
   getAllRegisteredGroups,
   getAllSessions,
-  hasContainerModeGroups,
   getAllTasks,
   getJidsByFolder,
   getLastGroupSync,
@@ -203,7 +199,7 @@ import {
   deductUsageCost,
   checkAndExpireSubscriptions,
   isBillingEnabled,
-  getUserConcurrentContainerLimit,
+  getUserConcurrentProcessLimit,
   reconcileMonthlyUsage,
 } from './core/billing.js';
 import {
@@ -227,9 +223,9 @@ import {
   resolveEffectiveRuntimeIdentity,
 } from './core/runtime/group-runtime.js';
 import {
-  materializeHostWorkspaceDefaultCwd,
-  validateHostWorkspaceCwd,
-} from './core/workspace/host-cwd.js';
+  materializeWorkspaceDefaultCwd,
+  validateWorkspaceCwd,
+} from './core/workspace/workspace-cwd.js';
 import { resolveTaskOwner } from './agent/task-utils.js';
 import {
   ensureAgentDirectories,
@@ -246,7 +242,6 @@ import {
   broadcastAgentStatus,
   broadcastGroupCreated,
   broadcastBillingUpdate,
-  shutdownTerminals,
   shutdownWebServer,
   getActiveStreamingTexts,
   clearStreamingSnapshot,
@@ -969,7 +964,7 @@ class IpcWatcherManager {
     this.processFullFn = processFull;
   }
 
-  /** Start watching a group's IPC directories. Called when a container/process starts. */
+  /** Start watching a group's IPC directories. Called when a runner starts. */
   watchGroup(folder: string): void {
     const existing = this.watchers.get(folder);
     if (existing) {
@@ -988,7 +983,7 @@ class IpcWatcherManager {
       try {
         fs.mkdirSync(dir, { recursive: true });
         // Listen to all event types — 'rename' covers atomic writes on Linux,
-        // but Docker bind mounts (macOS virtiofs) may emit 'change' instead.
+        // while some filesystems may emit 'change' instead.
         const w = fs.watch(dir, () => {
           this.debouncedProcess(folder);
         });
@@ -1003,7 +998,7 @@ class IpcWatcherManager {
     this.watchers.set(folder, { watchers: folderWatchers, refCount: 1 });
   }
 
-  /** Stop watching a group's IPC directories. Called when a container/process stops. */
+  /** Stop watching a group's IPC directories. Called when a runner stops. */
   unwatchGroup(folder: string): void {
     const entry = this.watchers.get(folder);
     if (!entry) return;
@@ -1098,7 +1093,6 @@ const shutdownSavedJids = new Set<string>();
 
 const queue = new GroupQueue();
 const EMPTY_CURSOR: MessageCursor = { timestamp: '', id: '' };
-const terminalWarmupInFlight = new Set<string>();
 const STUCK_RUNNER_CHECK_INTERVAL_POLLS = 15;
 const STUCK_RUNNER_IDLE_MS = 6 * 60 * 1000;
 let stuckRunnerCheckCounter = 0;
@@ -1202,7 +1196,8 @@ function resolveEffectiveFolder(chatJid: string): string | undefined {
 
 /**
  * Resolve the effective group for a non-home group by finding its sibling home group.
- * Non-home groups use their own executionMode/customCwd — no owner fallback.
+ * Non-home groups use their own workspace cwd unless a sibling home group
+ * provides inherited runtime defaults.
  * Populates registeredGroups cache as a side-effect.
  */
 function resolveEffectiveGroup(group: RegisteredGroup): {
@@ -1227,12 +1222,12 @@ function resolveEffectiveGroup(group: RegisteredGroup): {
 }
 
 /**
- * Materialize the CLI launch cwd into any persisted host workspace missing customCwd.
- * Keeps the host default explicit in the database instead of relying on an in-memory fallback.
+ * Materialize the CLI launch cwd into any persisted workspace missing customCwd.
+ * Keeps the default cwd explicit in the database instead of relying on an in-memory fallback.
  */
-function reconcileHostWorkspaceDefaults(launchCwd: string): void {
+function reconcileWorkspaceDefaults(launchCwd: string): void {
   for (const [jid, group] of Object.entries(registeredGroups)) {
-    const materialized = materializeHostWorkspaceDefaultCwd(group, {
+    const materialized = materializeWorkspaceDefaultCwd(group, {
       launchCwd,
       fieldLabel: 'CLI launch cwd',
     });
@@ -1248,7 +1243,7 @@ function reconcileHostWorkspaceDefaults(launchCwd: string): void {
           folder: materialized.group.folder,
           customCwd: materialized.group.customCwd,
         },
-        'Materialized host workspace custom cwd from CLI launch cwd',
+        'Materialized workspace custom cwd from CLI launch cwd',
       );
     }
   }
@@ -1926,7 +1921,6 @@ async function clearSessionRuntimeFiles(
   const artifactDir = getSessionRuntimeArtifactDir(folder, agentId);
   if (!fs.existsSync(artifactDir)) return;
 
-  let cleared = false;
   try {
     for (const entry of fs.readdirSync(artifactDir)) {
       if (entry === 'settings.json') continue;
@@ -1935,33 +1929,8 @@ async function clearSessionRuntimeFiles(
         force: true,
       });
     }
-    cleared = true;
   } catch {
-    logger.info(
-      { folder, agentId },
-      'Direct session cleanup failed, trying Docker fallback',
-    );
-  }
-
-  if (!cleared) {
-    try {
-      await execFileAsync(
-        'docker',
-        [
-          'run',
-          '--rm',
-          '-v',
-          `${artifactDir}:/target`,
-          CONTAINER_IMAGE,
-          'sh',
-          '-c',
-          'find /target -mindepth 1 -not -name settings.json -exec rm -rf {} + 2>/dev/null; exit 0',
-        ],
-        { timeout: 15_000 },
-      );
-    } catch (err) {
-      logger.error({ folder, agentId, err }, 'Docker fallback cleanup failed');
-    }
+    logger.info({ folder, agentId }, 'Direct session cleanup failed');
   }
 }
 
@@ -2477,10 +2446,8 @@ async function handleStatusCommand(chatJid: string): Promise<string> {
   );
   const systemStatus = formatSystemStatus(
     {
-      activeContainerCount: queueStatus.activeContainerCount,
-      activeHostProcessCount: queueStatus.activeHostProcessCount,
-      maxContainers: settings.maxConcurrentContainers,
-      maxHostProcesses: settings.maxConcurrentHostProcesses,
+      activeProcessCount: queueStatus.activeProcessCount,
+      maxProcesses: settings.maxConcurrentProcesses,
       waitingCount: queueStatus.waitingCount,
       waitingGroupJids: queueStatus.waitingGroupJids,
     },
@@ -2818,7 +2785,6 @@ async function handleNewCommand(
   const created = createImNewWorkspaceGroup({
     name,
     userId,
-    dockerAvailable: await isDockerAvailable(),
   });
   if ('error' in created) {
     logger.error(
@@ -3192,8 +3158,6 @@ function loadState(): void {
   }
 
   // Ensure every active user has a home group (is_home=true).
-  // Admin → folder='main', executionMode='host'
-  // Member → folder='home-{userId}', executionMode='container'
   try {
     // Paginate through all active users
     const activeUsers: Array<{ id: string; role: string; username: string }> =
@@ -3213,7 +3177,7 @@ function loadState(): void {
         user.role as 'admin' | 'member',
         user.username,
       );
-      // Always refresh this entry from DB to pick up any patches (is_home, executionMode, etc.)
+      // Always refresh this entry from DB to pick up any patches.
       const freshGroup = getRegisteredGroup(homeJid);
       if (freshGroup) {
         registeredGroups[homeJid] = freshGroup;
@@ -3225,42 +3189,15 @@ function loadState(): void {
     logger.warn({ err }, 'Failed to ensure user home groups');
   }
 
-  // Enforce execution mode on all is_home groups:
-  // - admin home → host mode
-  // - member home → container mode
-  for (const [jid, group] of Object.entries(registeredGroups)) {
-    if (!group.is_home) continue;
-
-    // Determine expected mode based on the owner's role
-    // Admin home groups use host mode, member home groups use container mode
-    const isAdminHome = group.folder === MAIN_GROUP_FOLDER;
-    const expectedMode = isAdminHome ? 'host' : 'container';
-
-    if (group.executionMode !== expectedMode) {
-      group.executionMode = expectedMode;
-      setRegisteredGroup(jid, group);
-      registeredGroups[jid] = group;
-      // 清除旧 session，避免恢复不兼容的 session
-      if (sessions[group.folder]) {
-        logger.info(
-          { folder: group.folder, expectedMode },
-          'Clearing stale session during execution mode migration',
-        );
-        delete sessions[group.folder];
-        deletePrimaryRuntimeSessions(group.folder);
-      }
-    }
-  }
-
   if (SELF_CHECK_MODE) {
-    logger.info('CLI_CLAW_SELF_CHECK=1, skipping host workspace cwd defaults');
+    logger.info('CLI_CLAW_SELF_CHECK=1, skipping workspace cwd defaults');
   } else {
     try {
-      reconcileHostWorkspaceDefaults(LAUNCH_CWD);
+      reconcileWorkspaceDefaults(LAUNCH_CWD);
     } catch (err) {
       logger.error(
         { err, launchCwd: LAUNCH_CWD },
-        'Failed to materialize host workspace cwd defaults',
+        'Failed to materialize workspace cwd defaults',
       );
       throw err instanceof Error
         ? err
@@ -3573,8 +3510,8 @@ export function selectLeadingSourceTurnMessages<T extends NewMessage>(
  * Called by the GroupQueue when it's this group's turn.
  *
  * Uses streaming output: agent results are sent to Feishu as they arrive.
- * The container stays alive for idleTimeout after each result, allowing
- * rapid-fire messages to be piped in without spawning a new container.
+ * The runner process stays alive for idleTimeout after each result, allowing
+ * rapid-fire messages to be piped in without spawning a new process.
  */
 export async function processGroupMessages(chatJid: string): Promise<boolean> {
   let group = registeredGroups[chatJid];
@@ -3757,7 +3694,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     idleTimer = setTimeout(() => {
       logger.debug(
         { group: group.name },
-        'Idle timeout, closing container stdin',
+        'Idle timeout, closing agent process stdin',
       );
       queue.closeStdin(chatJid);
     }, getSystemSettings().idleTimeout);
@@ -4659,8 +4596,8 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                 (streamingCardHandledIM && directImReply) ||
                 routeSwitchedAway ||
                 routeCleared;
-              // When the container stays alive and processes multiple IPC messages,
-              // result.turnId stays the same (set at container start).  If we already
+              // When the runner stays alive and processes multiple IPC messages,
+              // result.turnId stays the same (set at process start).  If we already
               // saved a reply with this turnId, the INSERT OR REPLACE would overwrite
               // the previous reply.  Use a fresh ID to prevent that.
               const effectiveTurnId = result.turnId || activeLastProcessed.id;
@@ -5104,11 +5041,9 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
       return commitCursor();
     }
 
-    // ── OOM auto-recovery: detect consecutive exit code 137 (OOM) ──
-    // Only match `code 137` (Docker cgroup OOM killer), not `signal SIGKILL`
-    // which is ambiguous for host processes (could be user stop, process tree
-    // kill, or actual OOM).  exitLabel is either `code N` or `signal X` —
-    // never both — so this only triggers on Docker container OOM exits.
+    // OOM auto-recovery: detect consecutive process exits with code 137.
+    // `signal SIGKILL` is ambiguous, so only the explicit exit code increments
+    // the recovery counter.
     const isOom = OOM_EXIT_RE.test(errorDetail);
     if (isOom) {
       const folder = effectiveGroup.folder;
@@ -5188,115 +5123,13 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
   return true;
 }
 
-async function runTerminalWarmup(chatJid: string): Promise<void> {
-  const group = registeredGroups[chatJid];
-  if (!group) return;
-  if ((group.executionMode || 'container') === 'host') return;
-
-  logger.info({ chatJid, group: group.name }, 'Starting terminal warmup run');
-
-  const warmupReadyToken = '<terminal_ready>';
-  const warmupPrompt = [
-    '这是系统触发的终端预热请求。',
-    `请只回复 ${warmupReadyToken}，不要回复其它内容，也不要调用工具。`,
-  ].join(' ');
-
-  let bootstrapCompleted = false;
-  let idleTimer: ReturnType<typeof setTimeout> | null = null;
-  const resetIdleTimer = () => {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      logger.debug(
-        { chatJid, group: group.name },
-        'Terminal warmup idle timeout, closing stdin',
-      );
-      queue.closeStdin(chatJid);
-    }, getSystemSettings().idleTimeout);
-  };
-
-  try {
-    const output = await runAgent(
-      group,
-      warmupPrompt,
-      chatJid,
-      undefined,
-      undefined,
-      async (result) => {
-        if (result.status === 'stream' && result.streamEvent) {
-          broadcastStreamEvent(chatJid, result.streamEvent);
-          return;
-        }
-
-        if (result.status === 'error') return;
-
-        // During warmup query, NEVER emit assistant text to chat.
-        // Only mark bootstrap complete after the session update marker.
-        if (result.result === null) {
-          if (!bootstrapCompleted) {
-            bootstrapCompleted = true;
-            resetIdleTimer();
-          }
-          return;
-        }
-
-        if (!bootstrapCompleted) return;
-
-        const raw =
-          typeof result.result === 'string'
-            ? result.result
-            : JSON.stringify(result.result);
-        const text = stripAgentInternalTags(raw);
-        if (!text || text === warmupReadyToken) return;
-        await sendMessage(chatJid, text);
-        resetIdleTimer();
-      },
-    );
-
-    if (output.status === 'error') {
-      logger.warn(
-        { chatJid, group: group.name, error: output.error },
-        'Terminal warmup run ended with error',
-      );
-    } else {
-      logger.info(
-        { chatJid, group: group.name },
-        'Terminal warmup run completed',
-      );
-    }
-  } finally {
-    if (idleTimer) clearTimeout(idleTimer);
-  }
-}
-
-function ensureTerminalContainerStarted(chatJid: string): boolean {
-  const group = registeredGroups[chatJid];
-  if (!group) return false;
-  if ((group.executionMode || 'container') === 'host') return false;
-
-  const status = queue.getStatus();
-  const groupStatus = status.groups.find((g) => g.jid === chatJid);
-  if (groupStatus?.active) return true;
-  if (terminalWarmupInFlight.has(chatJid)) return true;
-
-  terminalWarmupInFlight.add(chatJid);
-  const taskId = `terminal-warmup:${chatJid}`;
-  queue.enqueueTask(chatJid, taskId, async () => {
-    try {
-      await runTerminalWarmup(chatJid);
-    } finally {
-      terminalWarmupInFlight.delete(chatJid);
-    }
-  });
-  return true;
-}
-
 async function runAgent(
   group: RegisteredGroup,
   prompt: string,
   chatJid: string,
   turnId?: string,
   messageCursor?: MessageCursor,
-  onOutput?: (output: ContainerOutput) => Promise<void>,
+  onOutput?: (output: AgentProcessOutput) => Promise<void>,
   images?: Array<{ data: string; mimeType?: string }>,
   activeSourceJid?: string | null,
   options: {
@@ -5305,7 +5138,6 @@ async function runAgent(
   } = {},
 ): Promise<{ status: 'success' | 'error' | 'closed'; error?: string }> {
   const isHome = !!group.is_home;
-  // For the agent-runner: isMain means this is an admin home container (full privileges)
   const isAdminHome = isHome && group.folder === MAIN_GROUP_FOLDER;
   const usePrimarySession = options.usePrimarySession ?? true;
   const persistPrimarySession = options.persistPrimarySession ?? true;
@@ -5317,7 +5149,7 @@ async function runAgent(
       })
     : undefined;
 
-  // Update tasks snapshot for container to read (filtered by group)
+  // Update tasks snapshot for the runner to read (filtered by group).
   const tasks = getAllTasks();
   writeTasksSnapshot(
     group.folder,
@@ -5344,7 +5176,7 @@ async function runAgent(
 
   // Wrap onOutput to track session ID from streamed results
   const wrappedOnOutput = onOutput
-    ? async (output: ContainerOutput) => {
+    ? async (output: AgentProcessOutput) => {
         queue.markRunnerActivity(chatJid);
         if (
           (output.status === 'success' && output.result !== null) ||
@@ -5369,7 +5201,6 @@ async function runAgent(
 
   ipcWatcherManager?.watchGroup(group.folder);
   try {
-    const executionMode = group.executionMode || 'container';
     const agentType = normalizeAgentType(group.agentType);
     const selectedRunner = agentType;
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(group, {
@@ -5385,7 +5216,6 @@ async function runAgent(
         chatJid,
         groupFolder: group.folder,
         agentType,
-        executionMode,
         sessionId: sessionId || null,
         activeSourceJid: activeSourceJid || chatJid,
         isHome,
@@ -5396,12 +5226,10 @@ async function runAgent(
     );
 
     const onProcessCb = (proc: ChildProcess, identifier: string) => {
-      // 宿主机模式：containerName 传 null，走 process.kill() 路径
-      const containerName = executionMode === 'container' ? identifier : null;
       queue.registerProcess(
         chatJid,
         proc,
-        containerName,
+        identifier,
         group.folder,
         identifier,
         undefined,
@@ -5410,57 +5238,26 @@ async function runAgent(
       );
     };
 
-    const ownerHomeFolder = resolveOwnerHomeFolder(group);
-
-    let output: ContainerOutput;
-
-    if (executionMode === 'host') {
-      output = await runHostAgent(
-        group,
-        {
-          prompt,
-          sessionId,
-          turnId,
-          messageCursor,
-          groupFolder: group.folder,
-          chatJid,
-          agentType,
-          model: effectiveRuntimeIdentity.model ?? null,
-          reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
-          speedTier: effectiveRuntimeIdentity.speedTier ?? null,
-          isMain: isAdminHome,
-          isHome,
-          isAdminHome,
-          images,
-        },
-        onProcessCb,
-        wrappedOnOutput,
-        ownerHomeFolder,
-      );
-    } else {
-      output = await runContainerAgent(
-        group,
-        {
-          prompt,
-          sessionId,
-          turnId,
-          messageCursor,
-          groupFolder: group.folder,
-          chatJid,
-          agentType,
-          model: effectiveRuntimeIdentity.model ?? null,
-          reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
-          speedTier: effectiveRuntimeIdentity.speedTier ?? null,
-          isMain: isAdminHome,
-          isHome,
-          isAdminHome,
-          images,
-        },
-        onProcessCb,
-        wrappedOnOutput,
-        ownerHomeFolder,
-      );
-    }
+    const output = await runAgentProcess(
+      group,
+      {
+        prompt,
+        sessionId,
+        turnId,
+        messageCursor,
+        groupFolder: group.folder,
+        chatJid,
+        agentType,
+        model: effectiveRuntimeIdentity.model ?? null,
+        reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
+        speedTier: effectiveRuntimeIdentity.speedTier ?? null,
+        isHome,
+        isAdminHome,
+        images,
+      },
+      onProcessCb,
+      wrappedOnOutput,
+    );
 
     // 仅从成功的最终输出中更新 session ID；
     // error 状态的输出可能携带 stale ID，覆盖流式阶段已写入的有效 session
@@ -6634,7 +6431,6 @@ async function processTaskIpc(
     schedule_type?: string;
     schedule_value?: string;
     execution_type?: string;
-    execution_mode?: string;
     script_command?: string;
     groupFolder?: string;
     chatJid?: string;
@@ -6643,8 +6439,6 @@ async function processTaskIpc(
     jid?: string;
     name?: string;
     folder?: string;
-    containerConfig?: RegisteredGroup['containerConfig'];
-    executionMode?: string;
     // For install_skill / uninstall_skill
     package?: string;
     requestId?: string;
@@ -6656,8 +6450,8 @@ async function processTaskIpc(
     isAdminHome?: boolean;
   },
   sourceGroup: string, // Verified identity from IPC directory
-  isAdminHome: boolean, // Whether source is admin home container
-  isHome: boolean, // Whether source is a home container
+  isAdminHome: boolean, // Whether source is the admin home workspace
+  isHome: boolean, // Whether source is a home workspace
   sourceGroupEntry: RegisteredGroup | undefined, // Source group's registered entry
   ipcAgentId: string | null = null, // Non-null when IPC comes from a conversation agent
 ): Promise<void> {
@@ -6683,7 +6477,7 @@ async function processTaskIpc(
         if (execType === 'script' && !isAdminHome) {
           logger.warn(
             { sourceGroup },
-            'Non-admin container attempted to create script task',
+            'Non-admin workspace attempted to create script task',
           );
           break;
         }
@@ -6750,12 +6544,6 @@ async function processTaskIpc(
         }
 
         const taskId = crypto.randomUUID();
-        const executionMode =
-          data.execution_mode === 'host' && isAdminHome
-            ? 'host'
-            : data.execution_mode === 'container'
-              ? 'container'
-              : null;
         const taskCreatedBy = resolveTaskOwner(
           {},
           sourceGroupEntry,
@@ -6771,7 +6559,6 @@ async function processTaskIpc(
           schedule_value: data.schedule_value,
           context_mode: 'isolated',
           execution_type: execType,
-          execution_mode: executionMode,
           script_command: data.script_command ?? null,
           next_run: nextRun,
           status: 'active',
@@ -6937,17 +6724,11 @@ async function processTaskIpc(
         const sourceEntry = Object.values(registeredGroups).find(
           (g) => g.folder === sourceGroup,
         );
-        const execMode =
-          data.executionMode === 'host' || data.executionMode === 'container'
-            ? data.executionMode
-            : undefined;
         registerGroup(data.jid, {
           name: data.name,
           folder: data.folder,
           added_at: new Date().toISOString(),
-          containerConfig: data.containerConfig,
           created_by: sourceEntry?.created_by,
-          executionMode: execMode,
         });
       } else {
         logger.warn(
@@ -7534,7 +7315,7 @@ async function processAgentConversation(
   const agentConversationStartedAt = Date.now();
   let activeAgentTurnStartedAt = agentConversationStartedAt;
 
-  const wrappedOnOutput = async (output: ContainerOutput) => {
+  const wrappedOnOutput = async (output: AgentProcessOutput) => {
     // Track session
     if (output.newSessionId && output.status !== 'error') {
       setSession(effectiveGroup.folder, output.newSessionId, agentId);
@@ -8104,7 +7885,6 @@ async function processAgentConversation(
 
   ipcWatcherManager?.watchGroup(effectiveGroup.folder);
   try {
-    const executionMode = effectiveGroup.executionMode || 'container';
     const agentType = normalizeAgentType(effectiveGroup.agentType);
     const selectedRunner = agentType;
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
@@ -8125,7 +7905,6 @@ async function processAgentConversation(
         groupFolder: effectiveGroup.folder,
         agentId,
         agentName: agent.name,
-        executionMode,
         sessionId: sessionId || null,
         isHome,
         isAdminHome,
@@ -8144,16 +7923,15 @@ async function processAgentConversation(
     );
 
     const onProcessCb = (proc: ChildProcess, identifier: string) => {
-      const containerName = executionMode === 'container' ? identifier : null;
       recordLifecycleForMessages({
         messages: messagesForAgent,
         stage: 'runner_started',
-        details: { agentId, identifier, executionMode },
+        details: { agentId, identifier },
       });
       queue.registerProcess(
         virtualJid,
         proc,
-        containerName,
+        identifier,
         effectiveGroup.folder,
         identifier,
         agentId,
@@ -8162,7 +7940,7 @@ async function processAgentConversation(
       );
     };
 
-    const containerInput: ContainerInput = {
+    const agentInput: AgentProcessInput = {
       prompt,
       sessionId,
       turnId: lastProcessed.id,
@@ -8173,7 +7951,6 @@ async function processAgentConversation(
       model: effectiveRuntimeIdentity.model ?? null,
       reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
       speedTier: effectiveRuntimeIdentity.speedTier ?? null,
-      isMain: isAdminHome,
       isHome,
       isAdminHome,
       agentId,
@@ -8204,26 +7981,12 @@ async function processAgentConversation(
       new Set(Object.keys(registeredGroups)),
     );
 
-    const ownerHomeFolder = resolveOwnerHomeFolder(effectiveGroup);
-
-    let output: ContainerOutput;
-    if (executionMode === 'host') {
-      output = await runHostAgent(
-        effectiveGroup,
-        containerInput,
-        onProcessCb,
-        wrappedOnOutput,
-        ownerHomeFolder,
-      );
-    } else {
-      output = await runContainerAgent(
-        effectiveGroup,
-        containerInput,
-        onProcessCb,
-        wrappedOnOutput,
-        ownerHomeFolder,
-      );
-    }
+    const output = await runAgentProcess(
+      effectiveGroup,
+      agentInput,
+      onProcessCb,
+      wrappedOnOutput,
+    );
 
     // Finalize session
     if (output.newSessionId && output.status !== 'error') {
@@ -8847,7 +8610,7 @@ async function startMessageLoop(): Promise<void> {
                 forwardedCount: compactedMessagesToSend.length,
                 imageCount: images.length,
               },
-              'Piped messages to active container',
+              'Piped messages to active agent process',
             );
             const lastProcessed =
               leadingSourceMessages[leadingSourceMessages.length - 1];
@@ -9030,23 +8793,8 @@ function recoverConversationAgents(): void {
   }
 }
 
-async function ensureDockerRunning(): Promise<void> {
-  // Skip all Docker checks when no groups use container mode
-  if (!hasContainerModeGroups()) {
-    logger.info('All groups use host execution mode, skipping Docker checks');
-    return;
-  }
-
-  if (!(await isDockerAvailable())) {
-    logger.warn(
-      'Docker is not available — container-mode workspaces will fail at message time. ' +
-        'Start Docker if you need container execution (macOS: Docker Desktop, Linux: sudo systemctl start docker).',
-    );
-    return;
-  }
-  logger.debug('Docker daemon is running');
-
-  // Kill orphaned host agent-runner processes from previous runs
+async function cleanupOrphanedAgentProcesses(): Promise<void> {
+  // Kill orphaned agent-runner processes from previous runs.
   try {
     const { stdout: psOut } = await execFileAsync(
       'pgrep',
@@ -9069,40 +8817,14 @@ async function ensureDockerRunning(): Promise<void> {
     if (pids.length > 0) {
       logger.info(
         { count: pids.length, pids },
-        'Killed orphaned host agent-runner processes',
+        'Killed orphaned agent-runner processes',
       );
     }
   } catch (err: any) {
     // pgrep exits 1 when no matches — that's fine
     if (err?.code !== 1) {
-      logger.warn({ err }, 'Failed to clean up orphaned host processes');
+      logger.warn({ err }, 'Failed to clean up orphaned agent processes');
     }
-  }
-
-  // Kill and clean up orphaned cli-claw containers from previous runs
-  try {
-    const { stdout } = await execFileAsync(
-      'docker',
-      ['ps', '--filter', 'name=cli-claw-', '--format', '{{.Names}}'],
-      { timeout: 10000 },
-    );
-    const output = typeof stdout === 'string' ? stdout : String(stdout);
-    const orphans = output.trim().split('\n').filter(Boolean);
-    for (const name of orphans) {
-      try {
-        await execFileAsync('docker', ['stop', name], { timeout: 10000 });
-      } catch {
-        /* already stopped */
-      }
-    }
-    if (orphans.length > 0) {
-      logger.info(
-        { count: orphans.length, names: orphans },
-        'Stopped orphaned containers',
-      );
-    }
-  } catch (err) {
-    logger.warn({ err }, 'Failed to clean up orphaned containers');
   }
 }
 
@@ -9810,13 +9532,13 @@ export async function startCliClaw(
   if (SELF_CHECK_MODE) {
     logger.info('CLI_CLAW_SELF_CHECK=1, skipping CLI launch cwd validation');
   } else {
-    const launchCwdValidation = validateHostWorkspaceCwd(LAUNCH_CWD, {
+    const launchCwdValidation = validateWorkspaceCwd(LAUNCH_CWD, {
       fieldLabel: 'CLI launch cwd',
     });
     if ('error' in launchCwdValidation) {
       logger.error(
         { launchCwd: LAUNCH_CWD, error: launchCwdValidation.error },
-        'Invalid CLI launch cwd for host workspace defaults',
+        'Invalid CLI launch cwd for workspace defaults',
       );
       throw new Error(launchCwdValidation.error);
     }
@@ -9858,12 +9580,6 @@ export async function startCliClaw(
       ipcWatcherManager?.closeAll();
     } catch (err) {
       logger.warn({ err }, 'Error closing IPC watchers');
-    }
-
-    try {
-      shutdownTerminals();
-    } catch (err) {
-      logger.warn({ err }, 'Error shutting down terminals');
     }
 
     // Stop periodic buffer, then persist streaming text to DB + clean buffer files.
@@ -10203,7 +9919,6 @@ export async function startCliClaw(
     getRegisteredGroups: () => registeredGroups,
     getSessions: () => sessions,
     processGroupMessages,
-    ensureTerminalContainerStarted,
     formatMessages,
     getLastAgentTimestamp: () => lastAgentTimestamp,
     advanceAcceptedCursor: setLastAgentCursor,
@@ -10359,7 +10074,7 @@ export async function startCliClaw(
     24 * 60 * 60 * 1000,
   );
 
-  // Skills auto-sync: periodically sync host skills to all admin users
+  // Skills auto-sync: periodically sync local skills to all admin users
   let skillAutoSyncTimer: ReturnType<typeof setInterval> | null = null;
 
   function startSkillAutoSync(): void {
@@ -10443,25 +10158,9 @@ export async function startCliClaw(
     }
   }, 60 * 1000);
 
-  await ensureDockerRunning();
+  await cleanupOrphanedAgentProcesses();
 
   queue.setProcessMessagesFn(processGroupMessages);
-  queue.setHostModeChecker((groupJid: string) => {
-    const baseJid = stripVirtualJidSuffix(groupJid);
-
-    let group = registeredGroups[baseJid];
-    if (!group) {
-      const dbGroup = getRegisteredGroup(baseJid);
-      if (dbGroup) {
-        registeredGroups[baseJid] = dbGroup;
-        group = dbGroup;
-      }
-    }
-    if (!group) return false;
-
-    const { effectiveGroup } = resolveEffectiveGroup(group);
-    return effectiveGroup.executionMode === 'host';
-  });
   queue.setSerializationKeyResolver((groupJid: string) => {
     // Agent virtual JIDs: {chatJid}#agent:{agentId} → separate serialization key
     const agentSep = groupJid.indexOf('#agent:');
@@ -10505,7 +10204,7 @@ export async function startCliClaw(
     );
     setTyping(groupJid, false);
   });
-  // Billing: user-level concurrent container limit
+  // Billing: user-level concurrent process limit
   queue.setUserConcurrentLimitChecker((groupJid: string) => {
     if (!isBillingEnabled()) return { allowed: true };
     const baseJid = stripVirtualJidSuffix(groupJid);
@@ -10513,9 +10212,9 @@ export async function startCliClaw(
     if (!group?.created_by) return { allowed: true };
     const owner = getUserById(group.created_by);
     if (!owner || owner.role === 'admin') return { allowed: true };
-    const limit = getUserConcurrentContainerLimit(owner.id, owner.role);
+    const limit = getUserConcurrentProcessLimit(owner.id, owner.role);
     if (limit == null) return { allowed: true };
-    // Count active containers for this user (including task virtual JIDs)
+    // Count active processes for this user (including task virtual JIDs)
     let userActive = 0;
     for (const [jid, g] of Object.entries(registeredGroups)) {
       if (g.created_by !== owner.id) continue;
@@ -10547,7 +10246,7 @@ export async function startCliClaw(
       onProcess: (
         groupJid,
         proc,
-        containerName,
+        processName,
         groupFolder,
         displayName,
         taskRunId,
@@ -10555,7 +10254,7 @@ export async function startCliClaw(
         queue.registerProcess(
           groupJid,
           proc,
-          containerName,
+          processName,
           groupFolder,
           displayName,
           undefined, // agentId

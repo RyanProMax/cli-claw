@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { AlertTriangle, Box, Loader2, Monitor, Settings2 } from 'lucide-react';
+import { useState } from 'react';
+import { AlertTriangle, Loader2, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -10,21 +10,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { useAuthStore } from '../../stores/auth';
 import { useChatStore } from '../../stores/chat';
-import {
-  normalizeWorkspaceRuntimeSelection,
-  type WorkspaceAgentType,
-  type WorkspaceExecutionMode,
-} from '../../lib/workspace-runtime';
+import type { GroupRuntimeAgentType } from '../../types';
 
 interface WorkspaceRuntimeDialogProps {
   open: boolean;
   jid: string;
   name: string;
-  isHome?: boolean;
-  currentAgentType?: WorkspaceAgentType;
-  currentExecutionMode?: WorkspaceExecutionMode;
+  currentAgentType?: GroupRuntimeAgentType;
   onClose: () => void;
 }
 
@@ -32,33 +25,17 @@ export function WorkspaceRuntimeDialog({
   open,
   jid,
   name,
-  isHome = false,
   currentAgentType = 'openai',
-  currentExecutionMode = 'container',
   onClose,
 }: WorkspaceRuntimeDialogProps) {
   const updateGroupRuntime = useChatStore((s) => s.updateGroupRuntime);
-  const canHostExec = useAuthStore((s) => s.user?.role === 'admin');
-  const [executionMode, setExecutionMode] = useState<WorkspaceExecutionMode>(currentExecutionMode);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setExecutionMode(currentExecutionMode);
-  }, [open, currentExecutionMode]);
-
-  const normalized = normalizeWorkspaceRuntimeSelection({
-    agentType: 'openai',
-    executionMode,
-  });
-  const executionModeLocked = isHome;
 
   const handleConfirm = async () => {
     setLoading(true);
     try {
       await updateGroupRuntime(jid, {
-        agent_type: normalized.agentType,
-        execution_mode: normalized.executionMode,
+        agent_type: currentAgentType || 'openai',
       });
       onClose();
     } catch (err) {
@@ -77,7 +54,7 @@ export function WorkspaceRuntimeDialog({
             运行时设置
           </DialogTitle>
           <DialogDescription>
-            调整「{name}」的 Agent 基座与执行模式。
+            查看「{name}」的 Agent 基座配置。
           </DialogDescription>
         </DialogHeader>
 
@@ -87,102 +64,24 @@ export function WorkspaceRuntimeDialog({
             <div className="rounded-lg border p-3">
               <div className="text-sm font-medium">Codex/OpenAI</div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                支持 Docker 与宿主机两种执行模式，复用 Codex CLI 登录态
+                使用本地 Codex/OpenAI runner 进程，复用服务端登录态
               </p>
             </div>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">执行模式</label>
-            <div className="space-y-2">
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${executionModeLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent/50'}`}>
-                <input
-                  type="radio"
-                  name="runtime_execution_mode"
-                  value="container"
-                  checked={normalized.executionMode === 'container'}
-                  onChange={() => setExecutionMode('container')}
-                  disabled={executionModeLocked}
-                  className="mt-0.5 accent-primary"
-                />
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <Box className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Docker 模式</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {executionModeLocked ? '主工作区执行模式由系统按用户角色固定' : '在隔离容器中运行'}
-                  </p>
-                </div>
-              </label>
-              <label className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${executionModeLocked || !canHostExec ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-accent/50'}`}>
-                <input
-                  type="radio"
-                  name="runtime_execution_mode"
-                  value="host"
-                  checked={normalized.executionMode === 'host'}
-                  onChange={() => {
-                    if (executionModeLocked || !canHostExec) return;
-                    setExecutionMode('host');
-                  }}
-                  disabled={executionModeLocked || !canHostExec}
-                  className="mt-0.5 accent-primary"
-                />
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <Monitor className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">宿主机模式</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {executionModeLocked
-                      ? '主工作区执行模式由系统按用户角色固定'
-                      : canHostExec
-                        ? '直接在服务器上执行'
-                        : '需要管理员权限'}
-                  </p>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {isHome && (
-            <div className="flex items-start gap-2 p-2 bg-muted/60 border border-border rounded-lg">
-              <AlertTriangle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                主工作区 Agent 基座固定为 Codex/OpenAI，执行模式由系统按用户角色固定。
-              </p>
-            </div>
-          )}
 
           <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
             <AlertTriangle className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-sky-700 dark:text-sky-300">
-              Codex/OpenAI runtime 需要服务端已完成 <code>codex login</code>。
+              模型、推理强度和速度档位请通过 <code>/openai</code> 调整。
             </p>
           </div>
-
-          {normalized.executionMode === 'host' && (
-            <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-              <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                宿主机模式下 Agent 可访问完整文件系统和工具链，请谨慎使用。
-              </p>
-            </div>
-          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={loading}>
-            取消
+            关闭
           </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={
-              loading ||
-              (normalized.agentType === currentAgentType &&
-                normalized.executionMode === currentExecutionMode)
-            }
-          >
+          <Button onClick={handleConfirm} disabled={loading}>
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             保存
           </Button>

@@ -4,24 +4,24 @@
 
 ## 定位
 
-Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 Web 与 IM 消息，在宿主机或 Docker 中运行 Agent，并把流式结果、文件和任务状态回传给用户。
+Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 Web 与 IM 消息，通过本地 Agent 进程运行 Codex/OpenAI，并把流式结果、文件和任务状态回传给用户。
 
 ## 分层
 
 - `src/cli.ts`：外部 launcher，负责仓库自带 / 同名发布包中的 `cli-claw start` / `help` / `version` 参数分发。
 - `src/app-root.ts`：安装包根目录、launch cwd 与应用资源定位的边界解析。
 - `src/index.ts`：主服务 bootstrap，负责接入消息、队列调度、持久化、WebSocket 推送和系统协调。
-- `src/container-runner.ts`：执行编排层，负责选择宿主机进程或 Docker 容器，并管理 runner 生命周期。
+- `src/agent/runner/container-runner.ts`：执行编排层，负责启动本地 Agent 进程并管理 runner 生命周期。文件名暂保留历史路径，不代表 Docker 执行。
 - `container/agent-runner/src/index.ts`：运行时执行层，负责驱动底层 CLI runtime、流式事件、MCP 工具和上下文压缩。
 - `web/src/pages/ChatPage.tsx`：Web 展示层，把流式消息、工作区状态和运行时设置组合成用户界面。
 
 ## 核心数据流
 
 1. 操作者在 shell 中执行 `cli-claw start`，launcher 解析命令并启动 backend bootstrap。
-2. backend 启动时校验当前启动目录，并为缺失 `customCwd` 的 host 工作区物化默认执行目录。
+2. backend 启动时校验当前启动目录，并为缺失 `customCwd` 的 admin 主工作区物化默认执行目录。
 3. 用户从 Web 或 IM 入口发来消息。
 4. 主进程写入数据库，并把请求按工作区路由到队列。
-5. 队列启动宿主机进程或 Docker 容器，再由 `agent-runner` 根据工作区 runtime 配置选择 Codex / OpenAI Runtime。
+5. 队列启动本地 Agent 进程，再由 `agent-runner` 根据工作区 runtime 配置选择 Codex / OpenAI Runtime。
 6. runner 产生文本、思考、工具调用和任务事件，经 stdout / IPC 回到主进程。
 7. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 8. 任务调度、技能安装和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
@@ -44,14 +44,14 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 - `registered_groups` 是工作区入口注册表；`jid` 是 Web / IM 对外入口，`folder` 是平台存储和默认主会话的目录键。
 - 多个入口可以共享同一个 `folder`。它们是否共享上下文，不看 channel 类型，而看是否最终路由到同一个 conversation identity。
 - Workspace 主对话使用 `(folder, 空 agentId)`；Web 创建的 conversation agent 使用 `(folder, agentId)`，消息落到虚拟 JID `{workspaceJid}#agent:{agentId}`。
-- Runner 只是一次正在执行的底层 CLI 进程或容器，不是长期会话身份。
+- Runner 只是一次正在执行的底层 CLI 进程，不是长期会话身份。
 
 ## 边界
 
-- `package root`、`launch cwd`、`~/.cli-claw` 数据目录是三条不同边界：前者负责资源定位，中者负责 host 默认执行目录，后者负责平台持久化。
+- `package root`、`launch cwd`、`~/.cli-claw` 数据目录是三条不同边界：前者负责资源定位，中者负责 admin 主工作区默认执行目录，后者负责平台持久化。
 - 主进程拥有认证、权限、路由、持久化和多用户隔离。
 - 用户隔离优先：非 admin 只能访问自己的工作区和被授权共享的工作区。
 - `groups/{folder}` 是工作区内容边界；`registered_groups` 是入口边界，多个入口共享同一 `folder` 时不代表多个独立项目。
 - runner 拥有具体 CLI 会话、工具调用和流式事件生产。
 - 记忆机制与上下文保留见 `docs/MEMORY.md`。
-- 运行时矩阵、`agentType` / `executionMode` 约束和外部运行时契约见 `docs/RUNTIME.md`。
+- 运行时矩阵、`agentType` 约束和外部运行时契约见 `docs/RUNTIME.md`。

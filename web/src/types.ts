@@ -17,7 +17,6 @@ export interface GroupInfo {
   deletable?: boolean;
   lastMessage?: string;
   lastMessageTime?: string;
-  execution_mode?: 'container' | 'host';
   model?: string | null;
   reasoning_effort?: string | null;
   speed_tier?: string | null;

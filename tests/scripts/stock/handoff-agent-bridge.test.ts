@@ -115,7 +115,6 @@ function createCliClawDb(dbPath: string): void {
       context_mode TEXT DEFAULT 'isolated',
       execution_type TEXT DEFAULT 'agent',
       script_command TEXT,
-      execution_mode TEXT,
       next_run TEXT,
       last_run TEXT,
       last_result TEXT,
@@ -186,7 +185,6 @@ describe('stock handoff agent bridge', () => {
       schedule_value: string;
       context_mode: string;
       execution_type: string;
-      execution_mode: string | null;
       next_run: string;
       status: string;
       created_at: string;
@@ -204,7 +202,6 @@ describe('stock handoff agent bridge', () => {
       schedule_value: '2026-05-16T12:05:00.000Z',
       context_mode: 'isolated',
       execution_type: 'agent',
-      execution_mode: 'host',
       next_run: '2026-05-16T12:05:00.000Z',
       status: 'active',
       created_at: '2026-05-16T12:05:00.000Z',

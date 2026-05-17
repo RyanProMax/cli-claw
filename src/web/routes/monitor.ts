@@ -1,71 +1,12 @@
-import { execFile, spawn } from 'child_process';
-import readline from 'readline';
-import { promisify } from 'util';
-
 import { Hono } from 'hono';
-import { resolveAppPath } from '../../core/app-root.js';
+
 import type { Variables } from '../context.js';
-import { authMiddleware, systemConfigMiddleware } from '../middleware/auth.js';
+import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../../domain/types.js';
-import {
-  isHostExecutionGroup,
-  hasHostExecutionPermission,
-  canAccessGroup,
-  getWebDeps,
-} from '../context.js';
-import {
-  getRegisteredGroup,
-  getRouterState,
-  hasContainerModeGroups,
-} from '../../storage/db.js';
-import { CONTAINER_IMAGE } from '../../core/config.js';
+import { canAccessGroup, getWebDeps } from '../context.js';
+import { getRegisteredGroup, getRouterState } from '../../storage/db.js';
 import { getSystemSettings } from '../../core/runtime/config.js';
 import { logger } from '../../core/logger.js';
-
-const execFileAsync = promisify(execFile);
-
-async function getDockerImageId(): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync(
-      'docker',
-      ['images', CONTAINER_IMAGE, '--format', '{{.ID}}'],
-      { timeout: 5000 },
-    );
-    return stdout.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-// --- Docker build state ---
-
-let buildState: {
-  building: boolean;
-  startedAt: number | null;
-  startedBy: string | null;
-  logs: string[];
-  result: { success: boolean; error?: string } | null;
-} = {
-  building: false,
-  startedAt: null,
-  startedBy: null,
-  logs: [],
-  result: null,
-};
-
-// --- Dependency injection (avoid circular imports) ---
-
-let broadcastLog: ((line: string) => void) | null = null;
-let broadcastComplete: ((success: boolean, error?: string) => void) | null =
-  null;
-
-export function injectMonitorDeps(deps: {
-  broadcastDockerBuildLog: (line: string) => void;
-  broadcastDockerBuildComplete: (success: boolean, error?: string) => void;
-}) {
-  broadcastLog = deps.broadcastDockerBuildLog;
-  broadcastComplete = deps.broadcastDockerBuildComplete;
-}
 
 const monitorRoutes = new Hono<{ Variables: Variables }>();
 
@@ -79,7 +20,6 @@ monitorRoutes.get('/health', async (c) => {
 
   let healthy = true;
 
-  // 检查数据库连通性
   try {
     getRouterState('last_timestamp');
     checks.database = true;
@@ -88,10 +28,9 @@ monitorRoutes.get('/health', async (c) => {
     logger.warn({ err }, '健康检查：数据库连接失败');
   }
 
-  // 检查队列状态
   try {
     const deps = getWebDeps();
-    if (deps && deps.queue) {
+    if (deps?.queue) {
       checks.queue = true;
     } else {
       healthy = false;
@@ -101,29 +40,13 @@ monitorRoutes.get('/health', async (c) => {
     logger.warn({ err }, '健康检查：队列不可用');
   }
 
-  // 进程运行时间
   checks.uptime = Math.floor(process.uptime());
 
-  const status = healthy ? 'healthy' : 'unhealthy';
-  const statusCode = healthy ? 200 : 503;
-
-  return c.json({ status, checks }, statusCode);
+  return c.json(
+    { status: healthy ? 'healthy' : 'unhealthy', checks },
+    healthy ? 200 : 503,
+  );
 });
-
-async function checkDockerImageExists(): Promise<boolean> {
-  // Skip Docker check entirely when no groups use container mode
-  if (!hasContainerModeGroups()) return false;
-  try {
-    const { stdout } = await execFileAsync(
-      'docker',
-      ['images', CONTAINER_IMAGE, '--format', '{{.ID}}'],
-      { timeout: 10000 },
-    );
-    return stdout.trim().length > 0;
-  } catch {
-    return false;
-  }
-}
 
 // GET /api/status - 获取系统状态
 monitorRoutes.get('/status', authMiddleware, async (c) => {
@@ -131,166 +54,38 @@ monitorRoutes.get('/status', authMiddleware, async (c) => {
   if (!deps) return c.json({ error: 'Server not initialized' }, 500);
 
   const authUser = c.get('user') as AuthUser;
-  const isAdmin = hasHostExecutionPermission(authUser);
+  const isAdmin = authUser.role === 'admin';
   const queueStatus = deps.queue.getStatus();
 
-  // 监控页面属于系统管理功能，admin 可见所有群组状态（不受工作区隔离约束）
   const filteredGroups = isAdmin
     ? queueStatus.groups
     : queueStatus.groups.filter((g) => {
         const group = getRegisteredGroup(g.jid);
         if (!group) return false;
-        if (isHostExecutionGroup(group)) return false;
         return canAccessGroup({ id: authUser.id, role: authUser.role }, group);
       });
 
-  const dockerImageExists = await checkDockerImageExists();
-
-  // For non-admin users, derive aggregate metrics from their own filtered groups only
-  // to prevent leaking global system load information across users
-  let activeContainers: number;
-  let queueLength: number;
-  if (isAdmin) {
-    activeContainers = queueStatus.activeContainerCount;
-    queueLength = queueStatus.waitingCount;
-  } else {
-    activeContainers = filteredGroups.filter((g) => g.active).length;
-    // Filter waiting groups by user ownership
-    queueLength = queueStatus.waitingGroupJids.filter((jid) => {
-      const group = getRegisteredGroup(jid);
-      if (!group) return false;
-      if (isHostExecutionGroup(group)) return false;
-      return canAccessGroup({ id: authUser.id, role: authUser.role }, group);
-    }).length;
-  }
+  const activeProcesses = isAdmin
+    ? queueStatus.activeProcessCount
+    : filteredGroups.filter((g) => g.active).length;
+  const queueLength = isAdmin
+    ? queueStatus.waitingCount
+    : queueStatus.waitingGroupJids.filter((jid) => {
+        const group = getRegisteredGroup(jid);
+        if (!group) return false;
+        return canAccessGroup({ id: authUser.id, role: authUser.role }, group);
+      }).length;
 
   return c.json({
-    activeContainers,
-    activeHostProcesses: isAdmin
-      ? queueStatus.activeHostProcessCount
-      : undefined,
-    activeTotal: isAdmin ? queueStatus.activeCount : activeContainers,
-    maxConcurrentContainers: getSystemSettings().maxConcurrentContainers,
-    maxConcurrentHostProcesses: isAdmin
-      ? getSystemSettings().maxConcurrentHostProcesses
+    activeProcesses,
+    activeTotal: isAdmin ? queueStatus.activeCount : activeProcesses,
+    maxConcurrentProcesses: isAdmin
+      ? getSystemSettings().maxConcurrentProcesses
       : undefined,
     queueLength,
     uptime: Math.floor(process.uptime()),
     groups: filteredGroups,
-    dockerImageExists,
-    dockerBuildInProgress: buildState.building,
-    dockerBuildLogs:
-      isAdmin && buildState.building ? buildState.logs.slice(-50) : undefined,
-    dockerBuildResult: isAdmin ? buildState.result : undefined,
   });
 });
-
-// POST /api/docker/build - 构建 Docker 镜像（仅 admin，异步启动 + WS 推送进度）
-monitorRoutes.post(
-  '/docker/build',
-  authMiddleware,
-  systemConfigMiddleware,
-  async (c) => {
-    if (buildState.building) {
-      return c.json(
-        {
-          error: 'Docker image build already in progress',
-          startedAt: buildState.startedAt,
-          startedBy: buildState.startedBy,
-        },
-        409,
-      );
-    }
-
-    const authUser = c.get('user') as AuthUser;
-    const buildScript = resolveAppPath('container', 'build.sh');
-
-    buildState = {
-      building: true,
-      startedAt: Date.now(),
-      startedBy: authUser.username,
-      logs: [],
-      result: null,
-    };
-    logger.info(
-      { startedBy: authUser.username },
-      'Docker image build requested via API',
-    );
-
-    // Spawn build process asynchronously
-    const proc = spawn('bash', [buildScript], {
-      cwd: resolveAppPath('container'),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    // 10-minute timeout
-    const timeout = setTimeout(
-      () => {
-        proc.kill('SIGKILL');
-        const errMsg = 'Docker build timed out after 10 minutes';
-        logger.error(errMsg);
-        buildState.building = false;
-        buildState.result = { success: false, error: errMsg };
-        broadcastLog?.(errMsg);
-        broadcastComplete?.(false, errMsg);
-      },
-      10 * 60 * 1000,
-    );
-
-    const pushLine = (line: string) => {
-      buildState.logs.push(line);
-      // Keep last 200 lines in memory
-      if (buildState.logs.length > 200) {
-        buildState.logs = buildState.logs.slice(-200);
-      }
-      broadcastLog?.(line);
-    };
-
-    // Read stdout and stderr line by line
-    if (proc.stdout) {
-      const rl = readline.createInterface({ input: proc.stdout });
-      rl.on('line', pushLine);
-    }
-    if (proc.stderr) {
-      const rl = readline.createInterface({ input: proc.stderr });
-      rl.on('line', pushLine);
-    }
-
-    proc.on('close', (code) => {
-      clearTimeout(timeout);
-      const success = code === 0;
-      const error = success
-        ? undefined
-        : `Build process exited with code ${code}`;
-      if (success) {
-        logger.info('Docker image build completed');
-      } else {
-        logger.error({ code }, 'Docker image build failed');
-      }
-      buildState.building = false;
-      buildState.result = { success, error };
-      broadcastComplete?.(success, error);
-    });
-
-    proc.on('error', (err) => {
-      clearTimeout(timeout);
-      const errorMsg = err.message;
-      logger.error({ err }, 'Docker image build process error');
-      buildState.building = false;
-      buildState.result = { success: false, error: errorMsg };
-      broadcastComplete?.(false, errorMsg);
-    });
-
-    // Return immediately with 202 Accepted
-    return c.json(
-      {
-        accepted: true,
-        message:
-          'Docker image build started. Progress will be streamed via WebSocket.',
-      },
-      202,
-    );
-  },
-);
 
 export default monitorRoutes;

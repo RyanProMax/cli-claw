@@ -1,6 +1,6 @@
 # MEMORY
 
-> 本文负责：Cli Claw 的消息数据库、runtime session 和上下文边界。工作区 / conversation 身份见 `docs/ARCHITECTURE.md`；运行时 session 与 host cwd 见 `docs/RUNTIME.md`。
+> 本文负责：Cli Claw 的消息数据库、runtime session 和上下文边界。工作区 / conversation 身份见 `docs/ARCHITECTURE.md`；运行时 session 与 workspace cwd 见 `docs/RUNTIME.md`。
 
 ## 心智模型
 

@@ -2459,7 +2459,7 @@ let _defaultInstance: FeishuConnection | null = null;
 
 export interface ConnectFeishuOptions {
   onReady: () => void;
-  /** 收到消息后调用，让主模块自动注册未知的飞书聊天到主容器 */
+  /** 收到消息后调用，让主模块自动注册未知的飞书聊天到主工作区 */
   onNewChat?: (chatJid: string, chatName: string) => void;
   /** 热重连时设置：丢弃 create_time 早于此时间戳（epoch ms）的消息，避免处理渠道关闭期间的堆积消息 */
   ignoreMessagesBefore?: number;

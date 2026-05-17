@@ -83,7 +83,7 @@ export function McpServersPage() {
                 {isAdmin && (
                   <Button variant="outline" onClick={handleSync} disabled={syncing}>
                     <Download size={18} className={syncing ? 'animate-pulse' : ''} />
-                    {syncing ? '同步中...' : '同步宿主机'}
+                    {syncing ? '同步中...' : '同步本机'}
                   </Button>
                 )}
                 <Button variant="outline" onClick={loadServers} disabled={loading}>
@@ -156,7 +156,7 @@ export function McpServersPage() {
                   {syncedServers.length > 0 && (
                     <div>
                       <h2 className="text-sm font-semibold text-muted-foreground mb-3">
-                        宿主机同步 ({syncedServers.length})
+                        本机同步 ({syncedServers.length})
                       </h2>
                       <div className="space-y-2">
                         {syncedServers.map((server) => (

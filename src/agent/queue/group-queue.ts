@@ -1,4 +1,4 @@
-import { ChildProcess, exec, execFile } from 'child_process';
+import { ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -43,7 +43,7 @@ interface GroupState {
   pendingMessages: boolean;
   pendingTasks: QueuedTask[];
   process: ChildProcess | null;
-  containerName: string | null;
+  processName: string | null;
   displayName: string | null;
   groupFolder: string | null;
   agentId: string | null;
@@ -72,18 +72,15 @@ type ActiveGroupState = GroupState & { groupFolder: string };
 export class GroupQueue {
   private groups = new Map<string, GroupState>();
   private activeCount = 0;
-  private activeContainerCount = 0;
-  private activeHostProcessCount = 0;
   private waitingGroups = new Set<string>();
   private contextOverflowGroups = new Set<string>(); // 跟踪发生上下文溢出的 group
   private processMessagesFn: ((groupJid: string) => Promise<boolean>) | null =
     null;
   private shuttingDown = false;
-  private hostModeChecker: ((groupJid: string) => boolean) | null = null;
   private serializationKeyResolver: ((groupJid: string) => string) | null =
     null;
   private onMaxRetriesExceededFn: ((groupJid: string) => void) | null = null;
-  private onContainerExitFn: ((groupJid: string) => void) | null = null;
+  private onRunnerExitFn: ((groupJid: string) => void) | null = null;
   private onRunnerStateChangeFn:
     | ((chatJid: string, state: 'idle' | 'running') => void)
     | null = null;
@@ -106,7 +103,7 @@ export class GroupQueue {
         pendingMessages: false,
         pendingTasks: [],
         process: null,
-        containerName: null,
+        processName: null,
         displayName: null,
         groupFolder: null,
         agentId: null,
@@ -128,10 +125,6 @@ export class GroupQueue {
     this.processMessagesFn = fn;
   }
 
-  setHostModeChecker(fn: (groupJid: string) => boolean): void {
-    this.hostModeChecker = fn;
-  }
-
   setSerializationKeyResolver(fn: (groupJid: string) => string): void {
     this.serializationKeyResolver = fn;
   }
@@ -140,8 +133,8 @@ export class GroupQueue {
     this.onMaxRetriesExceededFn = fn;
   }
 
-  setOnContainerExit(fn: (groupJid: string) => void): void {
-    this.onContainerExitFn = fn;
+  setOnRunnerExit(fn: (groupJid: string) => void): void {
+    this.onRunnerExitFn = fn;
   }
 
   setOnRunnerStateChange(
@@ -186,10 +179,6 @@ export class GroupQueue {
     state.retryCount = 0;
   }
 
-  private isHostMode(groupJid: string): boolean {
-    return this.hostModeChecker?.(groupJid) ?? false;
-  }
-
   private getSerializationKey(groupJid: string): string {
     const key = this.serializationKeyResolver?.(groupJid)?.trim();
     return key || groupJid;
@@ -205,14 +194,11 @@ export class GroupQueue {
   }
 
   private hasCapacityFor(groupJid: string): boolean {
-    const isHost = this.isHostMode(groupJid);
-    const systemCapacity = isHost
-      ? this.activeHostProcessCount <
-        getSystemSettings().maxConcurrentHostProcesses
-      : this.activeContainerCount < getSystemSettings().maxConcurrentContainers;
+    const systemCapacity =
+      this.activeCount < getSystemSettings().maxConcurrentProcesses;
     if (!systemCapacity) return false;
 
-    // User-level concurrent container limit (billing)
+    // User-level concurrent process limit (billing)
     if (this.userConcurrentLimitFn) {
       const result = this.userConcurrentLimitFn(groupJid);
       if (!result.allowed) return false;
@@ -356,7 +342,7 @@ export class GroupQueue {
   /**
    * Returns true if the active runner for this group (or its serialization
    * sibling) is currently executing a scheduled task rather than user messages.
-   * Used by the message loop to avoid prematurely interrupting task containers.
+   * Used by the message loop to avoid prematurely interrupting task runners.
    */
   isActiveRunnerTask(groupJid: string): boolean {
     const state = this.resolveActiveState(groupJid);
@@ -462,15 +448,12 @@ export class GroupQueue {
     }
 
     if (!this.hasCapacityFor(groupJid)) {
-      const isHost = this.isHostMode(groupJid);
       state.pendingMessages = true;
       this.waitingGroups.add(groupJid);
       logger.debug(
         {
           groupJid,
-          activeContainerCount: this.activeContainerCount,
-          activeHostProcessCount: this.activeHostProcessCount,
-          mode: isHost ? 'host' : 'container',
+          activeCount: this.activeCount,
         },
         'At concurrency limit, message queued',
       );
@@ -533,7 +516,6 @@ export class GroupQueue {
     }
 
     if (!this.hasCapacityFor(groupJid)) {
-      const isHost = this.isHostMode(groupJid);
       state.pendingTasks.push({
         id: taskId,
         groupJid,
@@ -547,9 +529,7 @@ export class GroupQueue {
           groupJid,
           taskId,
           priority,
-          activeContainerCount: this.activeContainerCount,
-          activeHostProcessCount: this.activeHostProcessCount,
-          mode: isHost ? 'host' : 'container',
+          activeCount: this.activeCount,
         },
         'At concurrency limit, task queued',
       );
@@ -570,7 +550,7 @@ export class GroupQueue {
   registerProcess(
     groupJid: string,
     proc: ChildProcess,
-    containerName: string | null,
+    processName: string | null,
     groupFolder?: string,
     displayName?: string,
     agentId?: string,
@@ -579,7 +559,7 @@ export class GroupQueue {
   ): void {
     const state = this.getGroup(groupJid);
     state.process = proc;
-    state.containerName = containerName;
+    state.processName = processName;
     state.displayName = displayName || null;
     if (groupFolder) state.groupFolder = groupFolder;
     state.agentId = agentId || null;
@@ -616,11 +596,11 @@ export class GroupQueue {
   }
 
   /**
-   * Send a follow-up message to the active container via IPC file.
+   * Send a follow-up message to the active runner via IPC file.
    *
    * Returns:
    * - 'sent': message written to IPC (包括 queryInFlight 时的排队写入)
-   * - 'no_active': no active container/process for this group
+   * - 'no_active': no active runner process for this group
    */
   sendMessage(
     groupJid: string,
@@ -655,7 +635,7 @@ export class GroupQueue {
     }
 
     // If the active runner is a scheduled task (not a user-message handler),
-    // do NOT pipe user messages into it.  The task container has no knowledge
+    // do NOT pipe user messages into it. The task runner has no knowledge
     // of the user conversation context, so any IPC message injected here would
     // be silently consumed (or confusingly processed) by the task agent and the
     // reply would never reach the user.  Returning 'no_active' causes the
@@ -712,7 +692,7 @@ export class GroupQueue {
   }
 
   /**
-   * Signal the active container to wind down by writing a close sentinel.
+   * Signal the active runner to wind down by writing a close sentinel.
    */
   closeStdin(groupJid: string): void {
     const state = this.resolveActiveState(groupJid);
@@ -826,7 +806,7 @@ export class GroupQueue {
   }
 
   /**
-   * Signal the active container to finish the current query and then exit.
+   * Signal the active runner to finish the current query and then exit.
    * Unlike _close which exits immediately from waitForIpcMessage, _drain
    * is only checked after the current query completes, ensuring one-question-
    * one-answer semantics.
@@ -843,7 +823,7 @@ export class GroupQueue {
   }
 
   /**
-   * Close all active containers/processes so they restart with fresh credentials.
+   * Close all active runner processes so they restart with fresh credentials.
    * Called after OAuth token refresh to ensure running agents pick up new tokens.
    */
   closeAllActiveForCredentialRefresh(): number {
@@ -867,7 +847,7 @@ export class GroupQueue {
     if (closed > 0) {
       logger.info(
         { closed },
-        'Closed active containers/processes for credential refresh',
+        'Closed active runner processes for credential refresh',
       );
     }
     return closed;
@@ -878,7 +858,7 @@ export class GroupQueue {
    * sibling chats that share a serialized runner/folder).
    *
    * Writes a _interrupt sentinel that agent-runner detects and calls
-   * query.interrupt(). The container stays alive and accepts new messages.
+   * query.interrupt(). The runner stays alive and accepts new messages.
    */
   interruptQuery(groupJid: string): boolean {
     // Use resolveActiveState so sibling JIDs (feishu/telegram sharing the
@@ -909,9 +889,8 @@ export class GroupQueue {
   }
 
   /**
-   * Force-stop a group's active container and clear queued work.
-   * Returns a promise that resolves when the container has fully exited
-   * (state.active becomes false), not just when docker stop completes.
+   * Force-stop a group's active runner and clear queued work.
+   * Resolves when the runner has fully exited and state.active becomes false.
    */
   async stopGroup(
     groupJid: string,
@@ -940,14 +919,7 @@ export class GroupQueue {
 
     if (force) {
       // Force mode: skip graceful stop, go straight to kill
-      if (state.containerName) {
-        const name = state.containerName;
-        await new Promise<void>((resolve) => {
-          execFile('docker', ['kill', name], { timeout: 5000 }, () =>
-            resolve(),
-          );
-        });
-      } else if (state.process && !state.process.killed) {
+      if (state.process && !state.process.killed) {
         killProcessTree(state.process, 'SIGKILL');
       }
 
@@ -958,15 +930,8 @@ export class GroupQueue {
         }
       }
     } else {
-      // Graceful mode: try SIGTERM/docker stop first
-      if (state.containerName) {
-        const name = state.containerName;
-        await new Promise<void>((resolve) => {
-          execFile('docker', ['stop', name], { timeout: 10000 }, () =>
-            resolve(),
-          );
-        });
-      } else if (state.process && !state.process.killed) {
+      // Graceful mode: write _close first, then SIGTERM if needed.
+      if (state.process && !state.process.killed) {
         killProcessTree(state.process, 'SIGTERM');
       }
 
@@ -979,23 +944,8 @@ export class GroupQueue {
         }
       }
 
-      // Graceful stop timed out — force-kill the container
-      if (state.active && state.containerName) {
-        const killName = state.containerName;
-        logger.warn(
-          { groupJid: targetJid, containerName: killName },
-          'Graceful stop timed out, force-killing container',
-        );
-        await new Promise<void>((resolve) => {
-          execFile('docker', ['kill', killName], { timeout: 5000 }, () =>
-            resolve(),
-          );
-        });
-        const killStart = Date.now();
-        while (state.active && Date.now() - killStart < 5000) {
-          await new Promise((r) => setTimeout(r, 100));
-        }
-      } else if (state.active && state.process) {
+      // Graceful stop timed out — force-kill the runner process.
+      if (state.active && state.process) {
         killProcessTree(state.process, 'SIGKILL');
         const killStart = Date.now();
         while (state.active && Date.now() - killStart < 5000) {
@@ -1007,14 +957,14 @@ export class GroupQueue {
     if (state.active) {
       logger.error(
         { groupJid: targetJid },
-        'Container still active after force-kill in stopGroup',
+        'Runner process still active after force-kill in stopGroup',
       );
-      throw new Error(`Failed to stop container for group ${targetJid}`);
+      throw new Error(`Failed to stop runner process for group ${targetJid}`);
     }
   }
 
   /**
-   * Stop the running container, wait for it to finish, then start a new one.
+   * Stop the running runner, wait for it to finish, then start a new one.
    */
   async restartGroup(groupJid: string): Promise<void> {
     const activeRunner = this.findActiveRunnerFor(groupJid);
@@ -1039,22 +989,15 @@ export class GroupQueue {
       // before sending SIGTERM.  The IPC poll interval is 500ms, so 2s is
       // generous enough for the agent to finish its current operation and
       // emit the final session ID.
-      if (state.groupFolder && !state.containerName) {
+      if (state.groupFolder) {
         const graceStart = Date.now();
         while (state.active && Date.now() - graceStart < 2000) {
           await new Promise((r) => setTimeout(r, 200));
         }
       }
 
-      // Stop docker container / host process
-      if (state.containerName) {
-        const name = state.containerName;
-        await new Promise<void>((resolve) => {
-          execFile('docker', ['stop', name], { timeout: 15000 }, () =>
-            resolve(),
-          );
-        });
-      } else if (state.active && state.process && !state.process.killed) {
+      // Stop runner process.
+      if (state.active && state.process && !state.process.killed) {
         killProcessTree(state.process, 'SIGTERM');
       }
 
@@ -1068,22 +1011,9 @@ export class GroupQueue {
       if (state.active) {
         logger.warn(
           { groupJid: targetJid },
-          'Timeout waiting for container to stop, force-killing',
+          'Timeout waiting for runner process to stop, force-killing',
         );
-        // Force-kill the container to avoid conflicts with the new one
-        if (state.containerName) {
-          const killName = state.containerName;
-          await new Promise<void>((resolve) => {
-            execFile('docker', ['kill', killName], { timeout: 5000 }, () =>
-              resolve(),
-            );
-          });
-          // Brief wait for process cleanup after force-kill
-          const killStart = Date.now();
-          while (state.active && Date.now() - killStart < 5000) {
-            await new Promise((r) => setTimeout(r, 200));
-          }
-        } else if (state.process) {
+        if (state.process) {
           killProcessTree(state.process, 'SIGKILL');
           const killStart = Date.now();
           while (state.active && Date.now() - killStart < 5000) {
@@ -1095,13 +1025,15 @@ export class GroupQueue {
       if (state.active) {
         logger.error(
           { groupJid: targetJid },
-          'Container still active after force-kill in restartGroup',
+          'Runner process still active after force-kill in restartGroup',
         );
-        throw new Error(`Failed to restart container for group ${targetJid}`);
+        throw new Error(
+          `Failed to restart runner process for group ${targetJid}`,
+        );
       }
 
-      // Trigger a fresh container start
-      logger.info({ groupJid: targetJid }, 'Restarting container');
+      // Trigger a fresh runner start
+      logger.info({ groupJid: targetJid }, 'Restarting runner process');
       this.enqueueMessageCheck(groupJid);
     } finally {
       state.restarting = false;
@@ -1113,7 +1045,6 @@ export class GroupQueue {
     reason: 'messages' | 'drain',
   ): Promise<void> {
     const state = this.getGroup(groupJid);
-    const isHostMode = this.isHostMode(groupJid);
     state.active = true;
     state.activeRunnerIsTask = false;
     state.activeTaskPriority = null;
@@ -1122,20 +1053,14 @@ export class GroupQueue {
     state.pendingMessages = false;
     this.waitingGroups.delete(groupJid);
     this.activeCount++;
-    if (isHostMode) {
-      this.activeHostProcessCount++;
-    } else {
-      this.activeContainerCount++;
-    }
 
     logger.debug(
       {
         groupJid,
         reason,
         activeCount: this.activeCount,
-        activeContainerCount: this.activeContainerCount,
       },
-      'Starting container for group',
+      'Starting runner for group',
     );
 
     try {
@@ -1193,27 +1118,22 @@ export class GroupQueue {
       state.lastActivityAt = null;
       state.queryInFlight = false;
       state.process = null;
-      state.containerName = null;
+      state.processName = null;
       state.displayName = null;
       state.groupFolder = null;
       state.agentId = null;
       state.taskRunId = null;
       state.activeSourceJid = null;
       this.activeCount--;
-      if (isHostMode) {
-        this.activeHostProcessCount--;
-      } else {
-        this.activeContainerCount--;
-      }
       try {
         this.onRunnerStateChangeFn?.(groupJid, 'idle');
       } catch (err) {
         logger.error({ groupJid, err }, 'onRunnerStateChange(idle) failed');
       }
       try {
-        this.onContainerExitFn?.(groupJid);
+        this.onRunnerExitFn?.(groupJid);
       } catch (err) {
-        logger.error({ groupJid, err }, 'onContainerExit callback failed');
+        logger.error({ groupJid, err }, 'onRunnerExit callback failed');
       }
       try {
         this.drainGroup(groupJid);
@@ -1225,7 +1145,6 @@ export class GroupQueue {
 
   private async runTask(groupJid: string, task: QueuedTask): Promise<void> {
     const state = this.getGroup(groupJid);
-    const isHostMode = this.isHostMode(groupJid);
     state.active = true;
     state.activeRunnerIsTask = true;
     state.activeTaskPriority = task.priority;
@@ -1233,18 +1152,12 @@ export class GroupQueue {
     state.queryInFlight = false;
     this.waitingGroups.delete(groupJid);
     this.activeCount++;
-    if (isHostMode) {
-      this.activeHostProcessCount++;
-    } else {
-      this.activeContainerCount++;
-    }
 
     logger.debug(
       {
         groupJid,
         taskId: task.id,
         activeCount: this.activeCount,
-        activeContainerCount: this.activeContainerCount,
       },
       'Running queued task',
     );
@@ -1280,26 +1193,21 @@ export class GroupQueue {
       state.lastActivityAt = null;
       state.queryInFlight = false;
       state.process = null;
-      state.containerName = null;
+      state.processName = null;
       state.displayName = null;
       state.groupFolder = null;
       state.agentId = null;
       state.taskRunId = null;
       this.activeCount--;
-      if (isHostMode) {
-        this.activeHostProcessCount--;
-      } else {
-        this.activeContainerCount--;
-      }
       try {
         this.onRunnerStateChangeFn?.(groupJid, 'idle');
       } catch (err) {
         logger.error({ groupJid, err }, 'onRunnerStateChange(idle) failed');
       }
       try {
-        this.onContainerExitFn?.(groupJid);
+        this.onRunnerExitFn?.(groupJid);
       } catch (err) {
-        logger.error({ groupJid, err }, 'onContainerExit callback failed');
+        logger.error({ groupJid, err }, 'onRunnerExit callback failed');
       }
       try {
         this.drainGroup(groupJid);
@@ -1381,7 +1289,7 @@ export class GroupQueue {
 
     // Then pending messages — but NOT if a retry timer is already scheduled.
     // When processMessagesFn() fails, both scheduleRetry() and drainGroup() fire.
-    // Without this guard, drainGroup would start a new container while the retry
+    // Without this guard, drainGroup would start a new runner while the retry
     // timer later starts another, causing duplicate processing of the same messages.
     if (state.pendingMessages && !state.retryTimer) {
       this.runForGroup(groupJid, 'drain');
@@ -1438,8 +1346,7 @@ export class GroupQueue {
 
   getStatus(): {
     activeCount: number;
-    activeContainerCount: number;
-    activeHostProcessCount: number;
+    activeProcessCount: number;
     waitingCount: number;
     waitingGroupJids: string[];
     groups: Array<{
@@ -1447,7 +1354,7 @@ export class GroupQueue {
       active: boolean;
       pendingMessages: boolean;
       pendingTasks: number;
-      containerName: string | null;
+      processName: string | null;
       displayName: string | null;
     }>;
   } {
@@ -1456,7 +1363,7 @@ export class GroupQueue {
       active: boolean;
       pendingMessages: boolean;
       pendingTasks: number;
-      containerName: string | null;
+      processName: string | null;
       displayName: string | null;
     }> = [];
 
@@ -1466,15 +1373,14 @@ export class GroupQueue {
         active: state.active,
         pendingMessages: state.pendingMessages,
         pendingTasks: state.pendingTasks.length,
-        containerName: state.containerName,
+        processName: state.processName,
         displayName: state.displayName,
       });
     }
 
     return {
       activeCount: this.activeCount,
-      activeContainerCount: this.activeContainerCount,
-      activeHostProcessCount: this.activeHostProcessCount,
+      activeProcessCount: this.activeCount,
       waitingCount: this.waitingGroups.size,
       waitingGroupJids: Array.from(this.waitingGroups),
       groups,
@@ -1484,7 +1390,7 @@ export class GroupQueue {
   async shutdown(gracePeriodMs: number): Promise<void> {
     this.shuttingDown = true;
 
-    // 清除所有待执行的重试定时器，防止关闭期间容器重启
+    // 清除所有待执行的重试定时器，防止关闭期间 runner 重启
     for (const state of this.groups.values()) {
       this.clearRetryTimer(state);
     }
@@ -1492,10 +1398,9 @@ export class GroupQueue {
     logger.info(
       {
         activeCount: this.activeCount,
-        activeContainerCount: this.activeContainerCount,
         gracePeriodMs,
       },
-      'GroupQueue shutting down, waiting for containers',
+      'GroupQueue shutting down, waiting for runner processes',
     );
 
     // Wait for activeCount to reach zero or timeout
@@ -1504,38 +1409,18 @@ export class GroupQueue {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    // If still active after grace period, force stop all containers
+    // If still active after grace period, force stop all runner processes
     if (this.activeCount > 0) {
       logger.warn(
         {
           activeCount: this.activeCount,
-          activeContainerCount: this.activeContainerCount,
         },
-        'Grace period expired, force stopping containers',
+        'Grace period expired, force stopping runner processes',
       );
 
       const stopPromises: Promise<void>[] = [];
       for (const [jid, state] of this.groups) {
-        if (state.containerName) {
-          const containerName = state.containerName;
-          const promise = new Promise<void>((resolve) => {
-            execFile(
-              'docker',
-              ['stop', '-t', '5', containerName],
-              { timeout: 10000 },
-              (err) => {
-                if (err) {
-                  logger.error(
-                    { jid, containerName, err },
-                    'Failed to stop container',
-                  );
-                }
-                resolve();
-              },
-            );
-          });
-          stopPromises.push(promise);
-        } else if (state.process && !state.process.killed) {
+        if (state.process && !state.process.killed) {
           const proc = state.process;
           const promise = new Promise<void>((resolve) => {
             if (!killProcessTree(proc, 'SIGTERM')) {

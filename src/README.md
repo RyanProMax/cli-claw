@@ -8,12 +8,11 @@ Backend source is organized by product responsibility. New code should go into t
 - `cli.ts` is the published `cli-claw` command entrypoint.
 - `reset-admin.ts` is an operator utility entrypoint.
 - `self-restart-watchdog.ts` is the child process entrypoint used by managed restarts.
-- `pty-worker.cjs` is the CommonJS worker used by terminal execution.
 
 ## Modules
 
 - `agent/`
-  - Agent execution, queueing, scheduled task execution, runner output parsing, host/container dispatch, and script execution.
+  - Agent execution, queueing, scheduled task execution, runner output parsing, local process dispatch, and script execution.
 - `core/`
   - App primitives: config, auth, permissions, schemas, logging, billing, self-check/restart, runtime settings, and workspace security helpers.
 - `domain/`
@@ -29,7 +28,7 @@ Backend source is organized by product responsibility. New code should go into t
 - `storage/`
   - SQLite connection, schema, migrations, and persistence facade. `db.ts` is intentionally still a facade until repositories are split.
 - `web/`
-  - Hono app assembly, WebSocket state/context, auth middleware, HTTP routes, and terminal manager.
+  - Hono app assembly, WebSocket state/context, auth middleware, and HTTP routes.
 
 ## Rules For Future Changes
 

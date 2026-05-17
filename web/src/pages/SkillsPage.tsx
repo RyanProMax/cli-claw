@@ -76,7 +76,7 @@ export function SkillsPage() {
       const result = await syncHostSkills();
       const { added, updated, deleted, skipped } = result.stats;
       setSyncMessage(
-        `同步完成：新增 ${added}，更新 ${updated}，删除 ${deleted}，跳过 ${skipped}（共 ${result.total} 个宿主机技能）`
+        `同步完成：新增 ${added}，更新 ${updated}，删除 ${deleted}，跳过 ${skipped}（共 ${result.total} 个本机技能）`
       );
       setTimeout(() => setSyncMessage(null), 5000);
     } catch {
@@ -113,7 +113,7 @@ export function SkillsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Timer size={16} className="text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">宿主机技能同步</span>
+                <span className="text-sm font-medium text-foreground">本机技能同步</span>
                 {syncStatus.lastSyncAt && (
                   <span className="text-xs text-muted-foreground">
                     （上次：{new Date(syncStatus.lastSyncAt).toLocaleString()}）
@@ -236,7 +236,7 @@ export function SkillsPage() {
                   {syncedUserSkills.length > 0 && (
                     <div>
                       <h2 className="text-sm font-semibold text-muted-foreground mb-3">
-                        宿主机同步 ({syncedUserSkills.length})
+                        本机同步 ({syncedUserSkills.length})
                       </h2>
                       <div className="space-y-2">
                         {syncedUserSkills.map((skill) => (

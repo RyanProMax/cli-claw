@@ -13,8 +13,8 @@ function PlanCard({ plan, isCurrent, fmt }: { plan: BillingPlan; isCurrent: bool
     resources.push({ label: 'IM 通道', value: `${plan.max_im_channels}` });
   if (plan.max_mcp_servers != null)
     resources.push({ label: 'MCP Server', value: `${plan.max_mcp_servers}` });
-  if (plan.max_concurrent_containers != null)
-    resources.push({ label: '并发容器', value: `${plan.max_concurrent_containers}` });
+  if (plan.max_concurrent_processes != null)
+    resources.push({ label: '并发进程', value: `${plan.max_concurrent_processes}` });
   if (plan.max_storage_mb != null)
     resources.push({ label: '存储', value: `${plan.max_storage_mb} MB` });
 

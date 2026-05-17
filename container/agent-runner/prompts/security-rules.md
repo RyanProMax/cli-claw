@@ -19,7 +19,6 @@
 
 - `sudo`
 - 全局包安装：`pip install`、`npm install -g`
-- Docker 容器操作：`docker run`、`docker exec`
 - 防火墙规则变更：`iptables`、`ufw`
 - PM2 进程启动、停止、删除
 - 系统服务管理：`systemctl start/stop/restart`
