@@ -13,6 +13,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
    - 记忆机制与上下文保留：`docs/MEMORY.md`
    - 模块树与目录定位：`docs/MODULE.md`
    - 命令行为与入口差异：`docs/COMMAND.md`
+   - E2E / live smoke 凭据发现与安全边界：`docs/E2E.md`
 3. 复杂任务开始前，先查看 `PLANS/ROADMAP.md` 了解长期跟进项，再读取并更新本地 `PLANS/ACTIVE.md`；若 `ACTIVE.md` 不存在，先基于 `PLANS/_TEMPLATE.md` 创建。
 4. 涉及实施、review、handoff 时，分别对照 `RUNBOOKS/Implement.md`、`RUNBOOKS/Review.md`、`RUNBOOKS/Handoff.md`。
 
@@ -24,6 +25,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 - `docs/MEMORY.md`：记忆层级、触发时机、存储路径、读取方式与增长边界。
 - `docs/ENGINEERING.md`：实施流程、验证、review/commit 规则。
 - `docs/COMMAND.md`：统一命令注册表与入口差异。
+- `docs/E2E.md`：E2E / live smoke 入口、凭据发现方式与真实外部消息测试边界。
 
 ## 输出语言
 

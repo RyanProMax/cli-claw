@@ -1,7 +1,7 @@
 .PHONY: dev dev-backend dev-web build build-shared build-backend build-web start \
        typecheck typecheck-backend typecheck-web typecheck-agent-runner \
        format format-check install clean reset-init sync-types \
-       backup restore help _ensure-docker-image
+       backup restore help
 
 # ─── Runtime Detection ──────────────────────────────────────
 # 优先使用 bun（跳过编译、启动更快），fallback 到 npm + tsx + node
@@ -24,9 +24,8 @@ CLI_CLAW ?= cli-claw
 
 # ─── Development ─────────────────────────────────────────────
 
-dev: ## 启动前后端（首次自动安装依赖和构建容器镜像）
+dev: ## 启动前后端（首次自动安装依赖并编译 agent-runner）
 	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
-	@$(MAKE) _ensure-docker-image
 	@$(PKG) --prefix container/agent-runner run build --silent 2>/dev/null || $(PKG) --prefix container/agent-runner run build
 	@echo "🚀 使用 $(PKG) 启动..."
 ifeq ($(HAS_BUN),1)
@@ -60,7 +59,6 @@ build-web: build-shared ## 仅编译前端
 
 start: ## 一键启动生产环境
 	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
-	@$(MAKE) _ensure-docker-image
 	@$(MAKE) build-shared
 	@$(MAKE) build-backend
 	@NEED_SYNC=0; \
@@ -147,33 +145,6 @@ format: ## 格式化代码
 format-check: ## 检查代码格式
 	$(PKG) run format:check
 
-# ─── Docker Image ─────────────────────────────────────────────
-
-# Docker 镜像源文件：Dockerfile、entrypoint.sh、agent-runner 源码
-DOCKER_SRC := container/Dockerfile container/entrypoint.sh container/agent-runner/package.json container/agent-runner/tsconfig.json $(wildcard container/agent-runner/src/*.ts) $(wildcard container/agent-runner/prompts/*) $(wildcard shared/*.ts) shared/tsconfig.json
-
-_ensure-docker-image: ## (内部) 检测 Docker 镜像是否需要构建/重建
-	@if command -v docker >/dev/null 2>&1; then \
-	  if ! docker image inspect cli-claw-agent:latest >/dev/null 2>&1; then \
-	    echo "🐳 Docker 镜像不存在，正在构建..."; \
-	    ./container/build.sh; \
-	  elif [ ! -f .docker-build-sentinel ]; then \
-	    echo "🐳 Docker 镜像 sentinel 缺失，正在重建..."; \
-	    ./container/build.sh; \
-	  else \
-	    STALE=0; \
-	    for f in $(DOCKER_SRC); do \
-	      if [ "$$f" -nt .docker-build-sentinel ]; then STALE=1; break; fi; \
-	    done; \
-	    if [ "$$STALE" = "1" ]; then \
-	      echo "🐳 检测到容器源码变更，正在重建 Docker 镜像..."; \
-	      ./container/build.sh; \
-	    else \
-	      echo "✅ Docker 镜像无需重建"; \
-	    fi; \
-	  fi; \
-	fi
-
 # ─── Shared Types ────────────────────────────────────────────
 
 sync-types: ## 同步 shared/ 下仍采用镜像复制的公共源
@@ -183,8 +154,6 @@ sync-types: ## 同步 shared/ 下仍采用镜像复制的公共源
 
 install: ## 安装全部依赖并编译 agent-runner
 	$(PKG) install
-	@# node-pty 的 spawn-helper 预构建二进制可能缺少可执行权限，导致 PTY 模式失败
-	@chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true
 	cd container/agent-runner && $(PKG) install
 	cd container/agent-runner && $(PKG) run build
 	cd web && $(PKG) install
@@ -258,8 +227,7 @@ restore: ## 从 cli-claw-backup-*.tar.gz 恢复数据（用法：make restore �
 	echo "✅ 数据恢复完成"; \
 	echo ""; \
 	echo "后续步骤："; \
-	echo "  1. 如需 Docker 容器支持：./container/build.sh"; \
-	echo "  2. 启动服务：make start"
+	echo "  1. 启动服务：make start"
 
 # ─── Help ────────────────────────────────────────────────────
 
