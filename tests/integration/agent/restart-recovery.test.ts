@@ -438,6 +438,80 @@ describe('restart recovery cursor handling', () => {
     expect(advanceAcceptedCursor).not.toHaveBeenCalled();
   });
 
+  test('web-injected IM chat messages keep active runner reply route on the IM channel', async () => {
+    createTempHome();
+    vi.stubEnv('HOME', tempHomes[tempHomes.length - 1]!);
+    const { handleWebUserMessageForTests, setWebDepsForTests } =
+      await import('../../../src/web/app.ts');
+    const { initDatabase, ensureChatExists, setRegisteredGroup } = await import(
+      '../../../src/storage/db.ts'
+    );
+    const chatJid = 'feishu:oc_smoke';
+    const group = {
+      name: 'Feishu Smoke',
+      folder: 'main',
+      added_at: '2026-05-17T09:00:00.000Z',
+      executionMode: 'host',
+      agentType: 'openai',
+      activation_mode: 'auto',
+    } as const;
+    const sendMessage = vi.fn(
+      (
+        _chatJid: string,
+        _text: string,
+        _images: unknown,
+        onSent?: () => void,
+      ) => {
+        onSent?.();
+        return 'sent';
+      },
+    );
+    const updateReplyRoute = vi.fn();
+
+    initDatabase();
+    setRegisteredGroup(chatJid, group);
+    ensureChatExists(chatJid);
+
+    setWebDepsForTests({
+      queue: {
+        sendMessage,
+        enqueueMessageCheck: vi.fn(),
+        markIpcInjectedMessage: vi.fn(),
+      },
+      getRegisteredGroups: () => ({ [chatJid]: group }),
+      getSessions: () => ({}),
+      processGroupMessages: vi.fn(),
+      ensureTerminalContainerStarted: vi.fn(),
+      formatMessages: (messages: any[]) =>
+        messages.map((message) => message.content).join('\n'),
+      getLastAgentTimestamp: () => ({}),
+      advanceAcceptedCursor: vi.fn(),
+      setLastAgentTimestamp: vi.fn(),
+      advanceGlobalCursor: vi.fn(),
+      updateReplyRoute,
+    } as any);
+
+    const result = await handleWebUserMessageForTests(
+      chatJid,
+      'active route smoke',
+      undefined,
+      'user',
+      'User',
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateReplyRoute).toHaveBeenCalledOnce();
+    const [folder, sourceJid, lifecycleMessages] =
+      updateReplyRoute.mock.calls[0]!;
+    expect(folder).toBe('main');
+    expect(sourceJid).toBe(chatJid);
+    expect(lifecycleMessages).toHaveLength(1);
+    expect(lifecycleMessages[0]).toMatchObject({
+      chat_jid: chatJid,
+      content: 'active route smoke',
+    });
+  });
+
   test('selects only the leading contiguous source batch for a primary turn', async () => {
     const { selectLeadingSourceTurnMessages } = await loadIndexModule();
     const messages = [

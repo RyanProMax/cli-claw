@@ -10234,8 +10234,12 @@ export async function startCliClaw(
     clearImFailCounts: (jid: string) => {
       imHealthCheckFailCounts.delete(jid);
     },
-    updateReplyRoute: (folder: string, sourceJid: string | null) => {
-      activeRouteUpdaters.get(folder)?.(sourceJid);
+    updateReplyRoute: (
+      folder: string,
+      sourceJid: string | null,
+      lifecycleMessages?: NewMessage[],
+    ) => {
+      activeRouteUpdaters.get(folder)?.(sourceJid, lifecycleMessages);
     },
     shouldBypassActiveRuntimeIpc: ({ chatJid, groupFolder, messages }) => {
       const policy = resolvePrimaryRuntimeSessionPolicy({

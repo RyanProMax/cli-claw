@@ -68,7 +68,11 @@ export interface WebDeps {
     chat_mode?: string;
   } | null>;
   clearImFailCounts?: (jid: string) => void;
-  updateReplyRoute?: (folder: string, sourceJid: string | null) => void;
+  updateReplyRoute?: (
+    folder: string,
+    sourceJid: string | null,
+    lifecycleMessages?: NewMessage[],
+  ) => void;
   shouldBypassActiveRuntimeIpc?: (input: {
     chatJid: string;
     groupFolder: string;

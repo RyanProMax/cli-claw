@@ -100,6 +100,7 @@ import {
   normalizeImageAttachments,
   toAgentImages,
 } from '../messaging/attachments.js';
+import { getChannelType } from '../messaging/channel.js';
 import {
   executeRuntimeWorkspaceCommand,
   resolveRuntimeWorkspaceTarget,
@@ -731,9 +732,15 @@ async function handleWebUserMessage(
       formatted,
       images,
       () => {
-        // IPC write succeeded — update reply route for home groups.
-        // Web messages have no IM source, so clear the IM route.
-        updateRoute?.(group.folder, null);
+        // IPC write succeeded. Web workspaces clear IM routing; IM-backed
+        // workspaces keep their channel JID so active-runner replies still
+        // return to the originating channel.
+        const replySourceJid = getChannelType(chatJid) ? chatJid : null;
+        updateRoute?.(
+          group.folder,
+          replySourceJid,
+          replySourceJid ? [messageForAgent] : undefined,
+        );
       },
       { timestamp, id: messageId },
     );
