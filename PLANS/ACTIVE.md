@@ -161,7 +161,7 @@ Review status：
 - 通过：`./scripts/review.sh`
 - 通过：`curl -fsS http://127.0.0.1:3000/api/health`，返回 `{"status":"healthy","checks":{"database":true,"queue":true,...}}`
 - 通过：`npm run release:check`
-- 未运行 live Feishu smoke：当前环境没有 `FEISHU_*` / `LARK_*` credentials。
+- 通过：`FEISHU_LIVE_E2E=1 FEISHU_LIVE_USER_ID=665eb9d5-6fa8-4d08-acef-93a79c3a6aea FEISHU_LIVE_CHAT_ID=oc_98f0bb60f284627bf20f9386704f8c82 npm test -- tests/live/feishu/message-smoke.test.ts`
 
 Review status：
 - passed（`git diff --check` 退出码 0；TODO/FIXME/调试残留扫描为空；剩余旧字段命中仅限破坏性迁移、断言测试、删除说明或 Vite 传递依赖）
@@ -183,8 +183,8 @@ Review status：
 - 无，任务已完成。
 
 当前状态：
-- validation、review、health check、release gate 均已通过；live Feishu smoke 因当前 shell 未配置凭据未运行。
-- 当前运行服务的 `appRoot` 是 `/Users/ryan/projects/cli-claw`，本轮改动位于隔离 worktree `/Users/ryan/.config/superpowers/worktrees/cli-claw/remove-execution-mode`；未在本轮直接重启线上服务，合并或切换服务代码后再执行 `cli-claw restart`。
+- validation、review、health check、release gate、当前飞书私聊 live smoke 均已通过。
+- 当前运行服务的 `appRoot` 是 `/Users/ryan/projects/cli-claw`；已 fast-forward 到 `2aac5f2` 并通过 repo-local fallback `bun src/cli.ts restart` 完成安全重启，`/api/health` 返回 healthy。
 
 已完成的关键改动：
 - 删除 workspace / task 的 `execution_mode` API 字段和数据库活跃 schema 字段。
@@ -194,4 +194,4 @@ Review status：
 - 将 `host-cwd` 内部命名收敛为 `workspace-cwd`，让 `custom_cwd` 表达为 workspace cwd 契约。
 
 下一步：
-- 提交本轮破坏性重构改动；合并到当前服务使用的 checkout 后，按 `docs/COMMAND.md` 的安全重启路径执行 `cli-claw restart`。
+- 无待办；后续若需要推送远端或开 PR，再从当前 `main` 提交继续。
