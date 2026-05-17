@@ -14,7 +14,7 @@ Backend source is organized by product responsibility. New code should go into t
 - `agent/`
   - Agent execution, queueing, scheduled task execution, runner output parsing, local process dispatch, and script execution.
 - `core/`
-  - App primitives: config, auth, permissions, schemas, logging, billing, self-check/restart, runtime settings, and workspace security helpers.
+  - App primitives: config, auth, permissions, schemas, logging, billing, self-check/restart, model settings, and workspace security helpers.
 - `domain/`
   - Shared backend domain types. `types.ts` remains broad for now and should be split gradually by domain.
 - `mcp/`

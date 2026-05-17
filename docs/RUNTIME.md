@@ -4,7 +4,7 @@
 
 ## 概览
 
-Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由本地 Agent 进程执行。当前物理包路径仍是 `container/agent-runner/`，但它只是 runner package 路径，不代表 Docker 或执行模式。
+Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由本地 Agent 进程执行。当前物理包路径仍是 `container/agent-runner/`，但它只是 runner package 路径，不代表另一条执行边界。
 
 服务进程本身由外部 launcher `cli-claw start` 启动；源码仓库与同名 `cli-claw` 发布包复用同一个 launcher 入口，负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。源码仓库的 `bun start` / `npm start` 会委托到 `bun src/cli.ts start`，因此仍属于 launcher 入口；`bun src/index.ts` 只用于 direct backend 调试。
 
@@ -36,11 +36,11 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 | ----------- | ----------------- | --------------- | ---------------------------------- | -------------------------------------------------------------------------------- |
 | `openai`    | OpenAI Agents SDK | 本地 Agent 进程 | Codex CLI 登录态（`codex login`）  | backend 通过 Codex app-server 解析 token，runner 使用隔离文件 session 保存上下文 |
 
-## 选择规则
+## 配置规则
 
-- 工作区的 `agentType` 决定底层 CLI runtime。当前只支持 `openai`。
-- 所有工作区都通过同一条本地 Agent 进程链路执行；不再有执行模式选择、Docker 构建、Web 终端或模式徽标。
-- 工作区 runtime 配置统一包括：
+- 工作区的 `agentType` 固定为 `openai`，用于标识当前唯一的底层 CLI runtime。
+- 所有工作区都通过同一条本地 Agent 进程链路执行；Web 只保留 `/openai` 模型、推理强度和速度配置入口。
+- 工作区 Codex/OpenAI 配置统一包括：
   - `agentType`
   - `model`
   - `reasoningEffort`
@@ -48,9 +48,9 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - admin 主工作区默认使用 `cli-claw start` 的启动目录作为 `customCwd`；其他工作区默认使用 `~/.cli-claw/groups/{folder}`，除非 admin 设置 `customCwd`。
 - `cli-claw start` 会先校验启动目录是否满足 workspace allowlist，再把该目录物化到缺失 `customCwd` 的 admin 主工作区。
 
-## 工作区级 runtime 优先级
+## 工作区级模型配置优先级
 
-运行时参数按以下顺序生效：
+模型和推理参数按以下顺序生效：
 
 1. 工作区显式设置的 `model` / `reasoningEffort` / `speedTier`
 2. 对 `openai` 而言，backend 会显式读取与 runner 相同的进程级 fallback：

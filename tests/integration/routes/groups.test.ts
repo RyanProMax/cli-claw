@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   fsReaddirSync: vi.fn(),
   fsRmSync: vi.fn(),
   materializeWorkspaceDefaultCwd: vi.fn(),
-  resetWorkspaceRuntimeState: vi.fn(),
+  resetWorkspaceAgentSessionState: vi.fn(),
   validateWorkspaceCwd: vi.fn(),
   resolveEffectiveWorkspaceCwd: vi.fn(),
   clearSessionJsonlFiles: vi.fn(),
@@ -138,7 +138,7 @@ vi.mock('../../../src/web/app.js', () => ({
 
 vi.mock('../../../src/agent/runner/workspace-reset.js', () => ({
   clearSessionJsonlFiles: mocks.clearSessionJsonlFiles,
-  resetWorkspaceRuntimeState: mocks.resetWorkspaceRuntimeState,
+  resetWorkspaceAgentSessionState: mocks.resetWorkspaceAgentSessionState,
 }));
 
 vi.mock('node:fs', async () => {
@@ -201,7 +201,7 @@ describe('group runtime stale-build guard', () => {
     mocks.canModifyGroup.mockReturnValue(true);
     mocks.hasLocalWorkspacePermission.mockReturnValue(true);
     mocks.stopGroup.mockResolvedValue(undefined);
-    mocks.resetWorkspaceRuntimeState.mockImplementation(
+    mocks.resetWorkspaceAgentSessionState.mockImplementation(
       async (deps: any, jid: string, group: any) => {
         await mocks.stopGroup(jid, { force: true });
         delete deps.getSessions()[group.folder];

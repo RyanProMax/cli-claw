@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 vi.mock('../../../../src/agent/runner/workspace-reset.ts', () => ({
-  resetWorkspaceRuntimeState: async (
+  resetWorkspaceAgentSessionState: async (
     deps: {
       queue: {
         stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown>;

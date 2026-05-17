@@ -496,7 +496,7 @@ export function MessageInput({
         draftTimerRef.current = undefined;
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : '运行时切换失败';
+      const message = err instanceof Error ? err.message : '配置更新失败';
       setSendError(message);
       toast.error(message);
     } finally {
@@ -700,7 +700,7 @@ export function MessageInput({
                   </div>
                 ) : (
                   <div className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-                    当前工作区暂不支持该运行时命令，请使用 /openai 配置 Codex/OpenAI
+                    当前工作区暂不支持该配置命令，请使用 /openai 配置 Codex/OpenAI
                   </div>
                 )}
               </div>

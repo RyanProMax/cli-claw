@@ -7,7 +7,7 @@ import {
 } from '../../../container/agent-runner/src/openai-agent-runtime.ts';
 import { formatOpenAiRuntimeError } from '../../../container/agent-runner/src/openai-agent-stream.ts';
 
-describe('OpenAI agent runtime settings', () => {
+describe('OpenAI agent model settings', () => {
   test('maps UI fast speed to Codex priority service tier', () => {
     expect(resolveCodexServiceTier('fast')).toBe('priority');
     expect(resolveCodexServiceTier(' FAST ')).toBe('priority');

@@ -8,7 +8,7 @@ import { FilePanel } from './FilePanel';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { PromptDialog } from '@/components/common/PromptDialog';
-import { ArrowLeft, FolderOpen, Link, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Puzzle, Server, Sun, Terminal, Users, X } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Link, ListTree, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Puzzle, Server, Sun, Users, X } from 'lucide-react';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
 import { useTheme } from '../../hooks/useTheme';
 import { cn } from '@/lib/utils';
@@ -334,14 +334,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                 </span>
               </>
             )}
-            {!isWaiting && group.agent_type && (
-              <>
-                <span className="text-muted-foreground/40">·</span>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${group.agent_type === 'openai' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-muted text-muted-foreground border-border'}`}>
-                  {group.agent_type === 'openai' ? 'Codex/OpenAI' : 'Legacy runtime'}
-                </span>
-              </>
-            )}
             {isOwnHome && imStatus && (imStatus.feishu || imStatus.telegram) && (
               <>
                 <span className="text-muted-foreground/40">·</span>
@@ -377,7 +369,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           title={displayMode === 'chat' ? '紧凑模式' : '对话模式'}
           aria-label={displayMode === 'chat' ? '切换到紧凑模式' : '切换到对话模式'}
         >
-          {displayMode === 'chat' ? <Terminal className="w-5 h-5" /> : <MessageSquare className="w-5 h-5" />}
+          {displayMode === 'chat' ? <ListTree className="w-5 h-5" /> : <MessageSquare className="w-5 h-5" />}
         </button>
         {/* Desktop: toggle side panel */}
         <button
@@ -651,8 +643,8 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         onConfirm={handleResetSession}
         title="清除上下文"
         message={resetAgentId
-          ? '将清除该子对话的运行时会话上下文，下次发送消息时将开始全新会话。聊天记录不受影响。'
-          : '将清除运行时会话上下文并停止运行中的工作区进程，下次发送消息时将开始全新会话。聊天记录不受影响。'
+          ? '将清除该子对话的 Agent 会话上下文，下次发送消息时将开始全新会话。聊天记录不受影响。'
+          : '将清除 Agent 会话上下文并停止运行中的工作区进程，下次发送消息时将开始全新会话。聊天记录不受影响。'
         }
         confirmText="清除"
         confirmVariant="danger"

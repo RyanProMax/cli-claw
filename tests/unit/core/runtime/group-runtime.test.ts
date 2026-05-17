@@ -19,7 +19,7 @@ describe('normalizeAgentType', () => {
 });
 
 describe('buildEffectiveGroupFromHomeSibling', () => {
-  test('inherits openai runtime settings and cwd from the sibling home workspace', () => {
+  test('inherits openai model settings and cwd from the sibling home workspace', () => {
     expect(
       buildEffectiveGroupFromHomeSibling(
         {

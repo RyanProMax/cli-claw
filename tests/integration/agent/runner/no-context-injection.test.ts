@@ -146,7 +146,7 @@ describe('no cli-claw context injection', () => {
     expect(runnerSource).not.toContain('mcpServers');
   });
 
-  test('agent runner does not load MCP servers from workspace runtime settings', () => {
+  test('agent runner does not load MCP servers from workspace model settings', () => {
     const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
 
     expect(runnerSource).not.toContain('loadWorkspaceMcpServers');

@@ -21,7 +21,7 @@ import {
   resolveEffectiveRuntimeIdentity,
 } from './group-runtime.js';
 import { logger } from '../logger.js';
-import { resetWorkspaceRuntimeState } from '../../agent/runner/workspace-reset.js';
+import { resetWorkspaceAgentSessionState } from '../../agent/runner/workspace-reset.js';
 import type {
   AgentType,
   RegisteredGroup,
@@ -259,7 +259,7 @@ export function buildRuntimeStatusReply(
   return lines.join('\n');
 }
 
-async function updateWorkspaceRuntime(
+async function updateWorkspaceModelConfig(
   target: ResolvedRuntimeWorkspaceTarget,
   deps: RuntimeCommandDeps,
   patch: Partial<
@@ -281,7 +281,7 @@ async function updateWorkspaceRuntime(
       nextSpeedTier:
         patch.speedTier ?? target.runtimeOwnerGroup.speedTier ?? null,
     },
-    'Persisting workspace runtime update',
+    'Persisting workspace model config update',
   );
   const updated: RegisteredGroup = {
     ...target.runtimeOwnerGroup,
@@ -289,7 +289,7 @@ async function updateWorkspaceRuntime(
   };
 
   deps.setGroup(target.runtimeOwnerJid, updated);
-  await resetWorkspaceRuntimeState(
+  await resetWorkspaceAgentSessionState(
     {
       queue: deps.queue,
       getSessions: deps.getSessions,
@@ -304,7 +304,7 @@ async function updateWorkspaceRuntime(
       persistedReasoningEffort: updated.reasoningEffort ?? null,
       persistedSpeedTier: updated.speedTier ?? null,
     },
-    'Persisted workspace runtime update',
+    'Persisted workspace model config update',
   );
 }
 
@@ -333,7 +333,7 @@ async function handleModelCommand(
     return `当前工作区模型已经是 ${preset}`;
   }
 
-  await updateWorkspaceRuntime(target, deps, { model: preset });
+  await updateWorkspaceModelConfig(target, deps, { model: preset });
   return `已将当前工作区模型切换为 ${preset}`;
 }
 
@@ -358,7 +358,7 @@ async function handleEffortCommand(
     return `当前工作区思考强度已经是 ${preset}`;
   }
 
-  await updateWorkspaceRuntime(target, deps, { reasoningEffort: preset });
+  await updateWorkspaceModelConfig(target, deps, { reasoningEffort: preset });
   return `已将当前工作区思考强度切换为 ${preset}`;
 }
 
@@ -382,7 +382,7 @@ async function handleSpeedCommand(
     return `当前工作区速度已经是 ${preset}`;
   }
 
-  await updateWorkspaceRuntime(target, deps, { speedTier: preset });
+  await updateWorkspaceModelConfig(target, deps, { speedTier: preset });
   return `已将当前工作区速度切换为 ${preset}`;
 }
 

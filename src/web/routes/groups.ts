@@ -321,7 +321,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
 import { removeFlowArtifacts } from '../../core/workspace/file-manager.js';
 import {
   clearSessionJsonlFiles,
-  resetWorkspaceRuntimeState,
+  resetWorkspaceAgentSessionState,
 } from '../../agent/runner/workspace-reset.js';
 export { removeFlowArtifacts };
 
@@ -668,7 +668,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         400,
       );
     }
-    const runtimeSettingsChanged =
+    const modelSettingsChanged =
       normalizeAgentType(existing.agentType) !== nextAgentType ||
       (existing.model ?? null) !== nextModel ||
       (existing.reasoningEffort ?? null) !== nextReasoningEffort ||
@@ -708,9 +708,9 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     if (name) updateChatName(jid, name);
     deps.getRegisteredGroups()[jid] = persistedGroup;
 
-    if (runtimeSettingsChanged) {
+    if (modelSettingsChanged) {
       try {
-        await resetWorkspaceRuntimeState(deps, jid, persistedGroup);
+        await resetWorkspaceAgentSessionState(deps, jid, persistedGroup);
       } catch (err) {
         logger.error(
           {

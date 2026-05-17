@@ -25,7 +25,7 @@ export function clearSessionJsonlFiles(folder: string, agentId?: string): void {
   }
 }
 
-export async function resetWorkspaceRuntimeState(
+export async function resetWorkspaceAgentSessionState(
   deps: {
     queue: {
       stopGroup: (jid: string, opts: { force: boolean }) => Promise<unknown>;

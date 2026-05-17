@@ -47,7 +47,7 @@ function AskUserQuestionCard({ toolInput }: { toolInput: Record<string, unknown>
             </div>
           )}
           <div className="text-xs text-muted-foreground mt-2">
-            请在 Agent 终端中回复
+            请在当前对话中回复
           </div>
         </div>
       ))}

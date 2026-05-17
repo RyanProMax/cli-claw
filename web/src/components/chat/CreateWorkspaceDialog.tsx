@@ -56,7 +56,6 @@ export function CreateWorkspaceDialog({
     setLoading(true);
     try {
       const options: Record<string, string> = {};
-      options.agent_type = 'openai';
       if (canSetCustomCwd && customCwd.trim()) options.custom_cwd = customCwd.trim();
       const created = await createFlow(trimmed, Object.keys(options).length ? options : undefined);
       if (created) {
@@ -91,20 +90,10 @@ export function CreateWorkspaceDialog({
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Agent 类型</label>
-            <div className="rounded-lg border p-3">
-              <div className="text-sm font-medium">Codex/OpenAI</div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                使用本地 Codex/OpenAI runner 进程，复用服务端登录态
-              </p>
-            </div>
-          </div>
-
           <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
             <AlertTriangle className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-sky-700 dark:text-sky-300">
-              Codex/OpenAI runtime 需要服务端已完成 <code>codex login</code>。
+              工作区使用本地 Codex/OpenAI Agent 进程，请确认服务端已完成 <code>codex login</code>。
             </p>
           </div>
 

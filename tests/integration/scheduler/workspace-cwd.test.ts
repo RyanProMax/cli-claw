@@ -159,7 +159,7 @@ describe('task scheduler workspace cwd forwarding', () => {
     );
   });
 
-  test('inherits source OpenAI runtime settings for agent tasks', async () => {
+  test('inherits source OpenAI model settings for agent tasks', async () => {
     const task = buildTask({});
     const openAiSourceGroup: RegisteredGroup = {
       ...sourceGroup,

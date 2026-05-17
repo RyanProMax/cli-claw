@@ -15,7 +15,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ChatGroupItem } from '../chat/ChatGroupItem';
 import { CreateWorkspaceDialog } from '../chat/CreateWorkspaceDialog';
 import { RenameDialog } from '../chat/RenameDialog';
-import { WorkspaceRuntimeDialog } from '../chat/WorkspaceRuntimeDialog';
 import { SkeletonCardList } from '@/components/common/Skeletons';
 import { cn } from '@/lib/utils';
 import { filterNavItems } from './nav-items';
@@ -44,7 +43,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
 
   const [createOpen, setCreateOpen] = useState(false);
   const [renameState, setRenameState] = useState({ open: false, jid: '', name: '' });
-  const [runtimeState, setRuntimeState] = useState({ open: false, jid: '' });
   const [deleteState, setDeleteState] = useState({ open: false, jid: '', name: '' });
   const [deleteLoading, setDeleteLoading] = useState(false);
   const { clearState, clearLoading, openClear, closeClear, handleClearConfirm } = useClearWorkspace();
@@ -86,7 +84,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
 
   const handleGroupSelect = (jid: string, folder: string) => { selectGroup(jid); navigate(`/chat/${folder}`); };
   const handleCreated = (jid: string, folder: string) => { selectGroup(jid); navigate(`/chat/${folder}`); };
-  const runtimeGroup = runtimeState.jid ? groups[runtimeState.jid] : undefined;
 
   const handleDeleteConfirm = async () => {
     setDeleteLoading(true);
@@ -125,7 +122,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
             editable={g.editable} deletable={g.deletable}
             onSelect={handleGroupSelect}
             onRename={(jid, name) => setRenameState({ open: true, jid, name })}
-            onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
             onClearHistory={openClear}
             onDelete={(jid, name) => setDeleteState({ open: true, jid, name })}
             onTogglePin={(jid) => togglePin(jid)}
@@ -240,7 +236,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
                           isRunning={runnerStates[mainGroup.jid] === 'running'} editable
                           onSelect={handleGroupSelect}
                           onRename={(jid, name) => setRenameState({ open: true, jid, name })}
-                          onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                           onClearHistory={openClear}
                         />
                       </div>
@@ -261,7 +256,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
                             editable={g.editable} deletable={g.deletable}
                             onSelect={handleGroupSelect}
                             onRename={(jid, name) => setRenameState({ open: true, jid, name })}
-                            onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                             onClearHistory={openClear}
                             onDelete={(jid, name) => setDeleteState({ open: true, jid, name })}
                             onTogglePin={(jid) => togglePin(jid)}
@@ -306,15 +300,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
         <BugReportDialog open={showBugReport} onClose={() => setShowBugReport(false)} />
         <CreateWorkspaceDialog open={createOpen} onClose={() => setCreateOpen(false)} onCreated={handleCreated} />
         <RenameDialog open={renameState.open} jid={renameState.jid} currentName={renameState.name} onClose={() => setRenameState({ open: false, jid: '', name: '' })} />
-        {runtimeGroup && (
-          <WorkspaceRuntimeDialog
-            open={runtimeState.open}
-            jid={runtimeState.jid}
-            name={runtimeGroup.name}
-            currentAgentType={runtimeGroup.agent_type || 'openai'}
-            onClose={() => setRuntimeState({ open: false, jid: '' })}
-          />
-        )}
         <ConfirmDialog open={clearState.open} onClose={closeClear} onConfirm={handleClearConfirm} title="重建工作区" message={`确认重建「${clearState.name}」？不可撤销。`} confirmText="确认重建" confirmVariant="danger" loading={clearLoading} />
         <ConfirmDialog open={deleteState.open} onClose={() => setDeleteState({ open: false, jid: '', name: '' })} onConfirm={handleDeleteConfirm} title="删除工作区" message={`确认删除「${deleteState.name}」？不可撤销。`} confirmText="删除" confirmVariant="danger" loading={deleteLoading} />
     </TooltipProvider>

@@ -76,7 +76,7 @@
 ├── web/
 │   └── src/                         # React frontend
 ├── container/
-│   └── agent-runner/                # Agent runner package（历史路径，非 Docker 执行）
+│   └── agent-runner/                # Agent runner package（历史路径，实际为本地 Agent 进程）
 ├── shared/                          # 前后端与 runner 共用纯函数/类型
 ├── PLANS/                           # 当前计划、长期 roadmap 与计划模板
 ├── RUNBOOKS/                        # 实施、review、自迭代、handoff 操作规范

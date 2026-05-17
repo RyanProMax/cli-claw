@@ -5,30 +5,30 @@ import type { RegisteredGroup } from '../../../../src/domain/types.js';
 
 describe('resolveFileRootOverride', () => {
   test('uses the workspace cwd contract for all groups', () => {
-    const hostGroup = {
+    const workspaceWithCustomCwd = {
       customCwd: '/srv/project',
     } as RegisteredGroup;
 
-    const launchOnlyHostGroup = {
+    const workspaceWithoutCustomCwd = {
     } as RegisteredGroup;
 
-    const memberHostGroup = {
+    const memberWorkspace = {
     } as RegisteredGroup;
 
-    const homeHostGroup = {
+    const homeWorkspace = {
       customCwd: '/srv/home',
       is_home: true,
     } as RegisteredGroup;
 
-    const containerGroup = {
+    const secondWorkspaceWithCustomCwd = {
       customCwd: '/srv/project',
     } as RegisteredGroup;
 
-    expect(resolveFileRootOverride(hostGroup)).toBe('/srv/project');
-    expect(resolveFileRootOverride(launchOnlyHostGroup)).toBeUndefined();
-    expect(resolveFileRootOverride(memberHostGroup, homeHostGroup)).toBe(
+    expect(resolveFileRootOverride(workspaceWithCustomCwd)).toBe('/srv/project');
+    expect(resolveFileRootOverride(workspaceWithoutCustomCwd)).toBeUndefined();
+    expect(resolveFileRootOverride(memberWorkspace, homeWorkspace)).toBe(
       '/srv/home',
     );
-    expect(resolveFileRootOverride(containerGroup)).toBe('/srv/project');
+    expect(resolveFileRootOverride(secondWorkspaceWithCustomCwd)).toBe('/srv/project');
   });
 });

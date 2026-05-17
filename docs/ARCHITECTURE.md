@@ -11,9 +11,9 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 - `src/cli.ts`：外部 launcher，负责仓库自带 / 同名发布包中的 `cli-claw start` / `help` / `version` 参数分发。
 - `src/app-root.ts`：安装包根目录、launch cwd 与应用资源定位的边界解析。
 - `src/index.ts`：主服务 bootstrap，负责接入消息、队列调度、持久化、WebSocket 推送和系统协调。
-- `src/agent/runner/container-runner.ts`：执行编排层，负责启动本地 Agent 进程并管理 runner 生命周期。文件名暂保留历史路径，不代表 Docker 执行。
+- `src/agent/runner/container-runner.ts`：执行编排层，负责启动本地 Agent 进程并管理 runner 生命周期。文件名暂保留历史路径，不代表另一条执行边界。
 - `container/agent-runner/src/index.ts`：运行时执行层，负责驱动底层 CLI runtime、流式事件、MCP 工具和上下文压缩。
-- `web/src/pages/ChatPage.tsx`：Web 展示层，把流式消息、工作区状态和运行时设置组合成用户界面。
+- `web/src/pages/ChatPage.tsx`：Web 展示层，把流式消息、工作区状态和模型配置入口组合成用户界面。
 
 ## 核心数据流
 
@@ -21,7 +21,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 2. backend 启动时校验当前启动目录，并为缺失 `customCwd` 的 admin 主工作区物化默认执行目录。
 3. 用户从 Web 或 IM 入口发来消息。
 4. 主进程写入数据库，并把请求按工作区路由到队列。
-5. 队列启动本地 Agent 进程，再由 `agent-runner` 根据工作区 runtime 配置选择 Codex / OpenAI Runtime。
+5. 队列启动本地 Agent 进程，再由 `agent-runner` 加载工作区的 Codex/OpenAI 模型配置。
 6. runner 产生文本、思考、工具调用和任务事件，经 stdout / IPC 回到主进程。
 7. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 8. 任务调度、技能安装和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。

@@ -8,7 +8,6 @@ import { ChatView } from '../components/chat/ChatView';
 import { ChatGroupItem } from '../components/chat/ChatGroupItem';
 import { ConfirmDialog } from '../components/common';
 import { CreateWorkspaceDialog } from '../components/chat/CreateWorkspaceDialog';
-import { WorkspaceRuntimeDialog } from '../components/chat/WorkspaceRuntimeDialog';
 import { EmojiAvatar } from '../components/common/EmojiAvatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSwipeBack } from '../hooks/useSwipeBack';
@@ -21,7 +20,6 @@ export function ChatPage() {
   const { groups, currentGroup, selectGroup, loadGroups } = useChatStore();
   const { clearState, clearLoading, openClear, closeClear, handleClearConfirm } = useClearWorkspace();
   const [createOpen, setCreateOpen] = useState(false);
-  const [runtimeState, setRuntimeState] = useState({ open: false, jid: '' });
   const user = useAuthStore((s) => s.user);
   const appearance = useAuthStore((s) => s.appearance);
   const userInitial = (user?.display_name || user?.username || '?')[0].toUpperCase();
@@ -91,7 +89,6 @@ export function ChatPage() {
 
   const activeGroupJid = groupFolder ? routeGroupJid : currentGroup;
   const chatViewRef = useRef<HTMLDivElement>(null);
-  const runtimeGroup = runtimeState.jid ? groups[runtimeState.jid] : undefined;
 
   const handleBackToList = () => {
     navigate('/chat');
@@ -145,7 +142,6 @@ export function ChatPage() {
                     lastMessage={mainGroup.lastMessage}
                     isActive={currentGroup === mainGroup.jid} isHome
                     isRunning={runnerStates[mainGroup.jid] === 'running'} editable
-                    onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                     onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
                     onClearHistory={openClear}
                   />
@@ -164,7 +160,6 @@ export function ChatPage() {
                       isActive={currentGroup === g.jid} isHome={false} isPinned
                       isRunning={runnerStates[g.jid] === 'running'}
                       editable={g.editable}
-                      onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                       onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
                       onClearHistory={openClear}
                     />
@@ -189,7 +184,6 @@ export function ChatPage() {
                           isActive={currentGroup === g.jid} isHome={false}
                           isRunning={runnerStates[g.jid] === 'running'}
                           editable={g.editable}
-                          onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                           onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
                           onClearHistory={openClear}
                         />
@@ -217,7 +211,6 @@ export function ChatPage() {
                           isActive={currentGroup === g.jid} isHome={false}
                           isRunning={runnerStates[g.jid] === 'running'}
                           editable={g.editable}
-                          onRuntimeSettings={(jid) => setRuntimeState({ open: true, jid })}
                           onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
                           onClearHistory={openClear}
                         />
@@ -276,15 +269,6 @@ export function ChatPage() {
         onClose={() => setCreateOpen(false)}
         onCreated={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
       />
-      {runtimeGroup && (
-        <WorkspaceRuntimeDialog
-          open={runtimeState.open}
-          jid={runtimeState.jid}
-          name={runtimeGroup.name}
-          currentAgentType={runtimeGroup.agent_type || 'openai'}
-          onClose={() => setRuntimeState({ open: false, jid: '' })}
-        />
-      )}
     </div>
   );
 }
