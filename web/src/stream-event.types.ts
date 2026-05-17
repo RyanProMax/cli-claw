@@ -8,4 +8,4 @@ export type {
   StreamEvent,
   StreamEventType,
   StreamRuntimeIdentity,
-} from '../../shared/dist/stream-event.js';
+} from '../../shared/stream-event.ts';

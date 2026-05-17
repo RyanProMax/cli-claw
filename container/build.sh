@@ -12,7 +12,7 @@ TAG="${1:-latest}"
 echo "Building cli-claw agent container image..."
 echo "Image: ${IMAGE_NAME}:${TAG}"
 
-# Build with Docker (CACHEBUST ensures claude-code is always latest)
+# Build with Docker (CACHEBUST forces fresh image layers when requested)
 # --progress=plain ensures clean line-based output for piped log capture (WebSocket streaming)
 docker build --progress=plain --build-arg CACHEBUST="$(date +%s)" -f "$SCRIPT_DIR/Dockerfile" -t "${IMAGE_NAME}:${TAG}" "$ROOT_DIR"
 

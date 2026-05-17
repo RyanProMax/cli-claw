@@ -183,11 +183,9 @@ import {
   getUserWeChatConfig,
   getUserDingTalkConfig,
   getSystemSettings,
-  getClaudeProviderConfig,
   getOpenAiRuntimeDefaults,
   saveUserFeishuConfig,
   saveUserTelegramConfig,
-  updateAllSessionCredentials,
 } from './core/runtime/config.js';
 import type {
   FeishuConnectConfig,
@@ -1912,24 +1910,30 @@ function sendBillingDeniedMessage(jid: string, content: string): string {
   return msgId;
 }
 
-function getSessionClaudeDir(folder: string, agentId?: string): string {
+function getSessionRuntimeArtifactDir(
+  folder: string,
+  agentId?: string,
+): string {
   return agentId
-    ? path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.claude')
-    : path.join(DATA_DIR, 'sessions', folder, '.claude');
+    ? path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.openai')
+    : path.join(DATA_DIR, 'sessions', folder, '.openai');
 }
 
 async function clearSessionRuntimeFiles(
   folder: string,
   agentId?: string,
 ): Promise<void> {
-  const claudeDir = getSessionClaudeDir(folder, agentId);
-  if (!fs.existsSync(claudeDir)) return;
+  const artifactDir = getSessionRuntimeArtifactDir(folder, agentId);
+  if (!fs.existsSync(artifactDir)) return;
 
   let cleared = false;
   try {
-    for (const entry of fs.readdirSync(claudeDir)) {
+    for (const entry of fs.readdirSync(artifactDir)) {
       if (entry === 'settings.json') continue;
-      fs.rmSync(path.join(claudeDir, entry), { recursive: true, force: true });
+      fs.rmSync(path.join(artifactDir, entry), {
+        recursive: true,
+        force: true,
+      });
     }
     cleared = true;
   } catch {
@@ -1947,7 +1951,7 @@ async function clearSessionRuntimeFiles(
           'run',
           '--rm',
           '-v',
-          `${claudeDir}:/target`,
+          `${artifactDir}:/target`,
           CONTAINER_IMAGE,
           'sh',
           '-c',
@@ -2008,12 +2012,8 @@ async function handleCommand(
     'IM command invoked',
   );
 
-  if (cmd === 'help' || cmd === 'openai' || cmd === 'claude') {
-    if (
-      (cmd === 'openai' || cmd === 'claude') &&
-      !rawArgs &&
-      chatJid.startsWith('feishu:')
-    ) {
+  if (cmd === 'help' || cmd === 'openai') {
+    if (cmd === 'openai' && !rawArgs && chatJid.startsWith('feishu:')) {
       const target = resolveRuntimeWorkspaceTarget(chatJid, {
         getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
         getSiblingJids: getJidsByFolder,
@@ -3089,7 +3089,7 @@ interface SendMessageOptions {
   localImagePaths?: string[];
   /** Message source identifier (e.g. 'scheduled_task') for frontend routing. */
   source?: string;
-  /** Metadata used to preserve Claude SDK turn semantics for persisted messages. */
+  /** Metadata used to preserve runtime turn semantics for persisted messages. */
   messageMeta?: OutboundMessageMeta;
 }
 
@@ -3962,7 +3962,6 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
     : undefined;
   let activeRuntimeIdentity: RuntimeIdentity | null =
     resolveEffectiveRuntimeIdentity(effectiveGroup, {
-      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
       ...getOpenAiRuntimeIdentityOptions(),
     });
   const agentRunStartedAt = Date.now();
@@ -5374,7 +5373,6 @@ async function runAgent(
     const agentType = normalizeAgentType(group.agentType);
     const selectedRunner = agentType;
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(group, {
-      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
       ...getOpenAiRuntimeIdentityOptions(),
     });
     const runtimeBuildLogFields = getRuntimeBuildLogFields();
@@ -7531,7 +7529,6 @@ async function processAgentConversation(
   let currentAgentSessionId = sessionId;
   let currentAgentRuntimeIdentity: RuntimeIdentity | null =
     resolveEffectiveRuntimeIdentity(effectiveGroup, {
-      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
       ...getOpenAiRuntimeIdentityOptions(),
     });
   const agentConversationStartedAt = Date.now();
@@ -8113,7 +8110,6 @@ async function processAgentConversation(
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
       effectiveGroup,
       {
-        claudeProviderModel: getClaudeProviderConfig().anthropicModel,
         ...getOpenAiRuntimeIdentityOptions(),
       },
     );

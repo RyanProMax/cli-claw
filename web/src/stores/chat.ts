@@ -9,6 +9,7 @@ import type {
   AgentInfo,
   AvailableImGroup,
   RuntimeIdentity,
+  GroupRuntimeAgentType,
 } from '../types';
 import {
   getMessageIdentityKey,
@@ -18,7 +19,7 @@ import { setHistoryCursorParams } from '../lib/messageHistoryCursor';
 import { formatToolStepLine } from '../lib/toolStepDisplay';
 import {
   appendStreamPresentationText,
-} from '../../../shared/dist/stream-presentation.js';
+} from '../../../shared/stream-presentation.ts';
 
 export type { GroupInfo, AgentInfo };
 
@@ -179,12 +180,12 @@ interface ChatState {
   resetSession: (jid: string, agentId?: string) => Promise<boolean>;
   clearHistory: (jid: string) => Promise<boolean>;
   deleteMessage: (jid: string, messageId: string) => Promise<boolean>;
-  createFlow: (name: string, options?: { agent_type?: 'claude' | 'openai'; execution_mode?: 'container' | 'host'; custom_cwd?: string; init_source_path?: string; init_git_url?: string }) => Promise<{ jid: string; folder: string } | null>;
+  createFlow: (name: string, options?: { agent_type?: GroupRuntimeAgentType; execution_mode?: 'container' | 'host'; custom_cwd?: string; init_source_path?: string; init_git_url?: string }) => Promise<{ jid: string; folder: string } | null>;
   renameFlow: (jid: string, name: string) => Promise<void>;
   updateGroupRuntime: (
     jid: string,
     runtime: {
-      agent_type: 'claude' | 'openai';
+      agent_type: GroupRuntimeAgentType;
       execution_mode: 'container' | 'host';
       model?: string | null;
       reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
@@ -382,16 +383,8 @@ function toPresentationRuntimeIdentity(
   identity?: RuntimeIdentity | null,
 ): StreamRuntimeIdentity | null {
   if (!identity) return null;
-  const agentType = identity.agentType === 'claude' ? 'claude' : 'openai';
-  if (
-    identity.agentType !== 'claude' &&
-    identity.agentType !== 'openai' &&
-    identity.agentType !== 'codex'
-  ) {
-    return null;
-  }
   return {
-    agentType,
+    agentType: 'openai',
     model: identity.model,
     reasoningEffort: identity.reasoningEffort,
     speedTier: identity.speedTier,
@@ -1321,7 +1314,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  createFlow: async (name: string, options?: { agent_type?: 'claude' | 'openai'; execution_mode?: 'container' | 'host'; custom_cwd?: string; init_source_path?: string; init_git_url?: string }) => {
+  createFlow: async (name: string, options?: { agent_type?: GroupRuntimeAgentType; execution_mode?: 'container' | 'host'; custom_cwd?: string; init_source_path?: string; init_git_url?: string }) => {
     try {
       const body: Record<string, string> = { name };
       if (options?.agent_type) body.agent_type = options.agent_type;
@@ -1375,7 +1368,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   updateGroupRuntime: async (
     jid: string,
     runtime: {
-      agent_type: 'claude' | 'openai';
+      agent_type: GroupRuntimeAgentType;
       execution_mode: 'container' | 'host';
       model?: string | null;
       reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;

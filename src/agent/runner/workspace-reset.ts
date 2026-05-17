@@ -11,16 +11,16 @@ import {
 import type { RegisteredGroup } from '../../domain/types.js';
 
 export function clearSessionJsonlFiles(folder: string, agentId?: string): void {
-  const claudeDir = agentId
-    ? path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.claude')
-    : path.join(DATA_DIR, 'sessions', folder, '.claude');
-  if (!fs.existsSync(claudeDir)) return;
+  const artifactDir = agentId
+    ? path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.openai')
+    : path.join(DATA_DIR, 'sessions', folder, '.openai');
+  if (!fs.existsSync(artifactDir)) return;
 
   const keep = new Set(['settings.json']);
-  const entries = fs.readdirSync(claudeDir);
+  const entries = fs.readdirSync(artifactDir);
   for (const entry of entries) {
     if (keep.has(entry)) continue;
-    const fullPath = path.join(claudeDir, entry);
+    const fullPath = path.join(artifactDir, entry);
     fs.rmSync(fullPath, { recursive: true, force: true });
   }
 }

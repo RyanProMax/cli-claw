@@ -1,10 +1,12 @@
 export type { RuntimeIdentity } from './lib/runtimeIdentity';
 
+export type GroupRuntimeAgentType = 'openai' | (string & {});
+
 export interface GroupInfo {
   name: string;
   folder: string;
   added_at: string;
-  agent_type?: 'claude' | 'openai';
+  agent_type?: GroupRuntimeAgentType;
   kind?: 'home' | 'main' | 'feishu' | 'web';
   is_home?: boolean;
   is_my_home?: boolean;

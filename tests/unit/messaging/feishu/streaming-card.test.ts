@@ -1200,28 +1200,6 @@ describe('StreamingCardController footer caching', () => {
     ]);
   });
 
-  test('builds one Claude runtime configuration card with only the model selector', () => {
-    const card = buildRuntimeSelectionCard({
-      agentType: 'claude',
-      runtimeIdentity: {
-        agentType: 'claude',
-        model: 'sonnet',
-        reasoningEffort: null,
-        supportsReasoningEffort: false,
-      },
-    }) as any;
-
-    const selects = collectSelectStaticElements(card);
-    expect(card.config.summary.content).toBe('配置 Claude');
-    expect(selects).toHaveLength(1);
-    expect(selects[0]).toMatchObject({
-      tag: 'select_static',
-      placeholder: { content: '模型: sonnet' },
-      initial_option: 'sonnet',
-      value: { action: 'set_runtime_model' },
-    });
-  });
-
   test('omits initial_option when the current value is no longer in the preset list', () => {
     const card = buildRuntimeSelectionCard({
       agentType: 'openai',

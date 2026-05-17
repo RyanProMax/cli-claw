@@ -58,7 +58,7 @@ export function LoginPage() {
       await login(username, password);
       const state = useAuthStore.getState();
       if (state.user?.role === 'admin' && state.setupStatus?.needsSetup) {
-        navigate('/setup/providers');
+        navigate('/setup/channels');
         return;
       }
       const mustChange = useAuthStore.getState().user?.must_change_password;

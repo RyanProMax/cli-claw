@@ -22,7 +22,6 @@ interface BugReportDialogProps {
 interface Capabilities {
   ghAvailable: boolean;
   ghUsername: string | null;
-  claudeAvailable: boolean;
 }
 
 interface GenerateResult {
@@ -72,7 +71,6 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
           setCaps({
             ghAvailable: false,
             ghUsername: null,
-            claudeAvailable: false,
           });
         });
     }
@@ -164,7 +162,7 @@ export function BugReportDialog({ open, onClose }: BugReportDialogProps) {
     setScreenshots((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // --- Generate report (Claude analysis) ---
+  // --- Generate report ---
 
   const generateReport =
     useCallback(async (): Promise<GenerateResult | null> => {

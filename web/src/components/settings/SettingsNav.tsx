@@ -1,5 +1,4 @@
 import {
-  ShieldCheck,
   UserPlus,
   User,
   Shield,
@@ -32,12 +31,6 @@ interface NavItem {
 }
 
 const systemItems: NavItem[] = [
-  {
-    key: 'claude',
-    label: 'Claude 提供商',
-    icon: <ShieldCheck className="w-4 h-4" />,
-    group: 'system',
-  },
   {
     key: 'registration',
     label: '注册管理',

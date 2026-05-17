@@ -1,7 +1,7 @@
 /**
  * Shared types for cli-claw Agent Runner.
  *
- * These types are used across index.ts, stream-processor.ts, and mcp-tools.ts.
+ * These types are used across the OpenAI/Codex agent runner.
  */
 
 // Streaming event types (canonical source: shared/stream-event.ts)
@@ -18,7 +18,7 @@ export interface ContainerInput {
   messageCursor?: { timestamp: string; id?: string };
   groupFolder: string;
   chatJid: string;
-  agentType?: 'claude' | 'openai';
+  agentType?: 'openai';
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;
@@ -59,25 +59,3 @@ export type ImageMediaType =
   | 'image/png'
   | 'image/gif'
   | 'image/webp';
-
-export interface SDKUserMessage {
-  type: 'user';
-  message: {
-    role: 'user';
-    content:
-      | string
-      | Array<
-          | { type: 'text'; text: string }
-          | {
-              type: 'image';
-              source: {
-                type: 'base64';
-                media_type: ImageMediaType;
-                data: string;
-              };
-            }
-        >;
-  };
-  parent_tool_use_id: null;
-  session_id: string;
-}

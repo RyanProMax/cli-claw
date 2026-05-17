@@ -11,7 +11,6 @@ import {
   TIMEZONE,
 } from '../../core/config.js';
 import {
-  getClaudeProviderConfig,
   getOpenAiRuntimeDefaults,
   getSystemSettings,
 } from '../../core/runtime/config.js';
@@ -491,7 +490,6 @@ export async function runTask(
     const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
       taskRuntimeGroup,
       {
-        claudeProviderModel: getClaudeProviderConfig().anthropicModel,
         openAiModel: openAiDefaults.model,
         openAiReasoningEffort: openAiDefaults.reasoningEffort,
         openAiSpeedTier: openAiDefaults.speedTier,

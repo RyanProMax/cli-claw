@@ -1,6 +1,6 @@
 .PHONY: dev dev-backend dev-web build build-shared build-backend build-web start \
        typecheck typecheck-backend typecheck-web typecheck-agent-runner \
-       format format-check install clean reset-init update-sdk ensure-latest-sdk sync-types \
+       format format-check install clean reset-init sync-types \
        backup restore help _ensure-docker-image
 
 # ─── Runtime Detection ──────────────────────────────────────
@@ -58,13 +58,13 @@ build-web: build-shared ## 仅编译前端
 
 # ─── Production ──────────────────────────────────────────────
 
-start: ensure-latest-sdk ## 一键启动生产环境
+start: ## 一键启动生产环境
 	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
 	@$(MAKE) _ensure-docker-image
 	@$(MAKE) build-shared
 	@$(MAKE) build-backend
 	@NEED_SYNC=0; \
-	for target in src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
+	for target in src/messaging/image-detector.ts container/agent-runner/src/image-detector.ts src/messaging/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
 	  if [ ! -f "$$target" ] || [ -n "$$(find shared/ -newer "$$target" -name '*.ts' 2>/dev/null | head -1)" ]; then NEED_SYNC=1; break; fi; \
 	done; \
 	if [ "$$NEED_SYNC" = "1" ]; then echo "🔄 检测到 shared/ 类型变更，同步类型..."; $(MAKE) sync-types; fi
@@ -89,7 +89,7 @@ ifeq ($(HAS_BUN),1)
 	if [ "$$NEED_AR" = "1" ]; then echo "🔨 检测到 agent-runner 变更，重新编译..."; cd container/agent-runner && bun run build; else echo "✅ agent-runner 无变更，跳过编译"; fi
 else
 	@NEED_SYNC=0; \
-	for target in src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
+	for target in src/messaging/image-detector.ts container/agent-runner/src/image-detector.ts src/messaging/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
 	  if [ ! -f "$$target" ] || [ -n "$$(find shared/ -newer "$$target" -name '*.ts' 2>/dev/null | head -1)" ]; then NEED_SYNC=1; break; fi; \
 	done; \
 	if [ "$$NEED_SYNC" = "1" ]; then echo "🔄 检测到 shared/ 类型变更，同步类型..."; $(MAKE) sync-types; fi
@@ -178,23 +178,6 @@ _ensure-docker-image: ## (内部) 检测 Docker 镜像是否需要构建/重建
 
 sync-types: ## 同步 shared/ 下仍采用镜像复制的公共源
 	@./scripts/sync-stream-event.sh
-
-# ─── SDK ─────────────────────────────────────────────────────
-
-update-sdk: ## 更新 agent-runner 的 Claude Agent SDK 到最新版本
-	cd container/agent-runner && $(PKG) update @anthropic-ai/claude-agent-sdk && $(PKG) run build
-	@echo "SDK updated. Run 'make typecheck' to verify."
-
-ensure-latest-sdk: ## 启动前自动检测并更新 SDK（有新版才更新）
-	@LOCAL=$$(node -p "require('./container/agent-runner/node_modules/@anthropic-ai/claude-agent-sdk/package.json').version" 2>/dev/null || echo "0.0.0"); \
-	LATEST=$$(npm view @anthropic-ai/claude-agent-sdk version --fetch-timeout=5000 2>/dev/null || echo "$$LOCAL"); \
-	if [ "$$LOCAL" != "$$LATEST" ]; then \
-		echo "🔄 Claude Agent SDK 有新版本: $$LOCAL → $$LATEST，正在更新..."; \
-		cd container/agent-runner && $(PKG) update @anthropic-ai/claude-agent-sdk && $(PKG) run build; \
-		echo "✅ SDK 更新完成（内置 Claude Code 版本随之更新）"; \
-	else \
-		echo "✅ Claude Agent SDK 已是最新 ($$LOCAL)"; \
-	fi
 
 # ─── Setup ───────────────────────────────────────────────────
 

@@ -671,7 +671,7 @@ export function MessageInput({
             <div className="px-3 pb-2">
               <div className="rounded-xl border border-brand-200/60 bg-brand-50/30 p-2.5">
                 <div className="mb-2 text-[11px] font-medium text-muted-foreground">
-                  {pickerCommand === 'openai' ? '配置 OpenAI' : '配置 Claude'}
+                  配置 Codex/OpenAI
                 </div>
                 {pickerSections.length > 0 ? (
                   <div className="space-y-3">
@@ -706,7 +706,7 @@ export function MessageInput({
                   </div>
                 ) : (
                   <div className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-                    当前工作区是 {agentType === 'openai' ? 'OpenAI' : 'Claude'}，请使用 /{agentType} 配置该 Agent
+                    当前工作区暂不支持该运行时命令，请使用 /openai 配置 Codex/OpenAI
                   </div>
                 )}
               </div>

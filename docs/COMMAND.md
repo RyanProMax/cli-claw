@@ -32,7 +32,7 @@ Cli Claw 的“命令”分成两层：
 - `cli-claw restart` 不会在当前 shell 里直接 kill/拉起服务，也不会用调用方当前目录或 argv 推导新启动命令。它只读取当前 backend 持久化到 `~/.cli-claw/ops/current-backend.json` 的 authoritative restart state，写入 restart intent，再交给 watchdog 执行。若当前服务由 `launchd` 托管，watchdog 会改为 `launchctl kickstart -k ...` 保持 supervision。
 - `cli-claw restart` 只表示“安全重启请求已被受理”。最终是否完成，以 `~/.cli-claw/ops/restarts/*.json`、`/self-status` 或 IM 成功回执为准；若找不到 current backend state、保存的 PID 已不存在、launch spec 不安全、或 watchdog 缺失，launcher 会以非零状态失败，而不是尝试猜测启动方式。
 - 从 IM 让 agent 自己操作服务时，优先使用显式应用内命令 `/self-restart` 或受管重启短语。普通 IM-origin agent 工具调用即使命中了 `cli-claw restart` 这类 safe launcher 字面命令，也会被 restart guard 拦截；Web operator 环境和外部 shell 才适合直接调用 `cli-claw restart`。
-- 这些命令与下文的 `/help`、`/openai`、`/claude`、`/clear` 等应用内命令不是同一层协议。
+- 这些命令与下文的 `/help`、`/openai`、`/clear` 等应用内命令不是同一层协议。
 
 ## 运维辅助脚本
 
@@ -70,7 +70,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 命令最终是否可用，取决于：
 
 - 当前入口：`im` / `web`
-- 当前工作区 runtime：`claude` / `openai`
+- 当前工作区 runtime：`openai`
 
 因此 `/help` 不是静态文档回显，而是按“当前入口 + 当前工作区 runtime”动态输出真正可执行的命令列表，并按模块分组展示。
 
@@ -90,34 +90,33 @@ skill command 的执行结果有两类：
 
 ## Agent 命令
 
-以下命令在 IM 与 Web 都可直接识别；runtime 配置命令会按当前工作区 agent 只展示一个：
+以下命令在 IM 与 Web 都可直接识别：
 
 | 命令             | 别名                | 作用                                                                      |
 | ---------------- | ------------------- | ------------------------------------------------------------------------- |
 | `/help`          | -                   | 按模块查看当前入口、当前 runtime 下真正可用的命令                         |
 | `/clear`         | -                   | 清除当前工作区或当前绑定 Agent 的会话上下文                               |
 | `/sw <任务描述>` | `/spawn <任务描述>` | 在当前工作区创建并行任务                                                  |
-| `/claude`        | -                   | 配置 Claude 工作区模型；仅当前 runtime 为 `claude` 时可用                 |
 | `/openai`        | -                   | 配置 OpenAI 工作区模型、思考强度和速度；仅当前 runtime 为 `openai` 时可用 |
 
 说明：
 
-- `/claude` 与 `/openai` 都是“当前工作区级”配置入口，会持久化到工作区 runtime 配置。
+- `/openai` 是当前工作区级配置入口，会持久化到工作区 runtime 配置。
 - 当工作区未显式设置 `openai` 的模型、思考强度或速度时，`/status`、`/openai` 配置卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 OpenAI 环境变量 fallback，避免不同入口看到不同值。
 - `openai` 的模型选项使用内置 preset；若当前 effective model 不在 preset 中，配置卡仍会把它作为当前值展示，避免 `/status` 与 `/openai` 不一致。
 - 普通回复 footer 会始终保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。当当前 runtime usage 可用时，会追加 5h / 7d 剩余额；OpenAI/Codex 通过 Codex CLI 登录态请求 ChatGPT Codex usage API，不依赖 `OPENAI_API_KEY` 或过期的本地 jsonl 快照。
 - 普通回复不会读取 `PLANS/ACTIVE.md`、roadmap、历史摘要或旧 partial body 来补正文；任务进度只留在本地计划文件与显式命令输出中。
 - `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要，并分成 `Agent 命令`、`工作区命令`、`服务命令`、`技能命令` 等模块；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
 - skill command 若在 `commands.json` 声明 `argumentHint` / `usage`，`/help` 会把参数占位一起展示，例如 `/research <股票名称/代码>`、`/kol [--days=30]`。
-- Web 输入框只在输入 bare `/openai` 或 `/claude` 时展示配置 UI；飞书会返回同一张配置卡，用多个下拉分别设置模型、思考强度和速度（Claude 只显示模型）。
+- Web 输入框只在输入 bare `/openai` 时展示配置 UI；飞书会返回同一张配置卡，用多个下拉分别设置模型、思考强度和速度。
 - 历史的 `/model` / `/effort` / `/speed` 独立命令，以及它们的参数式交互，都不再作为用户命令保留。
 
 ## Skill Command
 
 skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发约定如下：
 
-- 先搜索当前工作区 `.agents/skills/`，再搜索 `.claude/skills/`，最后搜索用户级同步 skill 目录；项目内 skill 可以覆盖用户级同名声明。
-- 可选字段 `argumentHint` / `argument_hint` / `usage` 用于 `/help` 展示参数占位；它只影响帮助文本，不改变 executor 收到的 `argsText` 和 `args`。
+- 先搜索当前工作区 `.agents/skills/`，再搜索用户级同步 skill 目录；项目内 skill 可以覆盖用户级同名声明。
+- 可选字段 `argumentHint` / `argument_hint` / `usage` 用于 `/help` 展示参数占位；它只影响帮助文本，不改变 executor 收到的 `argsText` 和 `args`。`description` 只写命令用途，不写参数、默认值或支持选项。
 - 若多个 skill 在同一搜索优先级上声明了相同命令，命令不会静默二选一，而是直接返回冲突提示。
 - executor 通过 stdin 接收 JSON payload，并通过 stdout 返回 JSON 结果。
 - executor 环境会先读取该 skill 根目录的 `.env`，再叠加 Cli Claw 服务进程环境，最后注入 `CLI_CLAW_COMMAND`、`CLI_CLAW_SKILL_ID`、`CLI_CLAW_SKILL_DIR`；服务进程环境优先于 `.env`，用于部署级覆盖。
@@ -184,25 +183,14 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命
 - `/clear`
 - `/sw`
 - `/spawn`
-- `/claude`（Claude 工作区）
 - `/openai`（OpenAI 工作区）
 
 如果在 Web 输入框输入了已知但当前入口不可用的命令（例如 `/bind`），系统会直接返回明确提示，而不会把它当普通消息交给 Agent。
-当输入 `/claude` 或 `/openai` 时，输入框上方会展示该 Agent 的配置选项；点击后由前端发送实际切换请求。`/openai` 同时展示模型、思考强度和速度，`/claude` 只展示模型。
+当输入 `/openai` 时，输入框上方会展示该 Agent 的配置选项；点击后由前端发送实际切换请求。`/openai` 同时展示模型、思考强度和速度。
 
 如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容，并以隔离 runtime session 执行。该 session 不会写回 workspace 主会话；下一条普通消息继续使用原主会话，若历史版本已把上一轮 skill final 的 session 误写成主 session，则会先忽略它并建立新的普通主会话。
 
 ## 运行时配置命令
-
-### `/claude`
-
-- 仅当前工作区 runtime 为 `claude` 时展示。
-- 可配置模型预设：
-  - `opus[1m]`
-  - `opus`
-  - `sonnet[1m]`
-  - `sonnet`
-  - `haiku`
 
 ### `/openai`
 
@@ -216,4 +204,4 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命
 
 - `/sw` 与 `/spawn` 是同义命令。
 - `/bind` 目标里的 `agent短ID` 指 conversation agent 的短标识，不是工作区 folder。
-- `claude` 与 `openai` 的模型可用值以运行时命令注册表为准；本文档不枚举动态列表。
+- `openai` 的模型可用值以运行时命令注册表为准；本文档不枚举动态列表。

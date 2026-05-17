@@ -1,6 +1,6 @@
 /**
  * Workspace-level Skills and MCP Servers store.
- * Manages project-level configs under the workspace's .claude/ directory.
+ * Manages project-level runtime configs under the workspace config directory.
  */
 import { create } from 'zustand';
 import { api } from '../api/client';

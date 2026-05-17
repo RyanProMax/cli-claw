@@ -2,7 +2,7 @@
  * Container Runner for cli-claw
  * Spawns agent execution in Docker container and handles IPC
  */
-import { ChildProcess, exec, execFile, spawn } from 'child_process';
+import { ChildProcess, execFile, spawn } from 'child_process';
 import fs from 'fs';
 import { createRequire } from 'module';
 import path from 'path';
@@ -20,22 +20,10 @@ import {
   validateAdditionalMounts,
 } from '../../core/workspace/mount-security.js';
 import {
-  buildContainerEnvLines,
-  getClaudeProviderConfig,
-  getContainerEnvConfig,
-  getEnabledProviders,
-  getBalancingConfig,
   getSystemSettings,
-  mergeClaudeEnvConfig,
-  resolveProviderById,
   shellQuoteEnvLines,
-  writeCredentialsFile,
 } from '../../core/runtime/config.js';
-import { providerPool } from '../../core/runtime/provider-pool.js';
-import { isApiError } from './output-parser.js';
-import type { ClaudeProviderConfig } from '../../core/runtime/config.js';
-import { loadUserMcpServers } from '../../mcp/utils.js';
-import { resolveCodexCliRuntimeEnv } from '../../core/runtime/codex-cli-auth.js';
+import { getAgentRuntime } from '../../core/runtime/runtime-registry.js';
 import {
   AgentType,
   MessageCursor,
@@ -59,15 +47,6 @@ import {
 import { getRuntimeBuildLogFields } from '../../core/runtime/build.js';
 import { writeSelfRestartRequestChatJidToEnv } from '../../core/self/self-restart.js';
 
-/**
- * Required env flags for settings.json — 每次容器/进程启动时强制写入，不可被用户覆盖。
- * 合并模式：仅覆盖这些 key，保留用户自定义的其他 key。
- */
-const REQUIRED_SETTINGS_ENV: Record<string, string> = {
-  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '0',
-  CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
-  CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
-};
 const LEGACY_OPENAI_TOKEN_ENV = 'OPENAI' + '_API_KEY';
 
 function buildHostRuntimePath(options: {
@@ -87,94 +66,6 @@ function buildHostRuntimePath(options: {
     if (!entries.includes(candidate)) entries.push(candidate);
   }
   return entries.join(path.delimiter);
-}
-
-const CONTEXT_MCP_TEXT_PATTERN =
-  /memory|recall|history|transcript|summary|(?:^|[^a-z0-9])context(?:[^a-z0-9]|$)/i;
-
-function collectMcpTextFields(value: unknown, fields: string[]): void {
-  if (typeof value === 'string') {
-    fields.push(value);
-    return;
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    fields.push(String(value));
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) collectMcpTextFields(item, fields);
-    return;
-  }
-  if (value && typeof value === 'object') {
-    for (const [key, item] of Object.entries(value)) {
-      fields.push(key);
-      collectMcpTextFields(item, fields);
-    }
-  }
-}
-
-function isContextLikeMcpServer(
-  name: string,
-  server: Record<string, unknown>,
-): boolean {
-  const fields = [name];
-  collectMcpTextFields(server.command, fields);
-  collectMcpTextFields(server.url, fields);
-  collectMcpTextFields(server.args, fields);
-  collectMcpTextFields(server.env, fields);
-  return fields.some((field) => CONTEXT_MCP_TEXT_PATTERN.test(field));
-}
-
-function filterRuntimeMcpServers(
-  servers: Record<string, Record<string, unknown>>,
-): Record<string, Record<string, unknown>> {
-  return Object.fromEntries(
-    Object.entries(servers).filter(
-      ([name, server]) => !isContextLikeMcpServer(name, server),
-    ),
-  );
-}
-
-/** Read existing settings.json, deep-merge required env keys and sync mcpServers, write only if changed */
-export function ensureSettingsJson(
-  settingsFile: string,
-  mcpServers?: Record<string, Record<string, unknown>>,
-): void {
-  let existing: Record<string, unknown> = {};
-  try {
-    if (fs.existsSync(settingsFile)) {
-      existing = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    }
-  } catch {
-    /* ignore parse errors, overwrite */
-  }
-
-  const existingEnv = (existing.env as Record<string, string>) || {};
-  const mergedEnv = { ...existingEnv, ...REQUIRED_SETTINGS_ENV };
-  const merged: Record<string, unknown> = { ...existing, env: mergedEnv };
-
-  if (mcpServers) {
-    const syncedMcpServers = filterRuntimeMcpServers(mcpServers);
-    if (Object.keys(syncedMcpServers).length > 0) {
-      merged.mcpServers = syncedMcpServers;
-    } else {
-      delete merged.mcpServers;
-    }
-  }
-
-  const newContent = JSON.stringify(merged, null, 2) + '\n';
-
-  // Only write when content actually changed
-  try {
-    if (fs.existsSync(settingsFile)) {
-      const current = fs.readFileSync(settingsFile, 'utf8');
-      if (current === newContent) return;
-    }
-  } catch {
-    /* write anyway */
-  }
-
-  fs.writeFileSync(settingsFile, newContent, { mode: 0o644 });
 }
 
 export interface ContainerInput {
@@ -247,50 +138,6 @@ function mkdirForContainer(dirPath: string): void {
   }
 }
 
-interface ResolvedProvider {
-  config: ClaudeProviderConfig;
-  customEnv: Record<string, string>;
-}
-
-/**
- * Try to select a provider from the pool. Returns profileId + resolved config,
- * or null if pool mode is off (≤1 enabled) / group has provider override / selection fails.
- */
-function trySelectPoolProvider(
-  groupFolder: string,
-): { profileId: string; resolved: ResolvedProvider } | null {
-  const override = getContainerEnvConfig(groupFolder);
-  const hasOverride = !!(
-    override.anthropicApiKey ||
-    override.anthropicAuthToken ||
-    override.anthropicBaseUrl
-  );
-  if (hasOverride) return null;
-
-  // Refresh pool state from V4 config
-  const enabledProviders = getEnabledProviders();
-  if (enabledProviders.length <= 1) return null; // No pool needed for 0-1 providers
-
-  const balancing = getBalancingConfig();
-  providerPool.refreshFromConfig(enabledProviders, balancing);
-
-  try {
-    const profileId = providerPool.selectProvider();
-    const resolved = resolveProviderById(profileId);
-    providerPool.acquireSession(profileId);
-    return {
-      profileId,
-      resolved: { config: resolved.config, customEnv: resolved.customEnv },
-    };
-  } catch (err) {
-    logger.warn(
-      { err },
-      'Provider pool selection failed, falling back to active profile',
-    );
-    return null;
-  }
-}
-
 function buildVolumeMounts(
   group: RegisteredGroup,
   isAdminHome: boolean,
@@ -298,8 +145,7 @@ function buildVolumeMounts(
   agentId?: string,
   ownerHomeFolder?: string,
   taskRunId?: string,
-  resolvedProvider?: ResolvedProvider,
-  agentType: AgentType = 'openai',
+  runtimeSessionDir?: string,
   runtimeEnv: Record<string, string> = {},
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
@@ -331,43 +177,10 @@ function buildVolumeMounts(
     });
   }
 
-  // Per-group Claude sessions directory (isolated from other groups)
-  // Sub-agents get their own session dir under agents/{agentId}/.claude/
-  const groupSessionsDir = agentId
-    ? path.join(
-        DATA_DIR,
-        'sessions',
-        group.folder,
-        'agents',
-        agentId,
-        '.claude',
-      )
-    : path.join(DATA_DIR, 'sessions', group.folder, '.claude');
-  mkdirForContainer(groupSessionsDir);
-  const settingsFile = path.join(groupSessionsDir, 'settings.json');
-  const mcpServers = ownerId ? loadUserMcpServers(ownerId) : {};
-  ensureSettingsJson(settingsFile, mcpServers);
-
-  mounts.push({
-    hostPath: groupSessionsDir,
-    containerPath: '/home/node/.claude',
-    readonly: false,
-  });
-
-  if (agentType === 'openai') {
-    const openAiSessionDir = agentId
-      ? path.join(
-          DATA_DIR,
-          'sessions',
-          group.folder,
-          'agents',
-          agentId,
-          '.openai',
-        )
-      : path.join(DATA_DIR, 'sessions', group.folder, '.openai');
-    mkdirForContainer(openAiSessionDir);
+  if (runtimeSessionDir) {
+    mkdirForContainer(runtimeSessionDir);
     mounts.push({
-      hostPath: openAiSessionDir,
+      hostPath: runtimeSessionDir,
       containerPath: '/workspace/runtime-session',
       readonly: false,
     });
@@ -430,23 +243,10 @@ function buildVolumeMounts(
     readonly: false,
   });
 
-  // Per-container environment file (keeps credentials out of process listings)
-  // Global config merged with per-container overrides.
+  // Per-container environment file (keeps credentials out of process listings).
   const envDir = path.join(DATA_DIR, 'env', group.folder);
   fs.mkdirSync(envDir, { recursive: true });
-  const containerOverride =
-    agentType === 'claude' ? getContainerEnvConfig(group.folder) : {};
-  const globalConfig =
-    agentType === 'claude'
-      ? (resolvedProvider?.config ?? getClaudeProviderConfig())
-      : null;
-  const envLines = globalConfig
-    ? buildContainerEnvLines(
-        globalConfig,
-        containerOverride,
-        resolvedProvider?.customEnv,
-      )
-    : [];
+  const envLines: string[] = [];
   for (const [key, value] of Object.entries(runtimeEnv)) {
     const normalized = value.trim();
     if (normalized) envLines.push(`${key}=${normalized}`);
@@ -479,21 +279,6 @@ function buildVolumeMounts(
       containerPath: '/workspace/env-dir',
       readonly: true,
     });
-  }
-
-  // Write .credentials.json for OAuth credentials (session dir is already mounted)
-  const mergedConfig = globalConfig
-    ? mergeClaudeEnvConfig(globalConfig, containerOverride)
-    : null;
-  if (mergedConfig?.claudeOAuthCredentials) {
-    try {
-      writeCredentialsFile(groupSessionsDir, mergedConfig);
-    } catch (err) {
-      logger.warn(
-        { group: group.name, err },
-        'Failed to write .credentials.json',
-      );
-    }
   }
 
   // Mount agent-runner source from host — recompiled on container startup.
@@ -551,22 +336,19 @@ export async function runContainerAgent(
   ownerHomeFolder?: string,
 ): Promise<ContainerOutput> {
   const startTime = Date.now();
-  const agentType = input.agentType || group.agentType || 'openai';
+  const agentType: AgentType = 'openai';
   const selectedRunner = agentType;
   const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
   const groupDir = path.join(GROUPS_DIR, group.folder);
   mkdirForContainer(groupDir);
 
-  // ─── Provider Pool selection ───
-  const poolResult =
-    agentType === 'claude' ? trySelectPoolProvider(group.folder) : null;
-  const selectedProfileId = poolResult?.profileId ?? null;
-  const resolvedProvider = poolResult?.resolved;
-
   try {
-    const runtimeEnv =
-      agentType === 'openai' ? await resolveCodexCliRuntimeEnv() : {};
+    const runtime = getAgentRuntime(agentType);
+    const runtimePreparation = await runtime.prepareContainer({
+      group,
+      agentId: input.agentId ?? null,
+    });
     // Determine if this is an admin home container (full privileges)
     const isAdminHome = !!group.is_home && group.folder === 'main';
     // Per-user skills: always mount if the group has an owner
@@ -578,9 +360,8 @@ export async function runContainerAgent(
       input.agentId,
       ownerHomeFolder,
       input.taskRunId,
-      resolvedProvider,
-      agentType,
-      runtimeEnv,
+      runtimePreparation.hostSessionDir,
+      runtimePreparation.env,
     );
     const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
     const agentSuffix = input.agentId
@@ -763,21 +544,15 @@ export async function runContainerAgent(
       });
     });
 
-    // ─── Provider Pool health reporting ───
-    if (selectedProfileId) {
-      if (result.status === 'success' || result.status === 'closed') {
-        providerPool.reportSuccess(selectedProfileId);
-      } else if (result.status === 'error' && isApiError(result.error || '')) {
-        providerPool.reportFailure(selectedProfileId);
-      }
-    }
-
     return result;
-  } finally {
-    // Guarantee session release even if buildVolumeMounts/spawn throws
-    if (selectedProfileId) {
-      providerPool.releaseSession(selectedProfileId);
-    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    logger.error({ group: group.name, err }, 'Container agent setup failed');
+    return {
+      status: 'error',
+      result: null,
+      error: `Container setup error: ${error}`,
+    };
   }
 }
 
@@ -995,141 +770,22 @@ export async function runHostAgent(
     mode: 0o700,
   });
 
-  const groupSessionsDir = input.agentId
-    ? path.join(
-        DATA_DIR,
-        'sessions',
-        group.folder,
-        'agents',
-        input.agentId,
-        '.claude',
-      )
-    : path.join(DATA_DIR, 'sessions', group.folder, '.claude');
-  fs.mkdirSync(groupSessionsDir, { recursive: true });
-
-  // 3. 写入 settings.json（合并模式，不覆盖已有用户配置）
-  // Load user's global MCP servers (same logic as Docker mode).
-  const settingsFile = path.join(groupSessionsDir, 'settings.json');
-  const hostMcpServers = group.created_by
-    ? loadUserMcpServers(group.created_by)
-    : {};
-  ensureSettingsJson(settingsFile, hostMcpServers);
-
-  // 4. Skills 自动链接到 session 目录
-  // 链接顺序：项目级 → 用户级(覆盖同名项目级)
-  // 用户的所有 skills 在所有工作区中生效
-  try {
-    const skillsDir = path.join(groupSessionsDir, 'skills');
-    fs.mkdirSync(skillsDir, { recursive: true });
-    // 清空已有符号链接
-    for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-      const entryPath = path.join(skillsDir, entry.name);
-      try {
-        if (entry.isSymbolicLink() || entry.isDirectory()) {
-          fs.rmSync(entryPath, { recursive: true, force: true });
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const linkSkillEntries = (sourceDir: string) => {
-      if (!fs.existsSync(sourceDir)) return;
-      for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-        if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-        const linkPath = path.join(skillsDir, entry.name);
-        try {
-          // 移除已有符号链接（高优先级覆盖低优先级）
-          if (fs.existsSync(linkPath)) {
-            fs.rmSync(linkPath, { recursive: true, force: true });
-          }
-          fs.symlinkSync(path.join(sourceDir, entry.name), linkPath);
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-
-    // 项目级 skills
-    linkSkillEntries(resolveAppPath('container', 'skills'));
-    // 用户级 skills（覆盖同名项目级）
-    const ownerId = group.created_by;
-    if (ownerId) {
-      linkSkillEntries(path.join(DATA_DIR, 'skills', ownerId));
-    }
-  } catch (err) {
-    logger.warn(
-      { folder: group.folder, err },
-      '宿主机模式 skills 符号链接失败',
-    );
-  }
-
-  // 5. 构建环境变量
+  // 3. 构建环境变量
   const hostEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
   };
-  const agentType = input.agentType || group.agentType || 'openai';
+  const agentType: AgentType = 'openai';
   const selectedRunner = agentType;
   const runtimeBuildLogFields = getRuntimeBuildLogFields();
 
-  // ─── Provider Pool selection (host mode) ───
-  const containerOverride = getContainerEnvConfig(group.folder);
-  const hostPoolResult =
-    agentType === 'claude' ? trySelectPoolProvider(group.folder) : null;
-  const hostSelectedProfileId = hostPoolResult?.profileId ?? null;
-  const globalConfig =
-    agentType === 'claude'
-      ? (hostPoolResult?.resolved.config ?? getClaudeProviderConfig())
-      : null;
-
   try {
-    if (agentType === 'claude' && globalConfig) {
-      // 配置层环境变量
-      const envLines = buildContainerEnvLines(
-        globalConfig,
-        containerOverride,
-        hostPoolResult?.resolved.customEnv,
-      );
-      for (const line of envLines) {
-        const eqIdx = line.indexOf('=');
-        if (eqIdx > 0) {
-          hostEnv[line.slice(0, eqIdx)] = line.slice(eqIdx + 1);
-        }
-      }
-
-      // Write .credentials.json for OAuth credentials
-      const mergedConfig = mergeClaudeEnvConfig(
-        globalConfig,
-        containerOverride,
-      );
-      if (mergedConfig.claudeOAuthCredentials) {
-        try {
-          writeCredentialsFile(groupSessionsDir, mergedConfig);
-        } catch (err) {
-          logger.warn(
-            { folder: group.folder, err },
-            'Failed to write .credentials.json for host agent',
-          );
-        }
-      }
-    } else if (agentType === 'openai') {
-      delete hostEnv[LEGACY_OPENAI_TOKEN_ENV];
-      const codexRuntimeEnv = await resolveCodexCliRuntimeEnv();
-      Object.assign(hostEnv, codexRuntimeEnv);
-      hostEnv.OPENAI_AGENTS_DISABLE_TRACING ??= '1';
-      const openAiSessionDir = input.agentId
-        ? path.join(
-            DATA_DIR,
-            'sessions',
-            group.folder,
-            'agents',
-            input.agentId,
-            '.openai',
-          )
-        : path.join(DATA_DIR, 'sessions', group.folder, '.openai');
-      fs.mkdirSync(openAiSessionDir, { recursive: true });
-      hostEnv.CLI_CLAW_RUNTIME_SESSION_DIR = openAiSessionDir;
-    }
+    delete hostEnv[LEGACY_OPENAI_TOKEN_ENV];
+    const runtime = getAgentRuntime(agentType);
+    const runtimePreparation = await runtime.prepareHost({
+      group,
+      agentId: input.agentId ?? null,
+    });
+    Object.assign(hostEnv, runtimePreparation.env);
 
     hostEnv['PATH'] = buildHostRuntimePath({
       pathValue: hostEnv['PATH'],
@@ -1148,16 +804,6 @@ export async function runHostAgent(
     // 路径映射
     hostEnv['CLI_CLAW_WORKSPACE_GROUP'] = groupDir;
     hostEnv['CLI_CLAW_WORKSPACE_IPC'] = groupIpcDir;
-    if (agentType === 'claude') {
-      hostEnv['CLAUDE_CONFIG_DIR'] = groupSessionsDir;
-      // 让 SDK 捕获 CLI 的 stderr 输出，便于排查启动失败
-      hostEnv['DEBUG_CLAUDE_AGENT_SDK'] = '1';
-      // CLI 禁止 root 用户使用 --dangerously-skip-permissions，
-      // 通过 IS_SANDBOX 标记告知 CLI 当前运行在受控环境中以绕过此限制
-      if (typeof process.getuid === 'function' && process.getuid() === 0) {
-        hostEnv['IS_SANDBOX'] = '1';
-      }
-    }
 
     // 6. 编译检查
     const agentRunnerRoot = resolveAppPath('container', 'agent-runner');
@@ -1172,10 +818,7 @@ export async function runHostAgent(
         '缺少 container/agent-runner 资源。当前安装不支持 packaged host-mode agent-runner，请改用源码仓库运行或补齐该目录后重试。',
       );
     }
-    const requiredDeps =
-      agentType === 'claude'
-        ? ['@anthropic-ai/claude-agent-sdk']
-        : ['@openai/agents', 'openai'];
+    const requiredDeps = ['@openai/agents', 'openai'];
     const agentRunnerRequire = createRequire(agentRunnerManifestPath);
     const missingDeps = requiredDeps.filter((dep) => {
       try {
@@ -1402,23 +1045,10 @@ export async function runHostAgent(
       });
     });
 
-    // ─── Provider Pool health reporting (host mode) ───
-    if (agentType === 'claude' && hostSelectedProfileId) {
-      if (hostResult.status === 'success' || hostResult.status === 'closed') {
-        providerPool.reportSuccess(hostSelectedProfileId);
-      } else if (
-        hostResult.status === 'error' &&
-        isApiError(hostResult.error || '')
-      ) {
-        providerPool.reportFailure(hostSelectedProfileId);
-      }
-    }
-
     return hostResult;
-  } finally {
-    // Guarantee session release even if spawn/setup throws
-    if (agentType === 'claude' && hostSelectedProfileId) {
-      providerPool.releaseSession(hostSelectedProfileId);
-    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    logger.error({ group: group.name, err }, 'Host agent setup failed');
+    return hostModeSetupError(error);
   }
 }

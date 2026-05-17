@@ -499,7 +499,7 @@ function buildRuntimeSelectElement(options: {
 }
 
 function buildRuntimeSelectionElements(options: {
-  agentType: 'claude' | 'openai';
+  agentType: 'openai';
   runtimeIdentity?: RuntimeIdentity | null;
   modelChoices?: RuntimePresetOption[];
 }): Record<string, unknown>[] {
@@ -1027,11 +1027,11 @@ export function buildStaticReplyCard(
 }
 
 export function buildRuntimeSelectionCard(options: {
-  agentType: 'claude' | 'openai';
+  agentType: 'openai';
   runtimeIdentity?: RuntimeIdentity | null;
   modelChoices?: RuntimePresetOption[];
 }): object {
-  const label = options.agentType === 'openai' ? 'OpenAI' : 'Claude';
+  const label = 'OpenAI';
   const selectElements = buildRuntimeSelectionElements(options);
 
   if (selectElements.length === 0) {

@@ -17,7 +17,7 @@ export function AuthGuard({
   requiredPermission,
   requiredAnyPermissions,
 }: AuthGuardProps) {
-  const { authenticated, checking, checkAuth, user, initialized, setupStatus, hasPermission } = useAuthStore();
+  const { authenticated, checking, checkAuth, user, initialized, hasPermission } = useAuthStore();
   const location = useLocation();
   const navigate = useNavigate();
   const checkedRef = useRef(false);
@@ -86,10 +86,7 @@ export function AuthGuard({
     return <Navigate to="/settings" replace />;
   }
 
-  // Admin onboarding: force provider setup flow before entering full app.
-  if (user?.role === 'admin' && setupStatus?.needsSetup && location.pathname !== '/setup/providers') {
-    return <Navigate to="/setup/providers" replace />;
-  }
+  // Provider setup is no longer a required frontend onboarding step.
 
   if (requireAdmin && user?.role !== 'admin') {
     return <Navigate to="/chat" replace />;

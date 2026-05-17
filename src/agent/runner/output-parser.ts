@@ -713,7 +713,7 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
   return null;
 }
 
-/** Patterns that indicate an API-level error (provider issue, not user code bug) */
+/** Patterns that indicate an API-level error (runtime issue, not user code bug) */
 const API_ERROR_PATTERNS = [
   /\bapi[_ ]?key\b.*\b(invalid|missing|expired|required)\b/i,
   /\bauthentication\s+(failed|error|required)\b/i,
@@ -723,8 +723,6 @@ const API_ERROR_PATTERNS = [
   /\boverloaded\b/i,
   /\binternal\s+server\s+error\b/i,
   /\b(502|503|504|529)\b/,
-  /ANTHROPIC_API_KEY/,
-  /ANTHROPIC_AUTH_TOKEN/,
   /\binvalid[_ ]?api\b/i,
   /\bbilling\s+(error|issue|limit)\b/i,
   /\bcredit(s)?\s+(exhausted|insufficient)\b/i,
@@ -734,10 +732,8 @@ const API_ERROR_PATTERNS = [
 
 /**
  * Classify whether stderr output indicates an API-level error
- * (provider unreachable, auth failure, rate limit, etc.)
+ * (runtime unreachable, auth failure, rate limit, etc.)
  * vs a normal agent exit or user code issue.
- *
- * Used by container-runner to decide whether to report failure to ProviderPool.
  */
 export function isApiError(stderr: string): boolean {
   if (!stderr) return false;

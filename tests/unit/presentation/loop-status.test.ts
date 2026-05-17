@@ -18,9 +18,9 @@ describe('formatLoopStatusSection', () => {
       const output = formatLoopStatusSection({
         taskReader: emptyTaskReader,
         runtimeUsage: {
-          provider: 'claude',
+          provider: 'openai',
           available: true,
-          source: 'Claude OAuth API',
+          source: 'Codex usage API',
           primaryRemainingPct: 90,
           secondaryRemainingPct: 67,
         },
@@ -43,9 +43,9 @@ describe('formatLoopStatusSection', () => {
       const output = formatLoopStatusSection({
         taskReader: emptyTaskReader,
         runtimeUsage: {
-          provider: 'claude',
+          provider: 'openai',
           available: true,
-          source: 'Claude OAuth API',
+          source: 'Codex usage API',
           primaryRemainingPct: 90,
           secondaryRemainingPct: 67,
         },

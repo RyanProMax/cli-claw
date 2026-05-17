@@ -1,4 +1,6 @@
-export type RuntimeAgentType = 'claude' | 'openai';
+export type KnownRuntimeAgentType = 'openai';
+export type RuntimePluginAgentType = string & {};
+export type RuntimeAgentType = KnownRuntimeAgentType | RuntimePluginAgentType;
 export type RuntimeCommandEntrypoint = 'im' | 'web';
 export type ReasoningEffortPreset = 'low' | 'medium' | 'high' | 'xhigh';
 export type SpeedTierPreset = 'standard' | 'fast';
@@ -8,14 +10,6 @@ export interface RuntimePresetOption {
 }
 
 export type RuntimeCommandModule = 'agent' | 'workspace' | 'service';
-
-const CLAUDE_MODEL_PRESETS = [
-  'opus[1m]',
-  'opus',
-  'sonnet[1m]',
-  'sonnet',
-  'haiku',
-] as const;
 
 const OPENAI_MODEL_PRESETS = ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2'] as const;
 
@@ -146,17 +140,9 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
     availabilityByRuntime: 'all',
   },
   {
-    name: 'claude',
-    usage: '/claude',
-    description: '配置当前工作区 Claude 模型',
-    module: 'agent',
-    availableEntrypoints: ['im', 'web'],
-    availabilityByRuntime: ['claude'],
-  },
-  {
     name: 'openai',
     usage: '/openai',
-    description: '配置当前工作区 OpenAI 模型、推理强度和速度',
+    description: '配置当前工作区 Codex/OpenAI 模型、推理强度和速度',
     module: 'agent',
     availableEntrypoints: ['im', 'web'],
     availabilityByRuntime: ['openai'],
@@ -176,13 +162,11 @@ export function supportsSpeedTier(agentType: RuntimeAgentType): boolean {
 }
 
 export function getModelPresets(agentType: RuntimeAgentType): string[] {
-  return agentType === 'openai'
-    ? [...OPENAI_MODEL_PRESETS]
-    : [...CLAUDE_MODEL_PRESETS];
+  return agentType === 'openai' ? [...OPENAI_MODEL_PRESETS] : [];
 }
 
 export function getDefaultModelPreset(agentType: RuntimeAgentType): string {
-  return getModelPresets(agentType)[0];
+  return getModelPresets(agentType)[0] ?? OPENAI_MODEL_PRESETS[0];
 }
 
 function formatModelPresetLabel(preset: string): string {
@@ -193,9 +177,6 @@ function formatModelPresetLabel(preset: string): string {
       if (normalized === 'gpt') return 'GPT';
       if (normalized === 'openai') return 'OpenAI';
       if (normalized === 'mini') return 'Mini';
-      if (normalized.startsWith('opus')) return `Opus${part.slice(4)}`;
-      if (normalized.startsWith('sonnet')) return `Sonnet${part.slice(6)}`;
-      if (normalized.startsWith('haiku')) return `Haiku${part.slice(5)}`;
       return part;
     })
     .join('-');

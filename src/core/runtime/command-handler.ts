@@ -15,7 +15,7 @@ import {
   getAvailableRuntimeModelPresets,
   normalizeAvailableRuntimeModelPreset,
 } from './model-options.js';
-import { getClaudeProviderConfig, getOpenAiRuntimeDefaults } from './config.js';
+import { getOpenAiRuntimeDefaults } from './config.js';
 import {
   buildEffectiveGroupFromHomeSibling,
   resolveEffectiveRuntimeIdentity,
@@ -75,7 +75,8 @@ function stripVirtualChatJid(chatJid: string): string {
 }
 
 function normalizeAgentType(value: string | null | undefined): AgentType {
-  return value === 'claude' ? 'claude' : 'openai';
+  void value;
+  return 'openai';
 }
 
 function resolveLegacyMainJid(
@@ -166,7 +167,6 @@ export function resolveRuntimeWorkspaceTarget(
   const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
     effectiveGroup,
     {
-      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
       openAiModel: openAiRuntimeDefaults.model,
       openAiReasoningEffort: openAiRuntimeDefaults.reasoningEffort,
       openAiSpeedTier: openAiRuntimeDefaults.speedTier,
@@ -207,27 +207,25 @@ function buildAgentConfigReply(
     currentModel: target.effectiveRuntimeIdentity.model,
   });
   const lines = [
-    `${agentType === 'openai' ? 'OpenAI' : 'Claude'} 配置：`,
+    'OpenAI 配置：',
     `当前模型：${target.effectiveRuntimeIdentity.model}`,
     `可用模型：${modelCatalog.options.map((option) => option.value).join(', ')}`,
   ];
 
-  if (agentType === 'openai') {
-    const currentEffort =
-      target.effectiveRuntimeIdentity.reasoningEffort?.trim() || 'medium';
-    lines.push(`当前思考强度：${currentEffort}`);
-    lines.push(`可用思考强度：${getReasoningEffortPresets().join(', ')}`);
-    lines.push(
-      `当前速度：${formatSpeedTierLabel(
-        target.effectiveRuntimeIdentity.speedTier,
-      )}`,
-    );
-    lines.push(
-      `可用速度：${getSpeedTierOptions()
-        .map((option) => option.label)
-        .join(', ')}`,
-    );
-  }
+  const currentEffort =
+    target.effectiveRuntimeIdentity.reasoningEffort?.trim() || 'medium';
+  lines.push(`当前思考强度：${currentEffort}`);
+  lines.push(`可用思考强度：${getReasoningEffortPresets().join(', ')}`);
+  lines.push(
+    `当前速度：${formatSpeedTierLabel(
+      target.effectiveRuntimeIdentity.speedTier,
+    )}`,
+  );
+  lines.push(
+    `可用速度：${getSpeedTierOptions()
+      .map((option) => option.label)
+      .join(', ')}`,
+  );
 
   return lines.join('\n');
 }
@@ -434,18 +432,10 @@ export async function executeRuntimeWorkspaceCommand(options: {
         reply: buildHelpReply(options.entrypoint, target),
       };
     case 'openai':
-    case 'claude':
       if (parsed.argsText) {
-        const label = parsed.name === 'openai' ? 'OpenAI' : 'Claude';
         return {
           handled: true,
-          reply: `请直接输入 /${parsed.name} 打开 ${label} 配置选择器`,
-        };
-      }
-      if (parsed.name !== agentType) {
-        return {
-          handled: true,
-          reply: `当前工作区是 ${agentType}，请使用 /${agentType} 配置该 Agent`,
+          reply: `请直接输入 /${parsed.name} 打开 OpenAI 配置选择器`,
         };
       }
       return {

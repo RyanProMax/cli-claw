@@ -34,7 +34,7 @@ export interface ContainerConfig {
 }
 
 export type ExecutionMode = 'container' | 'host';
-export type AgentType = 'claude' | 'openai';
+export type AgentType = 'openai';
 
 export interface RuntimeIdentity {
   agentType: AgentType;

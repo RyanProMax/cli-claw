@@ -35,7 +35,6 @@ const DEFAULT_BLOCKED_PATTERNS = [
   '.docker',
   '.cli-claw',
   '.codex',
-  '.claude',
   '.agents',
   'credentials',
   '.env',

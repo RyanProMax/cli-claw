@@ -46,7 +46,7 @@ describe('runtime command registry', () => {
   test('formats IM help with commands grouped by module', () => {
     const help = formatCommandHelp({
       entrypoint: 'im',
-      agentType: 'claude',
+      agentType: 'openai',
     });
 
     expect(help).not.toContain('可用命令：');
@@ -57,8 +57,8 @@ describe('runtime command registry', () => {
     expect(help).toContain('/bind <workspace[/agent短ID]>');
     expect(help).toContain('/require_mention <true/false>');
     expect(help).not.toContain('/where');
-    expect(help).toContain('/claude');
-    expect(help).not.toContain('/openai');
+    expect(help).toContain('/openai');
+    expect(help).not.toContain('/claude');
     expect(help).not.toContain('/model');
     expect(help).not.toContain('/autopilot');
     expect(help).not.toContain('/recall');
@@ -87,11 +87,7 @@ describe('runtime command registry', () => {
       argsText: '',
       args: [],
     });
-    expect(parseRuntimeCommand('/claude')).toMatchObject({
-      name: 'claude',
-      argsText: '',
-      args: [],
-    });
+    expect(parseRuntimeCommand('/claude')).toBeNull();
   });
 
   test('shows self-iteration commands in IM help and parses them as local commands', () => {
@@ -130,7 +126,7 @@ describe('runtime command registry', () => {
   });
 
   test('normalizes preset-only model selections', () => {
-    expect(normalizeModelPreset('claude', ' SONNET ')).toBe('sonnet');
+    expect(normalizeModelPreset('claude', ' SONNET ')).toBeNull();
     expect(normalizeModelPreset('openai', 'GPT-5.4')).toBe('gpt-5.4');
     expect(normalizeModelPreset('openai', 'not-a-preset')).toBeNull();
   });
@@ -150,13 +146,7 @@ describe('runtime command registry', () => {
   });
 
   test('exposes preset-only model lists by runtime', () => {
-    expect(getModelPresets('claude')).toEqual([
-      'opus[1m]',
-      'opus',
-      'sonnet[1m]',
-      'sonnet',
-      'haiku',
-    ]);
+    expect(getModelPresets('claude')).toEqual([]);
     expect(getModelPresets('openai')).toEqual([
       'gpt-5.4',
       'gpt-5.4-mini',
@@ -173,7 +163,7 @@ describe('runtime command registry', () => {
   });
 
   test('exposes stable runtime fallback defaults for picker/status rendering', () => {
-    expect(getDefaultModelPreset('claude')).toBe('opus[1m]');
+    expect(getDefaultModelPreset('claude')).toBe('gpt-5.4');
     expect(getDefaultModelPreset('openai')).toBe('gpt-5.4');
     expect(getDefaultReasoningEffortPreset('claude')).toBeNull();
     expect(getDefaultReasoningEffortPreset('openai')).toBe('medium');
@@ -184,7 +174,7 @@ describe('runtime command registry', () => {
   test('detects agent-scoped runtime picker commands only for bare slash commands', () => {
     expect(detectRuntimePickerCommand('/openai')).toBe('openai');
     expect(detectRuntimePickerCommand('/openai ')).toBe('openai');
-    expect(detectRuntimePickerCommand('/claude')).toBe('claude');
+    expect(detectRuntimePickerCommand('/claude')).toBeNull();
     expect(detectRuntimePickerCommand('/model')).toBeNull();
     expect(detectRuntimePickerCommand('/effort')).toBeNull();
     expect(detectRuntimePickerCommand('/speed')).toBeNull();
@@ -199,12 +189,7 @@ describe('runtime command registry', () => {
       ),
     ).toEqual(['model', 'effort', 'speed']);
     expect(
-      getRuntimePickerSections({ command: 'claude', agentType: 'claude' }).map(
-        (section) => section.command,
-      ),
-    ).toEqual(['model']);
-    expect(
-      getRuntimePickerSections({ command: 'openai', agentType: 'claude' }),
+      getRuntimePickerSections({ command: 'claude', agentType: 'openai' }),
     ).toEqual([]);
     expect(
       getRuntimePickerSections({ command: 'openai', agentType: 'openai' })

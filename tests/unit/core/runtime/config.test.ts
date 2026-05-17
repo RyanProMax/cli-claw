@@ -43,7 +43,7 @@ describe('runtime config storage', () => {
     expect(runtimeConfig.getOpenAiRuntimeDefaults().speedTier).toBe('fast');
   });
 
-  test('ignores legacy provider config versions', async () => {
+  test('does not expose legacy provider pool APIs', async () => {
     const home = createTempHome();
     const configDir = path.join(home, '.cli-claw', 'config');
     fs.mkdirSync(configDir, { recursive: true });
@@ -68,11 +68,8 @@ describe('runtime config storage', () => {
 
     const runtimeConfig = await import('../../../../src/core/runtime/config.js');
 
-    expect(runtimeConfig.getProviders()).toEqual([]);
-    expect(runtimeConfig.getBalancingConfig()).toEqual({
-      strategy: 'round-robin',
-      unhealthyThreshold: 3,
-      recoveryIntervalMs: 300000,
-    });
+    expect('getProviders' in runtimeConfig).toBe(false);
+    expect('getBalancingConfig' in runtimeConfig).toBe(false);
+    expect(runtimeConfig.getOpenAiRuntimeDefaults().model).toBe('gpt-5.4');
   });
 });

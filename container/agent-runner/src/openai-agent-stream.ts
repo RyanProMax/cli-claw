@@ -1,7 +1,7 @@
 import type { ContainerOutput, StreamEvent } from './types.js';
 
 export interface RuntimeIdentityState {
-  agentType: 'claude' | 'openai';
+  agentType: 'openai';
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;
@@ -23,22 +23,16 @@ export function mergeRuntimeIdentityState(
 ): RuntimeIdentityState | null {
   if (!base) return next ?? null;
   if (!next) return base;
-  const agentType = next.agentType ?? base.agentType;
-  const sameAgentType = agentType === base.agentType;
   return {
-    agentType,
-    model: normalizeText(next.model) ?? (sameAgentType ? base.model : null),
+    agentType: 'openai',
+    model: normalizeText(next.model) ?? base.model,
     reasoningEffort:
-      normalizeText(next.reasoningEffort) ??
-      (sameAgentType ? base.reasoningEffort : null),
-    speedTier:
-      normalizeText(next.speedTier) ?? (sameAgentType ? base.speedTier : null),
+      normalizeText(next.reasoningEffort) ?? base.reasoningEffort,
+    speedTier: normalizeText(next.speedTier) ?? base.speedTier,
     supportsReasoningEffort:
       typeof next.supportsReasoningEffort === 'boolean'
         ? next.supportsReasoningEffort
-        : sameAgentType
-          ? base.supportsReasoningEffort
-          : null,
+        : base.supportsReasoningEffort,
   };
 }
 

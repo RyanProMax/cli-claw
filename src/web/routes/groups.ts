@@ -5,7 +5,6 @@ import {
   GroupCreateSchema,
   GroupPatchSchema,
   GroupMemberAddSchema,
-  ContainerEnvSchema,
 } from '../../core/schemas.js';
 import type {
   AgentType,
@@ -90,13 +89,7 @@ import {
   unpinGroup,
 } from '../../storage/db.js';
 import { logger } from '../../core/logger.js';
-import {
-  getClaudeProviderConfig,
-  getContainerEnvConfig,
-  getOpenAiRuntimeDefaults,
-  saveContainerEnvConfig,
-  toPublicContainerEnvConfig,
-} from '../../core/runtime/config.js';
+import { getOpenAiRuntimeDefaults } from '../../core/runtime/config.js';
 import {
   loadMountAllowlist,
   findAllowedRoot,
@@ -173,7 +166,6 @@ function resolveRuntimeIdentityForGroup(group: RegisteredGroup) {
   return resolveEffectiveRuntimeIdentity(
     resolveEffectiveGroupForRuntime(group),
     {
-      claudeProviderModel: getClaudeProviderConfig().anthropicModel,
       openAiModel: openAiRuntimeDefaults.model,
       openAiReasoningEffort: openAiRuntimeDefaults.reasoningEffort,
       openAiSpeedTier: openAiRuntimeDefaults.speedTier,
@@ -422,7 +414,7 @@ function resetWorkspaceForGroup(folder: string): void {
   fs.rmSync(groupDir, { recursive: true, force: true });
   fs.mkdirSync(groupDir, { recursive: true });
 
-  // 2. 清除整个 Claude 会话目录（下次启动时 container-runner 会重建）
+  // 2. 清除 runtime 会话目录（下次启动时 runner 会重建）
   fs.rmSync(path.join(DATA_DIR, 'sessions', folder), {
     recursive: true,
     force: true,
@@ -434,23 +426,6 @@ function resetWorkspaceForGroup(folder: string): void {
   fs.mkdirSync(path.join(ipcDir, 'input'), { recursive: true });
   fs.mkdirSync(path.join(ipcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(ipcDir, 'tasks'), { recursive: true });
-}
-
-function toPublicContainerEnvForUser(
-  config: ReturnType<typeof getContainerEnvConfig>,
-  user: AuthUser,
-) {
-  const base = toPublicContainerEnvConfig(config);
-  if (
-    user.role === 'admin' ||
-    (user.permissions && user.permissions.includes('manage_group_env'))
-  ) {
-    return base;
-  }
-  return {
-    ...base,
-    customEnv: {},
-  };
 }
 
 // --- Routes ---
@@ -1376,7 +1351,7 @@ groupRoutes.post('/:jid/reset-session', authMiddleware, async (c) => {
     );
   }
 
-  // 2. Delete session JSONL files so Claude starts fresh.
+  // 2. Delete runtime session files so the next turn starts fresh.
   try {
     clearSessionJsonlFiles(group.folder, agentId);
   } catch (err) {
@@ -1667,146 +1642,6 @@ groupRoutes.delete('/:jid/messages/:messageId', authMiddleware, (c) => {
   }
 
   return c.json({ success: true });
-});
-
-// GET /api/groups/:jid/env - 获取容器环境变量配置
-groupRoutes.get('/:jid/env', authMiddleware, (c) => {
-  const jid = c.req.param('jid');
-  const group = getRegisteredGroup(jid);
-  if (!group) return c.json({ error: 'Group not found' }, 404);
-  if (normalizeAgentType(group.agentType) === 'openai') {
-    return c.json(
-      {
-        error:
-          'This workspace uses OpenAI and does not support Claude env overrides',
-      },
-      400,
-    );
-  }
-
-  const user = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: user.id, role: user.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(user)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
-  // Check permissions
-  if (
-    user.role !== 'admin' &&
-    (!user.permissions || !user.permissions.includes('manage_group_env'))
-  ) {
-    return c.json({ error: 'Insufficient permissions' }, 403);
-  }
-
-  const config = getContainerEnvConfig(group.folder);
-  return c.json(toPublicContainerEnvForUser(config, user));
-});
-
-// PUT /api/groups/:jid/env - 更新容器环境变量配置
-groupRoutes.put('/:jid/env', authMiddleware, async (c) => {
-  const jid = c.req.param('jid');
-  const group = getRegisteredGroup(jid);
-  if (!group) return c.json({ error: 'Group not found' }, 404);
-  if (normalizeAgentType(group.agentType) === 'openai') {
-    return c.json(
-      {
-        error:
-          'This workspace uses OpenAI and does not support Claude env overrides',
-      },
-      400,
-    );
-  }
-
-  const envUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: envUser.id, role: envUser.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(envUser)) {
-    return c.json(
-      { error: 'Insufficient permissions for host execution mode' },
-      403,
-    );
-  }
-
-  // Check permissions
-  if (
-    envUser.role !== 'admin' &&
-    (!envUser.permissions || !envUser.permissions.includes('manage_group_env'))
-  ) {
-    return c.json({ error: 'Insufficient permissions' }, 403);
-  }
-
-  const body = await c.req.json().catch(() => ({}));
-  const validation = ContainerEnvSchema.safeParse(body);
-  if (!validation.success) {
-    return c.json({ error: 'Invalid request body' }, 400);
-  }
-
-  const data = validation.data;
-
-  // Validate customEnv keys/values to prevent env injection
-  if (data.customEnv) {
-    const envKeyRe = /^[A-Za-z_][A-Za-z0-9_]*$/;
-    for (const [key, value] of Object.entries(data.customEnv)) {
-      if (!envKeyRe.test(key)) {
-        return c.json(
-          {
-            error: `Invalid env key: "${key}". Keys must match [A-Za-z_][A-Za-z0-9_]*`,
-          },
-          400,
-        );
-      }
-      if (/[\r\n\0]/.test(value)) {
-        return c.json(
-          {
-            error: `Env value for "${key}" contains invalid control characters`,
-          },
-          400,
-        );
-      }
-    }
-  }
-
-  const current = getContainerEnvConfig(group.folder);
-
-  // Build updated config: only update fields that are explicitly provided
-  const updated = { ...current };
-
-  if (data.anthropicBaseUrl !== undefined)
-    updated.anthropicBaseUrl = data.anthropicBaseUrl;
-  if (data.anthropicAuthToken !== undefined)
-    updated.anthropicAuthToken = data.anthropicAuthToken;
-  if (data.anthropicApiKey !== undefined)
-    updated.anthropicApiKey = data.anthropicApiKey;
-  if (data.claudeCodeOauthToken !== undefined)
-    updated.claudeCodeOauthToken = data.claudeCodeOauthToken;
-  if (data.anthropicModel !== undefined)
-    updated.anthropicModel = data.anthropicModel;
-  if (data.customEnv !== undefined) updated.customEnv = data.customEnv;
-
-  try {
-    saveContainerEnvConfig(group.folder, updated);
-
-    // Restart container so it picks up the new env immediately
-    const deps = getWebDeps();
-    if (deps) {
-      await deps.queue.restartGroup(jid);
-      logger.info(
-        { jid, folder: group.folder },
-        'Restarted container after env config update',
-      );
-    }
-
-    return c.json(toPublicContainerEnvConfig(updated));
-  } catch (err) {
-    logger.error({ err }, 'Failed to save container env config');
-    return c.json({ error: 'Failed to save config' }, 500);
-  }
 });
 
 // --- Member Management Routes ---

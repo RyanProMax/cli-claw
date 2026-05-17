@@ -1798,10 +1798,7 @@ export function createFeishuConnection(
     if (normalizeReasoningEffortPreset(selectedValue)) {
       return 'set_runtime_effort';
     }
-    if (
-      normalizeModelPreset('openai', selectedValue) ||
-      normalizeModelPreset('claude', selectedValue)
-    ) {
+    if (normalizeModelPreset('openai', selectedValue)) {
       return 'set_runtime_model';
     }
     return null;

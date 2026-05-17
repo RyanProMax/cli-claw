@@ -1,17 +1,13 @@
 /**
  * Workspace-level Skills and MCP Servers management routes.
  *
- * Operates on the workspace's `.claude/` directory for explicit skill/MCP
- * management. Agent runner does not load project/user Claude settings as
- * hidden prompt context.
+ * Operates on the workspace's `.agents/` directory for explicit skill/MCP
+ * management.
  */
 
 import { Hono, type Context } from 'hono';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import type { Variables } from '../context.js';
 import type { AuthUser, RegisteredGroup } from '../../domain/types.js';
 import { authMiddleware } from '../middleware/auth.js';
@@ -26,8 +22,6 @@ import {
   scanSkillDirectory,
   listFiles,
 } from '../../skills/utils.js';
-
-const execFileAsync = promisify(execFile);
 
 const workspaceConfigRoutes = new Hono<{ Variables: Variables }>();
 
@@ -69,25 +63,25 @@ function findHomeSiblingGroup(
   return undefined;
 }
 
-function getWorkspaceClaudeDir(
+function getWorkspaceAgentsDir(
   group: RegisteredGroup & { jid: string },
 ): string {
   return path.join(
     getWorkspaceRoot(group, findHomeSiblingGroup(group)),
-    '.claude',
+    '.agents',
   );
 }
 
 function getWorkspaceSkillsDir(
   group: RegisteredGroup & { jid: string },
 ): string {
-  return path.join(getWorkspaceClaudeDir(group), 'skills');
+  return path.join(getWorkspaceAgentsDir(group), 'skills');
 }
 
 function getWorkspaceSettingsPath(
   group: RegisteredGroup & { jid: string },
 ): string {
-  return path.join(getWorkspaceClaudeDir(group), 'settings.json');
+  return path.join(getWorkspaceAgentsDir(group), 'mcp', 'settings.json');
 }
 
 /**
@@ -99,7 +93,11 @@ function getWorkspaceSettingsPath(
 function getWorkspaceMcpMetaPath(
   group: RegisteredGroup & { jid: string },
 ): string {
-  return path.join(getWorkspaceClaudeDir(group), 'cli-claw-workspace.json');
+  return path.join(
+    getWorkspaceAgentsDir(group),
+    'mcp',
+    'cli-claw-workspace.json',
+  );
 }
 
 // --- MCP Metadata Helpers ---
@@ -264,81 +262,13 @@ workspaceConfigRoutes.post(
       return c.json({ error: 'Invalid package name format' }, 400);
     }
 
-    // Install to a temp HOME, then copy to workspace skills dir
-    const tempHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'ws-skill-install-'),
+    return c.json(
+      {
+        error: 'Skill package installation is not available in this runtime',
+        details: `Add unpacked skill folders under ${getWorkspaceSkillsDir(group)}`,
+      },
+      501,
     );
-    const tempSkillsDir = path.join(tempHome, '.claude', 'skills');
-    fs.mkdirSync(tempSkillsDir, { recursive: true });
-
-    try {
-      await execFileAsync(
-        'npx',
-        ['-y', 'skills', 'add', pkg, '--global', '--yes', '-a', 'claude-code'],
-        {
-          timeout: 60_000,
-          env: { ...process.env, HOME: tempHome },
-        },
-      );
-
-      // Discover installed skill directories
-      const installedEntries: string[] = [];
-      if (fs.existsSync(tempSkillsDir)) {
-        for (const entry of fs.readdirSync(tempSkillsDir, {
-          withFileTypes: true,
-        })) {
-          if (entry.isDirectory() || entry.isSymbolicLink()) {
-            installedEntries.push(entry.name);
-          }
-        }
-      }
-
-      if (installedEntries.length === 0) {
-        return c.json(
-          { error: 'No skills were installed — package may be invalid' },
-          500,
-        );
-      }
-
-      // Copy to workspace skills directory
-      const targetDir = getWorkspaceSkillsDir(group);
-      fs.mkdirSync(targetDir, { recursive: true });
-
-      for (const name of installedEntries) {
-        const src = path.join(tempSkillsDir, name);
-        const dest = path.join(targetDir, name);
-        if (fs.existsSync(dest)) {
-          fs.rmSync(dest, { recursive: true, force: true });
-        }
-        // Resolve symlinks and copy real content
-        let realSrc = src;
-        try {
-          const lstat = fs.lstatSync(src);
-          if (lstat.isSymbolicLink()) {
-            realSrc = fs.realpathSync(src);
-          }
-        } catch {
-          // use src as-is
-        }
-        fs.cpSync(realSrc, dest, { recursive: true });
-      }
-
-      return c.json({ success: true, installed: installedEntries });
-    } catch (error) {
-      return c.json(
-        {
-          error: 'Failed to install skill',
-          details: error instanceof Error ? error.message : 'Unknown error',
-        },
-        500,
-      );
-    } finally {
-      try {
-        fs.rmSync(tempHome, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
-    }
   },
 );
 

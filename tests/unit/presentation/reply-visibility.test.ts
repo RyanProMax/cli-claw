@@ -216,34 +216,34 @@ describe('resolveVisibleReplyText', () => {
     });
   });
 
-  test('does not rewrite non-OpenAI replies', () => {
+  test('does not rewrite replies when runtime identity is unavailable', () => {
     expect(
       resolveVisibleReplyText(
         '普通回复',
         {
           commentaryText: 'commentary',
         },
-        { agentType: 'claude' },
+        {},
       ),
     ).toBe('普通回复');
   });
 
-  test('uses current raw final for Claude and never exposes stale answer text', () => {
-    const rawText = '当前 Claude final';
+  test('uses current raw final for non-OpenAI runtimes and never exposes stale answer text', () => {
+    const rawText = '当前 legacy final';
     const staleAnswerText = '上一轮 stale answerText';
 
     const parts = resolveVisibleReplyParts(
       rawText,
       {
         answerText: staleAnswerText,
-        commentaryText: 'Claude commentary',
+        commentaryText: 'legacy commentary',
       },
-      { agentType: 'claude' },
+      { agentType: 'legacy' },
     );
 
     expect(parts.visibleText).toBe(rawText);
     expect(parts.visibleText).not.toContain(staleAnswerText);
-    expect(parts.commentaryText).toBe('Claude commentary');
+    expect(parts.commentaryText).toBe('legacy commentary');
   });
 
   test('strips commentary-prefixed final text when runtime identity is unavailable but commentary state exists', () => {

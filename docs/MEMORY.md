@@ -4,7 +4,7 @@
 
 ## 心智模型
 
-- Runtime 上下文由 Claude / Codex 自己维护。Cli Claw 只保存 runtime session id，并在需要时 reset / resume。
+- Runtime 上下文由 Codex / OpenAI 自己维护。Cli Claw 只保存 runtime session id，并在需要时 reset / resume。
 - 消息数据库 `~/.cli-claw/db/messages.db` 是产品侧展示、队列 cursor、恢复待处理消息和审计溯源的唯一历史记录。
 - Cli Claw 不维护长期记忆层，不生成每日摘要，不归档 transcript，不暴露 `memory_*` 工具，也不把历史消息、摘要、文件或旧 partial body 注入 agent prompt。
 - Runtime session 恢复是 runner 内部动作；恢复期间的历史 transcript、旧工具步骤和 session update 不属于当前用户消息输出，不能穿过 runner stdout 进入主进程、Web snapshot 或 IM 卡片。
@@ -24,11 +24,11 @@
 ## 增长与清理
 
 - `messages.db` 没有按天自动清理；会随聊天增长。清除历史、删除工作区或删除 conversation agent 会删除对应消息；SQLite 文件体积需要 `VACUUM` 才会真正回收。
-- Runtime transcript 不统一落在 `~/.cli-claw/sessions`：Claude 使用 `~/.cli-claw/sessions/{folder}/.claude/`，Codex 使用自己的 `~/.codex/sessions/**/*.jsonl`。Cli Claw 的 `sessions` 表只保存当前 session id。
+- Runtime transcript 不统一落在 `~/.cli-claw/sessions`：Codex 使用自己的 `~/.codex/sessions/**/*.jsonl`，OpenAI Agents 使用隔离文件 session。Cli Claw 的 `sessions` 表只保存当前 session id。
 - `/clear` 或 reset session 只清 runtime 上下文，不删除聊天历史；主对话 reset 会清该 workspace 的主会话 slot，但保留 conversation agent 自己的 session；clear-history 会清聊天历史、session 和该工作区运行时 artifacts。
 
 ## 边界
 
-- `.claude/`、`~/.codex/` 下的 settings / skills / config / native sessions 是外部 runtime 状态，不是 Cli Claw 维护的历史上下文。
+- `~/.codex/` 下的 settings / config / native sessions 是外部 runtime 状态，不是 Cli Claw 维护的历史上下文。
 - `.agents/roles/*.md` 是仓库执行协议角色定义，`.agents/skills/**/SKILL.md` 是仓库内联 skill 定义，`~/.agents/agents/*.md` 是用户级 Agent 定义；这些文件都不是 Cli Claw 消息历史注入来源。
 - 任何新增“读取历史并拼入 prompt / 工具描述 / 隐藏任务 / 可见正文”的能力，都必须先更新本文和对应 owner 文档，并补真实消息链路回归测试。

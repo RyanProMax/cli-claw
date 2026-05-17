@@ -35,8 +35,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 
 当前接入的运行时：
 
-- `claude`：Claude Agent SDK + Claude Code CLI
-- `openai`：OpenAI Agents SDK
+- `openai`：OpenAI Agents SDK，复用宿主机 Codex CLI 登录态
 
 主进程负责多用户隔离、消息路由、队列调度、持久化和 Web / IM 体验；真正的推理、工具调用和会话循环由底层 CLI runtime 执行。
 
@@ -44,27 +43,24 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 平台。它不重新实现
 
 - 多用户工作区：每个用户拥有隔离的工作区、权限、运行时设置和消息审计。
 - 多入口接入：通过 Web 与多种 IM 通道访问同一工作区，消息统一路由。
-- 多运行时执行：同一平台内支持 Claude Runtime 与 OpenAI Runtime。
+- Codex/OpenAI 执行：同一平台内支持 host 与 container 两种执行模式。
 - 流式体验：思考、文本、工具调用、任务事件和结果实时回传。
 - 文件与任务：工作区文件管理、定时任务和 MCP 能力统一接入。
 - 移动端 PWA：适配手机访问、查看执行状态和继续会话。
 
 ### 运行时概览
 
-| `agentType` | 底层运行时                         | 支持执行模式         | 认证方式                         |
-| ----------- | ---------------------------------- | -------------------- | -------------------------------- |
-| `claude`    | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 设置向导配置 Claude Provider |
-| `openai`    | OpenAI Agents SDK                  | `host` / `container` | 复用宿主机 Codex CLI 登录态      |
+| `agentType` | 底层运行时        | 支持执行模式         | 认证方式                    |
+| ----------- | ----------------- | -------------------- | --------------------------- |
+| `openai`    | OpenAI Agents SDK | `host` / `container` | 复用宿主机 Codex CLI 登录态 |
 
 ## 快速开始
 
 ### 前置要求
 
 - [Node.js](https://nodejs.org) >= 20
-- [Docker](https://www.docker.com/)（仅容器模式需要；当前主要用于 Claude Runtime）
-- 至少准备一种运行时认证方式：
-  - Claude Runtime：在 Web 设置向导中配置 Claude Provider
-  - OpenAI Runtime：在宿主机执行 `codex login`
+- [Docker](https://www.docker.com/)（仅容器模式需要）
+- 在宿主机执行 `codex login`
 
 ### 通过同名 launcher 启动
 
@@ -120,9 +116,8 @@ make start
 首次进入后按设置向导完成：
 
 1. 创建管理员账号
-2. 配置默认 Claude Provider（可选，但推荐先配）
-3. 如需 OpenAI Runtime，确认宿主机已执行 `codex login`
-4. 如需 IM 通道，在 Web 设置页补充对应凭据
+2. 确认宿主机已执行 `codex login`
+3. 如需 IM 通道，在 Web 设置页补充对应凭据
 
 ### 容器模式
 

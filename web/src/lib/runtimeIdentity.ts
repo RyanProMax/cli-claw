@@ -1,5 +1,5 @@
 export interface RuntimeIdentity {
-  agentType?: 'claude' | 'openai' | string;
+  agentType?: 'openai' | string;
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;

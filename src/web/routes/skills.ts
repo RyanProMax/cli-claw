@@ -83,7 +83,7 @@ function getUserSkillsDir(userId: string): string {
 }
 
 function getGlobalSkillsDir(): string {
-  return path.join(os.homedir(), '.claude', 'skills');
+  return path.join(os.homedir(), '.agents', 'skills');
 }
 
 function getProjectSkillsDir(): string {
@@ -313,8 +313,7 @@ function parseSearchOutput(output: string): SearchResult[] {
 
 /**
  * Find skill entries under a path that were modified after the given timestamp.
- * Handles both real directories and symlinks (skills CLI creates symlinks in
- * ~/.claude/skills/ pointing to ~/.agents/skills/).
+ * Handles both real directories and symlinks.
  * Returns entry names.
  */
 function findModifiedEntries(dir: string, afterMs: number): string[] {
@@ -480,7 +479,7 @@ async function fetchSkillMdFromGitHub(
   const pathCandidates = [
     `skills/${skillId}/SKILL.md`,
     `${skillId}/SKILL.md`,
-    `.claude/skills/${skillId}/SKILL.md`,
+    `.agents/skills/${skillId}/SKILL.md`,
     `SKILL.md`,
   ];
 
@@ -758,8 +757,6 @@ skillsRoutes.delete('/:id', authMiddleware, async (c) => {
 
 /**
  * Install a skill package for a specific user.
- * Uses a temporary HOME directory to isolate `npx skills add --global` from
- * the real ~/.claude/skills, eliminating race conditions across concurrent installs.
  * Reusable by both the HTTP route and IPC handler.
  */
 async function installSkillForUser(
@@ -773,76 +770,17 @@ async function installSkillForUser(
     return { success: false, error: 'Invalid package name format' };
   }
 
-  // Create an isolated temp directory to act as HOME so `--global` installs
-  // into tempHome/.claude/skills/ instead of the real ~/.claude/skills/.
-  // This avoids any race condition when multiple installs run concurrently.
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-install-'));
-  const tempSkillsDir = path.join(tempHome, '.claude', 'skills');
-  fs.mkdirSync(tempSkillsDir, { recursive: true });
-
-  try {
-    await execFileAsync(
-      'npx',
-      ['-y', 'skills', 'add', pkg, '--global', '--yes', '-a', 'claude-code'],
-      {
-        timeout: 60_000,
-        env: { ...process.env, HOME: tempHome },
-      },
-    );
-
-    // Discover all skill directories installed into the temp location
-    const installedEntries: string[] = [];
-    if (fs.existsSync(tempSkillsDir)) {
-      for (const entry of fs.readdirSync(tempSkillsDir, {
-        withFileTypes: true,
-      })) {
-        if (entry.isDirectory() || entry.isSymbolicLink()) {
-          installedEntries.push(entry.name);
-        }
-      }
-    }
-
-    if (installedEntries.length === 0) {
-      return {
-        success: false,
-        error: 'No skills were installed — package may be invalid',
-      };
-    }
-
-    // Copy resolved skill content to per-user directory
-    const userDir = getUserSkillsDir(userId);
-    fs.mkdirSync(userDir, { recursive: true });
-
-    for (const name of installedEntries) {
-      const src = path.join(tempSkillsDir, name);
-      const dest = path.join(userDir, name);
-      if (fs.existsSync(dest)) {
-        fs.rmSync(dest, { recursive: true, force: true });
-      }
-      copySkillToUser(src, dest);
-    }
-
-    // Write manifest metadata
-    updateSkillsManifest(userId, pkg, installedEntries);
-
-    return { success: true, installed: installedEntries };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  } finally {
-    // Always clean up the temp directory
-    try {
-      fs.rmSync(tempHome, { recursive: true, force: true });
-    } catch {
-      /* ignore cleanup errors */
-    }
-  }
+  void userId;
+  void pkg;
+  return {
+    success: false,
+    error:
+      'Skill package installation is not available in this runtime; add unpacked skill folders under the user skills directory',
+  };
 }
 
 /**
- * Sync host-level skills (~/.claude/skills/) to a user's directory.
+ * Sync host-level skills to a user's directory.
  * Standalone function usable from both the API route and the auto-sync timer.
  */
 async function syncHostSkillsForUser(userId: string): Promise<{

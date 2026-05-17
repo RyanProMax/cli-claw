@@ -1,11 +1,8 @@
 import {
-  getDefaultModelPreset,
-  getDefaultReasoningEffortPreset,
-  getDefaultSpeedTierPreset,
-  normalizeSpeedTierPreset,
   supportsReasoningEffort,
   supportsSpeedTier,
 } from './command-registry.js';
+import { getAgentRuntime, normalizeRuntimeId } from './runtime-registry.js';
 import type {
   AgentType,
   ExecutionMode,
@@ -26,12 +23,13 @@ function normalizeRuntimeSpeedTier(
 ): string | null {
   if (!supportsSpeedTier(agentType)) return null;
   const normalized = normalizeRuntimeText(value);
-  return normalized ? normalizeSpeedTierPreset(normalized) : null;
+  return normalized
+    ? getAgentRuntime(agentType).normalizeSpeedTier(normalized)
+    : null;
 }
 
 export function normalizeAgentType(raw: string | null | undefined): AgentType {
-  if (raw === 'claude') return 'claude';
-  return 'openai';
+  return normalizeRuntimeId(raw);
 }
 
 export function enforceAgentExecutionMode(
@@ -94,40 +92,33 @@ export function buildEffectiveGroupFromHomeSibling(
 export function resolveEffectiveRuntimeIdentity(
   group: RegisteredGroup,
   options: {
-    claudeProviderModel?: string | null;
     openAiModel?: string | null;
     openAiReasoningEffort?: string | null;
     openAiSpeedTier?: string | null;
   } = {},
 ): RuntimeIdentity {
   const agentType = normalizeAgentType(group.agentType);
-  const supportsEffort = supportsReasoningEffort(agentType);
-  const supportsSpeed = supportsSpeedTier(agentType);
+  const runtime = getAgentRuntime(agentType);
+  const defaults = runtime.defaults();
+  const supportsEffort = runtime.capabilities.supportsReasoningEffort;
+  const supportsSpeed = runtime.capabilities.supportsSpeedTier;
   const model =
     normalizeRuntimeText(group.model) ??
-    (agentType === 'claude'
-      ? normalizeRuntimeText(options.claudeProviderModel)
-      : agentType === 'openai'
-        ? normalizeRuntimeText(options.openAiModel)
-        : null) ??
-    getDefaultModelPreset(agentType);
+    normalizeRuntimeText(options.openAiModel) ??
+    defaults.model;
 
   return {
     agentType,
     model,
     reasoningEffort: supportsEffort
       ? (normalizeRuntimeText(group.reasoningEffort) ??
-        (agentType === 'openai'
-          ? normalizeRuntimeText(options.openAiReasoningEffort)
-          : null) ??
-        getDefaultReasoningEffortPreset(agentType))
+        normalizeRuntimeText(options.openAiReasoningEffort) ??
+        defaults.reasoningEffort)
       : null,
     speedTier: supportsSpeed
       ? (normalizeRuntimeSpeedTier(agentType, group.speedTier) ??
-        (agentType === 'openai'
-          ? normalizeRuntimeSpeedTier(agentType, options.openAiSpeedTier)
-          : null) ??
-        getDefaultSpeedTierPreset(agentType))
+        normalizeRuntimeSpeedTier(agentType, options.openAiSpeedTier) ??
+        defaults.speedTier)
       : null,
     supportsReasoningEffort: supportsEffort,
   };

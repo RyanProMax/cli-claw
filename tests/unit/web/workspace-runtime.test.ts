@@ -17,26 +17,26 @@ describe('normalizeWorkspaceRuntimeSelection', () => {
     });
   });
 
-  test('preserves Claude container mode', () => {
+  test('maps legacy Claude container mode to OpenAI', () => {
     expect(
       normalizeWorkspaceRuntimeSelection({
         agentType: 'claude',
         executionMode: 'container',
       }),
     ).toEqual({
-      agentType: 'claude',
+      agentType: 'openai',
       executionMode: 'container',
     });
   });
 
-  test('preserves Claude host mode', () => {
+  test('maps legacy Claude host mode to OpenAI', () => {
     expect(
       normalizeWorkspaceRuntimeSelection({
         agentType: 'claude',
         executionMode: 'host',
       }),
     ).toEqual({
-      agentType: 'claude',
+      agentType: 'openai',
       executionMode: 'host',
     });
   });

@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -73,12 +72,16 @@ describe('no cli-claw context injection', () => {
   });
 
   test('runner does not expose cli-claw memory tools or transcript archives', () => {
-    const toolSource = readRepoFile('container/agent-runner/src/mcp-tools.ts');
     const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
 
-    expect(toolSource).not.toContain('memory_append');
-    expect(toolSource).not.toContain('memory_search');
-    expect(toolSource).not.toContain('memory_get');
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, 'container/agent-runner/src/mcp-tools.ts'),
+      ),
+    ).toBe(false);
+    expect(runnerSource).not.toContain('memory_append');
+    expect(runnerSource).not.toContain('memory_search');
+    expect(runnerSource).not.toContain('memory_get');
     expect(runnerSource).not.toContain('conversationsDir');
     expect(runnerSource).not.toContain('formatTranscriptMarkdown');
   });
@@ -104,7 +107,7 @@ describe('no cli-claw context injection', () => {
       /active-plan-progress|appendActivePlanProgress/i,
       /Memory(Global|File|Source|SearchHit)|memory_(append|search|get)|daily-summary|project-memory|routes\/memory|MemoryPage/i,
       /HEARTBEAT\.md|<recent-work>|<memory-system>|<reply-policy>|global-agents-md|wrapOpenAIPromptWithReplyPolicy|buildMemoryRecallPrompt|formatTranscriptMarkdown|conversationsDir|transcript_archive/i,
-      /CLAUDE\.md|\.claude\/rules|settingSources:\s*\[\s*['"]project/i,
+      /settingSources:\s*\[\s*['"]project/i,
     ];
 
     const violations: string[] = [];
@@ -134,68 +137,19 @@ describe('no cli-claw context injection', () => {
     expect(messageIpcPath).not.toMatch(/broadcastToOwnerIMChannels[\s\S]*data\.text/);
   });
 
-  test('session settings MCP sync removes servers that are no longer configured', async () => {
-    vi.stubEnv('WEB_SESSION_SECRET', 'test-secret');
-    const { ensureSettingsJson } = (await import(
-      '../../../../src/agent/runner/container-runner.js'
-    )) as unknown as {
-      ensureSettingsJson: (
-        settingsFile: string,
-        mcpServers?: Record<string, Record<string, unknown>>,
-      ) => void;
-    };
-    const tempDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-mcp-settings-'),
-    );
-    const settingsFile = path.join(tempDir, 'settings.json');
-    fs.writeFileSync(
-      settingsFile,
-      JSON.stringify(
-        {
-          env: { KEEP_ME: '1' },
-          mcpServers: {
-            staleMemory: { command: 'old-memory-server' },
-            keepButReplace: { command: 'old-safe-server' },
-          },
-        },
-        null,
-        2,
-      ),
-    );
-
-    ensureSettingsJson(settingsFile, {
-      keepButReplace: { command: 'new-safe-server', args: ['--fresh'] },
-    });
-
-    const synced = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    expect(synced.mcpServers).toEqual({
-      keepButReplace: { command: 'new-safe-server', args: ['--fresh'] },
-    });
-
-    ensureSettingsJson(settingsFile, {});
-
-    const cleared = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    expect(cleared).not.toHaveProperty('mcpServers');
-  });
-
-  test('agent runner filters context-like MCP servers by id and connection strings', () => {
+  test('agent runner no longer owns MCP settings sync or MCP tool wrappers', () => {
     const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
-    const start = runnerSource.indexOf('function isContextLikeMcpServer');
-    const end = runnerSource.indexOf('function loadUserMcpServers', start);
-    const filterSource = runnerSource.slice(start, end);
 
-    expect(filterSource).toContain('command');
-    expect(filterSource).toContain('url');
-    expect(filterSource).toContain('args');
-    expect(filterSource).toContain('env');
+    expect(runnerSource).not.toContain('ensureSettingsJson');
+    expect(runnerSource).not.toContain('loadUserMcpServers');
+    expect(runnerSource).not.toContain('isContextLikeMcpServer');
+    expect(runnerSource).not.toContain('mcpServers');
   });
 
-  test('agent runner does not load MCP servers from workspace claude settings', () => {
+  test('agent runner does not load MCP servers from workspace runtime settings', () => {
     const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
 
     expect(runnerSource).not.toContain('loadWorkspaceMcpServers');
-    expect(runnerSource).not.toContain(
-      "path.join(WORKSPACE_GROUP, '.claude', 'settings.json')",
-    );
+    expect(runnerSource).not.toContain("path.join(WORKSPACE_GROUP");
   });
 });

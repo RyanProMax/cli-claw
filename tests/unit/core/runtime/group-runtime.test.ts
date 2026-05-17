@@ -15,8 +15,8 @@ describe('normalizeAgentType', () => {
     expect(normalizeAgentType(undefined)).toBe('openai');
   });
 
-  test('preserves explicit Claude rows', () => {
-    expect(normalizeAgentType('claude')).toBe('claude');
+  test('maps legacy Claude rows to OpenAI', () => {
+    expect(normalizeAgentType('claude')).toBe('openai');
   });
 });
 
@@ -37,7 +37,7 @@ describe('validateGroupRuntimeUpdate', () => {
       validateGroupRuntimeUpdate({
         isHome: true,
         currentExecutionMode: 'host',
-        nextAgentType: 'claude',
+        nextAgentType: 'openai',
         nextExecutionMode: 'container',
       }),
     ).toBe('Cannot change execution mode of home containers');
@@ -56,23 +56,23 @@ describe('validateGroupRuntimeUpdate', () => {
 });
 
 describe('hasRuntimeBoundaryChange', () => {
-  test('returns true when agent type changes', () => {
+  test('returns false when legacy agent aliases normalize to the same OpenAI runtime', () => {
     expect(
       hasRuntimeBoundaryChange({
-        currentAgentType: 'claude',
+        currentAgentType: normalizeAgentType('claude'),
         currentExecutionMode: 'host',
-        nextAgentType: 'openai',
+        nextAgentType: normalizeAgentType('openai'),
         nextExecutionMode: 'host',
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test('returns true when execution mode changes', () => {
     expect(
       hasRuntimeBoundaryChange({
-        currentAgentType: 'claude',
+        currentAgentType: 'openai',
         currentExecutionMode: 'container',
-        nextAgentType: 'claude',
+        nextAgentType: 'openai',
         nextExecutionMode: 'host',
       }),
     ).toBe(true);
@@ -81,9 +81,9 @@ describe('hasRuntimeBoundaryChange', () => {
   test('returns false when runtime boundary stays the same', () => {
     expect(
       hasRuntimeBoundaryChange({
-        currentAgentType: 'claude',
+        currentAgentType: 'openai',
         currentExecutionMode: 'host',
-        nextAgentType: 'claude',
+        nextAgentType: 'openai',
         nextExecutionMode: 'host',
       }),
     ).toBe(false);

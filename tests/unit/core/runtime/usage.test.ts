@@ -1,13 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { getClaudeUsageSnapshotMock, getOpenAiCodexUsageSnapshotMock } =
-  vi.hoisted(() => ({
-    getClaudeUsageSnapshotMock: vi.fn(),
-    getOpenAiCodexUsageSnapshotMock: vi.fn(),
-  }));
-
-vi.mock('../../../../src/core/runtime/claude-oauth-usage.js', () => ({
-  getClaudeUsageSnapshot: getClaudeUsageSnapshotMock,
+const { getOpenAiCodexUsageSnapshotMock } = vi.hoisted(() => ({
+  getOpenAiCodexUsageSnapshotMock: vi.fn(),
 }));
 
 vi.mock('../../../../src/core/runtime/openai-codex-usage.js', () => ({
@@ -23,7 +17,6 @@ import {
 
 describe('runtime usage helper', () => {
   beforeEach(() => {
-    getClaudeUsageSnapshotMock.mockReset();
     getOpenAiCodexUsageSnapshotMock.mockReset();
   });
 
@@ -90,35 +83,10 @@ describe('runtime usage helper', () => {
     });
   });
 
-  test('returns claude usage snapshot for claude runtimes', async () => {
-    getClaudeUsageSnapshotMock.mockResolvedValue({
-      provider: 'claude',
-      available: true,
-      source: 'Claude OAuth API',
-      primaryUsagePct: 82,
-      secondaryUsagePct: 36,
-      primaryRemainingPct: 18,
-      secondaryRemainingPct: 64,
-    });
-
-    await expect(
-      getRuntimeUsageSnapshot({
-        agentType: 'claude',
-        model: 'claude-opus-4.1',
-      }),
-    ).resolves.toMatchObject({
-      provider: 'claude',
-      primaryUsagePct: 82,
-      secondaryUsagePct: 36,
-      primaryRemainingPct: 18,
-      secondaryRemainingPct: 64,
-    });
-  });
-
   test('shows remaining footer whenever quota data is available', () => {
     expect(
       shouldShowRemainingUsageInFooter({
-        provider: 'claude',
+        provider: 'openai',
         available: true,
         source: 'test usage snapshot',
         primaryRemainingPct: 28,
@@ -128,7 +96,7 @@ describe('runtime usage helper', () => {
 
     expect(
       shouldShowRemainingUsageInFooter({
-        provider: 'claude',
+        provider: 'openai',
         available: true,
         source: 'test usage snapshot',
         primaryRemainingPct: 42,
@@ -138,7 +106,7 @@ describe('runtime usage helper', () => {
 
     expect(
       shouldShowRemainingUsageInFooter({
-        provider: 'claude',
+        provider: 'openai',
         available: true,
         source: 'test usage snapshot',
         primaryUsagePct: 72,

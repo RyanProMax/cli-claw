@@ -9,7 +9,6 @@ import { lazy, Suspense } from 'react';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { SetupPage } from './pages/SetupPage';
-import { SetupProvidersPage } from './pages/SetupProvidersPage';
 import { SetupChannelsPage } from './pages/SetupChannelsPage';
 import { SkillsPage } from './pages/SkillsPage';
 import { McpServersPage } from './pages/McpServersPage';
@@ -42,14 +41,6 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/setup" element={<SetupPage />} />
-        <Route
-          path="/setup/providers"
-          element={
-            <AuthGuard>
-              <SetupProvidersPage />
-            </AuthGuard>
-          }
-        />
         <Route
           path="/setup/channels"
           element={

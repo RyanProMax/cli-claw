@@ -191,7 +191,7 @@ export function WorkspaceMcpPanel({ groupJid, onClose: _onClose }: WorkspaceMcpP
           <EmptyState
             icon={Server}
             title="无工作区 MCP Servers"
-            description="当前工作区 .claude/settings.json 中没有 MCP 配置"
+            description="当前工作区配置中没有 MCP 配置"
             action={
               <Button variant="outline" size="sm" onClick={() => setShowAdd(true)}>
                 <Plus className="w-3.5 h-3.5 mr-1" />

@@ -352,22 +352,22 @@ html.theme-orange .floating-nav-item.active::before {
 }
 
 /* =====================================================
-   Anthropic font style — serif AI responses
+   Serif font style — serif AI responses
    Uses direct font-family overrides because @theme inline
    bakes values into utilities at build time.
    ===================================================== */
-html.font-anthropic body,
-html.font-anthropic input,
-html.font-anthropic textarea,
-html.font-anthropic button {
+html.font-serif-style body,
+html.font-serif-style input,
+html.font-serif-style textarea,
+html.font-serif-style button {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Alibaba PuHuiTi 3', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
 }
-html.font-anthropic .font-serif {
+html.font-serif-style .font-serif {
   font-family: Georgia, 'Noto Serif SC', 'Times New Roman', serif;
 }
-html.font-anthropic code,
-html.font-anthropic pre,
-html.font-anthropic .font-mono {
+html.font-serif-style code,
+html.font-serif-style pre,
+html.font-serif-style .font-mono {
   font-family: 'Fira Code', ui-monospace, monospace;
 }
 

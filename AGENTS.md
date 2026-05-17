@@ -2,7 +2,7 @@
 
 > 本文负责：仓库入口、必读顺序、复杂任务执行底线、执行协议入口和文档分工入口。模块树只在 `docs/MODULE.md` 维护；架构、运行时、记忆机制、命令说明分别由 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/MEMORY.md`、`docs/COMMAND.md` 维护。
 
-Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消息接入、权限、调度、存储与 Web API；前端负责 Web / PWA 体验；`container/agent-runner/` 负责实际 Agent 执行、工具调用与流式事件。当前运行时包括 `claude`（Claude Agent SDK + Claude Code CLI）和 `openai`（OpenAI Agents SDK）。
+Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消息接入、权限、调度、存储与 Web API；前端负责 Web / PWA 体验；`container/agent-runner/` 负责实际 Agent 执行、工具调用与流式事件。当前文档口径只维护 Codex / OpenAI 运行时。
 
 ## 必读顺序
 
@@ -59,8 +59,11 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 ## Repository Skills
 
 - 仓库内联 skill 统一放在 `.agents/skills/<skill-id>/SKILL.md`。
-- skill 命令发现优先级：`.agents/skills` > `.claude/skills` > 用户级 cli-claw skills。
+- skill 命令发现优先级：`.agents/skills` > 用户级 cli-claw skills；不要新增 legacy workspace fallback 的文档或测试覆盖。
 - `.agents/skills` 用于随仓库协作协议一起版本化的轻量命令 skill；用户个人 skill 仍由 Web 技能管理写入用户级目录。
+- skill command 的 `/help` 展示格式固定为 `- /command [argumentHint]：description`，没有参数时省略参数占位。
+- `commands.json` 的 `description` 只写命令用途，不写参数、默认值或支持选项；参数和默认值只允许放在 `argumentHint`、`argument_hint` 或 `usage`。
+- `usage` 可以写完整命令，例如 `/kol [--days=30]`；`argumentHint` / `argument_hint` 只写命令后的参数占位，例如 `[--days=30]`。
 
 ## 验证与提交
 

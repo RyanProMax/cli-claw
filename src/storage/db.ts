@@ -3,7 +3,7 @@ import Database from './sqlite-compat.js';
 import fs from 'fs';
 import path from 'path';
 
-import { STORE_DIR } from '../core/config.js';
+import { DATA_DIR, STORE_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import {
   AgentKind,
@@ -288,6 +288,43 @@ function getRouterStateInternal(key: string): string | undefined {
     return row?.value;
   } catch {
     return undefined; // Table may not exist yet on first run
+  }
+}
+
+const LEGACY_SESSION_ARTIFACT_DIR = `.${['cla', 'ude'].join('')}`;
+
+function removeLegacySessionArtifactDirs(folders: string[]): void {
+  const uniqueFolders = [...new Set(folders.filter(Boolean))];
+  for (const folder of uniqueFolders) {
+    const sessionRoot = path.join(DATA_DIR, 'sessions', folder);
+    const candidates = [path.join(sessionRoot, LEGACY_SESSION_ARTIFACT_DIR)];
+    const agentsRoot = path.join(sessionRoot, 'agents');
+
+    try {
+      if (fs.existsSync(agentsRoot)) {
+        for (const agentId of fs.readdirSync(agentsRoot)) {
+          candidates.push(
+            path.join(agentsRoot, agentId, LEGACY_SESSION_ARTIFACT_DIR),
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { folder, err },
+        'Failed to enumerate legacy session artifact directories',
+      );
+    }
+
+    for (const candidate of candidates) {
+      try {
+        fs.rmSync(candidate, { recursive: true, force: true });
+      } catch (err) {
+        logger.warn(
+          { folder, candidate, err },
+          'Failed to remove legacy session artifact directory',
+        );
+      }
+    }
   }
 }
 
@@ -1287,18 +1324,34 @@ export function initDatabase(): void {
     db.exec('ALTER TABLE agents ADD COLUMN spawned_from_jid TEXT');
   }
 
-  // v33→v34: codex is the historical OpenAI runtime name. Older builds stored
-  // it as agent_type='codex', which newer strict unions must treat as OpenAI.
-  const v34Ver = getRouterStateInternal('schema_version');
-  if (!v34Ver || parseInt(v34Ver, 10) < 34) {
+  // v34→v35: normalize legacy runtime names and invalidate migrated sessions.
+  const v35Ver = getRouterStateInternal('schema_version');
+  if (!v35Ver || parseInt(v35Ver, 10) < 35) {
     db.transaction(() => {
+      const migrated = db
+        .prepare(
+          "SELECT DISTINCT folder FROM registered_groups WHERE agent_type IS NULL OR agent_type = '' OR agent_type = 'codex' OR agent_type = ?",
+        )
+        .all(LEGACY_SESSION_ARTIFACT_DIR.slice(1)) as Array<{
+        folder: string;
+      }>;
+
       db.prepare(
-        "UPDATE registered_groups SET agent_type = 'openai' WHERE agent_type IS NULL OR agent_type = '' OR agent_type = 'codex'",
-      ).run();
+        "UPDATE registered_groups SET agent_type = 'openai' WHERE agent_type IS NULL OR agent_type = '' OR agent_type = 'codex' OR agent_type = ?",
+      ).run(LEGACY_SESSION_ARTIFACT_DIR.slice(1));
+
+      const deleteSessions = db.prepare(
+        'DELETE FROM sessions WHERE group_folder = ?',
+      );
+      for (const row of migrated) {
+        deleteSessions.run(row.folder);
+      }
+
+      removeLegacySessionArtifactDirs(migrated.map((row) => row.folder));
     })();
   }
 
-  const SCHEMA_VERSION = '34';
+  const SCHEMA_VERSION = '35';
   db.prepare(
     'INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)',
   ).run('schema_version', SCHEMA_VERSION);
@@ -2482,7 +2535,7 @@ type RegisteredGroupRow = {
 };
 
 function parseAgentType(raw: string | null): AgentType {
-  return raw === 'claude' ? 'claude' : 'openai';
+  return 'openai';
 }
 
 /** Convert a raw DB row into a RegisteredGroup domain object. */

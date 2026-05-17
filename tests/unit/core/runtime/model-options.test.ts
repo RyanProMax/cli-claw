@@ -42,18 +42,25 @@ describe('runtime model options', () => {
     expect(normalizeAvailableRuntimeModelPreset('openai', ' GPT-5.4 ')).toBe(
       'gpt-5.4',
     );
+    expect(normalizeAvailableRuntimeModelPreset('openai', 'gpt-5.4-mini')).toBe(
+      'gpt-5.4-mini',
+    );
     expect(
-      normalizeAvailableRuntimeModelPreset('openai', 'gpt-5.4-mini'),
-    ).toBe('gpt-5.4-mini');
-    expect(normalizeAvailableRuntimeModelPreset('openai', 'gpt-5.5')).toBeNull();
+      normalizeAvailableRuntimeModelPreset('openai', 'gpt-5.5'),
+    ).toBeNull();
   });
 
-  test('keeps Claude model presets preset-only', () => {
+  test('maps removed runtimes to OpenAI preset options', () => {
     expect(
       getAvailableRuntimeModelPresets('claude', {
         currentModel: 'claude-experimental-current',
       }),
-    ).toEqual(['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku']);
+    ).toEqual([
+      'claude-experimental-current',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.2',
+    ]);
 
     expect(
       normalizeAvailableRuntimeModelPreset(
@@ -61,6 +68,6 @@ describe('runtime model options', () => {
         'claude-experimental-current',
         { currentModel: 'claude-experimental-current' },
       ),
-    ).toBeNull();
+    ).toBe('claude-experimental-current');
   });
 });

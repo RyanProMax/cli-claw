@@ -5,11 +5,10 @@ import { useAuthStore } from '../../stores/auth';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { FilePanel } from './FilePanel';
-import { ContainerEnvPanel } from './ContainerEnvPanel';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { PromptDialog } from '@/components/common/PromptDialog';
-import { ArrowLeft, FolderOpen, Link, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Puzzle, Server, Sun, Terminal, Users, Variable, X } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Link, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Puzzle, Server, Sun, Terminal, Users, X } from 'lucide-react';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
 import { useTheme } from '../../hooks/useTheme';
 import { cn } from '@/lib/utils';
@@ -29,7 +28,6 @@ const MAIN_BINDING = '__main__' as const;
 
 const SIDEBAR_TABS = [
   { id: 'files' as const, icon: FolderOpen, label: '文件管理' },
-  { id: 'env' as const, icon: Variable, label: '环境变量' },
   { id: 'skills' as const, icon: Puzzle, label: '工作区 Skills' },
   { id: 'mcp' as const, icon: Server, label: '工作区 MCP' },
   { id: 'members' as const, icon: Users, label: '成员' },
@@ -43,7 +41,7 @@ const TERMINAL_MAX_RATIO = 0.7;
 // Stable empty references to avoid infinite re-render loops in Zustand selectors
 const EMPTY_AGENTS: import('../../types').AgentInfo[] = [];
 
-type SidebarTab = 'files' | 'env' | 'skills' | 'mcp' | 'members';
+type SidebarTab = 'files' | 'skills' | 'mcp' | 'members';
 
 interface ChatViewProps {
   groupJid: string;
@@ -115,14 +113,14 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   const currentUser = useAuthStore(s => s.user);
   const canUseTerminal = group?.execution_mode !== 'host';
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const isOpenAIWorkspace = group?.agent_type === 'openai';
+  const isCodexWorkspace = group?.agent_type === 'openai' || !group?.agent_type;
 
   // Sidebar: members tab visibility
   const isHome = !!group?.is_home;
   const showMembersTab = (!!group?.is_shared || group?.member_role === 'owner') && !isHome;
   const visibleTabs = SIDEBAR_TABS.filter((t) => {
     if (t.id === 'members') return showMembersTab;
-    if (isOpenAIWorkspace && (t.id === 'env' || t.id === 'skills')) return false;
+    if (isCodexWorkspace && t.id === 'skills') return false;
     return true;
   });
 
@@ -132,13 +130,13 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   }, [sidebarTab, showMembersTab]);
 
   useEffect(() => {
-    if (isOpenAIWorkspace && (sidebarTab === 'env' || sidebarTab === 'skills')) {
+    if (isCodexWorkspace && sidebarTab === 'skills') {
       setSidebarTab('files');
     }
-    if (isOpenAIWorkspace && (mobilePanel === 'env' || mobilePanel === 'skills')) {
+    if (isCodexWorkspace && mobilePanel === 'skills') {
       setMobilePanel('files');
     }
-  }, [isOpenAIWorkspace, mobilePanel, sidebarTab]);
+  }, [isCodexWorkspace, mobilePanel, sidebarTab]);
 
   // Fetch IM connection status for home groups
   const isOwnHome =
@@ -393,12 +391,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
     setMobilePanel('files');
   };
 
-  const openMobileEnv = () => {
-    if (isOpenAIWorkspace) return;
-    setMobileActionsOpen(false);
-    setMobilePanel('env');
-  };
-
   if (!group) {
     return (
       <div className="h-full flex items-center justify-center bg-background">
@@ -447,8 +439,8 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
             {!isWaiting && group.agent_type && (
               <>
                 <span className="text-muted-foreground/40">·</span>
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${group.agent_type === 'openai' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300 dark:border-violet-800'}`}>
-                  {group.agent_type === 'openai' ? 'OpenAI' : 'Claude'}
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${group.agent_type === 'openai' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800' : 'bg-muted text-muted-foreground border-border'}`}>
+                  {group.agent_type === 'openai' ? 'Codex/OpenAI' : 'Legacy runtime'}
                 </span>
               </>
             )}
@@ -648,8 +640,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           <div className="flex-1 overflow-hidden min-h-0">
             {sidebarTab === 'files' ? (
               <FilePanel groupJid={groupJid} />
-            ) : sidebarTab === 'env' ? (
-              <ContainerEnvPanel groupJid={groupJid} />
             ) : sidebarTab === 'skills' ? (
               <WorkspaceSkillsPanel groupJid={groupJid} />
             ) : sidebarTab === 'mcp' ? (
@@ -702,21 +692,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           </SheetHeader>
           <div className="flex-1 overflow-hidden h-[calc(80dvh-56px)]">
             <FilePanel
-              groupJid={groupJid}
-              onClose={() => setMobilePanel(null)}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Mobile: env config sheet */}
-      <Sheet open={mobilePanel === 'env'} onOpenChange={(v) => !v && setMobilePanel(null)}>
-        <SheetContent side="bottom" className="h-[80dvh] p-0">
-          <SheetHeader className="px-4 pt-4 pb-2">
-            <SheetTitle>工作区环境变量</SheetTitle>
-          </SheetHeader>
-          <div className="flex-1 overflow-hidden h-[calc(80dvh-56px)]">
-            <ContainerEnvPanel
               groupJid={groupJid}
               onClose={() => setMobilePanel(null)}
             />
@@ -796,15 +771,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
             >
               工作区文件
             </button>
-            {!isOpenAIWorkspace && (
-              <button
-                onClick={openMobileEnv}
-                className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
-              >
-                环境变量
-              </button>
-            )}
-            {!isOpenAIWorkspace && (
+            {!isCodexWorkspace && (
               <button
                 onClick={() => { setMobileActionsOpen(false); setMobilePanel('skills'); }}
                 className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
@@ -848,8 +815,8 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         onConfirm={handleResetSession}
         title="清除上下文"
         message={resetAgentId
-          ? '将清除该子对话的 Claude 会话上下文，下次发送消息时将开始全新会话。聊天记录不受影响。'
-          : '将清除 Claude 会话上下文并停止运行中的工作区进程，下次发送消息时将开始全新会话。聊天记录不受影响。'
+          ? '将清除该子对话的运行时会话上下文，下次发送消息时将开始全新会话。聊天记录不受影响。'
+          : '将清除运行时会话上下文并停止运行中的工作区进程，下次发送消息时将开始全新会话。聊天记录不受影响。'
         }
         confirmText="清除"
         confirmVariant="danger"

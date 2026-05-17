@@ -28,17 +28,20 @@ export interface CommandDeps {
 // ─── Session file cleanup (mirrors groups.ts clearSessionJsonlFiles) ────
 
 function clearSessionFiles(folder: string, agentId?: string): void {
-  const claudeDir = agentId
-    ? path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.claude')
-    : path.join(DATA_DIR, 'sessions', folder, '.claude');
-  if (!fs.existsSync(claudeDir)) return;
+  const artifactDir = agentId
+    ? path.join(DATA_DIR, 'sessions', folder, 'agents', agentId, '.openai')
+    : path.join(DATA_DIR, 'sessions', folder, '.openai');
+  if (!fs.existsSync(artifactDir)) return;
 
   const keep = new Set(['settings.json']);
-  const entries = fs.readdirSync(claudeDir);
+  const entries = fs.readdirSync(artifactDir);
   for (const entry of entries) {
     if (keep.has(entry)) continue;
     try {
-      fs.rmSync(path.join(claudeDir, entry), { recursive: true, force: true });
+      fs.rmSync(path.join(artifactDir, entry), {
+        recursive: true,
+        force: true,
+      });
     } catch (err) {
       logger.warn(
         { entry, folder, agentId, err },
@@ -69,7 +72,7 @@ export async function executeSessionReset(
     );
   }
 
-  // 2. Clear .claude/ session files (preserve settings.json)
+  // 2. Clear runtime session files (preserve settings.json)
   clearSessionFiles(folder, agentId);
 
   // 3. Delete session from DB (+ in-memory cache for main session)

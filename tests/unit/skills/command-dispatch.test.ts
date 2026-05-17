@@ -100,7 +100,7 @@ describe('skill command dispatch', () => {
     });
   });
 
-  test('prefers repository-inline .agents skills before legacy workspace skills', async () => {
+  test('uses repository-inline .agents skills for workspace commands', async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'skill-cmd-agents-'),
     );
@@ -117,19 +117,7 @@ describe('skill command dispatch', () => {
     });
 
     expect(roots[0]).toBe(path.join(workspaceRoot, '.agents', 'skills'));
-    expect(roots[1]).toBe(path.join(workspaceRoot, '.claude', 'skills'));
-
-    writeSkill({
-      rootDir: roots[1],
-      skillId: 'legacy-stock-skill',
-      commands: {
-        hkipo: {
-          description: 'legacy workspace description',
-          entrypoints: ['im'],
-          executor: { command: process.execPath, args: ['reply.js'] },
-        },
-      },
-    });
+    expect(roots).toHaveLength(1);
 
     writeSkill({
       rootDir: roots[0],

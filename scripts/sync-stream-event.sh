@@ -15,12 +15,12 @@ sync_file() {
 
 # --- Image detector (2 targets: backend + agent-runner; not needed by web) ---
 SRC_ID="$ROOT/shared/image-detector.ts"
-for target in   "$ROOT/src/image-detector.ts"   "$ROOT/container/agent-runner/src/image-detector.ts" ; do
+for target in   "$ROOT/src/messaging/image-detector.ts"   "$ROOT/container/agent-runner/src/image-detector.ts" ; do
   sync_file "$SRC_ID" "$target"
 done
 
 # --- Channel prefixes (2 targets: backend + agent-runner; not needed by web) ---
 SRC_CP="$ROOT/shared/channel-prefixes.ts"
-for target in   "$ROOT/src/channel-prefixes.ts"   "$ROOT/container/agent-runner/src/channel-prefixes.ts" ; do
+for target in   "$ROOT/src/messaging/channel-prefixes.ts"   "$ROOT/container/agent-runner/src/channel-prefixes.ts" ; do
   sync_file "$SRC_CP" "$target"
 done

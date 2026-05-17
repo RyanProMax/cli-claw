@@ -8,7 +8,7 @@ import {
   type RuntimePresetOption,
 } from './runtimeCommandRegistry';
 
-export type RuntimePickerCommand = 'openai' | 'claude';
+export type RuntimePickerCommand = 'openai';
 export type RuntimePickerSelection = 'model' | 'effort' | 'speed';
 
 export interface RuntimePickerSection {
@@ -26,7 +26,6 @@ export function detectRuntimePickerCommand(
 ): RuntimePickerCommand | null {
   const normalized = normalizeCommandText(value);
   if (normalized === '/openai') return 'openai';
-  if (normalized === '/claude') return 'claude';
   return null;
 }
 

@@ -17,45 +17,32 @@ const getOpenAiRuntimeDefaultsMock = vi.hoisted(() =>
   vi.fn(() => ({ model: null, reasoningEffort: null, speedTier: null })),
 );
 const getAvailableRuntimeModelPresetsMock = vi.hoisted(() =>
-  vi.fn(
-    (
-      agentType: 'claude' | 'openai',
-      options?: { currentModel?: string | null },
-    ) => {
-      const presets =
-        agentType === 'openai'
-          ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2']
-          : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
-      const currentModel = options?.currentModel?.trim();
-      if (
-        !currentModel ||
-        presets.some(
-          (value) => value.toLowerCase() === currentModel.toLowerCase(),
-        )
-      ) {
-        return presets;
-      }
-      return [currentModel, ...presets];
-    },
-  ),
+  vi.fn((agentType: 'openai', options?: { currentModel?: string | null }) => {
+    const presets = ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2'];
+    const currentModel = options?.currentModel?.trim();
+    if (
+      !currentModel ||
+      presets.some(
+        (value) => value.toLowerCase() === currentModel.toLowerCase(),
+      )
+    ) {
+      return presets;
+    }
+    return [currentModel, ...presets];
+  }),
 );
 const getAvailableRuntimeModelCatalogMock = vi.hoisted(() =>
-  vi.fn(
-    (
-      agentType: 'claude' | 'openai',
-      options?: { currentModel?: string | null },
-    ) => ({
-      options: getAvailableRuntimeModelPresetsMock(agentType, options).map(
-        (value: string) => ({ value, label: value }),
-      ),
-      source: 'preset',
-    }),
-  ),
+  vi.fn((agentType: 'openai', options?: { currentModel?: string | null }) => ({
+    options: getAvailableRuntimeModelPresetsMock(agentType, options).map(
+      (value: string) => ({ value, label: value }),
+    ),
+    source: 'preset',
+  })),
 );
 const normalizeAvailableRuntimeModelPresetMock = vi.hoisted(() =>
   vi.fn(
     (
-      agentType: 'claude' | 'openai',
+      agentType: 'openai',
       rawValue: string,
       options?: { currentModel?: string | null },
     ) => {
@@ -70,7 +57,6 @@ const normalizeAvailableRuntimeModelPresetMock = vi.hoisted(() =>
 );
 
 vi.mock('../../../../src/core/runtime/config.js', () => ({
-  getClaudeProviderConfig: () => ({ anthropicModel: 'opus[1m]' }),
   getOpenAiRuntimeDefaults: getOpenAiRuntimeDefaultsMock,
 }));
 vi.mock('../../../../src/core/runtime/model-options.js', () => ({
@@ -123,14 +109,8 @@ describe('runtime command handler', () => {
       speedTier: null,
     });
     getAvailableRuntimeModelPresetsMock.mockImplementation(
-      (
-        agentType: 'claude' | 'openai',
-        options?: { currentModel?: string | null },
-      ) => {
-        const presets =
-          agentType === 'openai'
-            ? ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2']
-            : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
+      (agentType: 'openai', options?: { currentModel?: string | null }) => {
+        const presets = ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2'];
         const currentModel = options?.currentModel?.trim();
         if (
           !currentModel ||
@@ -144,10 +124,7 @@ describe('runtime command handler', () => {
       },
     );
     getAvailableRuntimeModelCatalogMock.mockImplementation(
-      (
-        agentType: 'claude' | 'openai',
-        options?: { currentModel?: string | null },
-      ) => ({
+      (agentType: 'openai', options?: { currentModel?: string | null }) => ({
         options: getAvailableRuntimeModelPresetsMock(agentType, options).map(
           (value: string) => ({ value, label: value }),
         ),
@@ -156,7 +133,7 @@ describe('runtime command handler', () => {
     );
     normalizeAvailableRuntimeModelPresetMock.mockImplementation(
       (
-        agentType: 'claude' | 'openai',
+        agentType: 'openai',
         rawValue: string,
         options?: { currentModel?: string | null },
       ) => {
@@ -271,9 +248,7 @@ describe('runtime command handler', () => {
       handled: true,
       reply: '已将当前工作区模型切换为 gpt-5.2',
     });
-    expect(buildRuntimeStatusReply(after!)).toContain(
-      '🧠 当前模型: gpt-5.2',
-    );
+    expect(buildRuntimeStatusReply(after!)).toContain('🧠 当前模型: gpt-5.2');
     expect(setGroup).toHaveBeenCalledWith(
       'web:proj-home',
       expect.objectContaining({ model: 'gpt-5.2' }),
@@ -305,9 +280,7 @@ describe('runtime command handler', () => {
     expect(result.handled).toBe(true);
     expect(result.reply).toContain('OpenAI 配置：');
     expect(result.reply).toContain('当前模型：gpt-5.4-mini');
-    expect(result.reply).toContain(
-      '可用模型：gpt-5.4, gpt-5.4-mini, gpt-5.2',
-    );
+    expect(result.reply).toContain('可用模型：gpt-5.4, gpt-5.4-mini, gpt-5.2');
     expect(result.reply).toContain('当前思考强度：medium');
     expect(result.reply).toContain('可用思考强度：low, medium, high, xhigh');
     expect(result.reply).toContain('当前速度：standard (1x)');
@@ -316,14 +289,8 @@ describe('runtime command handler', () => {
 
   test('surfaces dynamically discovered openai models in bare /openai replies', async () => {
     getAvailableRuntimeModelPresetsMock.mockImplementation(
-      (
-        agentType: 'claude' | 'openai',
-        options?: { currentModel?: string | null },
-      ) => {
-        const presets =
-          agentType === 'openai'
-            ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.5-pro']
-            : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
+      (agentType: 'openai', options?: { currentModel?: string | null }) => {
+        const presets = ['gpt-5.4', 'gpt-5.5', 'gpt-5.5-pro'];
         const currentModel = options?.currentModel?.trim();
         return currentModel &&
           !presets.some(
@@ -413,14 +380,8 @@ describe('runtime command handler', () => {
 
   test('accepts dynamically discovered openai models when applying a selection', async () => {
     getAvailableRuntimeModelPresetsMock.mockImplementation(
-      (
-        agentType: 'claude' | 'openai',
-        options?: { currentModel?: string | null },
-      ) => {
-        const presets =
-          agentType === 'openai'
-            ? ['gpt-5.4', 'gpt-5.5', 'gpt-5.5-pro']
-            : ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'];
+      (agentType: 'openai', options?: { currentModel?: string | null }) => {
+        const presets = ['gpt-5.4', 'gpt-5.5', 'gpt-5.5-pro'];
         const currentModel = options?.currentModel?.trim();
         return currentModel &&
           !presets.some(
@@ -458,37 +419,6 @@ describe('runtime command handler', () => {
     expect(groups['web:proj-home']?.model).toBe('gpt-5.5-pro');
   });
 
-  test('returns combined Claude configuration help for bare /claude', async () => {
-    const { deps, setGroup } = createDeps({
-      'web:proj-home': {
-        name: 'Project Home',
-        folder: 'proj',
-        added_at: '2026-04-05T00:00:00.000Z',
-        is_home: true,
-        agentType: 'claude',
-        executionMode: 'host',
-        model: 'sonnet',
-      },
-    });
-
-    const result = await executeRuntimeWorkspaceCommand({
-      entrypoint: 'web',
-      chatJid: 'web:proj-home',
-      commandText: '/claude',
-      deps,
-    });
-
-    expect(result.handled).toBe(true);
-    expect(result.reply).toContain('Claude 配置：');
-    expect(result.reply).toContain('当前模型：sonnet');
-    expect(result.reply).toContain(
-      '可用模型：opus[1m], opus, sonnet[1m], sonnet, haiku',
-    );
-    expect(result.reply).not.toContain('思考强度');
-    expect(result.reply).not.toContain('速度');
-    expect(setGroup).not.toHaveBeenCalled();
-  });
-
   test('rejects the parameterized /openai form and points users to the picker', async () => {
     const { deps, setGroup } = createDeps({
       'web:proj-home': {
@@ -517,7 +447,7 @@ describe('runtime command handler', () => {
     expect(setGroup).not.toHaveBeenCalled();
   });
 
-  test('returns a clear unsupported message for the other agent config command', async () => {
+  test('ignores removed Claude configuration command', async () => {
     const { deps } = createDeps({
       'web:proj-home': {
         name: 'Project Home',
@@ -539,8 +469,8 @@ describe('runtime command handler', () => {
     });
 
     expect(result).toEqual({
-      handled: true,
-      reply: '当前工作区是 openai，请使用 /openai 配置该 Agent',
+      handled: false,
+      reply: null,
     });
   });
 

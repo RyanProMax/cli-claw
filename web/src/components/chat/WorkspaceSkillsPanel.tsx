@@ -125,7 +125,7 @@ export function WorkspaceSkillsPanel({ groupJid, onClose: _onClose }: WorkspaceS
           <EmptyState
             icon={Puzzle}
             title="无工作区 Skills"
-            description="当前工作区 .claude/skills/ 下没有自定义技能"
+            description="当前工作区没有自定义技能"
             action={
               <Button variant="outline" size="sm" onClick={() => setShowInstall(true)}>
                 <Plus className="w-3.5 h-3.5 mr-1" />

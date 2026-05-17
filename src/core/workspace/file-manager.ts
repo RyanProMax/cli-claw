@@ -1,7 +1,6 @@
 import path from 'path';
 import fs from 'fs';
 import { DATA_DIR, GROUPS_DIR } from '../config.js';
-import { deleteContainerEnvConfig } from '../runtime/config.js';
 import { logger } from '../logger.js';
 
 // --- Storage usage cache (5 minute TTL) ---
@@ -24,7 +23,7 @@ export interface FileEntry {
 
 // 常量
 export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-const SYSTEM_PATHS = ['logs', 'AGENTS.md', '.claude', 'conversations'];
+const SYSTEM_PATHS = ['logs', 'AGENTS.md', 'conversations'];
 
 /**
  * 获取会话流的文件根目录
@@ -335,5 +334,4 @@ export function removeFlowArtifacts(folder: string): void {
     recursive: true,
     force: true,
   });
-  deleteContainerEnvConfig(folder);
 }

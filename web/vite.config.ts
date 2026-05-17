@@ -46,7 +46,7 @@ export default defineConfig(({ command }) => {
           manifest: {
             name: 'cli-claw',
             short_name: 'cli-claw',
-            description: 'Personal Claude Assistant',
+            description: 'Personal Codex Assistant',
             theme_color: '#0d9488',
             background_color: '#FAF9F5',
             display: 'standalone',

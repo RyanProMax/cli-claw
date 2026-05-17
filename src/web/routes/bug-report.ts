@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { APP_ROOT, resolveAppPath } from '../../core/app-root.js';
 import { DATA_DIR } from '../../core/config.js';
 import { getUserHomeGroup } from '../../storage/db.js';
-import { getClaudeProviderConfig } from '../../core/runtime/config.js';
+import { resolveCodexCliRuntimeAuth } from '../../core/runtime/codex-cli-auth.js';
 import { sdkQuery } from '../../agent/runner/sdk-query.js';
 import { logger } from '../../core/logger.js';
 import { authMiddleware } from '../middleware/auth.js';
@@ -52,7 +52,7 @@ function checkCooldown(
 let capCache: {
   ghAvailable: boolean;
   ghUsername: string | null;
-  claudeAvailable: boolean;
+  openaiAvailable: boolean;
   checkedAt: number;
 } | null = null;
 const CAP_CACHE_TTL = 5 * 60 * 1000;
@@ -60,28 +60,24 @@ const CAP_CACHE_TTL = 5 * 60 * 1000;
 async function checkCapabilities(): Promise<{
   ghAvailable: boolean;
   ghUsername: string | null;
-  claudeAvailable: boolean;
+  openaiAvailable: boolean;
 }> {
   if (capCache && Date.now() - capCache.checkedAt < CAP_CACHE_TTL) {
     return {
       ghAvailable: capCache.ghAvailable,
       ghUsername: capCache.ghUsername,
-      claudeAvailable: capCache.claudeAvailable,
+      openaiAvailable: capCache.openaiAvailable,
     };
   }
 
-  const [gh] = await Promise.all([
+  const [gh, openai] = await Promise.all([
     execFileAsync('gh', ['auth', 'status'], { timeout: 5000 })
       .then(() => true)
       .catch(() => false),
+    resolveCodexCliRuntimeAuth()
+      .then(() => true)
+      .catch(() => false),
   ]);
-  // Claude availability is determined by provider config, not CLI presence
-  const providerConfig = getClaudeProviderConfig();
-  const claude = !!(
-    providerConfig.anthropicApiKey ||
-    providerConfig.claudeCodeOauthToken ||
-    providerConfig.claudeOAuthCredentials
-  );
 
   // Get gh username if available
   let ghUsername: string | null = null;
@@ -101,10 +97,10 @@ async function checkCapabilities(): Promise<{
   capCache = {
     ghAvailable: gh,
     ghUsername,
-    claudeAvailable: claude,
+    openaiAvailable: openai,
     checkedAt: Date.now(),
   };
-  return { ghAvailable: gh, ghUsername, claudeAvailable: claude };
+  return { ghAvailable: gh, ghUsername, openaiAvailable: openai };
 }
 
 // --- Helpers ---
@@ -263,7 +259,7 @@ ${logs.slice(0, 3000)}
   };
 }
 
-/** Try multiple strategies to extract JSON { title, body } from Claude output */
+/** Try multiple strategies to extract JSON { title, body } from model output */
 function tryParseJsonOutput(
   raw: string,
 ): { title?: string; body?: string } | null {
@@ -306,7 +302,7 @@ bugReportRoutes.get('/capabilities', authMiddleware, async (c) => {
 
 /**
  * POST /api/bug-report/generate
- * Analyze the bug with Claude and generate a structured report
+ * Analyze the bug with OpenAI and generate a structured report
  */
 bugReportRoutes.post('/generate', authMiddleware, async (c) => {
   const user = c.get('user') as AuthUser;
@@ -354,11 +350,11 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
   const rawLogs = readRecentLogs(folder);
   const logs = sanitizeLogs(rawLogs);
 
-  // Try Claude analysis
+  // Try OpenAI analysis
   const caps = await checkCapabilities();
-  if (!caps.claudeAvailable) {
+  if (!caps.openaiAvailable) {
     logger.info(
-      'bug-report: claude CLI not available, using fallback template',
+      'bug-report: OpenAI login not available, using fallback template',
     );
     const fallback = buildFallbackReport(description, systemInfo, logs);
     return c.json({ ...fallback, systemInfo });
@@ -374,7 +370,7 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
   try {
     logger.info(
       { promptLen: prompt.length, userId: user.id },
-      'bug-report: invoking Claude SDK',
+      'bug-report: invoking OpenAI backend',
     );
 
     const model = process.env.SDK_QUERY_MODEL || undefined;
@@ -385,7 +381,7 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
       return c.json({ ...fallback, systemInfo });
     }
 
-    // Try to parse Claude's JSON output
+    // Try to parse model JSON output
     const parsed = tryParseJsonOutput(result);
     if (parsed?.body) {
       return c.json({
@@ -395,9 +391,9 @@ bugReportRoutes.post('/generate', authMiddleware, async (c) => {
       });
     }
 
-    // Claude didn't return valid JSON, use raw output as body
+    // Model didn't return valid JSON, use raw output as body
     logger.info(
-      'bug-report: claude output was not valid JSON, using as raw body',
+      'bug-report: model output was not valid JSON, using as raw body',
     );
     return c.json({
       title: `Bug: ${description.slice(0, 70)}`,

@@ -23,7 +23,7 @@ export type StreamEventType =
   | 'init';
 
 export interface StreamRuntimeIdentity {
-  agentType: 'claude' | 'openai';
+  agentType: 'openai';
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;

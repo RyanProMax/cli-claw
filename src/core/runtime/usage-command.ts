@@ -1,7 +1,7 @@
 import { getOpenAiCodexUsageSnapshot } from './openai-codex-usage.js';
 
 export interface UsageProviderResult {
-  provider: 'openai' | 'claude';
+  provider: 'openai';
   available: boolean;
   source: string;
   primaryUsagePct?: number;
@@ -14,7 +14,6 @@ export interface UsageProviderResult {
 }
 
 export interface ExecuteUsageCommandOptions {
-  getClaudeUsage: () => Promise<UsageProviderResult>;
   getOpenAiUsage?: () => Promise<UsageProviderResult>;
 }
 
@@ -53,7 +52,7 @@ function stringifyErrorMessage(error: unknown): string {
 }
 
 function formatUsageSection(result: UsageProviderResult): string {
-  const label = result.provider === 'openai' ? 'OpenAI' : 'Claude';
+  const label = 'OpenAI';
   if (!result.available) {
     return [
       label,
@@ -102,23 +101,5 @@ export async function executeUsageCommand(
     };
   }
 
-  let claude: UsageProviderResult;
-  try {
-    claude = await options.getClaudeUsage();
-  } catch (error) {
-    claude = {
-      provider: 'claude',
-      available: false,
-      source: 'Claude OAuth API',
-      reason: `Claude usage fetch failed: ${stringifyErrorMessage(error)}`,
-    };
-  }
-
-  return [
-    '📈 用量查询',
-    '━━━━━━━━━━',
-    formatUsageSection(openai),
-    '',
-    formatUsageSection(claude),
-  ].join('\n');
+  return ['📈 用量查询', '━━━━━━━━━━', formatUsageSection(openai)].join('\n');
 }

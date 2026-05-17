@@ -1,123 +1,48 @@
-# Active Task: Source And Test Layout Refactor
+# Active Task: Codex-Only Runtime Cleanup
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or direct controller execution with verification gates. Plans live in `PLANS/`; do not write new plans under `docs/superpowers`.
 
-**Goal:** Make `src/` and `tests/` human and AI friendly by grouping files by product responsibility instead of flat historical names.
+**Goal:** Remove executable Claude runtime/provider/UI/API/dependency paths, keep a minimal pluggable `AgentRuntime` abstraction, and register only the OpenAI/Codex runtime for this release.
 
-**Architecture:** Keep runtime entrypoints stable at the top level, then move implementation files into feature directories. This pass is primarily mechanical: move files, update imports, preserve behavior, and run the full existing gate before claiming completion.
+**Architecture:** `agent_type` remains a persisted runtime id field for future extension, but all legacy values (`null`, empty, `codex`, `claude`) normalize to `openai`. Runtime defaults, model options, usage, and launch preparation must flow through the runtime registry. Claude-specific implementation code should be deleted with its references rather than hidden behind dead branches.
 
-**Tech Stack:** TypeScript ESM, NodeNext imports, Vitest, Hono, Bun/tsx dev runtime.
+**Tech Stack:** TypeScript ESM, NodeNext imports, Vitest, Hono, Bun/tsx dev runtime, OpenAI Agents SDK, Codex CLI login state.
 
 ---
 
 ## Scope
 
 In scope:
-- Keep top-level entrypoints: `src/index.ts`, `src/cli.ts`, `src/reset-admin.ts`, `src/self-restart-watchdog.ts`, `src/pty-worker.cjs`.
-- Move backend implementation files into:
-  - `src/core/`
-  - `src/storage/`
-  - `src/messaging/`
-  - `src/presentation/`
-  - `src/skills/`
-  - `src/mcp/`
-  - `src/agent/`
-  - `src/web/`
-  - `src/domain/`
-- Move tests into:
-  - `tests/unit/`
-  - `tests/integration/`
-  - `tests/contracts/`
-  - `tests/scripts/`
-- Update `src/README.md` and `docs/MODULE.md`.
+- Add `src/core/runtime/agent-runtime.ts`, `openai-runtime.ts`, and `runtime-registry.ts`.
+- Remove `/claude`, Claude model presets, Claude provider config/routes/UI, Claude OAuth usage, provider pool, Anthropic env overrides, and Claude SDK runner branches.
+- Remove `@anthropic-ai/claude-agent-sdk` from root and container runner dependencies.
+- Migrate legacy `registered_groups.agent_type` values to `openai` and reset incompatible runtime sessions.
+- Remove `.claude/skills` discovery and runtime `.claude` session/config handling.
+- Update `/help` standards in `AGENTS.md` and trim `/kol` description redundancy.
+- Update docs/tests to reflect OpenAI/Codex-only runtime.
 
-Out of scope for this pass:
-- Splitting `src/index.ts`, `src/storage/db.ts`, `src/web/app.ts`, or `src/core/runtime/config.ts` internally.
-- Deleting more P0 tests. This pass may move tests and record low-value cleanup, but behavior pruning needs a follow-up after the layout compiles cleanly.
-
-## Target Source Layout
-
-```text
-src/
-  index.ts
-  cli.ts
-  reset-admin.ts
-  self-restart-watchdog.ts
-  pty-worker.cjs
-  core/
-    app-root.ts
-    auth.ts
-    billing.ts
-    config.ts
-    logger.ts
-    permissions.ts
-    schemas.ts
-    utils.ts
-    runtime/
-    self/
-    workspace/
-  storage/
-    db.ts
-    sqlite-compat.ts
-  domain/
-    types.ts
-  messaging/
-    channel.ts
-    manager.ts
-    notifier.ts
-    lifecycle.ts
-    providers/
-  presentation/
-  agent/
-  web/
-  skills/
-  mcp/
-```
-
-## Target Test Layout
-
-```text
-tests/
-  unit/
-    agent/
-    app/
-    core/
-    messaging/
-    presentation/
-    skills/
-    web/
-  integration/
-    agent/
-    messaging/
-    routes/
-    scheduler/
-    web/
-  contracts/
-    cli/
-    openai/
-    packaging/
-    runtime/
-  scripts/
-    stock/
-```
+Out of scope:
+- Adding a second runtime implementation.
+- Preserving executable Claude compatibility shims.
+- Rewriting historical message JSON; render old unknown runtime identities generically.
 
 ## Execution Steps
 
-- [x] Commit current working tree baseline.
-- [x] Move `src/` implementation files into functional directories with `git mv`.
-- [x] Rewrite relative imports mechanically from old file paths to new file paths.
-- [x] Move `tests/` files into unit/integration/contract/script directories.
-- [x] Rewrite test imports and mocks mechanically.
-- [x] Update `src/README.md` and `docs/MODULE.md`.
-- [x] Run `npm run typecheck`.
-- [x] Run `npm test`.
-- [x] Run `./scripts/review.sh`.
+- [x] Split safe parallel work across implementation workers.
+- [x] Introduce runtime registry and OpenAI runtime defaults/capabilities/usage.
+- [x] Normalize all legacy runtime ids to `openai` and add DB migration/session reset.
+- [x] Remove Claude branches from host/container runner and container agent runner.
+- [x] Delete Claude provider API/routes/settings/UI and dependency references.
+- [x] Remove `.claude/skills` fallback and runtime-neutralize docs/UI labels.
+- [x] Update help/KOL standards and assertions.
+- [x] Run typecheck, targeted tests, full validation, review, and health check.
 
 ## Validation
 
 Required before completion:
 - `npm run typecheck`
-- `npm test`
+- targeted Vitest suites for runtime/routes/web/feishu/openai
+- `./scripts/validate.sh`
 - `./scripts/review.sh`
 - `curl -fsS http://127.0.0.1:3000/api/health`
 
@@ -126,8 +51,14 @@ Required before completion:
 Current status:
 - done
 
+Validation evidence:
+- `./scripts/validate.sh` passed on 2026-05-17 after final cleanup.
+- `./scripts/review.sh` passed on 2026-05-17 after final cleanup.
+- `curl -fsS http://127.0.0.1:3000/api/health` returned healthy.
+
+Review status:
+- passed: scope, objective, pattern fit, tests, hygiene, docs, and regression-contract checks all satisfied.
+
 Notes:
-- The layout refactor is allowed to be breaking internally, but must preserve public CLI/package entrypoints.
-- If full test failures reveal stale import paths only, fix them in the same pass.
-- Validation passed: `npm run typecheck`, `npm test` (61 files / 450 tests), `./scripts/review.sh`, `npm run build`, and local `/api/health`.
-- Service was restarted successfully through `bun src/cli.ts restart`; the managed watchdog entrypoint remains at `src/self-restart-watchdog.ts` so `dist/self-restart-watchdog.js` is preserved.
+- Destructive cleanup is allowed. When deleting behavior, remove the full reference chain and keep the remaining architecture simpler.
+- Runtime/session migrations may break old Claude workspaces intentionally by converting them to OpenAI/Codex.

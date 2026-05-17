@@ -457,7 +457,7 @@ export const MessageBubble = memo(function MessageBubble({ message, showTime, th
             {showTime && <span className="text-xs text-muted-foreground">{time}</span>}
           </div>
 
-          {/* Claude-style: no card container, direct content */}
+          {/* Assistant messages render as direct content, without a card container. */}
           <div className="overflow-hidden font-serif">
             {/* Reasoning block — muted left border style */}
             {thinkingContent && <ReasoningBlock content={thinkingContent} />}

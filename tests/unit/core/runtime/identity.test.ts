@@ -27,13 +27,13 @@ describe('runtime identity helpers', () => {
 
   test('shows model only when reasoning effort is not applicable', () => {
     const identity = {
-      agentType: 'claude' as const,
-      model: 'claude-opus-4.1',
+      agentType: 'legacy' as const,
+      model: 'legacy-model',
       supportsReasoningEffort: false,
     };
 
-    expect(formatBackendRuntimeIdentityFooter(identity)).toBe('claude-opus-4.1');
-    expect(formatWebRuntimeIdentityFooter(identity)).toBe('claude-opus-4.1');
+    expect(formatBackendRuntimeIdentityFooter(identity)).toBe('legacy-model');
+    expect(formatWebRuntimeIdentityFooter(identity)).toBe('legacy-model');
   });
 
   test('shows OpenAI speed tier when reasoning effort is missing', () => {

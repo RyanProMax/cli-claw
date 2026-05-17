@@ -32,10 +32,9 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 ## 运行时矩阵
 
-| `agentType` | 底层运行时                         | 支持执行模式         | 当前认证方式                                                  | 备注                                                                             |
-| ----------- | ---------------------------------- | -------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `claude`    | Claude Agent SDK + Claude Code CLI | `host` / `container` | Web 向导配置 Claude Provider（OAuth / setup-token / API Key） | 容器镜像当前只内置这条运行时                                                     |
-| `openai`    | OpenAI Agents SDK                  | `host` / `container` | 宿主机 Codex CLI 登录态（`codex login`）                      | backend 通过 Codex app-server 解析 token，runner 使用隔离文件 session 保存上下文 |
+| `agentType` | 底层运行时        | 支持执行模式         | 当前认证方式                             | 备注                                                                             |
+| ----------- | ----------------- | -------------------- | ---------------------------------------- | -------------------------------------------------------------------------------- |
+| `openai`    | OpenAI Agents SDK | `host` / `container` | 宿主机 Codex CLI 登录态（`codex login`） | backend 通过 Codex app-server 解析 token，runner 使用隔离文件 session 保存上下文 |
 
 ## 选择规则
 
@@ -64,10 +63,9 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 
 约束：
 
-- `claude` 的 `model` 仍采用 preset-only 约束。
 - `openai` 的 `model` 使用内置 preset，并允许把当前 effective model 作为当前值展示，避免状态摘要、配置卡和 dispatch fallback 互相矛盾。
-- `/openai` / `/claude` 配置卡和命令回复会把 effective runtime identity 中的当前模型一起传入选项构造。
-- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/openai` / `/claude` 配置卡、runner dispatch 和 footer fallback 都必须读取这同一份结果。
+- `/openai` 配置卡和命令回复会把 effective runtime identity 中的当前模型一起传入选项构造。
+- backend 会先把上述优先级物化成一份 effective runtime identity；`/status`、`/openai` 配置卡、runner dispatch 和 footer fallback 都必须读取这同一份结果。
 - `reasoningEffort` 只有支持该能力的 runtime 才会真正下发。
 - 不支持 `reasoningEffort` 的 runtime 会忽略该字段，但 `model` 仍可独立生效。
 - `speedTier` 只有 `openai` 支持；对 Codex CLI 登录态，`fast` 会向 OpenAI provider data 下发 Codex 后端实际接受的 `service_tier="priority"`，`standard` 表示不下发 service-tier 覆盖。
@@ -83,7 +81,7 @@ host 相关消费者统一使用同一份 effective cwd contract：
 
 该 cwd 必须是绝对路径、已存在目录，并在配置了 mount allowlist 时落在允许根目录内。
 
-这个 contract 会被 host runtime 执行、文件 API、工作区 `.claude/` 配置根目录、脚本任务和 agent 任务共同使用。
+这个 contract 会被 host runtime 执行、文件 API、脚本任务和 agent 任务共同使用。
 
 `customCwd` 只影响 host 执行和文件访问根目录，不改变工作区 ownership，也不改变数据库或 session 在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
 
@@ -113,14 +111,14 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 - 外层 channel 是消息入口，例如飞书或微信。
 - Workspace conversation 是 Cli Claw 的对话身份，由 `folder` 加可选 `agentId` 决定。
-- Runtime session 是 Claude/OpenAI 自己的会话 ID，持久化在 `sessions` 表。主对话所有 channel 共用 `(folder, 空 agent_id)`；conversation agent 使用 `(folder, agent_id)`。
+- Runtime session 是 Codex / OpenAI 自己的会话 ID，持久化在 `sessions` 表。主对话所有 channel 共用 `(folder, 空 agent_id)`；conversation agent 使用 `(folder, agent_id)`。
 - Runner 是正在处理消息的底层 CLI 进程或容器，只在执行期间存在，并可能在 idle timeout 后退出。
 
 对应关系：
 
 - 同一个 workspace 主对话共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 普通消息会合并成一轮；遇到不同来源或 `assistant_prompt` 任务边界即切到下一轮，按入库顺序继续处理，不跨来源重排。例如 `A1/A2/B1/A3/B2/B3` 必须切成 `A1+A2`、`B1`、`A3`、`B2+B3` 四轮。
 - Skill slash command 如果返回 `assistant_prompt`，该消息会标记为 `source_kind='assistant_prompt'`，并用隔离 runtime session 作为新 turn 发送给底层 runtime；它不读取 workspace 主 runtime session，完成后也不写回主 session，避免命令生成的研究任务污染后续普通对话。若历史版本已经把上一轮 skill final 的 session 写成主 session，下一条普通用户消息必须忽略它并建立新的正常主 session。
-- 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Claude/OpenAI 对话上下文。
+- 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Codex / OpenAI 对话上下文。
 - Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。runtime query 正在执行时不消费新的用户 IPC 消息；新消息只会排队并触发 drain。只有当前 query 已结束、runner 处于等待下一条消息的 idle 阶段时，才允许同来源消息通过 IPC 复用同一 runtime session。不同来源消息始终排队并触发 drain，让当前 turn 完成后按顺序处理。
 - Runner 可以用 runtime session id 恢复底层会话，但恢复过程是 runner 内部动作。恢复期间产生的历史 session 片段或旧工具步骤不得进入 runner stdout；stdout 只发布当前 prompt live 期间产生的事件和最终结果。
 - 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 OpenAI commentary 和可识别的内部包装从主正文剥离，避免 runtime session 细节直接发给用户。
@@ -152,16 +150,12 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 - `sessions` 表的主键维度仍是 `(folder, agentId)`；主会话使用空 `agent_id`，不再为 IM 主对话创建或保留 `im:<sourceJid>` runtime slot。它不是 `(folder, agentId, agentType)`。
 - 切换 `agentType`、`executionMode`、`model`、`reasoningEffort` 或 `speedTier` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
-- 因此，主对话从 OpenAI 切到 Claude 再切回 OpenAI 时，当前版本不保证恢复切换前的 OpenAI session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
+- 因此，主对话切换 `agentType` 后不保证恢复切换前的 OpenAI session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
 
 ## 外部运行时契约
 
 Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自原生状态：
 
-- `~/.cli-claw/sessions/{folder}/.claude/`
-  - Claude Runtime 的隔离配置 / 会话目录
-- `~/.claude/.credentials.json`
-  - Claude Runtime 的本地登录态来源之一
 - `~/.codex/auth.json`
   - OpenAI Runtime 的宿主机登录态来源；backend 优先通过 `codex app-server` 获取/刷新 access token，仅在 app-server 不可用且 access token 仍有效时读取该文件兜底
 - `CLI_CLAW_CODEX_ACCESS_TOKEN`

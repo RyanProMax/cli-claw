@@ -59,8 +59,8 @@ function formatAgentTypeLabel(agentType?: string | null): string | null {
   const normalized = normalizeText(agentType)?.toLowerCase();
   if (!normalized) return null;
   if (normalized === 'openai' || normalized === 'codex') return 'OpenAI';
-  if (normalized === 'claude') return 'Claude';
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  if (normalized === 'legacy') return 'Legacy';
+  return 'Runtime';
 }
 
 function formatSpeedTierLabel(

@@ -5,10 +5,10 @@ export {
   getAssistantCardFooterParts,
   getAssistantMetaFooterParts,
   parseAssistantTokenUsage,
-} from '../../../shared/dist/assistant-meta-footer.js';
+} from '../../../shared/assistant-meta-footer.ts';
 
 export type {
   AssistantFooterRuntimeIdentity,
   AssistantFooterTokenUsage,
   AssistantMetaFooterInput,
-} from '../../../shared/dist/assistant-meta-footer.js';
+} from '../../../shared/assistant-meta-footer.ts';

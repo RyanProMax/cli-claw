@@ -39,18 +39,16 @@ export function WorkspaceRuntimeDialog({
 }: WorkspaceRuntimeDialogProps) {
   const updateGroupRuntime = useChatStore((s) => s.updateGroupRuntime);
   const canHostExec = useAuthStore((s) => s.user?.role === 'admin');
-  const [agentType, setAgentType] = useState<WorkspaceAgentType>(currentAgentType);
   const [executionMode, setExecutionMode] = useState<WorkspaceExecutionMode>(currentExecutionMode);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setAgentType(currentAgentType);
     setExecutionMode(currentExecutionMode);
-  }, [open, currentAgentType, currentExecutionMode]);
+  }, [open, currentExecutionMode]);
 
   const normalized = normalizeWorkspaceRuntimeSelection({
-    agentType,
+    agentType: 'openai',
     executionMode,
   });
   const executionModeLocked = isHome;
@@ -86,41 +84,11 @@ export function WorkspaceRuntimeDialog({
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-2">Agent 类型</label>
-            <div className="space-y-2">
-              <label className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-accent/50 transition-colors">
-                <input
-                  type="radio"
-                  name="runtime_agent_type"
-                  value="claude"
-                  checked={agentType === 'claude'}
-                  onChange={() => setAgentType('claude')}
-                  className="mt-0.5 accent-primary"
-                />
-                <div>
-                  <div className="text-sm font-medium">Claude</div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    支持 Docker 与宿主机两种执行模式
-                  </p>
-                </div>
-              </label>
-              <label className="flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer hover:bg-accent/50">
-                <input
-                  type="radio"
-                  name="runtime_agent_type"
-                  value="openai"
-                  checked={agentType === 'openai'}
-                  onChange={() => {
-                    setAgentType('openai');
-                  }}
-                  className="mt-0.5 accent-primary"
-                />
-                <div>
-                  <div className="text-sm font-medium">OpenAI</div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    支持 Docker 与宿主机两种执行模式，复用 Codex CLI 登录态
-                  </p>
-                </div>
-              </label>
+            <div className="rounded-lg border p-3">
+              <div className="text-sm font-medium">Codex/OpenAI</div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                支持 Docker 与宿主机两种执行模式，复用 Codex CLI 登录态
+              </p>
             </div>
           </div>
 
@@ -181,19 +149,17 @@ export function WorkspaceRuntimeDialog({
             <div className="flex items-start gap-2 p-2 bg-muted/60 border border-border rounded-lg">
               <AlertTriangle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
               <p className="text-xs text-muted-foreground">
-                主工作区允许切换 Agent 基座，但执行模式由系统按用户角色固定。
+                主工作区 Agent 基座固定为 Codex/OpenAI，执行模式由系统按用户角色固定。
               </p>
             </div>
           )}
 
-          {normalized.agentType === 'openai' && (
-            <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
-              <AlertTriangle className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-sky-700 dark:text-sky-300">
-                OpenAI runtime 需要服务端已完成 <code>codex login</code>。
-              </p>
-            </div>
-          )}
+          <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
+            <AlertTriangle className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-sky-700 dark:text-sky-300">
+              Codex/OpenAI runtime 需要服务端已完成 <code>codex login</code>。
+            </p>
+          </div>
 
           {normalized.executionMode === 'host' && (
             <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">

@@ -19,7 +19,7 @@ export {
   RUNTIME_COMMANDS,
   supportsReasoningEffort,
   supportsSpeedTier,
-} from '../../../shared/dist/runtime-command-registry.js';
+} from '../../../shared/runtime-command-registry.ts';
 
 export type {
   ParsedRuntimeCommand,
@@ -30,4 +30,4 @@ export type {
   RuntimeCommandModule,
   RuntimePresetOption,
   SpeedTierPreset,
-} from '../../../shared/dist/runtime-command-registry.js';
+} from '../../../shared/runtime-command-registry.ts';

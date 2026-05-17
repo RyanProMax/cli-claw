@@ -79,9 +79,9 @@ export function AboutSection() {
               <ExternalLink className="w-3 h-3" />
             </a>
             <p className="mt-1 leading-relaxed">
-              我接触到的第一个类似项目。它是 Claude Code 的网页 Web
-              版，让你可以在任何地方通过浏览器使用 Claude
-              Code，不再受限于本地终端。这个理念深深吸引了我，但遗憾的是项目维护更新不够及时，许多问题长期得不到修复。
+              我接触到的第一个类似项目。它把命令行 Agent 搬到网页里，
+              让你可以在任何地方通过浏览器使用，不再受限于本地终端。
+              这个理念深深吸引了我，但遗憾的是项目维护更新不够及时，许多问题长期得不到修复。
             </p>
           </div>
           <div>
@@ -97,8 +97,8 @@ export function AboutSection() {
             <p className="mt-1 leading-relaxed">
               当下最火爆、最流行的个人 Agent
               项目。但我认为它的架构存在根本性的缺陷——它自己从头实现了一个
-              Agent。而 Claude Code 已经是世界上最好的 Agent
-              了，为什么不站在巨人的肩膀上去构建呢？
+              Agent。而成熟的 CLI runtime 已经提供了强大的 Agent
+              能力，为什么不站在巨人的肩膀上去构建呢？
             </p>
           </div>
         </div>
@@ -113,7 +113,7 @@ export function AboutSection() {
           <h3 className="text-sm font-medium text-foreground">设计哲学</h3>
         </div>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          站在巨人的肩膀上，基于 Claude Code（全世界最好的 Agent）构建。
+          站在巨人的肩膀上，基于成熟的 Codex/OpenAI runtime 构建。
         </p>
       </div>
     </div>

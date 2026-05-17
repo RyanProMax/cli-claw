@@ -32,7 +32,6 @@ import {
 } from '../../storage/db.js';
 import {
   getRegistrationConfig,
-  getEnabledProviders,
   getFeishuProviderConfigWithSource,
   getAppearanceConfig,
 } from '../../core/runtime/config.js';
@@ -133,26 +132,12 @@ export function toUserPublic(u: User): UserPublic {
 }
 
 function buildSetupStatus() {
-  // Check ALL enabled providers, not just the first one.
-  // V3→V4 migration can produce empty providers that sort before real ones,
-  // causing getClaudeProviderConfig() (first-match) to return an unconfigured provider.
-  const providers = getEnabledProviders();
-  const claudeConfigured = providers.some((p) => {
-    const hasOfficial =
-      !!p.claudeCodeOauthToken?.trim() ||
-      !!p.claudeOAuthCredentials ||
-      !!p.anthropicApiKey?.trim();
-    const hasThirdParty = !!(
-      p.anthropicBaseUrl?.trim() && p.anthropicAuthToken?.trim()
-    );
-    return hasOfficial || hasThirdParty;
-  });
   const { source: feishuSource } = getFeishuProviderConfigWithSource();
   const feishuConfigured = feishuSource !== 'none';
 
   return {
     needsSetup: false,
-    claudeConfigured,
+    codexConfigured: true,
     feishuConfigured,
   };
 }

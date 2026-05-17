@@ -78,8 +78,8 @@ describe('assistant meta footer', () => {
 
   test('skips reasoning effort when it is not applicable for the runtime', () => {
     const runtimeIdentity = {
-      agentType: 'claude' as const,
-      model: 'claude-opus-4.1',
+      agentType: 'legacy' as const,
+      model: 'legacy-model',
       supportsReasoningEffort: false,
     };
     const tokenUsage = {
@@ -91,9 +91,9 @@ describe('assistant meta footer', () => {
 
     expect(
       formatBackendAssistantMetaFooter({ runtimeIdentity, tokenUsage }),
-    ).toBe('2s | Claude | claude-opus-4.1');
+    ).toBe('2s | Legacy | legacy-model');
     expect(formatWebAssistantMetaFooter({ runtimeIdentity, tokenUsage })).toBe(
-      '2s | Claude | claude-opus-4.1',
+      '2s | Legacy | legacy-model',
     );
   });
 

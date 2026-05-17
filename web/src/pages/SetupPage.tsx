@@ -41,7 +41,7 @@ export function SetupPage() {
   }, [initialized, authenticated, navigate]);
 
   if (initialized === true && authenticated) {
-    return <Navigate to="/setup/providers" replace />;
+    return <Navigate to="/setup/channels" replace />;
   }
 
   // Loading or redirecting
@@ -60,14 +60,14 @@ export function SetupPage() {
             </div>
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-1">cli-claw 初始设置</h1>
-          <p className="text-sm text-muted-foreground">先创建管理员账号，完成后进入后台继续配置飞书 Token 与 Claude Key</p>
+          <p className="text-sm text-muted-foreground">先创建管理员账号，完成后进入消息通道配置向导</p>
         </div>
 
         {/* Step card */}
         <Card className="shadow-sm">
           <CardContent>
             <CreateAdminStep
-              onDone={() => navigate('/setup/providers', { replace: true })}
+              onDone={() => navigate('/setup/channels', { replace: true })}
               setupAdmin={setupAdmin}
             />
           </CardContent>

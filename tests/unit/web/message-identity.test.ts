@@ -62,10 +62,9 @@ describe('message identity helpers', () => {
     const merged = mergeMessagesChronologically([webMessage], [feishuMessage]);
 
     expect(merged).toHaveLength(2);
-    expect(merged.map((message) => `${message.chat_jid}:${message.content}`)).toEqual([
-      'web:main:web reply',
-      'feishu:group-1:feishu reply',
-    ]);
+    expect(
+      merged.map((message) => `${message.chat_jid}:${message.content}`),
+    ).toEqual(['web:main:web reply', 'feishu:group-1:feishu reply']);
   });
 
   test('updates an existing row only when the same composite key changes', () => {
@@ -74,14 +73,22 @@ describe('message identity helpers', () => {
       chat_jid: 'web:main',
       timestamp: '2026-04-04T10:00:00.000Z',
       content: 'draft',
-      runtime_identity: { agentType: 'claude', model: 'claude-opus-4.1', supportsReasoningEffort: false },
+      runtime_identity: {
+        agentType: 'openai',
+        model: 'gpt-5.4',
+        supportsReasoningEffort: true,
+      },
     });
     const updated = createMessage({
       id: 'msg-2',
       chat_jid: 'web:main',
       timestamp: '2026-04-04T10:00:01.000Z',
       content: 'final',
-      runtime_identity: { agentType: 'claude', model: 'claude-opus-4.1', supportsReasoningEffort: false },
+      runtime_identity: {
+        agentType: 'openai',
+        model: 'gpt-5.4',
+        supportsReasoningEffort: true,
+      },
     });
 
     const merged = mergeMessagesChronologically([original], [updated]);

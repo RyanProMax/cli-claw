@@ -1,26 +1,80 @@
-/**
- * Lightweight Claude Agent SDK wrapper for simple text-in → text-out queries.
- * Replaces all `claude --print` CLI calls so authentication uses the
- * provider configured in the settings page (ANTHROPIC_API_KEY / OAuth / Base URL).
- */
-
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
-  buildClaudeEnvLines,
-  getClaudeProviderConfig,
-} from '../../core/runtime/config.js';
+  resolveCodexCliRuntimeAuth,
+  type CodexCliRuntimeAuth,
+} from '../../core/runtime/codex-cli-auth.js';
 import { logger } from '../../core/logger.js';
 
-// Mutex: process.env mutation is not re-entrant. Serialize concurrent calls
-// to prevent overlapping env writes from corrupting each other.
-let envLock: Promise<void> = Promise.resolve();
+const DEFAULT_MODEL = 'gpt-5.4';
+
+function normalizeText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function buildResponsesUrl(auth: CodexCliRuntimeAuth): string {
+  return `${auth.baseURL.replace(/\/+$/, '')}/responses`;
+}
+
+function buildHeaders(auth: CodexCliRuntimeAuth): Record<string, string> {
+  return {
+    Authorization: `Bearer ${auth.accessToken}`,
+    'Content-Type': 'application/json',
+    'User-Agent': 'codex_cli_rs/0.0.0 (Cli Claw)',
+    originator: 'codex_cli_rs',
+    ...(auth.accountId ? { 'ChatGPT-Account-ID': auth.accountId } : {}),
+  };
+}
+
+function collectTextFromContent(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  const parts: string[] = [];
+  for (const item of content) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const text = normalizeText(record.text) ?? normalizeText(record.refusal);
+    if (text) parts.push(text);
+  }
+  return parts;
+}
+
+function extractResponseText(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+
+  const outputText = normalizeText(record.output_text);
+  if (outputText) return outputText;
+
+  const parts: string[] = [];
+  if (Array.isArray(record.output)) {
+    for (const item of record.output) {
+      if (!item || typeof item !== 'object') continue;
+      parts.push(
+        ...collectTextFromContent((item as Record<string, unknown>).content),
+      );
+    }
+  }
+
+  if (Array.isArray(record.choices)) {
+    for (const choice of record.choices) {
+      if (!choice || typeof choice !== 'object') continue;
+      const message = (choice as Record<string, unknown>).message;
+      if (!message || typeof message !== 'object') continue;
+      const content = (message as Record<string, unknown>).content;
+      const text = normalizeText(content);
+      if (text) parts.push(text);
+    }
+  }
+
+  return normalizeText(parts.join('\n\n'));
+}
 
 /**
- * Send a prompt to Claude and return the plain-text response.
- * Uses the provider configured in the web settings (not a separate CLI install).
+ * Send a prompt through the Codex CLI login-backed OpenAI backend and return
+ * the plain-text response.
  *
  * @param prompt  The user prompt text
- * @param opts.model   Override model (defaults to provider config)
+ * @param opts.model   Override model
  * @param opts.timeout Timeout in ms (default 60 000)
  * @returns The assistant's text response, or null on failure
  */
@@ -28,70 +82,44 @@ export async function sdkQuery(
   prompt: string,
   opts?: { model?: string; timeout?: number },
 ): Promise<string | null> {
-  // Chain on the lock so only one sdkQuery touches process.env at a time
-  let release: () => void;
-  const acquired = new Promise<void>((r) => (release = r));
-  const prevLock = envLock;
-  envLock = acquired;
-  await prevLock;
-
   const timeout = opts?.timeout ?? 60_000;
-
-  // Inject provider credentials into process.env for the SDK
-  const config = getClaudeProviderConfig();
-  const envLines = buildClaudeEnvLines(config);
-  const savedEnv: Record<string, string | undefined> = {};
-  for (const line of envLines) {
-    const eq = line.indexOf('=');
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq);
-    const value = line.slice(eq + 1);
-    savedEnv[key] = process.env[key];
-    process.env[key] = value;
-  }
-
   const abortController = new AbortController();
   const timer = setTimeout(() => abortController.abort(), timeout);
 
   try {
-    const model = opts?.model || config.anthropicModel || undefined;
-
-    let result = '';
-    const conversation = query({
-      prompt,
-      options: {
-        ...(model && { model }),
-        maxTurns: 1,
-        allowedTools: [],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-        abortController,
-      },
+    const auth = await resolveCodexCliRuntimeAuth();
+    const model = normalizeText(opts?.model) ?? DEFAULT_MODEL;
+    const response = await fetch(buildResponsesUrl(auth), {
+      method: 'POST',
+      headers: buildHeaders(auth),
+      signal: abortController.signal,
+      body: JSON.stringify({
+        model,
+        store: false,
+        input: [
+          {
+            role: 'user',
+            content: [{ type: 'input_text', text: prompt }],
+          },
+        ],
+      }),
     });
 
-    for await (const event of conversation) {
-      if (event.type === 'result' && event.subtype === 'success') {
-        result = event.result;
-      }
+    if (!response.ok) {
+      throw new Error(`OpenAI backend returned ${response.status}`);
     }
 
-    return result.trim() || null;
+    const payload = await response.json();
+    return extractResponseText(payload);
   } catch (err) {
     logger.warn(
-      { err: (err as Error).message?.slice(0, 200) },
+      {
+        err: (err as Error).message?.slice(0, 200),
+      },
       'sdkQuery failed',
     );
     return null;
   } finally {
     clearTimeout(timer);
-    // Restore original env
-    for (const [key, original] of Object.entries(savedEnv)) {
-      if (original === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = original;
-      }
-    }
-    release!();
   }
 }

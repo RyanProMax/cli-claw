@@ -2,7 +2,7 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 export type Theme = 'light' | 'dark' | 'system';
 export type ColorScheme = 'default' | 'orange' | 'neutral';
-export type FontStyle = 'default' | 'anthropic';
+export type FontStyle = 'default' | 'serif';
 
 const THEME_KEY = 'cli-claw-theme';
 const SCHEME_KEY = 'cli-claw-color-scheme';
@@ -33,7 +33,7 @@ function readColorScheme(): ColorScheme {
 function readFontStyle(): FontStyle {
   if (typeof window === 'undefined') return 'default';
   const stored = window.localStorage.getItem(FONT_KEY);
-  if (stored === 'default' || stored === 'anthropic') return stored;
+  if (stored === 'default' || stored === 'serif') return stored;
   return 'default';
 }
 
@@ -70,7 +70,7 @@ function applyColorScheme(scheme: ColorScheme) {
 
 function applyFontStyle(style: FontStyle) {
   if (typeof document === 'undefined') return;
-  document.documentElement.classList.toggle('font-anthropic', style === 'anthropic');
+  document.documentElement.classList.toggle('font-serif-style', style === 'serif');
 }
 
 function subscribe(cb: () => void) {

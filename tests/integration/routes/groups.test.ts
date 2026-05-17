@@ -36,7 +36,6 @@ const mocks = vi.hoisted(() => ({
   canManageGroupMembers: vi.fn(),
   checkGroupLimit: vi.fn(),
   getOpenAiRuntimeDefaults: vi.fn(),
-  getClaudeProviderConfig: vi.fn(),
   getAvailableRuntimeModelOptions: vi.fn(),
   getAvailableRuntimeModelPresets: vi.fn(),
   normalizeAvailableRuntimeModelPreset: vi.fn(),
@@ -75,8 +74,9 @@ vi.mock('../../../src/core/billing.js', () => ({
 }));
 
 vi.mock('../../../src/storage/db.js', async () => {
-  const actual =
-    await vi.importActual<typeof import('../../../src/storage/db.js')>('../../../src/storage/db.js');
+  const actual = await vi.importActual<
+    typeof import('../../../src/storage/db.js')
+  >('../../../src/storage/db.js');
   return {
     ...actual,
     getRegisteredGroup: mocks.getRegisteredGroup,
@@ -116,7 +116,6 @@ vi.mock('../../../src/core/runtime/config.js', async () => {
   >('../../../src/core/runtime/config.js');
   return {
     ...actual,
-    getClaudeProviderConfig: mocks.getClaudeProviderConfig,
     getOpenAiRuntimeDefaults: mocks.getOpenAiRuntimeDefaults,
   };
 });
@@ -182,7 +181,7 @@ describe('group runtime stale-build guard', () => {
         added_at: '2026-04-04T10:00:00.000Z',
         created_by: 'admin-1',
         is_home: true,
-        agentType: 'claude',
+        agentType: 'openai',
         executionMode: 'host',
       },
     };
@@ -231,9 +230,6 @@ describe('group runtime stale-build guard', () => {
       model: 'gpt-5.5',
       reasoningEffort: 'xhigh',
       speedTier: 'standard',
-    });
-    mocks.getClaudeProviderConfig.mockReturnValue({
-      anthropicModel: 'sonnet',
     });
     mocks.getAvailableRuntimeModelOptions.mockReturnValue([
       { value: 'gpt-5.5', label: 'GPT-5.5 (current)' },
@@ -311,14 +307,15 @@ describe('group runtime stale-build guard', () => {
     });
   });
 
-  test('returns 409 with stale_build marker for runtime-changing patch when backend is stale', async () => {
+  test('returns 409 with stale_build marker for execution-mode-changing patch when backend is stale', async () => {
+    registeredGroups['web:main'].is_home = false;
     mocks.isRuntimeBuildStale.mockReturnValue(true);
     const app = createApp();
 
     const res = await app.request('/api/groups/web:main', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ agent_type: 'openai' }),
+      body: JSON.stringify({ execution_mode: 'container' }),
     });
 
     expect(res.status).toBe(409);
@@ -328,7 +325,7 @@ describe('group runtime stale-build guard', () => {
       }),
     );
     expect(mocks.setRegisteredGroup).not.toHaveBeenCalled();
-    expect(registeredGroups['web:main'].agentType).toBe('claude');
+    expect(registeredGroups['web:main'].executionMode).toBe('host');
   });
 
   test('still allows non-runtime patch fields when backend is stale', async () => {
@@ -352,13 +349,14 @@ describe('group runtime stale-build guard', () => {
     expect(mocks.stopGroup).not.toHaveBeenCalled();
   });
 
-  test('still allows runtime-changing patch when backend build is fresh', async () => {
+  test('still allows execution-mode-changing patch when backend build is fresh', async () => {
+    registeredGroups['web:main'].is_home = false;
     const app = createApp();
 
     const res = await app.request('/api/groups/web:main', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ agent_type: 'openai' }),
+      body: JSON.stringify({ execution_mode: 'container' }),
     });
 
     expect(res.status).toBe(200);
@@ -369,6 +367,7 @@ describe('group runtime stale-build guard', () => {
     );
     expect(mocks.setRegisteredGroup).toHaveBeenCalledOnce();
     expect(registeredGroups['web:main'].agentType).toBe('openai');
+    expect(registeredGroups['web:main'].executionMode).toBe('container');
     expect(mocks.stopGroup).toHaveBeenCalledWith('web:main', { force: true });
     expect(sessions.main).toBeUndefined();
   });
@@ -444,7 +443,7 @@ describe('group runtime stale-build guard', () => {
     );
   });
 
-  test('does not accept the previous agent current model when switching agent type', async () => {
+  test('does not accept unsupported OpenAI models', async () => {
     const app = createApp();
 
     const res = await app.request('/api/groups/web:main', {
@@ -464,11 +463,11 @@ describe('group runtime stale-build guard', () => {
     expect(mocks.normalizeAvailableRuntimeModelPreset).toHaveBeenCalledWith(
       'openai',
       'sonnet',
-      { currentModel: null },
+      { currentModel: 'gpt-5.5' },
     );
     expect(mocks.getAvailableRuntimeModelPresets).toHaveBeenCalledWith(
       'openai',
-      { currentModel: null },
+      { currentModel: 'gpt-5.5' },
     );
     expect(mocks.setRegisteredGroup).not.toHaveBeenCalled();
   });
@@ -538,7 +537,7 @@ describe('group runtime stale-build guard', () => {
         added_at: '2026-04-04T10:10:00.000Z',
         created_by: 'admin-1',
         is_home: false,
-        agentType: 'claude',
+        agentType: 'openai',
         executionMode: 'container',
       },
     };
