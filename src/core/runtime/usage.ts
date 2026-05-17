@@ -1,4 +1,5 @@
 import { getClaudeUsageSnapshot } from './claude-oauth-usage.js';
+import { getOpenAiCodexUsageSnapshot } from './openai-codex-usage.js';
 import {
   parseAssistantTokenUsage,
   type AssistantFooterTokenUsage,
@@ -16,7 +17,7 @@ export async function getRuntimeUsageSnapshot(
 ): Promise<UsageProviderResult | null> {
   if (!runtimeIdentity?.agentType) return null;
   if (runtimeIdentity.agentType === 'openai') {
-    return null;
+    return getOpenAiCodexUsageSnapshot();
   }
   return getClaudeUsageSnapshot();
 }

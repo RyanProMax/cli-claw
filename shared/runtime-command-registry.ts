@@ -106,7 +106,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
   },
   {
     name: 'bind',
-    usage: '/bind <workspace>',
+    usage: '/bind <workspace[/agent短ID]>',
     description: '绑定到指定工作区或会话',
     module: 'workspace',
     availableEntrypoints: ['im'],
@@ -130,7 +130,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
   },
   {
     name: 'require_mention',
-    usage: '/require_mention true|false',
+    usage: '/require_mention <true/false>',
     description: '控制群聊中是否必须 @机器人',
     module: 'workspace',
     availableEntrypoints: ['im'],

@@ -40,7 +40,7 @@ describe('runtime command registry', () => {
     expect(help).not.toContain('/effort');
     expect(help).not.toContain('/speed');
     expect(help).not.toContain('/model <preset>');
-    expect(help).not.toContain('/bind <workspace>');
+    expect(help).not.toContain('/bind <workspace[/agent短ID]>');
   });
 
   test('formats IM help with commands grouped by module', () => {
@@ -54,7 +54,8 @@ describe('runtime command registry', () => {
     expect(help).toContain('工作区命令：');
     expect(help).toContain('服务命令：');
     expect(help).toContain('/help');
-    expect(help).toContain('/bind <workspace>');
+    expect(help).toContain('/bind <workspace[/agent短ID]>');
+    expect(help).toContain('/require_mention <true/false>');
     expect(help).not.toContain('/where');
     expect(help).toContain('/claude');
     expect(help).not.toContain('/openai');

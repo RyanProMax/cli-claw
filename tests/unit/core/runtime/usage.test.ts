@@ -1,11 +1,17 @@
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { getClaudeUsageSnapshotMock } = vi.hoisted(() => ({
-  getClaudeUsageSnapshotMock: vi.fn(),
-}));
+const { getClaudeUsageSnapshotMock, getOpenAiCodexUsageSnapshotMock } =
+  vi.hoisted(() => ({
+    getClaudeUsageSnapshotMock: vi.fn(),
+    getOpenAiCodexUsageSnapshotMock: vi.fn(),
+  }));
 
 vi.mock('../../../../src/core/runtime/claude-oauth-usage.js', () => ({
   getClaudeUsageSnapshot: getClaudeUsageSnapshotMock,
+}));
+
+vi.mock('../../../../src/core/runtime/openai-codex-usage.js', () => ({
+  getOpenAiCodexUsageSnapshot: getOpenAiCodexUsageSnapshotMock,
 }));
 
 import {
@@ -16,21 +22,41 @@ import {
 } from '../../../../src/core/runtime/usage.ts';
 
 describe('runtime usage helper', () => {
-  test('keeps OpenAI and missing runtime usage unavailable without dropping existing metadata', async () => {
+  beforeEach(() => {
+    getClaudeUsageSnapshotMock.mockReset();
+    getOpenAiCodexUsageSnapshotMock.mockReset();
+  });
+
+  test('returns OpenAI Codex usage and appends remaining quota to footer metadata', async () => {
+    getOpenAiCodexUsageSnapshotMock.mockResolvedValue({
+      provider: 'openai',
+      available: true,
+      source: 'Codex usage API',
+      primaryUsagePct: 37,
+      secondaryUsagePct: 12.5,
+      primaryRemainingPct: 63,
+      secondaryRemainingPct: 87.5,
+    });
+
     await expect(
       getRuntimeUsageSnapshot({
         agentType: 'openai',
         model: 'gpt-5.4',
       }),
-    ).resolves.toBeNull();
-
-    await expect(getRuntimeUsageSnapshot(null)).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      provider: 'openai',
+      primaryRemainingPct: 63,
+      secondaryRemainingPct: 87.5,
+    });
     await expect(
       getRuntimeUsageFooterMeta({
         agentType: 'openai',
         model: 'gpt-5.4',
       }),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      primaryRemainingPct: 63,
+      secondaryRemainingPct: 87.5,
+    });
     await expect(
       attachRuntimeUsageFooterMeta(
         {
@@ -42,6 +68,22 @@ describe('runtime usage helper', () => {
           inputTokens: 100,
         },
       ),
+    ).resolves.toEqual({
+      durationMs: 5_200,
+      inputTokens: 100,
+      primaryRemainingPct: 63,
+      secondaryRemainingPct: 87.5,
+    });
+  });
+
+  test('keeps missing runtime usage unavailable without dropping existing metadata', async () => {
+    await expect(getRuntimeUsageSnapshot(null)).resolves.toBeNull();
+    await expect(getRuntimeUsageFooterMeta(null)).resolves.toBeNull();
+    await expect(
+      attachRuntimeUsageFooterMeta(null, {
+        durationMs: 5_200,
+        inputTokens: 100,
+      }),
     ).resolves.toEqual({
       durationMs: 5_200,
       inputTokens: 100,

@@ -1,3 +1,5 @@
+import { getOpenAiCodexUsageSnapshot } from './openai-codex-usage.js';
+
 export interface UsageProviderResult {
   provider: 'openai' | 'claude';
   available: boolean;
@@ -90,17 +92,12 @@ export async function executeUsageCommand(
   try {
     openai = options.getOpenAiUsage
       ? await options.getOpenAiUsage()
-      : {
-          provider: 'openai',
-          available: false,
-          source: 'OpenAI API',
-          reason: 'OpenAI usage snapshot unavailable',
-        };
+      : await getOpenAiCodexUsageSnapshot();
   } catch (error) {
     openai = {
       provider: 'openai',
       available: false,
-      source: 'OpenAI API',
+      source: 'Codex usage API',
       reason: `OpenAI usage fetch failed: ${stringifyErrorMessage(error)}`,
     };
   }
