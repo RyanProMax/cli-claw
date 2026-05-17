@@ -20,6 +20,9 @@ interface RawSkillCommandManifest {
 
 interface RawSkillCommandDefinition {
   description?: unknown;
+  argumentHint?: unknown;
+  argument_hint?: unknown;
+  usage?: unknown;
   entrypoints?: unknown;
   executor?: {
     command?: unknown;
@@ -36,6 +39,7 @@ export interface DiscoveredSkillCommand {
   sourceRoot: string;
   priority: number;
   executor: SkillCommandExecutor;
+  argumentHint: string | null;
 }
 
 export interface SkillCommandDiscoveryResult {
@@ -96,6 +100,21 @@ function isSupportedEntrypoint(
   return value === 'im' || value === 'web';
 }
 
+function normalizeArgumentHint(
+  commandName: string,
+  rawValue: string,
+): string | null {
+  const hint = rawValue.trim();
+  if (!hint) return null;
+
+  const commandPrefix = `/${commandName}`;
+  if (hint === commandPrefix) return null;
+  if (hint.startsWith(`${commandPrefix} `)) {
+    return hint.slice(commandPrefix.length).trim() || null;
+  }
+  return hint;
+}
+
 function parseManifestCommand(
   skillId: string,
   skillDir: string,
@@ -124,6 +143,15 @@ function parseManifestCommand(
         (value): value is string => typeof value === 'string',
       )
     : [];
+  const rawArgumentHint =
+    typeof definition?.argumentHint === 'string'
+      ? definition.argumentHint
+      : typeof definition?.argument_hint === 'string'
+        ? definition.argument_hint
+        : typeof definition?.usage === 'string'
+          ? definition.usage
+          : '';
+  const argumentHint = normalizeArgumentHint(name, rawArgumentHint);
 
   if (!description || entrypoints.length === 0 || !executorCommand) {
     return null;
@@ -141,6 +169,7 @@ function parseManifestCommand(
       command: executorCommand,
       args: executorArgs,
     },
+    argumentHint,
   };
 }
 
@@ -375,7 +404,12 @@ export function formatSkillCommandHelpLines(
 ): string[] {
   return [...commands]
     .sort((left, right) => left.name.localeCompare(right.name))
-    .map((command) => `- /${command.name}：${command.description}`);
+    .map((command) => {
+      const usage = command.argumentHint
+        ? `/${command.name} ${command.argumentHint}`
+        : `/${command.name}`;
+      return `- ${usage}：${command.description}`;
+    });
 }
 
 function executeSkillCommandProcess(

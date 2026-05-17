@@ -36,6 +36,7 @@ describe('web skill command filtering', () => {
           commands: {
             hkipo: {
               description: 'web + im',
+              argumentHint: '[YYYY-MM-DD]',
               entrypoints: ['im', 'web'],
               executor: { command: process.execPath, args: ['reply.js'] },
             },
@@ -57,7 +58,7 @@ describe('web skill command filtering', () => {
     });
 
     expect(formatSkillCommandHelpLines(discovered.commands)).toEqual([
-      '- /hkipo：web + im',
+      '- /hkipo [YYYY-MM-DD]：web + im',
     ]);
   });
 });

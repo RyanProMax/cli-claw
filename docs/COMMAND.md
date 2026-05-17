@@ -108,6 +108,7 @@ skill command 的执行结果有两类：
 - 普通回复 footer 会始终保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。当当前 runtime usage 可用时，会追加 token usage；OpenAI 当前不读取本地 5h / 7d 余额快照。
 - 普通回复不会读取 `PLANS/ACTIVE.md`、roadmap、历史摘要或旧 partial body 来补正文；任务进度只留在本地计划文件与显式命令输出中。
 - `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要，并分成 `Agent 命令`、`工作区命令`、`服务命令`、`技能命令` 等模块；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
+- skill command 若在 `commands.json` 声明 `argumentHint`，`/help` 会把参数占位一起展示，例如 `/research <股票名称/代码>`。
 - Web 输入框只在输入 bare `/openai` 或 `/claude` 时展示配置 UI；飞书会返回同一张配置卡，用多个下拉分别设置模型、思考强度和速度（Claude 只显示模型）。
 - 历史的 `/model` / `/effort` / `/speed` 独立命令，以及它们的参数式交互，都不再作为用户命令保留。
 
@@ -115,7 +116,8 @@ skill command 的执行结果有两类：
 
 skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发约定如下：
 
-- 先搜索当前工作区 `.claude/skills/`，再搜索用户级同步 skill 目录；项目内 skill 可以覆盖用户级同名声明。
+- 先搜索当前工作区 `.agents/skills/`，再搜索 `.claude/skills/`，最后搜索用户级同步 skill 目录；项目内 skill 可以覆盖用户级同名声明。
+- 可选字段 `argumentHint` / `argument_hint` / `usage` 用于 `/help` 展示参数占位；它只影响帮助文本，不改变 executor 收到的 `argsText` 和 `args`。
 - 若多个 skill 在同一搜索优先级上声明了相同命令，命令不会静默二选一，而是直接返回冲突提示。
 - executor 通过 stdin 接收 JSON payload，并通过 stdout 返回 JSON 结果。
 - executor 环境会先读取该 skill 根目录的 `.env`，再叠加 Cli Claw 服务进程环境，最后注入 `CLI_CLAW_COMMAND`、`CLI_CLAW_SKILL_ID`、`CLI_CLAW_SKILL_DIR`；服务进程环境优先于 `.env`，用于部署级覆盖。

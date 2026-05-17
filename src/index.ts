@@ -152,7 +152,10 @@ import {
   type ResolvedRuntimeWorkspaceTarget,
 } from './core/runtime/command-handler.js';
 import { getAvailableRuntimeModelOptions } from './core/runtime/model-options.js';
-import { attachRuntimeUsageFooterMeta } from './core/runtime/usage.js';
+import {
+  attachRuntimeUsageFooterMeta,
+  getRuntimeUsageSnapshot,
+} from './core/runtime/usage.js';
 import {
   discoverSkillCommands,
   executeDiscoveredSkillCommandResult,
@@ -2391,7 +2394,22 @@ function handleListCommand(chatJid: string): string {
   );
 }
 
-function handleStatusCommand(chatJid: string): string {
+function formatStatusUsageRemaining(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 'unavailable';
+  }
+  return `${value}%`;
+}
+
+function formatStatusUsageReset(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString();
+  }
+  return 'unknown';
+}
+
+async function handleStatusCommand(chatJid: string): Promise<string> {
   const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
   if (!group) return '当前 IM 未绑定工作区';
 
@@ -2432,6 +2450,16 @@ function handleStatusCommand(chatJid: string): string {
   });
 
   const runtimeIdentity = runtimeTarget?.effectiveRuntimeIdentity ?? null;
+  let runtimeUsage: Awaited<ReturnType<typeof getRuntimeUsageSnapshot>> = null;
+  try {
+    runtimeUsage = await getRuntimeUsageSnapshot(runtimeIdentity);
+  } catch (err) {
+    logger.warn(
+      { chatJid, err },
+      'Failed to fetch runtime usage snapshot for status command',
+    );
+  }
+
   logger.info(
     {
       chatJid,
@@ -2443,6 +2471,7 @@ function handleStatusCommand(chatJid: string): string {
       runtimeModel: runtimeIdentity?.model ?? null,
       runtimeReasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
       runtimeSpeedTier: runtimeIdentity?.speedTier ?? null,
+      runtimeUsageAvailable: runtimeUsage?.available ?? false,
     },
     'Status command rendered',
   );
@@ -2462,10 +2491,14 @@ function handleStatusCommand(chatJid: string): string {
       model: runtimeIdentity?.model ?? 'unknown',
       reasoningEffort: runtimeIdentity?.reasoningEffort ?? null,
       speedTier: runtimeIdentity?.speedTier ?? null,
-      primaryRemaining: 'unavailable',
-      primaryReset: 'unknown',
-      secondaryRemaining: 'unavailable',
-      secondaryReset: 'unknown',
+      primaryRemaining: formatStatusUsageRemaining(
+        runtimeUsage?.primaryRemainingPct,
+      ),
+      primaryReset: formatStatusUsageReset(runtimeUsage?.primaryResetAt),
+      secondaryRemaining: formatStatusUsageRemaining(
+        runtimeUsage?.secondaryRemainingPct,
+      ),
+      secondaryReset: formatStatusUsageReset(runtimeUsage?.secondaryResetAt),
       currentBinding: location.locationLine,
       replyPolicy: location.replyPolicy ?? null,
       workspaceName: workspace.name,
@@ -2476,7 +2509,7 @@ function handleStatusCommand(chatJid: string): string {
   );
   const loopStatus = formatLoopStatusSection({
     taskReader: { getTaskById, getTaskRunLogs },
-    runtimeUsage: null,
+    runtimeUsage,
   });
 
   const lifecycleStatus = chatJid.startsWith('feishu:')

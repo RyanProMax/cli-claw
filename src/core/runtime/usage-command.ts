@@ -52,13 +52,33 @@ function stringifyErrorMessage(error: unknown): string {
 
 function formatUsageSection(result: UsageProviderResult): string {
   const label = result.provider === 'openai' ? 'OpenAI' : 'Claude';
+  if (!result.available) {
+    return [
+      label,
+      '- 5h 剩余: unavailable',
+      '- 7d 剩余: unavailable',
+      `- 5h 重置时间: ${RESET_PLACEHOLDER}`,
+      `- 7d 重置时间: ${RESET_PLACEHOLDER}`,
+      `- 原因: ${result.reason ?? 'unknown'}`,
+      `- 数据源: ${result.source}`,
+    ].join('\n');
+  }
+
+  const formatRemaining = (value: number | undefined): string =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? `${value}%`
+      : 'unavailable';
+  const formatReset = (value: unknown): string => {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    return String(value ?? RESET_PLACEHOLDER);
+  };
+
   return [
     label,
-    '- 5h 剩余: unavailable',
-    '- 7d 剩余: unavailable',
-    `- 5h 重置时间: ${RESET_PLACEHOLDER}`,
-    `- 7d 重置时间: ${RESET_PLACEHOLDER}`,
-    `- 原因: ${result.reason ?? 'usage unavailable'}`,
+    `- 5h 剩余: ${formatRemaining(result.primaryRemainingPct)}`,
+    `- 7d 剩余: ${formatRemaining(result.secondaryRemainingPct)}`,
+    `- 5h 重置时间: ${formatReset(result.primaryResetAt)}`,
+    `- 7d 重置时间: ${formatReset(result.secondaryResetAt)}`,
     `- 数据源: ${result.source}`,
   ].join('\n');
 }

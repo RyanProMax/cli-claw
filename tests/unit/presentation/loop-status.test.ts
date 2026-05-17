@@ -18,7 +18,9 @@ describe('formatLoopStatusSection', () => {
       const output = formatLoopStatusSection({
         taskReader: emptyTaskReader,
         runtimeUsage: {
+          provider: 'claude',
           available: true,
+          source: 'Claude OAuth API',
           primaryRemainingPct: 90,
           secondaryRemainingPct: 67,
         },
@@ -41,7 +43,9 @@ describe('formatLoopStatusSection', () => {
       const output = formatLoopStatusSection({
         taskReader: emptyTaskReader,
         runtimeUsage: {
+          provider: 'claude',
           available: true,
+          source: 'Claude OAuth API',
           primaryRemainingPct: 90,
           secondaryRemainingPct: 67,
         },
@@ -51,10 +55,31 @@ describe('formatLoopStatusSection', () => {
 
       expect(output).toMatch(/^\n\n🔁 循环状态/);
       expect(output).toContain('🛠️ 自迭代维护循环：未启动');
-      expect(output).toContain('🛡️ 用量护栏：未知（用量不可读）');
+      expect(output).toContain('🛡️ 用量护栏：正常，7d=67%');
       expect(output).not.toContain('maintenance_loop');
       expect(output).not.toContain('usage_guard');
       expect(output).not.toContain('not_registered');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('shows unknown usage guard only when runtime usage is unreadable', () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'cli-claw-loop-status-'));
+    try {
+      const output = formatLoopStatusSection({
+        taskReader: emptyTaskReader,
+        runtimeUsage: {
+          provider: 'openai',
+          available: false,
+          source: 'OpenAI',
+          reason: '用量不可读',
+        },
+        stockTaskDb: path.join(tempDir, 'missing-task-chain.sqlite'),
+        maintenanceStateFile: path.join(tempDir, 'maintenance-loop-state.json'),
+      });
+
+      expect(output).toContain('🛡️ 用量护栏：未知（用量不可读）');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

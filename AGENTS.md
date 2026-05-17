@@ -39,9 +39,10 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 3. `PLANS/ROADMAP.md` 负责跨轮次的长期迭代跟进；未在本轮完成、但需要继续追踪的事项必须回写到 roadmap。
 4. 一次只允许一个 milestone 处于 `in_progress`。
 5. 不允许隐式扩 scope；目标、方案、验证方式或涉及文件变化时，先更新 active plan，再继续实现。
-6. 每轮实现后都必须运行验证；验证失败时留在当前 milestone 修复，不得跳过。
-7. 验证通过后仍必须经过 review gate；只有 validation 和 review 都通过，当前 milestone 才能标记为 `done`。
-8. 任务完成后必须回写 `PLANS/ACTIVE.md` 的结果与 handoff；若有跨轮次事项，再同步更新 `PLANS/ROADMAP.md`，然后再提交。
+6. 删除代码时必须沿引用链清理入口、分发、配置、测试、文档和调用方；允许破坏性重构，以最低复杂度和最小结构为准，不保留兼容壳、死代码或悬空引用。
+7. 每轮实现后都必须运行验证；验证失败时留在当前 milestone 修复，不得跳过。
+8. 验证通过后仍必须经过 review gate；只有 validation 和 review 都通过，当前 milestone 才能标记为 `done`。
+9. 任务完成后必须回写 `PLANS/ACTIVE.md` 的结果与 handoff；若有跨轮次事项，再同步更新 `PLANS/ROADMAP.md`，然后再提交。
 
 ## Subagent 规则
 

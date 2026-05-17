@@ -8,6 +8,7 @@ import {
   discoverSkillCommands,
   executeDiscoveredSkillCommand,
   executeDiscoveredSkillCommandResult,
+  formatSkillCommandHelpLines,
   resolveSkillCommandRoots,
 } from '../../../src/skills/command-dispatch.ts';
 
@@ -191,6 +192,35 @@ describe('skill command dispatch', () => {
 
     expect(discovered.errors).toEqual([
       '命令 /hkipo 同时由多个启用技能声明：stock-skill-a, stock-skill-b',
+    ]);
+  });
+
+  test('renders declared command argument hints in help output', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-help-'),
+    );
+    tempDirs.push(workspaceRoot);
+
+    writeSkill({
+      rootDir: workspaceRoot,
+      skillId: 'stock-analysis-skill',
+      commands: {
+        research: {
+          description: '生成单只股票深度研报',
+          argumentHint: '<股票名称/代码>',
+          entrypoints: ['im', 'web'],
+          executor: { command: process.execPath, args: ['reply.js'] },
+        },
+      },
+    });
+
+    const discovered = await discoverSkillCommands({
+      entrypoint: 'im',
+      roots: [workspaceRoot],
+    });
+
+    expect(formatSkillCommandHelpLines(discovered.commands)).toEqual([
+      '- /research <股票名称/代码>：生成单只股票深度研报',
     ]);
   });
 
