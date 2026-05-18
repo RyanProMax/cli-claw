@@ -325,6 +325,12 @@ async function handleWebSlashCommand(options: {
       isFromMe: true,
     });
   };
+  const workflowLifecycle = {
+    background: true,
+    onBackgroundResult: async (message: string) => {
+      persistReply(message);
+    },
+  };
 
   if (!parsed) {
     const skillResult = await maybeHandleWebSkillCommand({
@@ -357,6 +363,7 @@ async function handleWebSlashCommand(options: {
                 argsText: slashCandidate.argsText,
                 input: skillResult.input,
               },
+              workflowLifecycle,
             ),
           );
         } catch (err) {
@@ -403,6 +410,8 @@ async function handleWebSlashCommand(options: {
             displayChatJid,
             parsed.argsText,
             options.userId,
+            undefined,
+            workflowLifecycle,
           ),
         );
       } catch (err) {

@@ -117,7 +117,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 - 同一个 workspace 主对话共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 普通消息会合并成一轮；遇到不同来源或 `assistant_prompt` 任务边界即切到下一轮，按入库顺序继续处理，不跨来源重排。例如 `A1/A2/B1/A3/B2/B3` 必须切成 `A1+A2`、`B1`、`A3`、`B2+B3` 四轮。
 - Skill slash command 如果返回 `assistant_prompt`，该消息会标记为 `source_kind='assistant_prompt'`，并用隔离 runtime session 作为新 turn 发送给底层 runtime；它不读取 workspace 主 runtime session，完成后也不写回主 session，避免命令生成的研究任务污染后续普通对话。若历史版本已经把上一轮 skill final 的 session 写成主 session，下一条普通用户消息必须忽略它并建立新的正常主 session。
-- Skill slash command 如果返回 `workflow`，不会改写成用户消息，也不会进入主 runtime session；宿主会用返回的 `workflowId`、`prompt` 和结构化 `input` 创建独立 workflow run。`/hkipo [--all]` 当前走这条路径。
+- Skill slash command 如果返回 `workflow`，不会改写成用户消息，也不会进入主 runtime session；宿主会用返回的 `workflowId`、`prompt` 和结构化 `input` 创建独立 workflow run。run 创建成功后，触发会话先收到启动回执；后台 graph 完成、失败或 runner 超时后，触发会话再收到终态消息。`/hkipo [--all]` 当前走这条路径。
 - 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Codex / OpenAI 对话上下文。
 - Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。runtime query 正在执行时不消费新的用户 IPC 消息；新消息只会排队并触发 drain。只有当前 query 已结束、runner 处于等待下一条消息的 idle 阶段时，才允许同来源消息通过 IPC 复用同一 runtime session。不同来源消息始终排队并触发 drain，让当前 turn 完成后按顺序处理。
 - Runner 可以用 runtime session id 恢复底层会话，但恢复过程是 runner 内部动作。恢复期间产生的历史 session 片段或旧工具步骤不得进入 runner stdout；stdout 只发布当前 prompt live 期间产生的事件和最终结果。
@@ -170,7 +170,7 @@ Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自�
 - `.agents/roles/*.md`：仓库协作/subagent 角色，只用于 Codex 协作协议，不注入 runtime。
 - `.agents/skills/**/SKILL.md`：仓库内联 skill 定义。
 
-这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。workflow context 使用内部生成的 thread id / workflow context id；用户会话只触发 workflow run 并接收结果，不提供 thread id，也不共享 workflow 内部 runtime session。
+这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。workflow context 使用内部生成的 thread id / workflow context id；用户会话只触发 workflow run 并接收启动回执与终态消息，不提供 thread id，也不共享 workflow 内部 runtime session。
 
 LangGraph checkpoint 使用独立 SQLite 文件 `~/.cli-claw/db/workflow-checkpoints.sqlite`，以内部 `thread_id` 作为恢复维度；workflow run/step 审计仍写入主 `messages.db` 的 `workflow_runs` / `workflow_run_steps` 表。checkpoint SQLite 通过仓库内 `sqlite-compat` 兼容层访问：Bun 服务使用 `bun:sqlite`，Node.js 工具路径使用 `better-sqlite3`；不要在 workflow runtime 路径直接引入依赖 `better-sqlite3` 的第三方 SQLite saver。
 

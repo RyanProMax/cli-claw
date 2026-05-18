@@ -95,6 +95,10 @@ export interface WebDeps {
     argsText: string,
     userId?: string | null,
     initialInput?: Record<string, unknown>,
+    lifecycle?: {
+      background?: boolean;
+      onBackgroundResult?: (message: string) => Promise<void> | void;
+    },
   ) => Promise<string>;
 }
 

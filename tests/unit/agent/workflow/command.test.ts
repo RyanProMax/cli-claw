@@ -48,6 +48,33 @@ function writeWorkflowFixture(workspaceRoot: string): void {
   );
 }
 
+function deferred<T = void>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function waitForCondition(
+  condition: () => boolean,
+  timeoutMs = 500,
+): Promise<void> {
+  const started = Date.now();
+  while (!condition()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error('timed out waiting for condition');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetModules();
@@ -168,6 +195,97 @@ describe('workflow command execution', () => {
           includeClosed: true,
         },
       }),
+    );
+
+    db.closeDatabase();
+  });
+
+  test('background workflow returns a started acknowledgement before graph completion', async () => {
+    const workspaceRoot = tempDir('cli-claw-workflow-command-background-');
+    writeWorkflowFixture(workspaceRoot);
+    const { command, db } = await loadWorkflowCommand();
+    const gate = deferred<void>();
+    const backgroundResults: string[] = [];
+    const runGraph = vi.fn(async () => {
+      await gate.promise;
+      return {
+        prompt: '分析英伟达',
+        result: '投研结论完成',
+        stepResults: {},
+      };
+    });
+
+    const execution = command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'research 分析英伟达',
+      triggerUserId: 'user-1',
+      workspaceRoot,
+      runGraph,
+      background: true,
+      onBackgroundResult: async (message: string) => {
+        backgroundResults.push(message);
+      },
+    } as any);
+
+    const firstResult = await Promise.race([
+      execution,
+      new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), 25),
+      ),
+    ]);
+    gate.resolve();
+
+    expect(firstResult).not.toBe('timeout');
+    expect(firstResult).toContain('🚀 已启动工作流 投研工作流 (research)');
+    expect(backgroundResults).toEqual([]);
+
+    await waitForCondition(() => backgroundResults.length === 1);
+    expect(backgroundResults[0]).toContain(
+      '✅ 工作流 投研工作流 (research) 完成',
+    );
+    expect(backgroundResults[0]).toContain('投研结论完成');
+
+    db.closeDatabase();
+  });
+
+  test('background workflow reports failures and timeouts to the trigger session', async () => {
+    const workspaceRoot = tempDir('cli-claw-workflow-command-background-fail-');
+    writeWorkflowFixture(workspaceRoot);
+    const { command, db } = await loadWorkflowCommand();
+    const backgroundResults: string[] = [];
+    const runGraph = vi.fn(async () => {
+      throw new Error('Agent Process timed out after 1800000ms');
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'research 分析英伟达',
+      triggerUserId: 'user-1',
+      workspaceRoot,
+      runGraph,
+      background: true,
+      onBackgroundResult: async (message: string) => {
+        backgroundResults.push(message);
+      },
+    } as any);
+
+    expect(reply).toContain('🚀 已启动工作流 投研工作流 (research)');
+    await waitForCondition(() => backgroundResults.length === 1);
+    expect(backgroundResults[0]).toContain(
+      '❌ 工作流 投研工作流 (research) 失败',
+    );
+    expect(backgroundResults[0]).toContain(
+      'Agent Process timed out after 1800000ms',
     );
 
     db.closeDatabase();

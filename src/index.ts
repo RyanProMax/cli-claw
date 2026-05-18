@@ -1231,9 +1231,21 @@ function reconcileWorkspaceDefaults(launchCwd: string): void {
   for (const [jid, group] of Object.entries(registeredGroups)) {
     const materialized = materializeWorkspaceDefaultCwd(group, {
       launchCwd,
-      fieldLabel: 'CLI launch cwd',
+      fieldLabel: group.customCwd ? 'custom_cwd' : 'CLI launch cwd',
     });
     if ('error' in materialized) {
+      if (group.customCwd) {
+        logger.warn(
+          {
+            jid,
+            folder: group.folder,
+            customCwd: group.customCwd,
+            error: materialized.error,
+          },
+          'Skipping workspace with invalid persisted custom cwd during startup',
+        );
+        continue;
+      }
       throw new Error(materialized.error);
     }
     if (materialized.materialized) {
@@ -2060,10 +2072,37 @@ async function handleCommand(
     case 'spawn':
       return handleSpawnCommand(chatJid, rawArgs, chatJid);
     case 'workflow':
-      return handleWorkflowSlashCommand(chatJid, rawArgs);
+      return handleWorkflowSlashCommand(
+        chatJid,
+        rawArgs,
+        undefined,
+        undefined,
+        { background: true },
+      );
     default:
       return null;
   }
+}
+
+interface WorkflowCommandLifecycle {
+  background?: boolean;
+  onBackgroundResult?: (message: string) => Promise<void> | void;
+}
+
+function resolveWorkflowCommandLifecycle(
+  chatJid: string,
+  lifecycle?: WorkflowCommandLifecycle,
+): WorkflowCommandLifecycle | undefined {
+  if (!lifecycle?.background || lifecycle.onBackgroundResult) {
+    return lifecycle;
+  }
+  if (getChannelType(chatJid) === null) return lifecycle;
+  return {
+    ...lifecycle,
+    onBackgroundResult: async (message: string) => {
+      await sendMessage(chatJid, message);
+    },
+  };
 }
 
 async function handleWorkflowSlashCommand(
@@ -2071,6 +2110,7 @@ async function handleWorkflowSlashCommand(
   rawArgs: string,
   triggerUserId?: string | null,
   initialInput?: Record<string, unknown>,
+  lifecycle?: WorkflowCommandLifecycle,
 ): Promise<string> {
   const target = resolveRuntimeWorkspaceTarget(chatJid, {
     getGroup: (jid) => registeredGroups[jid] ?? getRegisteredGroup(jid),
@@ -2078,12 +2118,15 @@ async function handleWorkflowSlashCommand(
     getAgent,
   });
   if (!target) return '未找到当前工作区';
+  const resolvedLifecycle = resolveWorkflowCommandLifecycle(chatJid, lifecycle);
   return executeWorkflowCommand({
     group: target.effectiveGroup,
     chatJid,
     argsText: rawArgs,
     triggerUserId: triggerUserId ?? target.sourceGroup.created_by ?? null,
     initialInput,
+    background: resolvedLifecycle?.background,
+    onBackgroundResult: resolvedLifecycle?.onBackgroundResult,
   });
 }
 
@@ -2180,20 +2223,19 @@ async function maybeHandleImSkillCommand(options: {
     const workflowArgs = [result.workflowId, result.prompt]
       .filter((part) => part.trim().length > 0)
       .join(' ');
-    return executeWorkflowCommand({
-      group: options.target.effectiveGroup,
-      chatJid: options.chatJid,
-      argsText: workflowArgs,
-      triggerUserId:
-        options.target.sourceGroup.created_by ??
+    return handleWorkflowSlashCommand(
+      options.chatJid,
+      workflowArgs,
+      options.target.sourceGroup.created_by ??
         options.target.runtimeOwnerGroup.created_by ??
         null,
-      initialInput: {
+      {
         command: normalizedName,
         argsText: options.slashCandidate.argsText,
         input: result.input,
       },
-    });
+      { background: true },
+    );
   }
 
   return result.content;

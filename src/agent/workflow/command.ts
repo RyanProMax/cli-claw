@@ -33,6 +33,8 @@ export interface WorkflowCommandOptions {
   initialInput?: Record<string, unknown>;
   localTasks?: WorkflowLocalTaskRegistry;
   runGraph?: typeof runWorkflowGraph;
+  background?: boolean;
+  onBackgroundResult?: (message: string) => Promise<void> | void;
 }
 
 function splitWorkflowArgs(argsText: string): {
@@ -75,6 +77,36 @@ function formatWorkflowList(
     '',
     '用法：/workflow <id> <任务>',
   ].join('\n');
+}
+
+function formatWorkflowStarted(options: {
+  workflow: WorkflowDiscovery['workflows'][number];
+  runId: string;
+  prompt: string;
+}): string {
+  return [
+    `🚀 已启动工作流 ${options.workflow.name} (${options.workflow.id})`,
+    `Run: ${options.runId}`,
+    ...(options.prompt ? [`任务：${options.prompt}`] : []),
+    '完成、失败或超时后我会继续回到这里通知你。',
+  ].join('\n');
+}
+
+function formatWorkflowSuccess(options: {
+  workflow: WorkflowDiscovery['workflows'][number];
+  result: string;
+}): string {
+  return [
+    `✅ 工作流 ${options.workflow.name} (${options.workflow.id}) 完成：`,
+    options.result || '无输出',
+  ].join('\n');
+}
+
+function formatWorkflowFailure(options: {
+  workflow: WorkflowDiscovery['workflows'][number];
+  message: string;
+}): string {
+  return `❌ 工作流 ${options.workflow.name} (${options.workflow.id}) 失败：${options.message}`;
 }
 
 function discoverWorkflowConfigsWithBuiltins(options: {
@@ -178,28 +210,50 @@ export async function executeWorkflowCommand(
     },
   });
 
-  try {
+  const runAndFormatResult = async (): Promise<string> => {
     const graphRunner = options.runGraph ?? runWorkflowGraph;
-    const result = await graphRunner({
+    try {
+      const result = await graphRunner({
+        workflow,
+        roles: discovered.roles,
+        group: options.group,
+        context,
+        run,
+        prompt,
+        initialInput: options.initialInput,
+        localTasks:
+          options.localTasks ??
+          createDefaultWorkflowLocalTasks({ workspaceRoot }),
+        executionCwd: workspaceRoot,
+        checkpointer: getPersistentWorkflowCheckpointer(),
+      });
+      return formatWorkflowSuccess({
+        workflow,
+        result: result.result ?? '',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return formatWorkflowFailure({ workflow, message });
+    }
+  };
+
+  if (options.background) {
+    const startedMessage = formatWorkflowStarted({
       workflow,
-      roles: discovered.roles,
-      group: options.group,
-      context,
-      run,
+      runId: run.id,
       prompt,
-      initialInput: options.initialInput,
-      localTasks:
-        options.localTasks ??
-        createDefaultWorkflowLocalTasks({ workspaceRoot }),
-      executionCwd: workspaceRoot,
-      checkpointer: getPersistentWorkflowCheckpointer(),
     });
-    return [
-      `✅ 工作流 ${workflow.name} (${workflow.id}) 完成：`,
-      result.result || '无输出',
-    ].join('\n');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return `❌ 工作流 ${workflow.name} (${workflow.id}) 失败：${message}`;
+    void (async () => {
+      const message = await runAndFormatResult();
+      if (!options.onBackgroundResult) return;
+      try {
+        await options.onBackgroundResult(message);
+      } catch {
+        // Delivery failures are logged by the caller's transport when available.
+      }
+    })();
+    return startedMessage;
   }
+
+  return runAndFormatResult();
 }

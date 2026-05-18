@@ -25,6 +25,58 @@
 
 ## Milestones
 
+### Milestone 9：Workflow 触发即时回执与异常终态通知
+
+Objective:
+- 修复 Web / IM 触发 workflow 后长时间无可见反馈的问题：工作流创建并开始派发时立即回复“已启动”，成功、失败或 runner 超时后再向同一触发会话发送终态消息。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `src/agent/workflow/command.ts`
+- `src/index.ts`
+- `src/web/app.ts`
+- `src/web/context.ts`
+- `tests/unit/agent/workflow/command.test.ts`
+- `tests/integration/web/slash-command.test.ts`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+
+Validation:
+- TDD 红测：background workflow 立即返回启动回执，完成后异步发送成功终态。
+- TDD 红测：background workflow 内部抛错或超时错误时异步发送失败终态。
+- `npm test -- tests/unit/agent/workflow/command.test.ts tests/integration/web/slash-command.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `./scripts/review.sh`
+- 安全重启并做真实 `/hkipo [e2e]`：确认飞书先收到启动回执，最终 run 成功/失败都有终态消息。
+- 回归修复：Web slash command 集成测试必须隔离临时 HOME，不污染真实 DB；服务启动遇到历史陈旧 workspace `custom_cwd` 时不能拖垮整个 backend。
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 现状：`executeWorkflowCommand` 会同步等待整个 LangGraph run；Feishu / Web 只能在 workflow 完成后看到一条回复。上轮 `/hkipo` 线上 E2E 约 356s，用户无法确认是否派发成功。
+- 目标实现应保持用户会话与 workflow context 解耦，只新增触发会话的可见 lifecycle 消息，不把 workflow state 写入主 runtime session。
+- 重启排查发现 `tests/integration/web/slash-command.test.ts` 的顶层 import 提前加载真实 HOME，导致测试注册的 `web:hkipo*` 临时 workspace 写入真实 DB；临时目录删除后，backend 启动校验历史 `custom_cwd` 时失败。需同时修测试隔离和启动健壮性。
+- 已实现 background workflow lifecycle：run 创建后立即返回 `🚀 已启动工作流 ...`，后台成功时回填 `✅ 完成`，抛错或 runner timeout 时回填 `❌ 失败`，IM 入口通过 `sendMessage` 回到原触发会话，Web 入口写入同一会话消息流。
+- 已修复测试隔离：Web slash command 集成测试改为在临时 HOME 后动态 import，避免把临时 workspace 写入真实 `~/.cli-claw/db/messages.db`。
+- 已修复启动健壮性：历史 workspace `custom_cwd` 指向已删除目录时记录 warning 并跳过，不再阻断 backend 启动；缺省 workspace 物化启动 cwd 仍保持硬校验。
+- 已运行并通过：
+  - `npm test -- tests/unit/agent/workflow/command.test.ts tests/integration/web/slash-command.test.ts`（9 passed）
+  - `npm run typecheck`
+  - `npm run build`（通过；保留既有 Vite chunk warning）
+  - `./scripts/review.sh`
+  - `./scripts/validate.sh tests/unit/agent/workflow/command.test.ts tests/integration/web/slash-command.test.ts`
+  - 安全重启：`bun src/cli.ts restart`，`/api/health` healthy；启动日志中陈旧 `web:hkipo*` workspace 降级为 warning。
+  - 飞书 live smoke：`FEISHU_LIVE_E2E=1 ... npm test -- tests/live/feishu/message-smoke.test.ts`（1 passed，真实发送并读回 `[e2e] ...`）。
+  - 线上 `/hkipo [e2e]` workflow：run `wfrun_c9038740-5b03-461b-9a52-4a7c04c42f19`，消息顺序为 `/hkipo [e2e]` → `🚀 已启动工作流 ...` → `✅ 工作流 ... 完成`，8 个节点均 `success`，总耗时约 349 秒。
+
 ### Milestone 8：`/hkipo` 飞书报告可读性与中文名修复
 
 Objective:
