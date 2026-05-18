@@ -465,6 +465,8 @@ describe('workflow config discovery', () => {
 
     expect(workflowPrompts).toContain('structure_evidence');
     expect(workflowPrompts).toContain('valuation_evidence');
+    expect(workflowPrompts).toContain('官方文件');
+    expect(workflowPrompts).toContain('不把正文全文写入 artifact');
     expect(workflowPrompts).toContain('多源');
     expect(structureRole).toContain('公司核心能力');
     expect(structureRole).toContain('同类股票');

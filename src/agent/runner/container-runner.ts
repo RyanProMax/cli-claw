@@ -184,6 +184,19 @@ export function writeGroupsSnapshot(
   );
 }
 
+export function canResolveAgentRunnerDependency(input: {
+  manifestPath: string;
+  dependency: string;
+}): boolean {
+  const agentRunnerRequire = createRequire(input.manifestPath);
+  try {
+    agentRunnerRequire.resolve(input.dependency);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Kill a detached runner process and its child process group.
  */
@@ -335,14 +348,11 @@ export async function runAgentProcess(
     }
 
     const requiredDeps = ['@openai/agents', 'openai'];
-    const agentRunnerRequire = createRequire(agentRunnerManifestPath);
     const missingDeps = requiredDeps.filter((dep) => {
-      try {
-        agentRunnerRequire.resolve(`${dep}/package.json`);
-        return false;
-      } catch {
-        return true;
-      }
+      return !canResolveAgentRunnerDependency({
+        manifestPath: agentRunnerManifestPath,
+        dependency: dep,
+      });
     });
     if (missingDeps.length > 0) {
       const missing = missingDeps.join(', ');

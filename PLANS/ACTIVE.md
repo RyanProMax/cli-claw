@@ -25,6 +25,84 @@
 
 ## Milestones
 
+### Milestone 12：HKIPO 官方数据源文件解析
+
+Objective:
+- 将 `/hkipo` 的 `official_doc_crawler` 从“HKEX 搜索入口定位”升级为“官方公告/招股书下载与正文解析”：先尝试 HKEX 标题检索，再回退解析 HKEX “新上市资料” Main Board / GEM 表格；PDF 正文优先用 PyMuPDF 抽取、pypdf 兜底；解析招股章程、配发结果、定价公告、稳定价格公告等文件中的绿鞋/超额配股权、稳定价格操作人、基石投资者、保荐人、公开发售/回拨、发行后市值、所得款用途与核心业务字段，并输出结构化 evidence。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/agent/runner/container-runner.ts`
+- `src/agent/workflow/local-tasks.ts`
+- `tests/unit/agent/runner/container-runner-preflight.test.ts`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+- `.agents/workflows/hkipo.json`
+- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `/Users/ryan/projects/stock-analysis-api/AGENTS.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-official-docs-cli.md`
+- `/Users/ryan/projects/stock-analysis-api/pyproject.toml`
+- `/Users/ryan/projects/stock-analysis-api/requirements.txt`
+- `/Users/ryan/projects/stock-analysis-api/scripts/hkipo_official_docs.py`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_official_doc_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_official_doc_service.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_official_doc_cli.py`
+
+Validation:
+- TDD 红测：官方 docs CLI 从 IPO pool 和 HKEX title search fixture 中定位招股书/配发结果/稳定价格公告链接，并输出 documents metadata。
+- TDD 红测：官方 docs parser 从 HTML / PDF-like fixture 正文中提取绿鞋、基石、保荐、回拨、公开发售比例、发行后市值、所得款用途和核心业务 evidence。
+- TDD 红测：HKEX 标题搜索无静态结果时，回退解析“新上市资料”表格，并按代码/中文名匹配当前 IPO 的新上市公告、招股章程和配发结果链接。
+- 真实源验证：用当前 `HK.02723` 招股书验证 stdout 为严格 JSON，并解析到 `public_float_pct`、`core_business`、`use_of_proceeds`、`offer_market_cap`。
+- TDD 红测：缺少文件、下载失败或不可解析 PDF 时输出 source-level error 和降级，不中断整只 IPO 处理。
+- TDD 红测：cli-claw `stock.hkipo.fetch_official_docs` 调用 stock-analysis-api 的 `hkipo_official_docs.py`，并使用 `src/core/cache.ts` 的 cache namespace，而不是临时散落到系统 tmp。
+- TDD 红测：agent-runner preflight 不能用 `<package>/package.json` 误判 `exports` 隐藏 package.json 的依赖缺失。
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests/test_hkipo_official_doc_cli.py -q`
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "hkipo_official_doc or hkipo_heat_scan or hkipo" -q`
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -q`
+- `npm test -- tests/unit/agent/workflow/local-tasks.test.ts`
+- `npm test -- tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/runner/container-runner-preflight.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- 真实飞书 full-chain E2E：发送 `[e2e] /hkipo`，确认 `workflow_runs.status=success`、9 个节点均 `success`、`official_doc_crawler` 输出 `status=ok` 且 `degraded_count=0`。
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 本轮只做公开只读文件定位、下载与解析；不登录券商、不绕过验证码/付费/反爬限制。
+- workflow artifact 只能保存 URL、hash、source time、短 snippet 和结构化字段；不得把招股书全文塞进 workflow state。
+- PDF/HTML 结构会随 HKEX 页面变化而漂移；真实源失败时必须输出 source-level error 和降级，不能编造绿鞋/基石/估值字段。
+- 已新增 stock-analysis-api `scripts/hkipo_official_docs.py`：支持 HKEX title search、HKEX “新上市资料” Main Board / GEM fallback、PDF 正文 PyMuPDF 优先 / pypdf 兜底、stdout 严格 JSON、文件 cache、source-level error 降级。
+- 官方文件 source time 优先取 HKEX URL 公告日期，避免 PDF 正文里的上市日期或未来日期污染 `published_at`。
+- `stock.hkipo.fetch_official_docs` 使用统一 cache namespace `hkipo-official-docs`；IPO pool 输入走 `withCacheTempDir` 自动清理；官方 PDF cache 由通用 cache cleanup loop 后续统一清理。
+- 官方文件解析冷缓存会超过通用 120s local task 预算，本轮将该 task 的有界进程预算提升到 300s；heat scan 仍保留 120s 预算和降级策略。
+- 线上 E2E 过程中暴露 agent-runner preflight 对 `@openai/agents/package.json` 的误判：该包已安装但 `exports` 隐藏 package.json。已改为解析包入口本身，并用 fixture 覆盖该导出形态。
+- 真实源验证：当前 Futu pool 4 只 IPO 解析到 8 个官方文件；`HK.02723 深演智能` 解析到 `public_float_pct`、`core_business`、`use_of_proceeds`、`offer_market_cap`。
+- 真实飞书 full-chain E2E：run `wfrun_d65e3363-2dde-4398-af6e-d8dd80b7b8f0`，`workflow_runs.status=success`，9 个节点均 `success`，`official_doc_crawler` 输出 `status=ok`、`parsed_document_count=8`、`degraded_count=0`；最终 `[e2e]` 飞书消息含中文公司名、emoji、无裸露 `**`。
+- 已运行并通过：
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests/test_hkipo_official_doc_cli.py -q`（4 passed）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "hkipo_official_doc or hkipo_heat_scan or hkipo" -q`（14 passed）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -q`（245 passed）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run black --check ...`
+  - `npm test -- tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/runner/container-runner-preflight.test.ts`（12 passed）
+  - `npm run typecheck`
+  - `npm run build`（通过；保留既有 Vite chunk warning）
+  - `./scripts/validate.sh`（71 files passed, 1 skipped；496 tests passed, 1 skipped；typecheck/build passed）
+  - `./scripts/review.sh`（diff hygiene / format check passed）
+- 语义 review gate：scope 已补充 agent-runner preflight 阻塞修复；目标覆盖官方文件定位、下载、解析、cache 与 E2E；文档已同步 owner docs；未发现阻塞回归。后续仍需继续扩大绿鞋/基石/回拨/估值字段的 source-specific parser 覆盖，真实缺字段时继续降级而不编造。
+
 ### Milestone 11：通用缓存目录与统一清理机制
 
 Objective:

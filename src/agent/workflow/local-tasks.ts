@@ -5,6 +5,7 @@ import path from 'path';
 import { promisify } from 'util';
 
 import { APP_ROOT } from '../../core/app-root.js';
+import { ensureCacheNamespaceDir, withCacheTempDir } from '../../core/cache.js';
 import type {
   WorkflowLocalTask,
   WorkflowLocalTaskInput,
@@ -130,6 +131,7 @@ async function runStockApiJson(
   args: string[],
   input: WorkflowLocalTaskInput,
   options: DefaultWorkflowLocalTaskOptions,
+  runOptions: { timeoutMs?: number } = {},
 ): Promise<Record<string, unknown>> {
   const apiRoot = resolveStockAnalysisApiRoot({
     workspaceRoot: options.workspaceRoot,
@@ -141,7 +143,7 @@ async function runStockApiJson(
     ['run', 'python', ...args],
     {
       cwd: apiRoot,
-      timeout: 120_000,
+      timeout: runOptions.timeoutMs ?? 120_000,
       maxBuffer: JSON_BUFFER_BYTES,
       env: process.env,
     },
@@ -211,6 +213,24 @@ function getArtifactArray(
   return [];
 }
 
+function resolveWorkflowTaskInput(
+  input: WorkflowLocalTaskInput,
+): Record<string, unknown> {
+  const nestedInput = isObject(input.input.input) ? input.input.input : {};
+  return { ...nestedInput, ...input.input };
+}
+
+function readWorkflowIncludeClosed(input: WorkflowLocalTaskInput): boolean {
+  return resolveWorkflowTaskInput(input).includeClosed === true;
+}
+
+function readWorkflowReportDate(input: WorkflowLocalTaskInput): string {
+  const taskInput = resolveWorkflowTaskInput(input);
+  return typeof taskInput.reportDate === 'string'
+    ? taskInput.reportDate
+    : currentShanghaiDate();
+}
+
 function getCode(item: unknown): string {
   return isObject(item) && typeof item.code === 'string' ? item.code : '';
 }
@@ -267,11 +287,53 @@ function buildDegradedHeatScanArtifact(
   };
 }
 
+function buildDegradedOfficialDocsArtifact(
+  ipos: unknown[],
+  reportDate: string,
+  reason: string,
+): Record<string, unknown> {
+  return {
+    status: 'degraded',
+    source: 'hkipo_official_docs',
+    report_date: reportDate,
+    generatedAt: new Date().toISOString(),
+    reason,
+    errors: [
+      {
+        source: 'hkipo_official_docs',
+        source_family: 'workflow_local_task',
+        error: reason,
+      },
+    ],
+    summary: {
+      ipo_count: ipos.length,
+      parsed_document_count: 0,
+      degraded_count: ipos.length,
+    },
+    data: ipos.map((item) => ({
+      code: getCode(item),
+      name: getName(item),
+      stage: isObject(item) ? item.stage : undefined,
+      status: 'official_docs_degraded',
+      documents: [],
+      structure_evidence: [],
+      valuation_evidence: [],
+      source_errors: [
+        {
+          source: 'hkipo_official_docs',
+          source_family: 'workflow_local_task',
+          error: reason,
+        },
+      ],
+    })),
+  };
+}
+
 function createFetchPoolTask(
   options: DefaultWorkflowLocalTaskOptions,
 ): WorkflowLocalTask {
   return async (input) => {
-    const includeClosed = input.input.includeClosed === true;
+    const includeClosed = readWorkflowIncludeClosed(input);
     const payload = await runStockApiJson(
       ['scripts/futu_market_data.py', 'ipo-list', '--market', 'HK', '--json'],
       input,
@@ -301,54 +363,74 @@ function createHeatScanTask(
   options: DefaultWorkflowLocalTaskOptions,
 ): WorkflowLocalTask {
   return async (input) => {
-    const reportDate =
-      typeof input.input.reportDate === 'string'
-        ? input.input.reportDate
-        : currentShanghaiDate();
+    const reportDate = readWorkflowReportDate(input);
+    const includeClosed = readWorkflowIncludeClosed(input);
     const ipos = getArtifactArray(input, 'ipo_pool');
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-hkipo-'));
-    const iposPath = path.join(tempRoot, 'ipos.json');
-    try {
-      fs.writeFileSync(iposPath, JSON.stringify(ipos, null, 2));
-      const args = [
-        'scripts/hkipo_heat_scan.py',
-        '--date',
-        reportDate,
-        '--ipos-json',
-        iposPath,
-        '--json',
-      ];
-      if (input.input.includeClosed === true) args.push('--include-closed');
-      try {
-        return await runStockApiJson(args, input, options);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return buildDegradedHeatScanArtifact(ipos, reportDate, message);
-      }
-    } finally {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    }
+    return withCacheTempDir(
+      'hkipo-heat-scan-input',
+      async (tempRoot) => {
+        const iposPath = path.join(tempRoot, 'ipos.json');
+        fs.writeFileSync(iposPath, JSON.stringify(ipos, null, 2));
+        const args = [
+          'scripts/hkipo_heat_scan.py',
+          '--date',
+          reportDate,
+          '--ipos-json',
+          iposPath,
+          '--json',
+        ];
+        if (includeClosed) args.push('--include-closed');
+        try {
+          return await runStockApiJson(args, input, options, {
+            timeoutMs: 300_000,
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return buildDegradedHeatScanArtifact(ipos, reportDate, message);
+        }
+      },
+      { cacheRoot: process.env.CLI_CLAW_CACHE_DIR },
+    );
   };
 }
 
-function createOfficialDocsTask(): WorkflowLocalTask {
+function createOfficialDocsTask(
+  options: DefaultWorkflowLocalTaskOptions,
+): WorkflowLocalTask {
   return async (input) => {
+    const reportDate = readWorkflowReportDate(input);
+    const includeClosed = readWorkflowIncludeClosed(input);
     const ipos = getArtifactArray(input, 'ipo_pool');
-    return {
-      status: 'ok',
-      source: 'hkex_document_locator',
-      generatedAt: new Date().toISOString(),
-      data: ipos.map((item) => {
-        const code = getCode(item);
-        const name = getName(item);
-        return {
-          code,
-          name,
-          hkexSearchUrl: `https://www1.hkexnews.hk/search/titlesearch.xhtml?lang=zh&market=SEHK&stockId=${encodeURIComponent(code.replace(/^HK\./, ''))}`,
-          status: 'metadata_locator_only',
-        };
-      }),
-    };
+    const cacheDir = ensureCacheNamespaceDir('hkipo-official-docs', {
+      cacheRoot: process.env.CLI_CLAW_CACHE_DIR,
+    });
+    return withCacheTempDir(
+      'hkipo-official-docs-input',
+      async (tempRoot) => {
+        const iposPath = path.join(tempRoot, 'ipos.json');
+        fs.writeFileSync(iposPath, JSON.stringify(ipos, null, 2));
+        const args = [
+          'scripts/hkipo_official_docs.py',
+          '--date',
+          reportDate,
+          '--ipos-json',
+          iposPath,
+          '--cache-dir',
+          cacheDir,
+          '--json',
+        ];
+        if (includeClosed) args.push('--include-closed');
+        try {
+          return await runStockApiJson(args, input, options);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return buildDegradedOfficialDocsArtifact(ipos, reportDate, message);
+        }
+      },
+      { cacheRoot: process.env.CLI_CLAW_CACHE_DIR },
+    );
   };
 }
 
@@ -398,7 +480,7 @@ export function createDefaultWorkflowLocalTasks(
   return {
     'stock.hkipo.fetch_pool': createFetchPoolTask(options),
     'stock.hkipo.scan_heat': createHeatScanTask(options),
-    'stock.hkipo.fetch_official_docs': createOfficialDocsTask(),
+    'stock.hkipo.fetch_official_docs': createOfficialDocsTask(options),
     'stock.hkipo.run_backtest': createBacktestTask(options),
   };
 }

@@ -1,7 +1,7 @@
 {
   "id": "hkipo",
   "name": "港股 IPO 打新工作流",
-  "description": "基于 Futu IPO 池、二级热度采集、官方文件定位、发行结构与回测校准生成港股 IPO 短报告。",
+  "description": "基于 Futu IPO 池、二级热度采集、官方文件解析、发行结构与回测校准生成港股 IPO 短报告。",
   "roles": [
     "hkipo-pool-normalizer",
     "hkipo-core-data-researcher",
@@ -51,14 +51,14 @@
       "type": "local_task",
       "taskId": "stock.hkipo.fetch_official_docs",
       "outputArtifact": "official_docs",
-      "prompt": "定位 HKEX / 公司公告 / 招股书 / 配发结果等官方文件元数据。"
+      "prompt": "定位、下载并解析 HKEX / 公司公告 / 招股书 / 配发结果 / 定价公告 / 稳定价格公告等官方文件；只输出文件元数据、hash、短 snippet、structure_evidence、valuation_evidence 和 source_errors，不把正文全文写入 artifact。"
     },
     {
       "id": "structure_fundamental_analyst",
       "type": "role_task",
       "roleId": "hkipo-structure-fundamental-analyst",
       "outputArtifact": "structure_fundamental",
-      "prompt": "基于 heat_evidence 中的 structure_evidence 与 valuation_evidence 分析绿鞋、基石、保荐、回拨、公司核心能力、行业现状、同类股票 PE/PS/PB、发行估值合理性与合理区间。"
+      "prompt": "基于 official_docs 与 heat_evidence 中的 structure_evidence / valuation_evidence 分析绿鞋、基石、保荐、回拨、公司核心能力、行业现状、同类股票 PE/PS/PB、发行估值合理性与合理区间；官方文件证据优先于普通网页证据。"
     },
     {
       "id": "backtest_calibrator",

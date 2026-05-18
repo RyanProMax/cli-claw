@@ -18,17 +18,18 @@
 
 ### P1 RM-2026-05-18-03 HKIPO Official Document Parser
 
-- Status: `proposed`
+- Status: `monitoring`
 - Source: 2026-05-18 `/hkipo` 核心结构与估值证据增强 E2E
-- Summary: `/hkipo` 已有核心数据 researcher、公开网页 scanner、`structure_evidence` / `valuation_evidence` 和最终报告结构，但真实 E2E 仍显示多数绿鞋、基石、回拨、公众货、发行后市值和合理估值区间因 HKEX 正文/招股书未落地而降级。下一步应把 HKEX locator 升级为官方公告/招股书正文下载与解析，优先补齐一手结构字段。
+- Summary: `/hkipo` 官方文件解析 v1 已上线：`stock.hkipo.fetch_official_docs` 会调用 stock-analysis-api `scripts/hkipo_official_docs.py`，从 HKEX title search 与 HKEX “新上市资料”表格定位招股章程/新上市公告等文件，下载到统一 cache namespace 后解析正文并输出结构化 evidence。2026-05-18 真实 E2E run `wfrun_d65e3363-2dde-4398-af6e-d8dd80b7b8f0` 中 4 只当前 IPO 共解析 8 个官方文件，workflow 9 节点全成功。
 - Durable contract:
   - `/hkipo` workflow 与报告字段见 `docs/COMMAND.md`。
   - workflow local task artifact 边界见 `docs/RUNTIME.md`。
-  - stock-analysis-api scanner schema 见 `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`。
+  - stock-analysis-api heat scanner schema 见 `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`。
+  - stock-analysis-api official docs parser schema 见 `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-official-docs-cli.md`。
 - Next action:
-  - 新增只读 HKEX document resolver：从 stock code + 日期定位招股章程、定价公告、配发结果、稳定价格公告。
-  - 解析 PDF/HTML 正文字段：绿鞋/超额配股权、稳定价格操作人、基石投资者名单与占比、保荐人、回拨机制、公开发售比例、发行后市值、所得款用途。
-  - 为官方正文解析增加 fixture tests；真实网页/PDF 变化时输出 source-level error 并降级。
+  - 监控真实 `/hkipo` 输出中绿鞋、基石、回拨、公开发售比例、保荐与估值区间字段覆盖率；针对缺口补 source-specific parser。
+  - 优化官方 PDF 解析耗时和 artifact 摘要预算；当前 cold cache 下官方 docs local task 使用 300s 有界预算。
+  - 真实网页/PDF 结构变化时继续输出 source-level error 并降级，禁止最终报告编造字段。
 
 ### P2 RM-2026-05-18-02 HKIPO Name Alias Source Automation
 

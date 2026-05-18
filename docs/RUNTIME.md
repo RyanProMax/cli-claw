@@ -193,6 +193,8 @@ Workflow role card 的 `allowedTools` 是运行时硬边界：backend 会把 rol
 
 Workflow graph 支持 `local_task` 节点，但它不是 shell passthrough。workflow JSON 只能声明已注册的 `taskId`；当前内置只读 task 包括 `stock.hkipo.fetch_pool`、`stock.hkipo.scan_heat`、`stock.hkipo.fetch_official_docs` 和 `stock.hkipo.run_backtest`。local task 输出会作为 structured artifacts 写入 LangGraph state，并随 step output 审计；设置了 `outputArtifact` 的 role node 也会把角色产物写入 artifact，后续节点通过 `[Structured Artifacts]` 读取结构化数据或上游角色结论。`stock.hkipo.fetch_pool` 是 workflow 的硬前置，Futu/OpenD 不可用时应失败；`stock.hkipo.scan_heat` 是补充证据节点，公开网页采集脚本失败或超时时返回 `status=degraded` 的 artifact，后续角色继续核验并在最终报告中明确“热度未达当日核验门槛”。该 artifact 不只包含 `evidence` 热度证据，还包含 `structure_evidence`（绿鞋、基石、保荐、回拨/公开发售比例等）、`valuation_evidence`（核心业务/能力、行业、同类 PE/PS/PB、发行市值、合理区间等）以及 source-level errors；不要把招股书或网页全文写入 workflow state。
 
+`stock.hkipo.fetch_official_docs` 会调用 stock-analysis-api 内部只读 CLI `scripts/hkipo_official_docs.py`，先尝试 HKEX 标题检索，再回退解析 HKEX “新上市资料” Main Board / GEM 表格，把招股章程、配发结果、定价公告、稳定价格公告等文件下载到共享 cache namespace `hkipo-official-docs`，解析正文后只输出文件元数据、hash、短 snippet、结构化 `structure_evidence` / `valuation_evidence` 和 `source_errors`。IPO pool JSON 等一次性输入使用 `withCacheTempDir`，任务结束或失败时立即清理；可重建官方文件缓存由统一 cache cleanup loop 按 TTL / 容量清理。
+
 应用包根目录从已安装模块位置解析；launch cwd 只参与 workspace 默认执行目录的物化，不参与后端 build、web build 或 shared 资源定位。
 
 ## 运行时变更约束
