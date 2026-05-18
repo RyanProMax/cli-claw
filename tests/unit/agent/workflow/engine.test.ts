@@ -137,6 +137,7 @@ describe('workflow graph engine', () => {
       chatJid: 'web:workspace-a',
       agentId: context.runtime_agent_id,
       agentName: '投研分析师',
+      singleTurn: true,
       allowedTools: ['send_message', 'list_tasks'],
       workflow: {
         id: 'investment-research',

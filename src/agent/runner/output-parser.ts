@@ -604,21 +604,37 @@ export function handleSuccessClose(
 function parseLegacyOutput(ctx: CloseHandlerContext): void {
   const { stdout } = ctx.stdoutState;
   try {
-    const startIdx = stdout.indexOf(OUTPUT_START_MARKER);
-    const endIdx = stdout.indexOf(OUTPUT_END_MARKER);
-
-    let jsonLine: string;
-    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-      jsonLine = stdout
+    const parsedOutputs: AgentProcessOutput[] = [];
+    let searchFrom = 0;
+    while (true) {
+      const startIdx = stdout.indexOf(OUTPUT_START_MARKER, searchFrom);
+      if (startIdx === -1) break;
+      const endIdx = stdout.indexOf(OUTPUT_END_MARKER, startIdx);
+      if (endIdx === -1) break;
+      const jsonLine = stdout
         .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
         .trim();
-    } else {
-      // Fallback: last non-empty line (backwards compatibility)
-      const lines = stdout.trim().split('\n');
-      jsonLine = lines[lines.length - 1];
+      parsedOutputs.push(JSON.parse(jsonLine) as AgentProcessOutput);
+      searchFrom = endIdx + OUTPUT_END_MARKER.length;
     }
 
-    const output: AgentProcessOutput = JSON.parse(jsonLine);
+    let output: AgentProcessOutput | undefined;
+    for (const parsed of parsedOutputs) {
+      if (parsed.status === 'error') {
+        output = parsed;
+      } else if (parsed.status === 'success' && parsed.result !== null) {
+        output = parsed;
+      } else if (!output && parsed.status !== 'stream') {
+        output = parsed;
+      }
+    }
+    output ??= parsedOutputs.at(-1);
+
+    if (!output) {
+      // Fallback: last non-empty line (backwards compatibility)
+      const lines = stdout.trim().split('\n');
+      output = JSON.parse(lines[lines.length - 1]) as AgentProcessOutput;
+    }
 
     logger.info(
       {

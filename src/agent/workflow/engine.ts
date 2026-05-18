@@ -216,6 +216,7 @@ export function buildWorkflowAgentInput(input: {
     agentType: 'openai',
     agentId: input.context.runtime_agent_id,
     agentName: input.role.name,
+    singleTurn: true,
     workflow: {
       id: input.workflow.id,
       name: input.workflow.name,

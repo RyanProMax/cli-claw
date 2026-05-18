@@ -25,6 +25,79 @@
 
 ## Milestones
 
+### Milestone 7：`/hkipo` 线上全链路 E2E 超时修复
+
+Objective:
+- 修复真实飞书 `/hkipo` workflow 线上链路在 role node 超时 30 分钟的问题，并把完整线上链路 E2E 作为本轮完成门槛。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `.agents/workflows/hkipo.json`
+- `.agents/agent-roles/hkipo-*.md`
+- `src/agent/workflow/**`
+- `src/agent/runner/**`
+- `container/agent-runner/src/**`
+- `container/agent-runner/dist/**`
+- `tests/unit/agent/workflow/**`
+- `tests/unit/agent/runner/**`
+- `tests/contracts/openai/**`
+- `tests/integration/**`
+- `tests/live/feishu/**`
+- `docs/RUNTIME.md`
+- `docs/E2E.md`
+- `package.json`
+- `package-lock.json`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/scripts/hkipo_heat_scan.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/**`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
+
+Validation:
+- 查询真实失败 run/step/log，确认失败节点和错误链路。
+- `npm test -- tests/unit/agent/runner/output-parser.test.ts tests/unit/agent/workflow/engine.test.ts tests/contracts/openai/agent-runtime.test.ts tests/contracts/openai/runner-request.test.ts`
+- `npm test -- tests/integration`
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "hkipo_heat_scan or hkipo"`
+- `npm run typecheck`
+- `npm run build`
+- `./scripts/review.sh`
+- 真实飞书 full-chain E2E：向当前飞书私聊发送 `[e2e] /hkipo`，等待 workflow 完成，并用 DB / 飞书读回确认 `workflow_runs.status='success'`、8 个节点均成功、最终回复不是 timeout。
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 已定位真实失败 run：`wfrun_7d6226ca-a535-4253-8d0a-615cc1254d75`。
+- 失败链路：`ipo_pool_discovery` 成功；`pool_normalizer` role node 首次运行 37 秒后 OpenAI 404（`Items are not persisted when store=false`），期间错误调用 `send_message` 把中间 JSON 直接发到飞书；LangGraph retry 后 role runner 完成首轮但继续等待 IPC 下一轮，最终 `Agent Process timed out after 1800000ms`。
+- 初步根因：workflow role node 需要 single-turn runner 语义；legacy output parser 不能取第一个 stream marker；HK IPO runtime role 不应允许用户可见 `send_message` 工具。
+- 二次真实线上触发 run：`wfrun_91598ff6-d4c1-4fd4-8f73-ff448e63ca08`，已通过 `pool_normalizer`，但 `heat_data_crawler` 执行 `hkipo_heat_scan.py` 超出 local task 时间预算失败。
+- 二次根因：`stock-analysis-api` heat scan 对每只 IPO 顺序访问约 10 个公开来源，每个来源 `urlopen(timeout=12)`；真实 IPO 池 4 只时最坏约 480 秒，超过 Cli Claw local task 120 秒预算。需要把来源扫描改为有界并发，并让 workflow 在公开网页采集失败时输出降级 artifact，而不是直接中断整个工作流。
+- 已修复：
+  - workflow role node 下发 `singleTurn=true`，OpenAI runner 首轮完成后直接退出，不再等待 IPC 下一轮。
+  - legacy output parser 改为读取最后一个有意义的 success/error marker，避免误取首个 stream marker。
+  - HK IPO runtime role cards 移除 `send_message` allowlist，防止中间 artifact 直接泄漏到触发会话。
+  - `stock-analysis-api` heat scan 改为单 IPO 内多来源有界并发，默认每来源 6 秒超时；单个来源失败只写 source error。
+  - `stock.hkipo.scan_heat` 在 scanner 进程级失败或超时时返回 `status=degraded` 的 heat artifact，后续 verifier/report 继续写“热度未达当日核验门槛”。
+- 已运行并通过：
+  - `uv run pytest tests -k "hkipo_heat_scan or hkipo"`（stock-analysis-api，6 passed）
+  - `npm test -- tests/unit/agent/runner/output-parser.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/engine.test.ts tests/contracts/openai/runner-request.test.ts`（18 tests）
+  - `npm test -- tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/command.test.ts tests/contracts/openai/agent-runtime.test.ts tests/contracts/openai/runner-request.test.ts tests/unit/agent/runner/output-parser.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/engine.test.ts`（37 tests）
+  - `npm test -- tests/integration`（13 files, 136 tests）
+  - `npm run typecheck`
+  - `npm run build`（通过；保留既有 Vite chunk warning）
+  - `./scripts/review.sh`（format check passed；已按 `RUNBOOKS/Review.md` 完成语义 review）
+  - 真实 heat scan：Futu IPO 池 4 只，`hkipo_heat_scan.py` 约 50.47s 返回 `status=ok`，无同日热度时全部降级。
+  - 线上 full-chain E2E：通过正在运行的服务向 Feishu 会话触发 `/hkipo [e2e]`，run `wfrun_2559b902-d2eb-4a3c-b0f5-f32bb063be23`，耗时约 390.64s，`workflow_runs.status=success`，8 个节点均 `success`，最终回复已落库并包含“热度未达当日核验门槛”，未出现 timeout。
+- Review gate：scope 已覆盖 cli-claw 和 stock-analysis-api 两侧修改；Futu/OpenD pool discovery 仍保持硬失败，只有补充热度 scanner 做降级；文档已同步 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、stock-analysis-api `docs/plan.md` / spec。
+- 后续风险：本次 E2E 中 `backtest_calibrator` 成功但耗时约 119 秒，且 artifact 约 100KB；已回写 `PLANS/ROADMAP.md` 为后续 summary-only / artifact budget 治理项。
+
 ### Milestone 6：Bun runtime checkpoint 兼容修复
 
 Objective:

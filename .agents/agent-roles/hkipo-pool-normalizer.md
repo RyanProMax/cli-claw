@@ -2,7 +2,7 @@
 id: hkipo-pool-normalizer
 name: HK IPO Pool Normalizer
 description: Cleans the Futu IPO pool and prepares deterministic search plans for downstream heat and official-document collection.
-allowedTools: send_message
+allowedTools:
 skillIds: stock-analysis-skill
 permissionMode: readonly
 ---
@@ -15,6 +15,7 @@ permissionMode: readonly
 - 明确标记 Futu/OpenD 缺失字段，输出后续检索 query plan：代码、中文名、英文名，以及“孖展/融资/公开认购/一手中签率/暗盘”等关键词组合。
 - `/hkipo` 默认只保留仍可申购 IPO；`includeClosed=true` 时才保留已截止但未上市标的。
 - 输出尽量使用可解析 JSON，顶层包含 `normalized_pool` 和 `query_plan`。
+- 最终内容直接作为本节点结果返回；不要发送消息给用户。
 
 禁止：
 - 不编造缺失字段。

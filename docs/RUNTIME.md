@@ -174,9 +174,9 @@ Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自�
 
 LangGraph checkpoint 使用独立 SQLite 文件 `~/.cli-claw/db/workflow-checkpoints.sqlite`，以内部 `thread_id` 作为恢复维度；workflow run/step 审计仍写入主 `messages.db` 的 `workflow_runs` / `workflow_run_steps` 表。checkpoint SQLite 通过仓库内 `sqlite-compat` 兼容层访问：Bun 服务使用 `bun:sqlite`，Node.js 工具路径使用 `better-sqlite3`；不要在 workflow runtime 路径直接引入依赖 `better-sqlite3` 的第三方 SQLite saver。
 
-Workflow role card 的 `allowedTools` 是运行时硬边界：backend 会把 role metadata 显式传入 OpenAI runner，runner tool factory 以 `role.allowedTools` 优先过滤实际可用工具。它不是只写进 prompt 的软提示。
+Workflow role card 的 `allowedTools` 是运行时硬边界：backend 会把 role metadata 显式传入 OpenAI runner，runner tool factory 以 `role.allowedTools` 优先过滤实际可用工具。它不是只写进 prompt 的软提示。workflow role node 以 single-turn 模式运行：角色输出由 workflow engine 捕获为节点结果，不继续等待 IPC 下一轮；除非某个 workflow 明确需要中途发用户消息，否则 role card 不应开放 `send_message`，避免中间 artifact 直接泄漏到触发会话。
 
-Workflow graph 支持 `local_task` 节点，但它不是 shell passthrough。workflow JSON 只能声明已注册的 `taskId`；当前内置只读 task 包括 `stock.hkipo.fetch_pool`、`stock.hkipo.scan_heat`、`stock.hkipo.fetch_official_docs` 和 `stock.hkipo.run_backtest`。local task 输出会作为 structured artifacts 写入 LangGraph state，并随 step output 审计；设置了 `outputArtifact` 的 role node 也会把角色产物写入 artifact，后续节点通过 `[Structured Artifacts]` 读取结构化数据或上游角色结论。
+Workflow graph 支持 `local_task` 节点，但它不是 shell passthrough。workflow JSON 只能声明已注册的 `taskId`；当前内置只读 task 包括 `stock.hkipo.fetch_pool`、`stock.hkipo.scan_heat`、`stock.hkipo.fetch_official_docs` 和 `stock.hkipo.run_backtest`。local task 输出会作为 structured artifacts 写入 LangGraph state，并随 step output 审计；设置了 `outputArtifact` 的 role node 也会把角色产物写入 artifact，后续节点通过 `[Structured Artifacts]` 读取结构化数据或上游角色结论。`stock.hkipo.fetch_pool` 是 workflow 的硬前置，Futu/OpenD 不可用时应失败；`stock.hkipo.scan_heat` 是补充证据节点，公开网页采集脚本失败或超时时返回 `status=degraded` 的 heat artifact，后续角色继续核验并在最终报告中明确“热度未达当日核验门槛”。
 
 应用包根目录从已安装模块位置解析；launch cwd 只参与 workspace 默认执行目录的物化，不参与后端 build、web build 或 shared 资源定位。
 

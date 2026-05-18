@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+  OUTPUT_END_MARKER,
+  OUTPUT_START_MARKER,
   createStderrState,
   createStdoutParserState,
   formatUserFacingRuntimeError,
+  handleSuccessClose,
   handleNonZeroExit,
 } from '../../../../src/agent/runner/output-parser.ts';
 
@@ -96,6 +99,56 @@ describe('formatUserFacingRuntimeError', () => {
       result: 'OpenAI CLI 用量已用尽。请稍后重试。',
       alreadyStreamedError: true,
       finalizationReason: 'error',
+    });
+  });
+
+  test('legacy parsing resolves the final non-stream marker instead of the first stream marker', () => {
+    const stdoutState = createStdoutParserState();
+    stdoutState.stdout = [
+      OUTPUT_START_MARKER,
+      JSON.stringify({
+        status: 'stream',
+        result: null,
+        streamEvent: { eventType: 'thinking_delta', text: '[]' },
+      }),
+      OUTPUT_END_MARKER,
+      OUTPUT_START_MARKER,
+      JSON.stringify({
+        status: 'success',
+        result: 'workflow node final result',
+        finalizationReason: 'completed',
+      }),
+      OUTPUT_END_MARKER,
+    ].join('\n');
+    let resolved: any = null;
+
+    handleSuccessClose(
+      {
+        groupName: 'main',
+        label: 'Agent Process',
+        filePrefix: 'agent',
+        identifier: '123',
+        logsDir: '/tmp',
+        input: {
+          prompt: 'hello',
+          isHome: true,
+          isAdminHome: true,
+        },
+        stdoutState,
+        stderrState: createStderrState(),
+        resolvePromise: (output) => {
+          resolved = output;
+        },
+        startTime: Date.now(),
+        timeoutMs: 30_000,
+      },
+      50,
+    );
+
+    expect(resolved).toMatchObject({
+      status: 'success',
+      result: 'workflow node final result',
+      finalizationReason: 'completed',
     });
   });
 });

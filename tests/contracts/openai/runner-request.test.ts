@@ -512,6 +512,84 @@ describe('P0 OpenAI runner request contract', () => {
     );
   });
 
+  test('single-turn workflow role runs stop after the first model response', async () => {
+    const finalText = 'WORKFLOW_SINGLE_TURN_OK';
+    await withCaptureServer(
+      async ({ baseUrl, captured }) => {
+        const tempRoot = makeTempDir('cli-claw-workflow-single-turn-');
+        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        vi.stubEnv(
+          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          path.join(tempRoot, 'sessions'),
+        );
+        vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
+        vi.stubEnv('no_proxy', '127.0.0.1,localhost');
+
+        const { runOpenAiAgentLoop } =
+          await import('../../../container/agent-runner/src/openai-agent-runtime.ts');
+        const { outputs, deps } = buildRunnerDeps(tempRoot);
+        const waitForIpcMessage = vi.fn(async () => ({
+          text: 'this message must not be consumed',
+        }));
+
+        await runOpenAiAgentLoop(
+          {
+            prompt: 'workflow prompt',
+            groupFolder: 'workspace-a',
+            chatJid: 'web:workspace-a',
+            agentType: 'openai',
+            model: 'gpt-5.5',
+            reasoningEffort: 'medium',
+            speedTier: 'standard',
+            singleTurn: true,
+            workflow: {
+              id: 'hkipo',
+              name: '港股 IPO 打新工作流',
+              contextId: 'wfctx_1',
+              runId: 'wfrun_1',
+              threadId: 'wfctx_1',
+              nodeId: 'pool_normalizer',
+              nodeType: 'role_task',
+            },
+            role: {
+              id: 'hkipo-pool-normalizer',
+              name: 'HK IPO Pool Normalizer',
+              description: 'Normalize IPO pool',
+              instructions: 'Return JSON only.',
+              skillIds: ['stock-analysis-skill'],
+              permissionMode: 'readonly',
+              allowedTools: [],
+            },
+          },
+          {
+            ...deps,
+            waitForIpcMessage,
+          },
+        );
+
+        expect(captured).toHaveLength(1);
+        expect(waitForIpcMessage).not.toHaveBeenCalled();
+        expect(outputs).toContainEqual(
+          expect.objectContaining({
+            status: 'success',
+            result: finalText,
+            finalizationReason: 'completed',
+          }),
+        );
+        expect(
+          outputs.filter(
+            (output) =>
+              (output as { status?: string; result?: unknown }).status ===
+                'success' &&
+              (output as { result?: unknown }).result === null,
+          ),
+        ).toEqual([]);
+      },
+      (_req, res) => writeSuccessfulResponsesStream(res, finalText),
+    );
+  });
+
   test('stops after one Codex stream when terminal response output is empty', async () => {
     const finalText = 'CODEX_STREAM_DONE_OK';
     await withCaptureServer(

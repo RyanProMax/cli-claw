@@ -27,6 +27,8 @@ export interface AgentProcessInput {
   /** Whether this is the admin's home workspace (full privileges). */
   isAdminHome?: boolean;
   isScheduledTask?: boolean;
+  /** Run one model turn and exit instead of waiting for follow-up IPC input. */
+  singleTurn?: boolean;
   images?: Array<{ data: string; mimeType?: string }>;
   agentId?: string;
   agentName?: string;

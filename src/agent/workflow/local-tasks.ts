@@ -219,6 +219,50 @@ function getName(item: unknown): string {
   return isObject(item) && typeof item.name === 'string' ? item.name : '';
 }
 
+function buildDegradedHeatScanArtifact(
+  ipos: unknown[],
+  reportDate: string,
+  reason: string,
+): Record<string, unknown> {
+  return {
+    status: 'degraded',
+    source: 'hkipo_heat_scan',
+    report_date: reportDate,
+    generatedAt: new Date().toISOString(),
+    reason,
+    errors: [
+      {
+        source: 'hkipo_heat_scan',
+        source_family: 'workflow_local_task',
+        error: reason,
+      },
+    ],
+    summary: {
+      ipo_count: ipos.length,
+      same_day_heat_count: 0,
+      degraded_count: ipos.length,
+    },
+    data: ipos.map((item) => ({
+      code: getCode(item),
+      name: getName(item),
+      stage: isObject(item) ? item.stage : undefined,
+      heat_status: 'heat_threshold_not_met',
+      evidence_quality: 'low',
+      subscription_heat: {
+        status: '热度未达当日核验门槛',
+      },
+      evidence: [],
+      source_errors: [
+        {
+          source: 'hkipo_heat_scan',
+          source_family: 'workflow_local_task',
+          error: reason,
+        },
+      ],
+    })),
+  };
+}
+
 function createFetchPoolTask(
   options: DefaultWorkflowLocalTaskOptions,
 ): WorkflowLocalTask {
@@ -271,7 +315,12 @@ function createHeatScanTask(
         '--json',
       ];
       if (input.input.includeClosed === true) args.push('--include-closed');
-      return await runStockApiJson(args, input, options);
+      try {
+        return await runStockApiJson(args, input, options);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return buildDegradedHeatScanArtifact(ipos, reportDate, message);
+      }
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

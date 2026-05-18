@@ -16,6 +16,18 @@
 
 ## Live Items
 
+### P2 RM-2026-05-18-01 HKIPO Backtest Artifact Budget
+
+- Status: `proposed`
+- Source: 2026-05-18 `/hkipo` full-chain E2E
+- Summary: `/hkipo` workflow 已能完整成功，但 `backtest_calibrator` 在线上 E2E 中耗时约 119 秒，并产生约 100KB step artifact。当前不会打断 workflow，但它会显著拉长用户等待时间，也会增加 role node 读取 structured artifacts 的 token 和解析负担。
+- Durable contract:
+  - Workflow local task 与 structured artifact 边界见 `docs/RUNTIME.md`。
+  - `/hkipo` 用户入口与 8 节点 crew 见 `docs/COMMAND.md`。
+- Next action:
+  - 为 `stock.hkipo.run_backtest` 增加 summary-only 输出或 artifact 裁剪，只保留评分分桶、样本数量、首日胜率/中位数等报告必要字段。
+  - 把 backtest local task 的预算和降级条件显式测试化，避免未来再次接近 workflow 长等待。
+
 ### P2 RM-2026-05-17-01 Workflow Console And Retry Audit
 
 - Status: `proposed`

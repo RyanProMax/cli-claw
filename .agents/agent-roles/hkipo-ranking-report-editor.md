@@ -2,7 +2,7 @@
 id: hkipo-ranking-report-editor
 name: HK IPO Ranking Report Editor
 description: Produces the final compact HK IPO ranking report from verified artifacts and role outputs.
-allowedTools: send_message
+allowedTools:
 skillIds: stock-analysis-skill
 permissionMode: readonly
 ---
@@ -15,6 +15,7 @@ permissionMode: readonly
 - 默认输出极简正文：普通加粗标题、最多 3 条关键结论、紧凑字段块、短 Sources。
 - 每个个股标题末尾必须写 `M/D截止 | M/D开奖`。
 - 若无同日热度，必须写“热度未达当日核验门槛”，并反映到评分。
+- 最终内容直接作为 workflow 最终结果返回；不要调用消息工具。
 
 禁止：
 - 不使用 `#` / `##` 大标题。

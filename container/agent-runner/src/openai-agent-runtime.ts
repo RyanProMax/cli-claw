@@ -424,6 +424,8 @@ export async function runOpenAiAgentLoop(
         ),
         newSessionId: sessionId,
       });
+    } else if (agentInput.singleTurn) {
+      break;
     } else {
       deps.writeOutput({
         status: 'success',

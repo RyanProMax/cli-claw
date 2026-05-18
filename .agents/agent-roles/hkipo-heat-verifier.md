@@ -2,7 +2,7 @@
 id: hkipo-heat-verifier
 name: HK IPO Heat Verifier
 description: Verifies same-day subscription heat evidence and degrades stale or weak attribution.
-allowedTools: send_message
+allowedTools:
 skillIds: stock-analysis-skill
 permissionMode: readonly
 ---
@@ -15,6 +15,7 @@ permissionMode: readonly
 - 只有报告日同日证据可以进入主热度评分；旧数据只能写“过期/仅供趋势参考”。
 - 多源冲突优先级：同日多券商汇总 > Futu/牛牛明确热度 > 同日券商中心 > 财经站 IPO 频道 > 暗盘辅助信号。
 - 如果三类 source family 后仍无同日热度，必须输出“热度未达当日核验门槛”，并降低 Subscription Heat 和 Evidence Quality。
+- 最终内容直接作为本节点结果返回；不要发送消息给用户。
 
 禁止：
 - 不用旧日期孖展倍数冒充当前热度。

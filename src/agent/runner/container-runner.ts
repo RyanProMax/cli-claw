@@ -77,6 +77,8 @@ export interface AgentProcessInput {
   isScheduledTask?: boolean;
   /** Isolated task run ID — determines IPC namespace (tasks-run/{taskRunId}/) */
   taskRunId?: string;
+  /** Run one model turn and exit instead of waiting for follow-up IPC input. */
+  singleTurn?: boolean;
   images?: Array<{ data: string; mimeType?: string }>;
   agentId?: string;
   agentName?: string;
