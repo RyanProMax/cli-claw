@@ -48,6 +48,21 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - admin 主工作区默认使用 `cli-claw start` 的启动目录作为 `customCwd`；其他工作区默认使用 `~/.cli-claw/groups/{folder}`，除非 admin 设置 `customCwd`。
 - `cli-claw start` 会先校验启动目录是否满足 workspace allowlist，再把该目录物化到缺失 `customCwd` 的 admin 主工作区。
 
+## 缓存目录与清理
+
+Cli Claw 的可重建下载物统一落在 `~/.cli-claw/cache/<namespace>`。这个目录只用于缓存、临时下载、可重新从来源拉取的网页/PDF/附件副本；不得把数据库、workflow checkpoint、runtime session、用户上传的唯一文件或不可重建状态放进 cache。
+
+缓存 namespace 只能使用字母、数字、`.`、`_`、`-`，不允许路径分隔符或 `..`。代码应通过 `src/core/cache.ts` 的 helper 解析目录，避免各模块自己拼路径。
+
+服务启动时会启动统一 cache cleanup loop，并立即清理一次；之后按 `CLI_CLAW_CACHE_CLEANUP_INTERVAL_MS` 定时清理。默认策略：
+
+- cache root：`~/.cli-claw/cache`，可用 `CLI_CLAW_CACHE_DIR` 覆盖。
+- TTL：7 天，可用 `CLI_CLAW_CACHE_TTL_MS` 覆盖。
+- 最大容量：2GB，可用 `CLI_CLAW_CACHE_MAX_BYTES` 覆盖。
+- 清理顺序：先删除超过 TTL 的文件，再按 mtime 从旧到新删除，直到总大小低于容量上限；最后移除空目录。
+
+为避免误删，cleanup root 本身也有安全约束：不能是文件系统根目录，路径中必须有一级目录名包含 `cache` / `Caches`。若需要自定义路径，使用类似 `/var/lib/cli-claw/cache`、`~/Library/Caches/cli-claw` 或 `/tmp/cli-claw-cache` 的目录名。workflow / local task 的审计 artifact 只能保存 URL、hash、source time、短 evidence snippet 和结构化字段；不能依赖 cache 文件永久存在，也不能把大文件正文塞进 workflow state。后续 HKEX PDF、网页快照等下载解析应优先使用该 cache 机制；不可复用的单次中间文件使用 `withCacheTempDir`，让任务结束或异常时立即清理临时目录。
+
 ## 工作区级模型配置优先级
 
 模型和推理参数按以下顺序生效：

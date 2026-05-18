@@ -27,6 +27,7 @@
 │   │   ├── app-root.ts              # 安装位置 / 包根路径 / 启动目录解析
 │   │   ├── auth.ts                  # Web 用户认证 helper
 │   │   ├── billing.ts               # 套餐、额度与账单 helper
+│   │   ├── cache.ts                 # `~/.cli-claw/cache` 通用缓存目录、TTL/容量清理与定时清理 loop
 │   │   ├── config.ts                # 全局路径、端口、运行环境配置
 │   │   ├── logger.ts                # pino logger
 │   │   ├── permissions.ts           # 权限模板与权限判断

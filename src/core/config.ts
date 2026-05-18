@@ -17,6 +17,9 @@ export const MOUNT_ALLOWLIST_PATH = path.resolve(
 export const DATA_DIR = path.join(os.homedir(), '.cli-claw');
 export const STORE_DIR = path.join(DATA_DIR, 'db');
 export const GROUPS_DIR = path.join(DATA_DIR, 'groups');
+export const CACHE_DIR = process.env.CLI_CLAW_CACHE_DIR
+  ? path.resolve(process.env.CLI_CLAW_CACHE_DIR)
+  : path.join(DATA_DIR, 'cache');
 export const MAIN_GROUP_FOLDER = 'main';
 
 // Timezone for scheduled tasks (cron expressions, etc.)

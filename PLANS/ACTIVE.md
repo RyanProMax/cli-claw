@@ -25,6 +25,55 @@
 
 ## Milestones
 
+### Milestone 11：通用缓存目录与统一清理机制
+
+Objective:
+- 为 Cli Claw 增加统一缓存根目录和清理机制，后续 HKEX PDF、网页快照、附件下载等临时/可重建文件都落到同一 cache root；服务启动和运行期间定时清理，避免长期磁盘增长。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `src/core/config.ts`
+- `src/core/cache.ts`
+- `src/index.ts`
+- `tests/unit/core/cache.test.ts`
+- `docs/RUNTIME.md`
+- `docs/MODULE.md`
+
+Validation:
+- TDD 红测：cache namespace 只能解析到 `~/.cli-claw/cache/<namespace>` 下，拒绝路径穿越。
+- TDD 红测：cleanup 会删除超过 TTL 的文件并清理空目录，保留新文件。
+- TDD 红测：cleanup 会按 mtime 删除最旧文件，直到总大小不超过 max bytes。
+- TDD 红测：定时清理 loop 启动时先跑一次，随后按 interval 调用，并可 stop。
+- `npm test -- tests/unit/core/cache.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 已新增 `src/core/cache.ts`：统一 cache namespace 解析、目录创建、临时目录、`withCacheTempDir` 自动清理、TTL/容量 cleanup 和定时 cleanup loop。
+- 服务启动时会立即运行 cache cleanup，并按 `CLI_CLAW_CACHE_CLEANUP_INTERVAL_MS` 定时清理；shutdown 时停止定时器。
+- 本轮只提供通用 cache 基础设施；HKEX 正文下载与 PDF 解析迁移到该 helper 另开 milestone。
+- 清理逻辑必须只在 cache root 内工作，不跟 `db`、`groups`、`ops`、runtime session 等持久化目录混用。
+- cache 文件默认视为可重建：artifact / DB 只应保存 URL、hash、source time 和短证据片段，不依赖 cache 文件永久存在。
+- 已运行并通过：
+  - `npm test -- tests/unit/core/cache.test.ts`（6 passed）
+  - `npm run typecheck`
+  - `npm run build`
+  - `./scripts/validate.sh`（70 files passed, 1 skipped；494 tests passed, 1 skipped；typecheck/build passed）
+  - `./scripts/review.sh`（diff hygiene / format check passed）
+  - 语义 review gate：scope、目标覆盖、清理边界、定时器生命周期、文档同步和测试覆盖均通过。
+
 ### Milestone 10：`/hkipo` 核心结构与估值证据增强
 
 Objective:
@@ -521,33 +570,25 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 10
+- Milestone 11
 
 Current status:
 - done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `.agents/workflows/hkipo.json`
-- `.agents/agent-roles/hkipo-core-data-researcher.md`
-- `.agents/agent-roles/hkipo-ranking-report-editor.md`
-- `.agents/agent-roles/hkipo-structure-fundamental-analyst.md`
-- `src/agent/workflow/local-tasks.ts`
-- `tests/unit/agent/workflow/config.test.ts`
-- `tests/unit/agent/workflow/local-tasks.test.ts`
-- `docs/ARCHITECTURE.md`
-- `docs/COMMAND.md`
+- `src/core/cache.ts`
+- `src/core/config.ts`
+- `src/index.ts`
+- `tests/unit/core/cache.test.ts`
 - `docs/RUNTIME.md`
-- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
-- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_heat_scan_cli.py`
-- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
-- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
+- `docs/MODULE.md`
 
 Last failure summary:
-- `/hkipo` 旧报告只输出热度降级和“官方文件无法核验”，缺少专门结构/估值数据采集节点，最终消息也没有逐票展示绿鞋、基石、孖展、同类估值和合理区间。
+- review 脚本曾抓到新增 `src/core/cache.ts` 未格式化；已用 Prettier 修复。实现前红测确认缺少 cache module，后续补测了 unsafe root、临时目录 prefix 和 `withCacheTempDir` 异常清理。
 
 Suspected cause:
-- 已处理：workflow 已扩为 9 节点，新增核心数据 researcher，`stock.hkipo.scan_heat`  now emits `structure_evidence` / `valuation_evidence` and source-level degradation.
+- 已处理：新增通用 cache helper、root 安全约束、启动时 cleanup loop 和 shutdown stop；临时下载解析场景可用 `withCacheTempDir` 保证任务成功或失败都清理中间目录。
 
 Next step:
-- 提交 cli-claw 与 stock-analysis-api 两个仓库的本轮变更；若要继续提升真实命中率，下一轮优先做 HKEX 招股书/公告正文下载与 PDF 解析。
+- 提交并安全重启 Cli Claw；后续把 HKEX 招股书/公告正文下载、网页快照和附件解析迁移到 `src/core/cache.ts`。

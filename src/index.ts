@@ -24,6 +24,7 @@ import {
   WEB_PORT,
   updateWeChatNoProxy,
 } from './core/config.js';
+import { startCacheCleanupLoop } from './core/cache.js';
 import { LAUNCH_CWD, resolveAppPath } from './core/app-root.js';
 import { interruptibleSleep } from './messaging/notifier.js';
 import {
@@ -9651,6 +9652,7 @@ export async function startCliClaw(
   // --- Channel reload helpers (hot-reload on config save) ---
 
   let feishuSyncInterval: ReturnType<typeof setInterval> | null = null;
+  const cacheCleanupLoop = startCacheCleanupLoop();
 
   // Graceful shutdown handlers
   let shutdownInProgress = false;
@@ -9677,6 +9679,7 @@ export async function startCliClaw(
       clearInterval(feishuSyncInterval);
       feishuSyncInterval = null;
     }
+    cacheCleanupLoop.stop();
 
     try {
       ipcWatcherManager?.closeAll();
