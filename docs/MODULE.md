@@ -13,7 +13,7 @@
 │   ├── self-restart-watchdog.ts    # 自重启 watchdog 子进程入口
 │   ├── agent/
 │   │   ├── queue/group-queue.ts     # 会话并发控制、重试、排队与后台任务优先级
-│   │   ├── workflow/                # LangGraph workflow/crew 配置、上下文、local task 与执行编排
+│   │   ├── workflow/                # LangGraph workflow/crew 配置、上下文、checkpoint、local task 与执行编排
 │   │   ├── runner/
 │   │   │   ├── container-runner.ts  # 本地 Agent 进程执行与生命周期（历史文件名）
 │   │   │   ├── output-parser.ts     # runner 输出解析、错误格式化与 run log
@@ -37,7 +37,7 @@
 │   │   └── workspace/               # workspace cwd、allowlist、文件管理安全边界
 │   ├── storage/
 │   │   ├── db.ts                    # SQLite 数据层 facade；后续再拆 repositories
-│   │   └── sqlite-compat.ts         # better-sqlite3 兼容加载
+│   │   └── sqlite-compat.ts         # Bun / Node.js SQLite 兼容加载
 │   ├── domain/
 │   │   └── types.ts                 # 后端共享 domain 类型
 │   ├── messaging/

@@ -5,7 +5,6 @@ import {
   START,
   StateGraph,
 } from '@langchain/langgraph';
-import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import type { ChildProcess } from 'child_process';
 import fs from 'fs';
@@ -32,6 +31,7 @@ import type {
   WorkflowRoleDefinition,
 } from './config.js';
 import { WORKFLOW_END } from './config.js';
+import { createWorkflowSqliteSaver } from './sqlite-checkpointer.js';
 
 export interface WorkflowNodeResult {
   nodeId: string;
@@ -126,7 +126,7 @@ export function createWorkflowCheckpointer(
     if (options.sqlitePath !== ':memory:') {
       fs.mkdirSync(path.dirname(options.sqlitePath), { recursive: true });
     }
-    return SqliteSaver.fromConnString(options.sqlitePath);
+    return createWorkflowSqliteSaver(options.sqlitePath);
   }
   return new MemorySaver();
 }

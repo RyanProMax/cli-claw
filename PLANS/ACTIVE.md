@@ -25,6 +25,49 @@
 
 ## Milestones
 
+### Milestone 6：Bun runtime checkpoint 兼容修复
+
+Objective:
+- 修复 `/hkipo` 在 Bun 服务运行时触发 LangGraph SQLite checkpoint 报 `'better-sqlite3' is not yet supported in Bun` 的回归。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `src/agent/workflow/**`
+- `src/storage/sqlite-compat.ts`
+- `tests/unit/agent/workflow/**`
+- `docs/RUNTIME.md`
+- `docs/MODULE.md`
+- `package.json`
+- `package-lock.json`
+
+Validation:
+- `bun -e "import('./src/agent/workflow/engine.ts').then(m => { m.getPersistentWorkflowCheckpointer(); console.log('ok') })"`
+- `npm test -- tests/unit/agent/workflow/engine.test.ts tests/unit/agent/workflow/checkpointer-runtime.test.ts`
+- `npm run build`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 用户真实触发 `/hkipo` 时暴露：LangGraph 官方 SQLite saver 静态依赖 `better-sqlite3`，而当前服务由 Bun 启动；此前验证覆盖了 Node/Vitest/build，没有覆盖 Bun runtime checkpoint 初始化。
+- 已修复：workflow checkpoint 改用仓库内 `WorkflowSqliteSaver`，底层走 `sqlite-compat`，Bun 路径使用 `bun:sqlite`，不再导入 `@langchain/langgraph-checkpoint-sqlite` / `better-sqlite3`。
+- 已移除 `@langchain/langgraph-checkpoint-sqlite` 依赖，并补充 Bun runtime 回归测试，避免 Node/Vitest 通过但 Bun 服务失败。
+- 已运行并通过：
+  - `bun -e 'const { getPersistentWorkflowCheckpointer } = await import("./src/agent/workflow/engine.ts"); getPersistentWorkflowCheckpointer(); console.log("ok")'`
+  - `env HOME="$(mktemp -d)" bun -e '<minimal checkpointed workflow graph>'`，输出 `{"echo":{"status":"ok"}}`
+  - `npm test -- tests/unit/agent/workflow/checkpointer-runtime.test.ts tests/unit/agent/workflow/engine.test.ts tests/unit/agent/workflow/command.test.ts`（3 files, 7 tests）
+  - `npm run typecheck`
+  - `npm run build`（通过；保留既有 Vite chunk size warning）
+  - `./scripts/review.sh`（diff hygiene / format check passed）
+- 语义 review gate：scope 已补充 `docs/MODULE.md`；目标覆盖原始 Bun checkpoint 报错；实现复用现有 `sqlite-compat` 和 LangGraph checkpoint contract；新增测试直接用 Bun 执行 checkpoint graph；文档同步 runtime 边界；未发现阻塞回归。
+
 ### Milestone 1：计划与现状审计
 
 Objective:
@@ -236,53 +279,26 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 5
+- Milestone 6
 
 Current status:
 - done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `.gitignore`
 - `package.json`
-- `src/agent/workflow/config.ts`
+- `package-lock.json`
 - `src/agent/workflow/engine.ts`
-- `src/agent/workflow/command.ts`
-- `src/agent/workflow/tools.ts`
-- `src/agent/workflow/local-tasks.ts`
-- `.agents/workflows/hkipo.json`
-- `.agents/agent-roles/hkipo-pool-normalizer.md`
-- `.agents/agent-roles/hkipo-heat-verifier.md`
-- `.agents/agent-roles/hkipo-structure-fundamental-analyst.md`
-- `.agents/agent-roles/hkipo-ranking-report-editor.md`
-- `src/skills/command-dispatch.ts`
-- `src/web/app.ts`
-- `src/web/context.ts`
-- `src/index.ts`
-- `tests/unit/agent/workflow/config.test.ts`
-- `tests/unit/agent/workflow/engine.test.ts`
-- `tests/unit/agent/workflow/command.test.ts`
-- `tests/unit/skills/command-dispatch.test.ts`
-- `tests/integration/web/slash-command.test.ts`
-- `/Users/ryan/projects/stock-analysis-skill/commands/hkipo.py`
-- `/Users/ryan/projects/stock-analysis-skill/tests/test_hkipo_command.py`
-- `/Users/ryan/projects/stock-analysis-api/scripts/hkipo_heat_scan.py`
-- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_cli.py`
-- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
-- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_heat_scan_cli.py`
-- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
-- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
-- `/Users/ryan/projects/stock-analysis-skill/AGENTS.md`
-- `/Users/ryan/projects/stock-analysis-skill/README.md`
-- `/Users/ryan/projects/stock-analysis-skill/SKILL.md`
-- `/Users/ryan/projects/stock-analysis-skill/PLANS/ACTIVE.md`
-- `/Users/ryan/projects/stock-analysis-skill/PLANS/ROADMAP.md`
+- `src/agent/workflow/sqlite-checkpointer.ts`
+- `docs/RUNTIME.md`
+- `docs/MODULE.md`
+- `tests/unit/agent/workflow/checkpointer-runtime.test.ts`
 
 Last failure summary:
-- 红测阶段确认缺少 workflow reply、`local_task` schema、artifact state、`initialInput` 传递和 API heat scan 模块；review 阶段确认网页抽取不能用报告日伪造 source time；均已修复并通过目标测试与全量 gate。
+- `/hkipo` 在 Bun 服务路径触发 workflow checkpoint 时失败：官方 SQLite saver 静态加载 `better-sqlite3`，Bun 当前不支持该 native package。已改为仓库内 Bun/Node 兼容 SQLite saver，并补充 Bun runtime 回归。
 
 Suspected cause:
 - none
 
 Next step:
-- 提交 cli-claw、stock-analysis-skill、stock-analysis-api 三个仓库的本轮改动。
+- 提交本次 cli-claw 回归修复，并按安全重启路径应用服务变更。
