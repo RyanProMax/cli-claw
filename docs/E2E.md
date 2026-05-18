@@ -5,7 +5,7 @@
 ## 分类
 
 - in-process E2E：仓库内模拟外部 provider / runner 的完整链路，例如 `tests/integration/messaging/feishu/e2e.test.ts`。这类测试不需要真实飞书凭据。
-- live smoke：真实调用外部平台 API，例如 `tests/live/feishu/message-smoke.test.ts`。这类测试会真的发送消息，必须显式启用。
+- live smoke：真实调用外部平台 API，例如 `tests/live/feishu/message-smoke.test.ts`。这类测试会真的发送消息，消息必须统一带 `[e2e]` 前缀。
 
 ## 飞书 Live Smoke
 
@@ -52,7 +52,7 @@ npm test -- tests/live/feishu/message-smoke.test.ts
 
 ## 安全边界
 
-- live smoke 会真实发送 `[cli-claw live smoke] ...` 消息。
+- live smoke 会真实发送 `[e2e] ...` 消息。用户已授权默认直接执行真实飞书 E2E；优先使用当前可发现的飞书私聊或测试会话，不再为发送 smoke 消息单独确认。
 - 用户明确说“当前会话测试”“没有群”时，可使用当前私聊会话，不要反复要求新凭据或测试群。
 - 若只有生产群聊会话，先确认是否允许发 smoke 消息；默认不要往生产群发测试消息。
 - 若找不到 chat id 或找不到可用 App 凭据，再向用户说明缺少哪一项。

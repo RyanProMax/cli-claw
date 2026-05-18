@@ -171,7 +171,7 @@ describe('live Feishu smoke', () => {
       const nonce = `cli-claw-live-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
-      const text = `[cli-claw live smoke] ${nonce}`;
+      const text = `[e2e] ${nonce}`;
       const startSec = Math.floor(Date.now() / 1000) - 30;
       const receiveIdType = resolveReceiveIdType(chatId);
 
