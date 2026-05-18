@@ -4,6 +4,7 @@
   "description": "基于 Futu IPO 池、二级热度采集、官方文件定位、发行结构与回测校准生成港股 IPO 短报告。",
   "roles": [
     "hkipo-pool-normalizer",
+    "hkipo-core-data-researcher",
     "hkipo-heat-verifier",
     "hkipo-structure-fundamental-analyst",
     "hkipo-ranking-report-editor"
@@ -25,11 +26,18 @@
       "prompt": "清洗 IPO 池，生成代码、中文名优先展示名、英文名、阶段和二级热度检索 query plan；若 Futu name 只有英文，必须保留为英文别名，不得当中文名。"
     },
     {
+      "id": "core_data_researcher",
+      "type": "role_task",
+      "roleId": "hkipo-core-data-researcher",
+      "outputArtifact": "core_data_query_plan",
+      "prompt": "为每只 IPO 制定多源核心数据采集计划：孖展/公开认购/一手中签率/暗盘、绿鞋/超额配股权、稳定价格操作人、基石投资者与占比、保荐人、回拨/公开发售比例、公司核心能力、行业现状、同类股票 PE/PS/PB 和合理估值区间。"
+    },
+    {
       "id": "heat_data_crawler",
       "type": "local_task",
       "taskId": "stock.hkipo.scan_heat",
       "outputArtifact": "heat_evidence",
-      "prompt": "按 query plan 抓取孖展/融资倍数、公开认购倍数、一手中签率、暗盘与来源更新时间。"
+      "prompt": "按 query plan 和 core_data_query_plan 多源抓取结构化证据：heat evidence、structure_evidence 和 valuation_evidence。拿不到时继续尝试多个公开只读来源，并返回 source_errors 和降级状态，不让 workflow 编造数据。"
     },
     {
       "id": "heat_data_verifier",
@@ -50,7 +58,7 @@
       "type": "role_task",
       "roleId": "hkipo-structure-fundamental-analyst",
       "outputArtifact": "structure_fundamental",
-      "prompt": "分析绿鞋、基石、保荐、回拨、基本面、估值与关键风险。"
+      "prompt": "基于 heat_evidence 中的 structure_evidence 与 valuation_evidence 分析绿鞋、基石、保荐、回拨、公司核心能力、行业现状、同类股票 PE/PS/PB、发行估值合理性与合理区间。"
     },
     {
       "id": "backtest_calibrator",
@@ -69,7 +77,8 @@
   ],
   "edges": [
     { "from": "ipo_pool_discovery", "to": "pool_normalizer" },
-    { "from": "pool_normalizer", "to": "heat_data_crawler" },
+    { "from": "pool_normalizer", "to": "core_data_researcher" },
+    { "from": "core_data_researcher", "to": "heat_data_crawler" },
     { "from": "heat_data_crawler", "to": "heat_data_verifier" },
     { "from": "heat_data_verifier", "to": "official_doc_crawler" },
     { "from": "official_doc_crawler", "to": "structure_fundamental_analyst" },

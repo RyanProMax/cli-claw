@@ -83,6 +83,10 @@ describe('default workflow local tasks', () => {
           subscription_heat: {
             status: '热度未达当日核验门槛',
           },
+          structure_status: 'core_structure_not_verified',
+          valuation_status: 'valuation_context_not_verified',
+          structure_evidence: [],
+          valuation_evidence: [],
         },
       ],
     });

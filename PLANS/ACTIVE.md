@@ -5,7 +5,7 @@
 ## 目标
 
 - 保留用户入口 `/hkipo [--all]`，但内部改为触发 `hkipo` workflow，而不是生成单 agent 长 prompt。
-- 将 `/hkipo` 编排为“确定性数据节点 + 专门采集/核验角色”的 8 节点工作流。
+- 将 `/hkipo` 编排为“确定性数据节点 + 专门采集/核验角色”的 9 节点工作流。
 - Futu/OpenD 只负责 IPO 池和基础字段；Futu 可用但热度字段缺失时，必须进入二级热度采集节点补齐孖展、公开认购、一手中签率、暗盘、来源时间和冲突来源。
 - 新增 workflow `local_task` 节点，只允许注册过的只读 taskId，不接受任意 shell。
 - 新增 `stock-analysis-api` 只读 CLI `scripts/hkipo_heat_scan.py`，为 workflow 提供结构化 heat evidence。
@@ -13,7 +13,7 @@
 
 ## 完成标准
 
-- `.agents/workflows/hkipo.json` 定义 8 节点工作流：`ipo_pool_discovery`、`pool_normalizer`、`heat_data_crawler`、`heat_data_verifier`、`official_doc_crawler`、`structure_fundamental_analyst`、`backtest_calibrator`、`ranking_report_editor`。
+- `.agents/workflows/hkipo.json` 定义 9 节点工作流：`ipo_pool_discovery`、`pool_normalizer`、`core_data_researcher`、`heat_data_crawler`、`heat_data_verifier`、`official_doc_crawler`、`structure_fundamental_analyst`、`backtest_calibrator`、`ranking_report_editor`。
 - `.agents/agent-roles/*.md` 中有职责清晰的 HK IPO runtime role cards，且 tool allowlist 仍由 runner 硬过滤。
 - `/hkipo` 和 `/hkipo --all` 进入 `hkipo` workflow；`--all` 传入 workflow state，默认只看仍可认购 IPO。
 - `local_task` 仅允许 `stock.hkipo.fetch_pool`、`stock.hkipo.scan_heat`、`stock.hkipo.fetch_official_docs`、`stock.hkipo.run_backtest` 等注册任务。
@@ -24,6 +24,70 @@
 - 本轮 validation 和 review gate 均通过；如有跨轮次事项，回写 `PLANS/ROADMAP.md`。
 
 ## Milestones
+
+### Milestone 10：`/hkipo` 核心结构与估值证据增强
+
+Objective:
+- 修复 `/hkipo` 当前只报告“官方文件无法核验”的弱体验：为绿鞋、基石、回拨/公众货、保荐人、孖展/公开认购等核心字段建立专门的数据采集与核验路径；分析角色必须基于公司核心能力、行业现状、同类股票 PE / PS / PB 等可比估值，给出估值合理性和合理区间。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `.agents/workflows/hkipo.json`
+- `.agents/agent-roles/hkipo-*.md`
+- `src/agent/workflow/local-tasks.ts`
+- `src/agent/workflow/tools.ts`
+- `tests/unit/agent/workflow/**`
+- `tests/contracts/openai/**`
+- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/scripts/hkipo_heat_scan.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/**`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
+
+Validation:
+- TDD 红测：heat scan artifact 必须包含 `structure_evidence` / `valuation_evidence`，覆盖绿鞋、基石、保荐、回拨/公众货、行业、同类股 PE/PS/PB 与估值区间；缺来源时间或 URL 时降级。
+- TDD 红测：workflow prompt / role card 必须要求专门结构数据采集节点多源补证据，并要求分析角色输出核心能力、行业现状、同类估值和合理区间。
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "hkipo_heat_scan or hkipo"`
+- `npm test -- tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/contracts/openai/runner-request.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `./scripts/review.sh`
+- 安全重启并做真实 `/hkipo [e2e]` full-chain E2E：确认最终飞书报告不再泛泛说“无法核验”，而是列出每只 IPO 的绿鞋/基石/孖展证据状态、估值口径和合理区间；拿不到时明确“多源未取到/降级原因”。
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 用户最新反馈：截图中仍大量显示“招股书正文、基石、绿鞋、回拨、估值口径无法核验”，这说明当前 `official_doc_crawler` 只定位入口，`structure_fundamental_analyst` 没有足够结构化证据；需要把数据节点扩展为确定性多源采集，而不是只依赖角色 prompt。
+- 本轮仍保持只读公开数据采集，不登录券商、不绕过付费/验证码/反爬；拿不到时必须标注 source-level error 和降级，不得编造。
+- 估值不输出买卖建议或本系统目标价；只输出发行估值口径、可比公司倍数区间、对应合理发行价/市值区间和偏高/合理/偏低的事实判断。
+- 已新增 `hkipo-core-data-researcher` 专门角色，并把 bundled `hkipo` workflow 扩为 9 节点：核心数据采集计划在 `heat_data_crawler` 前置，`stock.hkipo.scan_heat` 输出 `structure_evidence` / `valuation_evidence`，后续 verifier / analyst / editor 使用结构化 artifact。
+- `stock-analysis-api` 的 `hkipo_heat_scan` 现在会归一化绿鞋、基石、保荐、稳价人、公开发售/回拨、核心业务/能力、行业、同类 PE 和合理估值区间证据；无 URL / 来源时间 / confidence 时会降级，不纳入核心证据。
+- E2E 发现 Futu 页面碎片会产生不可识别 `0x/5x/57x PE` 噪音，已加回归测试并限制 `peer_pe` 仅在“同类/可比/同业”上下文提取。
+- 已运行并通过：
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests/test_hkipo_heat_scan_cli.py -q`（10 passed）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "hkipo_heat_scan or hkipo" -q`（10 passed, 231 deselected）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -q`（241 passed）
+  - `npm test -- tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/contracts/openai/runner-request.test.ts`（18 passed）
+  - `npm run typecheck`
+  - `npm run build`
+  - `npm --prefix web run build`
+  - `./scripts/validate.sh`（69 test files passed, 1 skipped；488 tests passed, 1 skipped；typecheck/build passed）
+  - `./scripts/review.sh`（diff hygiene / format check passed；语义 review 通过）
+  - `FEISHU_LIVE_E2E=1 ... npm test -- tests/live/feishu/message-smoke.test.ts`（1 passed）
+  - 安全重启后真实 `/hkipo [e2e]`：`wfrun_7076ebcf-6ae4-44d1-8610-cc17455dd655`，9/9 节点 success，最终飞书消息包含 `🛡 结构` / `📊 估值` / `🔎 池子校验`，并确认 PE 噪音检查为 `clean`。
+- 当前真实 IPO 池仍因公开源/官方正文不可取而大量降级，这是数据可得性结果，不再是编排缺失；后续若要进一步提升，需要增加 HKEX 正文/招股书 PDF 定位与解析能力。
 
 ### Milestone 9：Workflow 触发即时回执与异常终态通知
 
@@ -457,26 +521,33 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 6
+- Milestone 10
 
 Current status:
 - done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `package.json`
-- `package-lock.json`
-- `src/agent/workflow/engine.ts`
-- `src/agent/workflow/sqlite-checkpointer.ts`
+- `.agents/workflows/hkipo.json`
+- `.agents/agent-roles/hkipo-core-data-researcher.md`
+- `.agents/agent-roles/hkipo-ranking-report-editor.md`
+- `.agents/agent-roles/hkipo-structure-fundamental-analyst.md`
+- `src/agent/workflow/local-tasks.ts`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
 - `docs/RUNTIME.md`
-- `docs/MODULE.md`
-- `tests/unit/agent/workflow/checkpointer-runtime.test.ts`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_heat_scan_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
 
 Last failure summary:
-- `/hkipo` 在 Bun 服务路径触发 workflow checkpoint 时失败：官方 SQLite saver 静态加载 `better-sqlite3`，Bun 当前不支持该 native package。已改为仓库内 Bun/Node 兼容 SQLite saver，并补充 Bun runtime 回归。
+- `/hkipo` 旧报告只输出热度降级和“官方文件无法核验”，缺少专门结构/估值数据采集节点，最终消息也没有逐票展示绿鞋、基石、孖展、同类估值和合理区间。
 
 Suspected cause:
-- none
+- 已处理：workflow 已扩为 9 节点，新增核心数据 researcher，`stock.hkipo.scan_heat`  now emits `structure_evidence` / `valuation_evidence` and source-level degradation.
 
 Next step:
-- 提交本次 cli-claw 回归修复，并按安全重启路径应用服务变更。
+- 提交 cli-claw 与 stock-analysis-api 两个仓库的本轮变更；若要继续提升真实命中率，下一轮优先做 HKEX 招股书/公告正文下载与 PDF 解析。

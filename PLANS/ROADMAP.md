@@ -16,6 +16,20 @@
 
 ## Live Items
 
+### P1 RM-2026-05-18-03 HKIPO Official Document Parser
+
+- Status: `proposed`
+- Source: 2026-05-18 `/hkipo` 核心结构与估值证据增强 E2E
+- Summary: `/hkipo` 已有核心数据 researcher、公开网页 scanner、`structure_evidence` / `valuation_evidence` 和最终报告结构，但真实 E2E 仍显示多数绿鞋、基石、回拨、公众货、发行后市值和合理估值区间因 HKEX 正文/招股书未落地而降级。下一步应把 HKEX locator 升级为官方公告/招股书正文下载与解析，优先补齐一手结构字段。
+- Durable contract:
+  - `/hkipo` workflow 与报告字段见 `docs/COMMAND.md`。
+  - workflow local task artifact 边界见 `docs/RUNTIME.md`。
+  - stock-analysis-api scanner schema 见 `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`。
+- Next action:
+  - 新增只读 HKEX document resolver：从 stock code + 日期定位招股章程、定价公告、配发结果、稳定价格公告。
+  - 解析 PDF/HTML 正文字段：绿鞋/超额配股权、稳定价格操作人、基石投资者名单与占比、保荐人、回拨机制、公开发售比例、发行后市值、所得款用途。
+  - 为官方正文解析增加 fixture tests；真实网页/PDF 变化时输出 source-level error 并降级。
+
 ### P2 RM-2026-05-18-02 HKIPO Name Alias Source Automation
 
 - Status: `proposed`
@@ -35,7 +49,7 @@
 - Summary: `/hkipo` workflow 已能完整成功，但 `backtest_calibrator` 在线上 E2E 中耗时约 119 秒，并产生约 100KB step artifact。当前不会打断 workflow，但它会显著拉长用户等待时间，也会增加 role node 读取 structured artifacts 的 token 和解析负担。
 - Durable contract:
   - Workflow local task 与 structured artifact 边界见 `docs/RUNTIME.md`。
-  - `/hkipo` 用户入口与 8 节点 crew 见 `docs/COMMAND.md`。
+  - `/hkipo` 用户入口与 9 节点 crew 见 `docs/COMMAND.md`。
 - Next action:
   - 为 `stock.hkipo.run_backtest` 增加 summary-only 输出或 artifact 裁剪，只保留评分分桶、样本数量、首日胜率/中位数等报告必要字段。
   - 把 backtest local task 的预算和降级条件显式测试化，避免未来再次接近 workflow 长等待。

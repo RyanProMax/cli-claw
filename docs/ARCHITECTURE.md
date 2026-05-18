@@ -28,7 +28,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 8. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 9. 任务调度、技能安装和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
 
-`/hkipo` 是当前内置 workflow 示例：用户仍从 skill slash command 入口触发，但 skill executor 只返回 `workflowId=hkipo` 和结构化 input；主进程随后执行 Futu IPO 池发现、二级热度采集、证据核验、官方文件定位、发行结构分析、回测校准和最终报告节点。Futu/OpenD 不可用时 pool discovery 失败；Futu 可用但热度字段缺失时，二级热度采集节点继续按公开只读来源补齐并记录降级。热度采集脚本自身失败或超时时，只允许 `stock.hkipo.scan_heat` 返回降级 artifact，不能中断整个 workflow；后续 verifier / report 必须把该情况表述为“热度未达当日核验门槛”。
+`/hkipo` 是当前内置 workflow 示例：用户仍从 skill slash command 入口触发，但 skill executor 只返回 `workflowId=hkipo` 和结构化 input；主进程随后执行 Futu IPO 池发现、池标准化、核心数据采集计划、二级热度/发行结构/估值证据采集、证据核验、官方文件定位、发行结构与估值分析、回测校准和最终报告节点。Futu/OpenD 不可用时 pool discovery 失败；Futu 可用但热度、绿鞋、基石、回拨、保荐或估值字段缺失时，证据采集节点继续按公开只读来源补齐并记录降级。采集脚本自身失败或超时时，只允许 `stock.hkipo.scan_heat` 返回降级 artifact，不能中断整个 workflow；后续 verifier / report 必须把该情况表述为“热度未达当日核验门槛”或“多源未取到”，并说明缺失字段。
 
 ## IM 消息可靠性
 

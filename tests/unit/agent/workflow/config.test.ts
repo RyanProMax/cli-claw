@@ -432,4 +432,45 @@ describe('workflow config discovery', () => {
       })?.errors,
     ).toEqual(['workflow missing not found']);
   });
+
+  test('bundled hkipo workflow requires core structure and valuation evidence', () => {
+    const repoRoot = process.cwd();
+    const workflow = JSON.parse(
+      fs.readFileSync(
+        path.join(repoRoot, '.agents', 'workflows', 'hkipo.json'),
+        'utf-8',
+      ),
+    ) as { nodes: Array<{ id: string; prompt?: string }> };
+    const workflowPrompts = workflow.nodes
+      .map((node) => `${node.id}: ${node.prompt ?? ''}`)
+      .join('\n');
+    const structureRole = fs.readFileSync(
+      path.join(
+        repoRoot,
+        '.agents',
+        'agent-roles',
+        'hkipo-structure-fundamental-analyst.md',
+      ),
+      'utf-8',
+    );
+    const reportRole = fs.readFileSync(
+      path.join(
+        repoRoot,
+        '.agents',
+        'agent-roles',
+        'hkipo-ranking-report-editor.md',
+      ),
+      'utf-8',
+    );
+
+    expect(workflowPrompts).toContain('structure_evidence');
+    expect(workflowPrompts).toContain('valuation_evidence');
+    expect(workflowPrompts).toContain('多源');
+    expect(structureRole).toContain('公司核心能力');
+    expect(structureRole).toContain('同类股票');
+    expect(structureRole).toContain('合理区间');
+    expect(reportRole).toContain('绿鞋');
+    expect(reportRole).toContain('基石');
+    expect(reportRole).toContain('估值区间');
+  });
 });
