@@ -25,6 +25,74 @@
 
 ## Milestones
 
+### Milestone 13：HKIPO 核心因子可用性与评分护栏
+
+Objective:
+- 修复 `/hkipo` 最终报告在孖展/公开认购/绿鞋/基石/回拨/估值区间等核心因子缺失时仍输出看似可比较分数的问题；补入可公开访问的券商新股详情数据源（优先致富证券等），把当前可见的认购倍数、保荐、主营、发行市值、PE 等字段纳入结构化 evidence；评分卡必须在核心因子缺失时降为 0 / N/A，并在最终报告中明确“数据不足，不给有效热度分/估值分”。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `.agents/agent-roles/hkipo-heat-verifier.md`
+- `.agents/agent-roles/hkipo-ranking-report-editor.md`
+- `.agents/agent-roles/hkipo-structure-fundamental-analyst.md`
+- `.agents/workflows/hkipo.json`
+- `src/agent/workflow/command.ts`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `tests/unit/agent/workflow/command.test.ts`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_official_doc_service.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_heat_scan_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_official_doc_cli.py`
+
+Validation:
+- Root-cause：真实 run 证明原问题不是 IPO 池错误，而是核心因子 evidence 覆盖不足、最终报告会吞掉来源标签或输出内部短码；本轮补齐致富证券详情页解析、官方文件误报过滤、报告 prompt 约束和投递前 normalizer。
+- TDD 红测：heat scanner 能从券商新股详情页提取 `subscription_multiple`、`sponsor`、`core_business`、`offer_market_cap`、`pe_ratio`，并带 URL/source time/confidence/staleness。
+- TDD 红测：报告/评分规则在无同日孖展或公开认购 evidence 时热度分为 0 或 N/A，不允许出现“热5”；估值区间缺失时估值分为 0 或 N/A。
+- 真实源验证：当前 Futu pool 至少 00901、03310、06872 可从公开券商页解析到认购倍数；如 02723 暂无券商详情页，必须明确缺失而不是给热度分。
+- 真实飞书 full-chain E2E：发送 `[e2e] /hkipo`，最终消息不再出现“热5”这类无核心因子分数；有证据的标的展示认购倍数来源，无证据的标的热度分 N/A/0。
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests/test_hkipo_heat_scan_cli.py tests/test_hkipo_official_doc_cli.py -q`
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "hkipo_heat_scan or hkipo_official_doc or hkipo" -q`
+- `npm test -- tests/unit/agent/workflow/config.test.ts`
+- `npm run typecheck`
+- `npm run build`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 不把“认购倍数”强行等同“孖展倍数”；如果来源只写认购倍数，字段只能记为 `subscription_multiple`，报告中必须如实显示“公开/券商认购倍数”，孖展字段仍为缺失。
+- 当前券商页可能是 live snapshot 且页面未显式更新时间；只有在招股窗口覆盖 report date 时，才允许以 `updated_at=report_date`、`source_time_mode=active_subscription_window` 低一档置信度纳入同日证据。
+- 本轮仍只采公开只读页面，不登录、不绕过验证码/付费/反爬。
+- `hkipo_heat_scan.py` 已用真实源验证当前 Futu pool 4 只均可从致富证券详情页解析同日 `subscription_multiple`、保荐、主营、发行市值和 PE；latest live summary 为 `same_day_heat_count=4`、`degraded_count=0`。
+- `hkipo_official_docs.py` 已用真实源验证当前 pool 4 只共 8 个 HKEX 文件，官方 parser 能提取公开发售比例、00901/03310/06872 绿鞋 15%，并过滤佣金、规则豁免、角色标签等误报。
+- command 层只对 `hkipo` 最终投递文本做展示归一化，不改 workflow state / step audit：旧来源名统一为“致富证券 IPO”，旧内部短码统一改为 `🧮 评分` 行。
+- 真实飞书 full-chain E2E 已通过：run `wfrun_095c276e-e33d-4b37-a8fe-5a497552e04f`，9 个节点全部 success，`heat_data_crawler.summary.same_day_heat_count=4`，最终 `[e2e]` 消息 `om_x100b6f80c54f3538c3549289a96d741` 已从飞书 API 读回，断言包含中文来源与具体认购倍数，且不含 `Chief Securities IPO` / `卡：热xx` / `热5`。
+- 已运行并通过：
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests/test_hkipo_heat_scan_cli.py tests/test_hkipo_official_doc_cli.py -q`（20 passed）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "hkipo_heat_scan or hkipo_official_doc or hkipo" -q`（20 passed, 231 deselected）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -q`（251 passed）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run black --check ...`（4 files unchanged；保留 Black/Python 版本提示）
+  - `npm test -- tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/config.test.ts`（15 passed）
+  - `npm run typecheck`
+  - `npm run build`
+  - `npm --prefix web run build`
+  - `./scripts/validate.sh`（71 passed, 1 skipped；497 passed, 1 skipped；typecheck/build passed）
+  - `./scripts/review.sh`（diff hygiene / format check passed；semantic review 通过）
+- 服务已在 build 后通过 `bun src/cli.ts restart` 安全重启，`/api/health` 返回 healthy；latest loaded build mtime 为 2026-05-18 16:58。
+- Review gate：scope 已补记 official doc parser 误报过滤；目标覆盖核心因子提取、评分护栏、报告格式、真实飞书 E2E 与文档同步；未发现阻塞回归。后续仍需补多券商孖展/公开认购/一手中签率/暗盘来源，不把单一券商认购倍数当多源共识。
+
 ### Milestone 12：HKIPO 官方数据源文件解析
 
 Objective:

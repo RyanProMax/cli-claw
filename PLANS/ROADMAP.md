@@ -20,14 +20,15 @@
 
 - Status: `monitoring`
 - Source: 2026-05-18 `/hkipo` 核心结构与估值证据增强 E2E
-- Summary: `/hkipo` 官方文件解析 v1 已上线：`stock.hkipo.fetch_official_docs` 会调用 stock-analysis-api `scripts/hkipo_official_docs.py`，从 HKEX title search 与 HKEX “新上市资料”表格定位招股章程/新上市公告等文件，下载到统一 cache namespace 后解析正文并输出结构化 evidence。2026-05-18 真实 E2E run `wfrun_d65e3363-2dde-4398-af6e-d8dd80b7b8f0` 中 4 只当前 IPO 共解析 8 个官方文件，workflow 9 节点全成功。
+- Summary: `/hkipo` 官方文件解析与核心因子 evidence v1 已上线：`stock.hkipo.fetch_official_docs` 会调用 stock-analysis-api `scripts/hkipo_official_docs.py`，从 HKEX title search 与 HKEX “新上市资料”表格定位招股章程/新上市公告等文件，下载到统一 cache namespace 后解析正文并输出结构化 evidence；`stock.hkipo.scan_heat` 已覆盖致富证券新股详情页 live snapshot，可补同日认购倍数、保荐、主营、发行市值和 PE。2026-05-18 真实 E2E run `wfrun_095c276e-e33d-4b37-a8fe-5a497552e04f` 中 4 只当前 IPO `same_day_heat_count=4`，官方文件 8 个，workflow 9 节点全成功，最终飞书消息已验证中文来源、具体认购倍数、无内部短码。
 - Durable contract:
   - `/hkipo` workflow 与报告字段见 `docs/COMMAND.md`。
   - workflow local task artifact 边界见 `docs/RUNTIME.md`。
   - stock-analysis-api heat scanner schema 见 `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`。
   - stock-analysis-api official docs parser schema 见 `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-official-docs-cli.md`。
 - Next action:
-  - 监控真实 `/hkipo` 输出中绿鞋、基石、回拨、公开发售比例、保荐与估值区间字段覆盖率；针对缺口补 source-specific parser。
+  - 监控真实 `/hkipo` 输出中绿鞋、基石、回拨、公开发售比例、保荐、孖展/融资倍数、公开认购倍数、一手中签率、暗盘与估值区间字段覆盖率；针对缺口补 source-specific parser。
+  - 当前同日热度多为单一券商认购倍数下限，不能视为多源共识；后续优先补多券商孖展/公开认购聚合来源。
   - 优化官方 PDF 解析耗时和 artifact 摘要预算；当前 cold cache 下官方 docs local task 使用 300s 有界预算。
   - 真实网页/PDF 结构变化时继续输出 source-level error 并降级，禁止最终报告编造字段。
 

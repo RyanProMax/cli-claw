@@ -92,13 +92,69 @@ function formatWorkflowStarted(options: {
   ].join('\n');
 }
 
+function formatScoreComponent(
+  label: string,
+  value: string,
+  denominator: number,
+): string {
+  const normalized = value.toUpperCase() === 'NA' ? 'N/A' : value;
+  return /N\/?A/i.test(normalized)
+    ? `${label}N/A`
+    : `${label}${normalized}/${denominator}`;
+}
+
+function normalizeHkipoFinalReport(result: string): string {
+  return result
+    .replaceAll('Chief Securities IPO', '致富证券 IPO')
+    .replace(/致富证券(?! IPO)/g, '致富证券 IPO')
+    .replace(
+      /[｜|]\s*(?:卡[：:]\s*)?热(\d+|N\/?A|NA)\s+结构(\d+|N\/?A|NA)\s+回测(\d+|N\/?A|NA)\s+基本面(\d+|N\/?A|NA)\s+估值(\d+|N\/?A|NA)\s+证据(\d+|N\/?A|NA)/gi,
+      (
+        _match,
+        heat: string,
+        structure: string,
+        backtest: string,
+        fundamental: string,
+        valuation: string,
+        evidence: string,
+      ) =>
+        [
+          '',
+          '🧮 评分：',
+          formatScoreComponent('热度', heat, 20),
+          '｜',
+          formatScoreComponent('结构', structure, 20),
+          '｜',
+          formatScoreComponent('回测', backtest, 20),
+          '｜',
+          formatScoreComponent('基本面', fundamental, 20),
+          '｜',
+          formatScoreComponent('估值', valuation, 10),
+          '｜',
+          formatScoreComponent('证据', evidence, 10),
+        ].join(''),
+    );
+}
+
+function normalizeWorkflowResultForDelivery(
+  workflowId: string,
+  result: string,
+): string {
+  if (workflowId !== 'hkipo') return result;
+  return normalizeHkipoFinalReport(result);
+}
+
 function formatWorkflowSuccess(options: {
   workflow: WorkflowDiscovery['workflows'][number];
   result: string;
 }): string {
+  const normalizedResult = normalizeWorkflowResultForDelivery(
+    options.workflow.id,
+    options.result,
+  );
   return [
     `✅ 工作流 ${options.workflow.name} (${options.workflow.id}) 完成：`,
-    options.result || '无输出',
+    normalizedResult || '无输出',
   ].join('\n');
 }
 

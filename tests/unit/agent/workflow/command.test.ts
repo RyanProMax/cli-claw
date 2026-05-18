@@ -290,4 +290,73 @@ describe('workflow command execution', () => {
 
     db.closeDatabase();
   });
+
+  test('normalizes hkipo final report before delivery', async () => {
+    const workspaceRoot = tempDir('cli-claw-workflow-command-hkipo-report-');
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'agent-roles', 'editor.md'),
+      [
+        '---',
+        'id: editor',
+        'name: 报告编辑',
+        'allowedTools: send_message',
+        'permissionMode: readonly',
+        '---',
+        '',
+        '输出最终报告。',
+      ].join('\n'),
+    );
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'workflows', 'hkipo.json'),
+      JSON.stringify(
+        {
+          id: 'hkipo',
+          name: '港股 IPO 打新工作流',
+          roles: ['editor'],
+          start: 'ranking_report_editor',
+          nodes: [
+            {
+              id: 'ranking_report_editor',
+              type: 'role_task',
+              roleId: 'editor',
+            },
+          ],
+          edges: [{ from: 'ranking_report_editor', to: '__end__' }],
+        },
+        null,
+        2,
+      ),
+    );
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: '分析港股 IPO',
+      result: [
+        '🟢 1｜深演智能 02723｜38分｜5/21截止 | 5/26开奖',
+        '💵 入场：HK$5,605.97｜一手100｜招股中｜卡：热17 结构8 回测15 基本面7 估值1 证据7',
+        '🔥 热度：认购倍数 61.74x（Chief Securities IPO，5/18，单一券商下限）；孖展多源未取到',
+      ].join('\n'),
+      stepResults: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'hkipo 分析港股 IPO',
+      workspaceRoot,
+      runGraph,
+    });
+
+    expect(reply).toContain('致富证券 IPO');
+    expect(reply).toContain(
+      '🧮 评分：热度17/20｜结构8/20｜回测15/20｜基本面7/20｜估值1/10｜证据7/10',
+    );
+    expect(reply).not.toContain('Chief Securities IPO');
+    expect(reply).not.toContain('卡：热17');
+
+    db.closeDatabase();
+  });
 });

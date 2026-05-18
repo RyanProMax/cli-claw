@@ -474,5 +474,9 @@ describe('workflow config discovery', () => {
     expect(reportRole).toContain('绿鞋');
     expect(reportRole).toContain('基石');
     expect(reportRole).toContain('估值区间');
+    expect(reportRole).toContain('无同日可用热度证据时，热度分必须为 0/N/A');
+    expect(reportRole).toContain('核心因子不足时不要输出精确总分');
+    expect(reportRole).toContain('每只 IPO 的 🔥 热度行必须写出具体倍数和来源');
+    expect(reportRole).toContain('不要使用“卡：热17”这类内部短码');
   });
 });
