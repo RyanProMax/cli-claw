@@ -22,7 +22,7 @@
       "type": "role_task",
       "roleId": "hkipo-pool-normalizer",
       "outputArtifact": "query_plan",
-      "prompt": "清洗 IPO 池，生成代码、中文名、英文名、阶段和二级热度检索 query plan。"
+      "prompt": "清洗 IPO 池，生成代码、中文名优先展示名、英文名、阶段和二级热度检索 query plan；若 Futu name 只有英文，必须保留为英文别名，不得当中文名。"
     },
     {
       "id": "heat_data_crawler",
@@ -64,7 +64,7 @@
       "type": "role_task",
       "roleId": "hkipo-ranking-report-editor",
       "outputArtifact": "final_report",
-      "prompt": "汇总评分排序和最终短报告。无同日热度时必须写“热度未达当日核验门槛”。"
+      "prompt": "汇总评分排序和最终短报告。最终报告必须是飞书普通文本气泡友好的短行格式，不使用 Markdown 粗体/标题/表格；用 emoji 和中文公司名突出重点。无同日热度时必须写“热度未达当日核验门槛”。"
     }
   ],
   "edges": [

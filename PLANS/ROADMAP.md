@@ -16,6 +16,18 @@
 
 ## Live Items
 
+### P2 RM-2026-05-18-02 HKIPO Name Alias Source Automation
+
+- Status: `proposed`
+- Source: 2026-05-18 `/hkipo` report readability regression
+- Summary: Futu/OpenD 当前 HK IPO pool 会返回正确代码和申购状态，但部分 IPO 的中文名字段为空，只给英文简称；本轮先在 `stock-analysis-api` 数据层用 alias map 补齐当前池中文展示名，避免最终报告主标题显示英文。后续应把 alias map 改成可审计的自动化来源刷新，而不是长期手工维护。
+- Durable contract:
+  - `ipo-list --market HK` 输出名称分离字段见 `/Users/ryan/projects/stock-analysis-api/docs/specs/futu-internal-cli-contract.md`。
+  - `/hkipo` workflow 最终报告中文名优先和普通文本气泡格式见 `docs/COMMAND.md`。
+- Next action:
+  - 增加只读名称补全来源，例如 HKEX/AAStocks/ETNet IPO 页面或官方文件元数据，输出 `name_source` 与更新时间。
+  - 对 alias 过期或缺失建立降级提示，避免新 IPO 上架时再次退回英文主标题。
+
 ### P2 RM-2026-05-18-01 HKIPO Backtest Artifact Budget
 
 - Status: `proposed`

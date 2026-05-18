@@ -25,6 +25,59 @@
 
 ## Milestones
 
+### Milestone 8：`/hkipo` 飞书报告可读性与中文名修复
+
+Objective:
+- 修复 `/hkipo` 最终报告在飞书普通文本气泡中 Markdown 标记外露、重点不突出、公司名称只显示英文简称的问题，并重新确认默认 IPO 池范围。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `.agents/agent-roles/hkipo-*.md`
+- `.agents/workflows/hkipo.json`
+- `tests/unit/agent/workflow/**`
+- `tests/contracts/openai/**`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `/Users/ryan/projects/stock-analysis-api/src/services/futu_market_data_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/**`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
+
+Validation:
+- 用上一轮真实 workflow artifact 复盘英文名来源与报告格式问题。
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "futu_market_data_cli or hkipo_heat_scan or hkipo"`
+- `npm test -- tests/unit/agent/workflow/config.test.ts tests/contracts/openai/runner-request.test.ts`
+- `npm run typecheck`
+- `./scripts/review.sh`
+- 真实 `/hkipo [e2e]` full-chain E2E：确认 `workflow_runs.status='success'`、最终飞书回复使用中文公司名、纯文本格式、emoji 重点、并包含池子校验说明。
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 根因 1：Futu/OpenD `ipo-list` 当前默认返回的 `name` 为英文简称，`name_zh/cn_name/stock_name` 均为空；上一轮默认池 4 只为 `HK.02723 DEEPZERO`、`HK.06872 TENNOR THERAP-B`、`HK.00901 SDMC`、`HK.03310 VIEWTRIX TECH`，票池来自 Futu，范围正确。
+- 根因 2：workflow 完成回复进入飞书普通文本气泡，Markdown `**` 不会渲染成粗体；最终报告 role 仍按 Markdown 短报输出，导致截图里格式拥挤且重点不突出。
+- 已在 `stock-analysis-api` 数据层补充 HK IPO 中文展示名：02723 深演智能、06872 丹诺医药-B、03310 云英谷科技、00901 华曦达；`--all` 还会含已截止未上市的 01511 驭势科技、07688 拓璞数控。Futu 原始英文 `name` 仍保留为 `name_en` / `english_name`，不靠最终 LLM 临场翻译。
+- 已改 `hkipo` workflow role card 和 prompt：最终报告面向飞书普通文本气泡，不使用 Markdown 粗体/表格，中文名优先，用 emoji 突出排名、热度、入场费、风险和池子校验。
+- 已运行并通过：
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "futu_market_data_cli or hkipo_heat_scan or hkipo"`（19 passed）
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run python scripts/futu_market_data.py ipo-list --market HK --json`，真实 Futu/OpenD pool 返回 6 只；默认可申购 4 只：02723、06872、00901、03310。
+  - `npm test -- tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/config.test.ts tests/contracts/openai/runner-request.test.ts`（19 passed）
+  - `npm run typecheck`
+  - `npm run build`（通过；保留既有 Vite chunk warning）
+  - `./scripts/review.sh`
+  - `./scripts/validate.sh tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/config.test.ts tests/contracts/openai/runner-request.test.ts`
+  - 安全重启：`bun src/cli.ts restart`，`/api/health` healthy。
+  - 真实飞书 full-chain E2E：发送 `/hkipo [e2e]`，run `wfrun_183a282b-557a-4869-94fa-1cdd3a81c2c5`，耗时约 356s，`workflow_runs.status=success`，8 个节点全 `success`，最终飞书消息包含 emoji、4 个中文公司名、“池子校验”和“热度未达当日核验门槛”，且不含裸露 `**`。
+- Review gate：scope 覆盖 cli-claw 与 stock-analysis-api 两侧；新增数据层名称补齐不改变 Futu/OpenD 原始池选择；最终报告格式由 role card 和 workflow prompt 双重约束；长期风险是当前中文名 alias map 需要后续自动化来源维护，已回写 `PLANS/ROADMAP.md`。
+
 ### Milestone 7：`/hkipo` 线上全链路 E2E 超时修复
 
 Objective:

@@ -110,7 +110,7 @@ describe('workflow command execution', () => {
       runGraph,
     });
 
-    expect(reply).toContain('工作流 投研工作流 (research) 完成');
+    expect(reply).toContain('✅ 工作流 投研工作流 (research) 完成');
     expect(reply).toContain('投研结论完成');
     expect(runGraph).toHaveBeenCalledWith(
       expect.objectContaining({

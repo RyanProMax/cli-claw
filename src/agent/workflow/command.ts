@@ -195,11 +195,11 @@ export async function executeWorkflowCommand(
       checkpointer: getPersistentWorkflowCheckpointer(),
     });
     return [
-      `工作流 ${workflow.name} (${workflow.id}) 完成：`,
+      `✅ 工作流 ${workflow.name} (${workflow.id}) 完成：`,
       result.result || '无输出',
     ].join('\n');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return `工作流 ${workflow.name} (${workflow.id}) 失败：${message}`;
+    return `❌ 工作流 ${workflow.name} (${workflow.id}) 失败：${message}`;
   }
 }
