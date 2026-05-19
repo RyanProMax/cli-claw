@@ -107,6 +107,8 @@ function normalizeHkipoFinalReport(result: string): string {
   return result
     .replaceAll('Chief Securities IPO', '致富证券 IPO')
     .replace(/致富证券(?! IPO)/g, '致富证券 IPO')
+    .replace(/孖展\s*多源未取到/g, '融资/孖展倍数暂无多源核验')
+    .replace(/孖展[：:]\s*多源未取到/g, '融资/孖展倍数暂无多源核验')
     .replace(
       /[｜|]\s*(?:卡[：:]\s*)?热(\d+|N\/?A|NA)\s+结构(\d+|N\/?A|NA)\s+回测(\d+|N\/?A|NA)\s+基本面(\d+|N\/?A|NA)\s+估值(\d+|N\/?A|NA)\s+证据(\d+|N\/?A|NA)/gi,
       (

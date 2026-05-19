@@ -25,6 +25,58 @@
 
 ## Milestones
 
+### Milestone 14：HKIPO 孖展术语文案与数据源决策
+
+Objective:
+- 澄清 `/hkipo` 报告中“认购倍数”与“孖展/融资倍数”的展示语义：不再输出“孖展多源未取到”这类难懂文案，改为明确“融资/孖展倍数暂无多源核验”；同时调研公开网页中稳定可用的港股 IPO 孖展数据源，解释当前为什么拿不到，并决定本轮是否接入新 source-specific parser。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `.agents/agent-roles/hkipo-ranking-report-editor.md`
+- `src/agent/workflow/command.ts`
+- `tests/unit/agent/workflow/command.test.ts`
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_heat_scan_cli.py`
+
+Validation:
+- Root-cause：列出现有 `hkipo_heat_scan` 为什么只有 `subscription_multiple`，没有 `margin_multiple` 的证据。
+- Web research：核验至少 AASTOCKS、AiPO/TradeGo、ETNet、券商新股中心这几类来源的公开页面稳定性和字段语义。
+- TDD 红测：最终报告/投递 normalizer 不再出现“孖展多源未取到”，改成“融资/孖展倍数暂无多源核验”。
+- `npm test -- tests/unit/agent/workflow/command.test.ts`
+- `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests/test_hkipo_heat_scan_cli.py -q`
+- 如改实现，补跑 `npm run typecheck`、`npm run build`、相关 `uv run pytest` 和 review gate。
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Root cause：上一版 scanner 主要从致富证券详情页拿到 `subscription_multiple=认购倍数`，并且正确没有把它改名为 `margin_multiple=融资/孖展超额倍数`；AASTOCKS/ETNet/TradeGo 搜索页、智通/格隆汇、个别券商中心在 live smoke 中出现超时、404 或 500，导致 `margin_multiple` 为空。
+- Web research：TradeSmart IPO Tracker 公开页面当前内嵌 AiPO margin records，能解析 `oversubscription_ratio`、`margin_total_hkd_yi`、`observed_at` 和上游 URL；AASTOCKS/ETNet 更适合作 IPO 基础资料和新闻 fallback；AiPO 页面提示服务将关闭，不能作为唯一长期主源。
+- 已实现：stock-analysis-api 新增 TradeSmart source-specific parser，Cli Claw 报告口径拆分 `margin_multiple` / `subscription_multiple`，旧版“孖展多源未取到”会归一化为“融资/孖展倍数暂无多源核验”。
+- 真实 smoke：2026-05-19 当前池 02723/03310/06872/00901 均解析出同日 `margin_multiple`、`margin_amount_hkd_yi` 和致富证券同日 `subscription_multiple`。
+- 线上链路 E2E：Feishu 触发 `/hkipo [e2e] hkipo-margin-1779157651`，workflow run `wfrun_e24de0be-2940-4fdb-926c-c480859fa734` 9 个节点全部 success；最终结果包含“融资/孖展超额 ...（TradeSmart IPO Tracker，5/19，多券商聚合）”，不再包含“孖展多源未取到”。
+- 已运行并通过：
+  - `npm test -- tests/unit/agent/workflow/command.test.ts`
+  - `npm test -- tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/config.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `./scripts/validate.sh`
+  - `./scripts/review.sh`
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests/test_hkipo_heat_scan_cli.py -q`
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -k "hkipo_heat_scan or hkipo_official_doc or hkipo" -q`
+  - `cd /Users/ryan/projects/stock-analysis-api && uv run pytest tests -q`
+
 ### Milestone 13：HKIPO 核心因子可用性与评分护栏
 
 Objective:
@@ -716,25 +768,29 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 11
+- Milestone 14
 
 Current status:
 - done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/core/cache.ts`
-- `src/core/config.ts`
-- `src/index.ts`
-- `tests/unit/core/cache.test.ts`
+- `PLANS/ROADMAP.md`
+- `.agents/agent-roles/hkipo-ranking-report-editor.md`
+- `src/agent/workflow/command.ts`
+- `tests/unit/agent/workflow/command.test.ts`
+- `docs/COMMAND.md`
 - `docs/RUNTIME.md`
-- `docs/MODULE.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
+- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_heat_scan_cli.py`
 
 Last failure summary:
-- review 脚本曾抓到新增 `src/core/cache.ts` 未格式化；已用 Prettier 修复。实现前红测确认缺少 cache module，后续补测了 unsafe root、临时目录 prefix 和 `withCacheTempDir` 异常清理。
+- 红测曾确认最终投递 normalizer 仍会透出旧文案“孖展多源未取到”，stock-analysis-api fixture 也确认 TradeSmart 孖展脉搏尚未生成 `margin_multiple`。实现后相关测试、全量验证和真实 Feishu E2E 均通过。
 
 Suspected cause:
-- 已处理：新增通用 cache helper、root 安全约束、启动时 cleanup loop 和 shutdown stop；临时下载解析场景可用 `withCacheTempDir` 保证任务成功或失败都清理中间目录。
+- 已处理：`subscription_multiple` 与 `margin_multiple` 是不同字段，上一版只稳定拿到券商认购倍数；新增 TradeSmart IPO Tracker source-specific parser 后，当前公开页可补同日融资/孖展超额倍数和孖展金额。AiPO 关闭风险已写入 roadmap。
 
 Next step:
-- 提交并安全重启 Cli Claw；后续把 HKEX 招股书/公告正文下载、网页快照和附件解析迁移到 `src/core/cache.ts`。
+- 提交本轮两个仓库改动；继续监控 TradeSmart/AiPO 稳定性，并补更多券商/财经站 fallback，避免单一源退化后再次丢失孖展因子。

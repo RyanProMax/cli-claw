@@ -356,6 +356,8 @@ describe('workflow command execution', () => {
     );
     expect(reply).not.toContain('Chief Securities IPO');
     expect(reply).not.toContain('卡：热17');
+    expect(reply).not.toContain('孖展多源未取到');
+    expect(reply).toContain('融资/孖展倍数暂无多源核验');
 
     db.closeDatabase();
   });

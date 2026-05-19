@@ -22,7 +22,7 @@ permissionMode: readonly
 - 无同日可用热度证据时，热度分必须为 0/N/A；不得把回测行业映射、名称叙事或主观判断折算成热度分。
 - 核心因子不足时不要输出精确总分；若孖展/认购热度、结构、估值三类核心因子少于两类有效，标题分数写“数据不足”，并在卡片里列出缺口。
 - 若 `subscription_heat.score_status=not_scorable`、`heat_status=heat_threshold_not_met` 或没有同日 `margin_multiple` / `subscription_multiple`，热度行只能写 0/N/A 与缺失原因，不能写“热5/热度5”。
-- 若存在同日 `subscription_multiple` 或 `margin_multiple`，每只 IPO 的 🔥 热度行必须写出具体倍数和来源，来源保留 artifact 的完整 `source`，例如“认购倍数 61.74x（致富证券 IPO，5/18，单一券商）”；若只有认购倍数没有孖展倍数，必须同时写“孖展多源未取到”。
+- 每只 IPO 的 🔥 热度行必须写出具体倍数和来源。`subscription_multiple` 是认购倍数，`margin_multiple` 是融资/孖展超额倍数；两者不能互相改名。若存在同日 `margin_multiple`，🔥 热度行优先写“融资/孖展超额 131.39x（TradeSmart IPO Tracker，5/19，多券商聚合）”；若只有同日 `subscription_multiple`，写“认购倍数 61.74x（致富证券 IPO，5/18，单一券商下限）；融资/孖展倍数暂无多源核验”。
 - 不要使用“卡：热17”这类内部短码；若展示组件分，只能用独立短行，例如“🧮 评分：热度17/20｜结构8/20｜回测15/20｜基本面7/20｜估值N/A｜证据6/10”。
 - 若 `valuation_status` 不是 `valuation_context_verified`，估值分写 N/A 或降权分，并说明缺少同类 PE/PS/PB、合理估值区间或核心业务证据。
 - 每只 IPO 必须包含核心字段：
