@@ -6,6 +6,7 @@ import { promisify } from 'util';
 
 import { APP_ROOT } from '../../core/app-root.js';
 import { ensureCacheNamespaceDir, withCacheTempDir } from '../../core/cache.js';
+import Database from '../../storage/sqlite-compat.js';
 import type {
   WorkflowLocalTask,
   WorkflowLocalTaskInput,
@@ -22,6 +23,36 @@ interface DefaultWorkflowLocalTaskOptions {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function pruneArtifactValue(value: unknown, depth = 0): unknown {
+  if (depth > 4) return '[truncated]';
+  if (typeof value === 'string') {
+    return value.length > 2_000 ? `${value.slice(0, 2_000)}...` : value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 20)
+      .map((item) => pruneArtifactValue(item, depth + 1));
+  }
+  if (isObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        pruneArtifactValue(item, depth + 1),
+      ]),
+    );
+  }
+  return value;
 }
 
 function findExecutable(rawValue: string): string | null {
@@ -231,6 +262,35 @@ function readWorkflowReportDate(input: WorkflowLocalTaskInput): string {
     : currentShanghaiDate();
 }
 
+function readWorkflowMarkets(input: WorkflowLocalTaskInput): string[] {
+  const taskInput = resolveWorkflowTaskInput(input);
+  const rawMarkets = taskInput.markets;
+  if (Array.isArray(rawMarkets)) {
+    const markets = rawMarkets
+      .map((item) =>
+        typeof item === 'string' ? item.trim().toLowerCase() : '',
+      )
+      .filter((item) => item === 'hk' || item === 'us' || item === 'cn');
+    return markets.length > 0 ? markets : ['hk', 'us'];
+  }
+  if (typeof rawMarkets === 'string') {
+    const markets = rawMarkets
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter((item) => item === 'hk' || item === 'us' || item === 'cn');
+    return markets.length > 0 ? markets : ['hk', 'us'];
+  }
+  return ['hk', 'us'];
+}
+
+function readWorkflowMaxTasks(input: WorkflowLocalTaskInput): number {
+  const value = resolveWorkflowTaskInput(input).maxTasks;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.min(50, Math.floor(value));
+  }
+  return 12;
+}
+
 function getCode(item: unknown): string {
   return isObject(item) && typeof item.code === 'string' ? item.code : '';
 }
@@ -326,6 +386,213 @@ function buildDegradedOfficialDocsArtifact(
         },
       ],
     })),
+  };
+}
+
+function resolveStockTaskChainDbPath(options: DefaultWorkflowLocalTaskOptions) {
+  if (process.env.STOCK_STRATEGY_TASK_DB?.trim()) {
+    return path.resolve(process.env.STOCK_STRATEGY_TASK_DB);
+  }
+  const apiRoot = resolveStockAnalysisApiRoot({
+    workspaceRoot: options.workspaceRoot,
+  });
+  return path.join(apiRoot, '.cache', 'task_chain.sqlite');
+}
+
+function hasSqliteTable(db: any, tableName: string): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName);
+  return Boolean(row);
+}
+
+function mapTaskChainTask(
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    id: row.id,
+    task_type: row.task_type,
+    status: row.status,
+    priority: row.priority,
+    due_at: row.due_at,
+    updated_at: row.updated_at,
+    result: pruneArtifactValue(parseJsonValue(row.result_json)),
+    error: row.error || null,
+  };
+}
+
+function createCollectStrategyResultsTask(
+  options: DefaultWorkflowLocalTaskOptions,
+): WorkflowLocalTask {
+  return async (input) => {
+    const taskDbPath = resolveStockTaskChainDbPath(options);
+    const maxTasks = readWorkflowMaxTasks(input);
+    if (!fs.existsSync(taskDbPath)) {
+      return {
+        status: 'degraded',
+        source: 'stock_strategy_collect_results',
+        generatedAt: new Date().toISOString(),
+        reason: `stock task-chain DB 不存在：${taskDbPath}`,
+        task_chain: {
+          latest_tasks: [],
+          pending_tasks: [],
+          latest_summaries: [],
+          latest_handoff_outputs: [],
+        },
+      };
+    }
+
+    const db = new Database(taskDbPath, { readonly: true });
+    try {
+      const latestTasks = hasSqliteTable(db, 'task_chain_tasks')
+        ? (
+            db
+              .prepare(
+                `
+              SELECT id, task_type, status, priority, due_at, result_json, error, updated_at
+              FROM task_chain_tasks
+              ORDER BY updated_at DESC
+              LIMIT ?
+              `,
+              )
+              .all(maxTasks) as Record<string, unknown>[]
+          ).map(mapTaskChainTask)
+        : [];
+      const pendingTasks = hasSqliteTable(db, 'task_chain_tasks')
+        ? (
+            db
+              .prepare(
+                `
+              SELECT id, task_type, status, priority, due_at, result_json, error, updated_at
+              FROM task_chain_tasks
+              WHERE status IN ('pending', 'running')
+              ORDER BY due_at ASC, priority ASC
+              LIMIT ?
+              `,
+              )
+              .all(8) as Record<string, unknown>[]
+          ).map(mapTaskChainTask)
+        : [];
+      const latestSummaries = hasSqliteTable(db, 'task_chain_summaries')
+        ? (
+            db
+              .prepare(
+                `
+              SELECT id, summary_type, period_start, period_end, summary_json, created_at
+              FROM task_chain_summaries
+              ORDER BY created_at DESC
+              LIMIT 5
+              `,
+              )
+              .all() as Record<string, unknown>[]
+          ).map((row) => ({
+            id: row.id,
+            summary_type: row.summary_type,
+            period_start: row.period_start,
+            period_end: row.period_end,
+            created_at: row.created_at,
+            summary: pruneArtifactValue(parseJsonValue(row.summary_json)),
+          }))
+        : [];
+      const latestHandoffOutputs = hasSqliteTable(
+        db,
+        'task_chain_agent_handoff_outputs',
+      )
+        ? (
+            db
+              .prepare(
+                `
+              SELECT id, handoff_id, output_json, created_at
+              FROM task_chain_agent_handoff_outputs
+              ORDER BY created_at DESC
+              LIMIT 5
+              `,
+              )
+              .all() as Record<string, unknown>[]
+          ).map((row) => ({
+            id: row.id,
+            handoff_id: row.handoff_id,
+            created_at: row.created_at,
+            output: pruneArtifactValue(parseJsonValue(row.output_json)),
+          }))
+        : [];
+
+      return {
+        status: 'ok',
+        source: 'stock_strategy_collect_results',
+        generatedAt: new Date().toISOString(),
+        task_db: taskDbPath,
+        task_chain: {
+          latest_tasks: latestTasks,
+          pending_tasks: pendingTasks,
+          latest_summaries: latestSummaries,
+          latest_handoff_outputs: latestHandoffOutputs,
+        },
+      };
+    } finally {
+      db.close?.();
+    }
+  };
+}
+
+async function runStockApiJsonOrDegraded(
+  label: string,
+  args: string[],
+  input: WorkflowLocalTaskInput,
+  options: DefaultWorkflowLocalTaskOptions,
+): Promise<Record<string, unknown>> {
+  try {
+    return await runStockApiJson(args, input, options, { timeoutMs: 180_000 });
+  } catch (error) {
+    return {
+      status: 'degraded',
+      source: label,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function createAnalyzeStrategyValueTask(
+  options: DefaultWorkflowLocalTaskOptions,
+): WorkflowLocalTask {
+  return async (input) => {
+    const reportDate = readWorkflowReportDate(input);
+    const markets = readWorkflowMarkets(input);
+    const tradingDailySummary = await runStockApiJsonOrDegraded(
+      'trading_daily_summary',
+      ['scripts/trading_daily_summary.py', '--date', reportDate],
+      input,
+      options,
+    );
+    const alphaDailyReports: Record<string, unknown>[] = await Promise.all(
+      markets.map(async (market) => ({
+        market,
+        ...(await runStockApiJsonOrDegraded(
+          'alpha_daily_report',
+          [
+            'scripts/alpha_daily_report.py',
+            '--market',
+            market,
+            '--date',
+            reportDate,
+          ],
+          input,
+          options,
+        )),
+      })),
+    );
+    const degraded =
+      tradingDailySummary.status === 'degraded' ||
+      alphaDailyReports.some((report) => report.status === 'degraded');
+
+    return {
+      status: degraded ? 'degraded' : 'ok',
+      source: 'stock_strategy_analyze_value',
+      report_date: reportDate,
+      generatedAt: new Date().toISOString(),
+      trading_daily_summary: pruneArtifactValue(tradingDailySummary),
+      alpha_daily_reports: pruneArtifactValue(alphaDailyReports),
+    };
   };
 }
 
@@ -482,6 +749,8 @@ export function createDefaultWorkflowLocalTasks(
     'stock.hkipo.scan_heat': createHeatScanTask(options),
     'stock.hkipo.fetch_official_docs': createOfficialDocsTask(options),
     'stock.hkipo.run_backtest': createBacktestTask(options),
+    'stock.strategy.collect_results': createCollectStrategyResultsTask(options),
+    'stock.strategy.analyze_value': createAnalyzeStrategyValueTask(options),
   };
 }
 

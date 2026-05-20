@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { runScriptMock, runAgentProcessMock } = vi.hoisted(() => ({
-  runScriptMock: vi.fn(),
-  runAgentProcessMock: vi.fn(),
-}));
+const { runScriptMock, runAgentProcessMock, runtimeUsageMock } = vi.hoisted(
+  () => ({
+    runScriptMock: vi.fn(),
+    runAgentProcessMock: vi.fn(),
+    runtimeUsageMock: vi.fn(),
+  }),
+);
 
 vi.mock('../../../src/agent/script-runner.js', () => ({
   hasScriptCapacity: () => true,
@@ -18,6 +21,10 @@ vi.mock('../../../src/agent/runner/container-runner.js', () => ({
 vi.mock('../../../src/core/billing.js', () => ({
   checkBillingAccessFresh: vi.fn(),
   isBillingEnabled: () => false,
+}));
+
+vi.mock('../../../src/core/runtime/usage.js', () => ({
+  getRuntimeUsageSnapshot: runtimeUsageMock,
 }));
 
 vi.mock('../../../src/storage/db.js', () => ({
@@ -48,7 +55,10 @@ import {
   runTask,
   triggerTaskNow,
 } from '../../../src/agent/scheduler/index.js';
-import type { RegisteredGroup, ScheduledTask } from '../../../src/domain/types.js';
+import type {
+  RegisteredGroup,
+  ScheduledTask,
+} from '../../../src/domain/types.js';
 
 const sourceGroup: RegisteredGroup = {
   name: 'Main',
@@ -79,6 +89,13 @@ function buildTask(overrides: Partial<ScheduledTask>): ScheduledTask {
 describe('task scheduler workspace cwd forwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    runtimeUsageMock.mockResolvedValue({
+      provider: 'openai',
+      available: true,
+      source: 'test',
+      primaryRemainingPct: 80,
+      secondaryRemainingPct: 80,
+    });
   });
 
   test('passes the source workspace cwd to script tasks', async () => {
@@ -103,7 +120,9 @@ describe('task scheduler workspace cwd forwarding', () => {
       assistantName: 'cli-claw',
     };
 
-    vi.mocked((await import('../../../src/storage/db.js')).getTaskById).mockReturnValue(task);
+    vi.mocked(
+      (await import('../../../src/storage/db.js')).getTaskById,
+    ).mockReturnValue(task);
     runScriptMock.mockResolvedValue({
       stdout: 'done',
       stderr: '',
@@ -139,7 +158,9 @@ describe('task scheduler workspace cwd forwarding', () => {
       assistantName: 'cli-claw',
     };
 
-    vi.mocked((await import('../../../src/storage/db.js')).getTaskById).mockReturnValue(task);
+    vi.mocked(
+      (await import('../../../src/storage/db.js')).getTaskById,
+    ).mockReturnValue(task);
     runAgentProcessMock.mockResolvedValue({
       status: 'success',
       result: 'ok',
@@ -185,7 +206,9 @@ describe('task scheduler workspace cwd forwarding', () => {
       assistantName: 'cli-claw',
     };
 
-    vi.mocked((await import('../../../src/storage/db.js')).getTaskById).mockReturnValue(task);
+    vi.mocked(
+      (await import('../../../src/storage/db.js')).getTaskById,
+    ).mockReturnValue(task);
     runAgentProcessMock.mockResolvedValue({
       status: 'success',
       result: 'ok',
@@ -247,14 +270,66 @@ describe('task scheduler workspace cwd forwarding', () => {
       expect.objectContaining({
         status: 'error',
         result: 'Not logged in · Please run /login',
-        error:
-          'Codex CLI 登录态缺失或已过期。请执行 `codex login` 后重试。',
+        error: 'Codex CLI 登录态缺失或已过期。请执行 `codex login` 后重试。',
       }),
     );
     expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
       'task-login-error',
       '2026-04-05T10:00:00.000Z',
       'Error: Codex CLI 登录态缺失或已过期。请执行 `codex login` 后重试。',
+    );
+  });
+
+  test('defers scheduled agent tasks when the 5h usage bucket is below threshold', async () => {
+    const task = buildTask({
+      id: 'task-low-usage',
+      next_run: '2026-05-20T15:00:00.000Z',
+    });
+    const groups = {
+      'web:source': sourceGroup,
+    } as Record<string, RegisteredGroup>;
+
+    const deps = {
+      registeredGroups: () => groups,
+      getSessions: () => ({}),
+      queue: {
+        closeStdin: vi.fn(),
+        enqueueTask: vi.fn(),
+        enqueueMessageCheck: vi.fn(),
+      },
+      onProcess: vi.fn(),
+      sendMessage: vi.fn(),
+      assistantName: 'cli-claw',
+    };
+
+    const db = await import('../../../src/storage/db.js');
+    vi.mocked(db.getTaskById).mockReturnValue(task);
+    runtimeUsageMock.mockResolvedValue({
+      provider: 'openai',
+      available: true,
+      source: 'test',
+      primaryRemainingPct: 29,
+      secondaryRemainingPct: 80,
+      primaryResetAt: '2026-05-20T17:00:00.000Z',
+      secondaryResetAt: '2026-05-24T00:00:00.000Z',
+    });
+
+    await runTask(task, deps as never);
+
+    expect(runAgentProcessMock).not.toHaveBeenCalled();
+    expect(db.updateTaskRunLog).toHaveBeenCalledWith(
+      'run-log-1',
+      expect.objectContaining({
+        status: 'error',
+        result: null,
+        error:
+          'OpenAI usage guard deferred scheduled task: 5h remaining 29% < 30%',
+      }),
+    );
+    expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
+      'task-low-usage',
+      '2026-05-20T17:00:00.000Z',
+      'Deferred: OpenAI usage guard deferred scheduled task: 5h remaining 29% < 30%',
     );
   });
 
@@ -342,7 +417,9 @@ describe('task scheduler workspace cwd forwarding', () => {
       assistantName: 'cli-claw',
     };
 
-    vi.mocked((await import('../../../src/storage/db.js')).getTaskById).mockReturnValue(task);
+    vi.mocked(
+      (await import('../../../src/storage/db.js')).getTaskById,
+    ).mockReturnValue(task);
 
     expect(triggerTaskNow(task.id, deps as never)).toEqual({ success: true });
     expect(storePromptMessage).not.toHaveBeenCalled();

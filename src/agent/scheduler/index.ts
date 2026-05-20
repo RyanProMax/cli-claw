@@ -14,6 +14,7 @@ import {
   getOpenAiRuntimeDefaults,
   getSystemSettings,
 } from '../../core/runtime/config.js';
+import { getRuntimeUsageSnapshot } from '../../core/runtime/usage.js';
 import {
   AgentProcessOutput,
   runAgentProcess,
@@ -51,6 +52,7 @@ import {
 } from '../../core/billing.js';
 import { formatUserFacingRuntimeError } from '../runner/output-parser.js';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
+import { evaluateScheduledTaskUsageGuard } from './usage-guard.js';
 
 /**
  * Resolve the actual group JID to send a task to.
@@ -198,6 +200,12 @@ export interface SchedulerDependencies {
     text: string,
     options?: { source?: string },
   ) => Promise<string | undefined | void>;
+  runWorkflowCommand?: (
+    chatJid: string,
+    rawArgs: string,
+    triggerUserId?: string | null,
+    initialInput?: Record<string, unknown>,
+  ) => Promise<string>;
   broadcastStreamEvent?: (chatJid: string, event: StreamEvent) => void;
   onWorkspaceCreated?: (
     jid: string,
@@ -216,6 +224,8 @@ export interface RunTaskOptions {
 }
 
 const runningTaskIds = new Set<string>();
+const DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT = 30;
+const DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS = 30 * 60 * 1000;
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
@@ -260,6 +270,100 @@ function computeNextRun(task: ScheduledTask): string | null {
   return null;
 }
 
+export function resolveWorkflowTaskArgs(task: ScheduledTask): string | null {
+  const prompt = task.prompt.trim();
+  const embeddedWorkflow = prompt.match(/^\/workflow\s+(.+)$/);
+  if (embeddedWorkflow) {
+    const args = embeddedWorkflow[1]?.trim() ?? '';
+    return args || null;
+  }
+
+  const workflowId = task.script_command?.trim();
+  if (!workflowId) return null;
+  return [workflowId, prompt].filter(Boolean).join(' ');
+}
+
+function positiveNumberFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function deferScheduledTaskIfUsageLow(
+  task: ScheduledTask,
+  deps: SchedulerDependencies,
+  runLogId: number,
+  startTime: number,
+): Promise<boolean> {
+  const groups = deps.registeredGroups();
+  const sourceWorkspaceGroup = resolveTaskSourceGroup(task, groups);
+  const sourceRuntimeGroup =
+    (sourceWorkspaceGroup &&
+      findHomeSiblingGroup(sourceWorkspaceGroup, groups)) ||
+    sourceWorkspaceGroup;
+  const openAiDefaults = getOpenAiRuntimeDefaults();
+  const runtimeIdentity = resolveEffectiveRuntimeIdentity(
+    {
+      ...(sourceRuntimeGroup ?? ({} as RegisteredGroup)),
+      agentType: sourceRuntimeGroup?.agentType ?? 'openai',
+    },
+    {
+      openAiModel: openAiDefaults.model,
+      openAiReasoningEffort: openAiDefaults.reasoningEffort,
+      openAiSpeedTier: openAiDefaults.speedTier,
+    },
+  );
+  let snapshot;
+  try {
+    snapshot = await getRuntimeUsageSnapshot(runtimeIdentity);
+  } catch (err) {
+    snapshot = {
+      provider: 'openai' as const,
+      available: false,
+      source: 'Codex usage API',
+      reason: serializeErrorForOutput(err),
+    };
+  }
+  const decision = evaluateScheduledTaskUsageGuard(snapshot, {
+    nowMs: Date.now(),
+    minRemainingPct: positiveNumberFromEnv(
+      'CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT',
+      DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT,
+    ),
+    unavailableRetryMs: positiveNumberFromEnv(
+      'CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS',
+      DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS,
+    ),
+  });
+
+  if (decision.allowed) return false;
+
+  const reason =
+    decision.reason ?? 'OpenAI usage guard deferred scheduled task';
+  logger.info(
+    {
+      taskId: task.id,
+      deferUntil: decision.deferUntil,
+      lowBuckets: decision.lowBuckets,
+      reason,
+    },
+    'Scheduled task deferred by usage guard',
+  );
+  updateTaskRunLog(runLogId, {
+    duration_ms: Date.now() - startTime,
+    status: 'error',
+    result: null,
+    error: reason,
+  });
+  updateTaskAfterRun(
+    task.id,
+    decision.deferUntil ?? computeNextRun(task),
+    `Deferred: ${reason}`,
+  );
+  return true;
+}
+
 /**
  * Re-check DB before running — task may have been cancelled/paused while queued.
  * Returns true if the task is still active and should proceed.
@@ -290,6 +394,23 @@ export async function runTask(
   runningTaskIds.add(task.id);
   const startTime = Date.now();
   const runLogId = logTaskRunStart(task.id);
+
+  let deferredByUsageGuard = false;
+  try {
+    deferredByUsageGuard = await deferScheduledTaskIfUsageLow(
+      task,
+      deps,
+      runLogId,
+      startTime,
+    );
+    if (deferredByUsageGuard) {
+      return;
+    }
+  } finally {
+    if (deferredByUsageGuard) {
+      runningTaskIds.delete(task.id);
+    }
+  }
 
   // Ensure task has a dedicated workspace (Agent tasks only)
   const workspace = ensureTaskWorkspace(task, deps);
@@ -745,6 +866,125 @@ export async function runScriptTask(
   updateTaskAfterRun(task.id, nextRun, resultSummary);
 }
 
+export async function runWorkflowTask(
+  staleTask: ScheduledTask,
+  deps: SchedulerDependencies,
+  groupJid: string,
+  manualRun = false,
+): Promise<void> {
+  if (!manualRun && !isTaskStillActive(staleTask.id, 'workflow task')) return;
+
+  const task = getTaskById(staleTask.id);
+  if (!task) return;
+
+  runningTaskIds.add(task.id);
+  const startTime = Date.now();
+  const runLogId = logTaskRunStart(task.id);
+
+  let result: string | null = null;
+  let error: string | null = null;
+  let deferredByUsageGuard = false;
+
+  try {
+    deferredByUsageGuard = await deferScheduledTaskIfUsageLow(
+      task,
+      deps,
+      runLogId,
+      startTime,
+    );
+    if (deferredByUsageGuard) {
+      return;
+    }
+
+    if (isBillingEnabled() && task.group_folder) {
+      const groups = deps.registeredGroups();
+      const group = groups[groupJid];
+      if (group?.created_by) {
+        const owner = getUserById(group.created_by);
+        if (owner && owner.role !== 'admin') {
+          const accessResult = checkBillingAccessFresh(
+            group.created_by,
+            owner.role,
+          );
+          if (!accessResult.allowed) {
+            const reason = accessResult.reason || '当前账户不可用';
+            logger.info(
+              {
+                taskId: task.id,
+                userId: group.created_by,
+                reason,
+                blockType: accessResult.blockType,
+              },
+              'Billing access denied, blocking workflow task',
+            );
+            error = `计费限制: ${reason}`;
+            return;
+          }
+        }
+      }
+    }
+
+    const workflowArgs = resolveWorkflowTaskArgs(task);
+    if (!workflowArgs) {
+      error = 'workflow id is empty';
+      return;
+    }
+    if (!deps.runWorkflowCommand) {
+      error = 'workflow command runner is unavailable';
+      return;
+    }
+
+    logger.info(
+      { taskId: task.id, group: task.group_folder, executionType: 'workflow' },
+      'Running workflow task',
+    );
+
+    result = await deps.runWorkflowCommand(
+      groupJid,
+      workflowArgs,
+      task.created_by,
+      {
+        source: 'scheduled_task',
+        scheduledTaskId: task.id,
+        scheduleType: task.schedule_type,
+        scheduleValue: task.schedule_value,
+      },
+    );
+
+    if (result) {
+      await deps.sendMessage(
+        groupJid,
+        `${deps.assistantName}: ${result.slice(0, 4000)}`,
+        { source: 'scheduled_task' },
+      );
+    }
+
+    logger.info(
+      { taskId: task.id, durationMs: Date.now() - startTime },
+      'Workflow task completed',
+    );
+  } catch (err) {
+    error = serializeErrorForOutput(err);
+    logger.error({ taskId: task.id, error }, 'Workflow task failed');
+  } finally {
+    runningTaskIds.delete(task.id);
+    if (deferredByUsageGuard) return;
+    updateTaskRunLog(runLogId, {
+      duration_ms: Date.now() - startTime,
+      status: error ? 'error' : 'success',
+      result,
+      error,
+    });
+    const nextRun = manualRun ? task.next_run : computeNextRun(task);
+    const resultSummary = error
+      ? `Error: ${error}`
+      : result
+        ? result.slice(0, 200)
+        : 'Completed';
+    updateTaskAfterRun(task.id, nextRun, resultSummary);
+  }
+}
+
 let schedulerRunning = false;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 let lastCleanupTime = 0;
@@ -860,6 +1100,13 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
               'Unhandled error in runScriptTask',
             );
           });
+        } else if (currentTask.execution_type === 'workflow') {
+          runWorkflowTask(currentTask, deps, targetGroupJid).catch((err) => {
+            logger.error(
+              { taskId: currentTask.id, err },
+              'Unhandled error in runWorkflowTask',
+            );
+          });
         } else {
           // Agent tasks always run in isolated task workspaces. Prompts are not
           // injected into the source workspace conversation.
@@ -910,6 +1157,10 @@ export function triggerTaskNow(
       return { success: false, error: 'Script concurrency limit reached' };
     runScriptTask(task, deps, targetGroupJid, true).catch((err) =>
       logger.error({ taskId, err }, 'Manual script task failed'),
+    );
+  } else if (task.execution_type === 'workflow') {
+    runWorkflowTask(task, deps, targetGroupJid, true).catch((err) =>
+      logger.error({ taskId, err }, 'Manual workflow task failed'),
     );
   } else {
     const opts: RunTaskOptions = { manualRun: true, taskRunId: task.id };

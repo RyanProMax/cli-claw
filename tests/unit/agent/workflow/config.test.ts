@@ -479,4 +479,57 @@ describe('workflow config discovery', () => {
     expect(reportRole).toContain('每只 IPO 的 🔥 热度行必须写出具体倍数和来源');
     expect(reportRole).toContain('不要使用“卡：热17”这类内部短码');
   });
+
+  test('bundled stock strategy loop workflow keeps review, value analysis, and planning separated', () => {
+    const repoRoot = process.cwd();
+    const workflow = JSON.parse(
+      fs.readFileSync(
+        path.join(repoRoot, '.agents', 'workflows', 'stock-strategy-loop.json'),
+        'utf-8',
+      ),
+    ) as {
+      roles: string[];
+      nodes: Array<{ id: string; taskId?: string; roleId?: string }>;
+    };
+
+    expect(workflow.roles).toEqual([
+      'stock-strategy-task-reviewer',
+      'stock-strategy-value-analyst',
+      'stock-strategy-iteration-planner',
+    ]);
+    expect(workflow.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'collect_results',
+          taskId: 'stock.strategy.collect_results',
+        }),
+        expect.objectContaining({
+          id: 'review_results',
+          roleId: 'stock-strategy-task-reviewer',
+        }),
+        expect.objectContaining({
+          id: 'analyze_value',
+          taskId: 'stock.strategy.analyze_value',
+        }),
+        expect.objectContaining({
+          id: 'judge_strategy_value',
+          roleId: 'stock-strategy-value-analyst',
+        }),
+        expect.objectContaining({
+          id: 'plan_next_iteration',
+          roleId: 'stock-strategy-iteration-planner',
+        }),
+      ]),
+    );
+
+    for (const roleId of workflow.roles) {
+      const role = fs.readFileSync(
+        path.join(repoRoot, '.agents', 'agent-roles', `${roleId}.md`),
+        'utf-8',
+      );
+      expect(role).toContain('禁止真实交易');
+      expect(role).toContain('禁止自动 approve');
+      expect(role).toContain('禁止自动 activate');
+    }
+  });
 });

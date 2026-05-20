@@ -10367,6 +10367,7 @@ export async function startCliClaw(
           taskRunId,
         ),
       sendMessage,
+      runWorkflowCommand: handleWorkflowSlashCommand,
       broadcastStreamEvent,
       onWorkspaceCreated: broadcastGroupCreated,
       assistantName: ASSISTANT_NAME,

@@ -20,7 +20,8 @@
 │   │   │   ├── workspace-reset.ts   # runtime session 清理与工作区重置
 │   │   │   ├── context-compaction.ts# 消息上下文压缩
 │   │   │   └── sdk-query.ts         # SDK 查询封装
-│   │   ├── scheduler/index.ts       # 定时任务调度、执行日志与任务工作区
+│   │   ├── scheduler/index.ts       # 定时任务调度、执行日志、任务工作区与 scheduled workflow
+│   │   ├── scheduler/usage-guard.ts # scheduled agent / workflow 的 OpenAI 5h/7d usage 延后策略
 │   │   ├── script-runner.ts         # script task 执行
 │   │   └── task-utils.ts            # task owner / task workspace helper
 │   ├── core/
@@ -83,8 +84,8 @@
 ├── PLANS/                           # 当前计划、长期 roadmap 与计划模板
 ├── RUNBOOKS/                        # 实施、review、自迭代、handoff 操作规范
 ├── .agents/
-│   ├── workflows/                   # 仓库级/内置 workflow/crew graph 配置；含 hkipo
-│   ├── agent-roles/                 # runtime role card；会注入 workflow runner；含 hkipo crew
+│   ├── workflows/                   # 仓库级/内置 workflow/crew graph 配置；含 hkipo 与 stock-strategy-loop
+│   ├── agent-roles/                 # runtime role card；会注入 workflow runner；含 hkipo crew 与 stock strategy loop
 │   ├── roles/                       # 仓库协作/subagent 角色，不注入 runtime
 │   └── skills/                      # 仓库内联 skill command
 ├── scripts/                         # repo 级验证、review、release 脚本

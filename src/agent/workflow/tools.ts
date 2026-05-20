@@ -17,4 +17,6 @@ export const DEFAULT_WORKFLOW_LOCAL_TASK_IDS = [
   'stock.hkipo.scan_heat',
   'stock.hkipo.fetch_official_docs',
   'stock.hkipo.run_backtest',
+  'stock.strategy.collect_results',
+  'stock.strategy.analyze_value',
 ] as const;

@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import { createDefaultWorkflowLocalTasks } from '../../../../src/agent/workflow/local-tasks.ts';
@@ -10,6 +11,7 @@ const ENV_KEYS = [
   'STOCK_ANALYSIS_API_ROOT',
   'STOCK_ANALYSIS_UV',
   'CLI_CLAW_CACHE_DIR',
+  'STOCK_STRATEGY_TASK_DB',
 ] as const;
 
 function writeExecutable(filePath: string, content: string): void {
@@ -164,5 +166,190 @@ describe('default workflow local tasks', () => {
     expect((artifact as any).args).toContain('--include-closed');
     expect((artifact as any).args).toContain('2026-05-17');
     expect(fs.existsSync((artifact as any).cache_dir)).toBe(true);
+  });
+
+  test('collect_results reads recent stock task-chain state as a summary artifact', async () => {
+    const apiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-root-'));
+    tempDirs.push(apiRoot);
+    fs.mkdirSync(path.join(apiRoot, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(apiRoot, '.cache'), { recursive: true });
+    fs.writeFileSync(path.join(apiRoot, 'scripts', 'futu_market_data.py'), '');
+    const taskDbPath = path.join(apiRoot, '.cache', 'task_chain.sqlite');
+    const db = new Database(taskDbPath);
+    try {
+      db.exec(`
+        CREATE TABLE task_chain_tasks (
+          id TEXT PRIMARY KEY,
+          task_type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 100,
+          due_at TEXT NOT NULL,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          parent_task_id TEXT,
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          result_json TEXT,
+          error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE task_chain_summaries (
+          id TEXT PRIMARY KEY,
+          summary_type TEXT NOT NULL,
+          period_start TEXT NOT NULL,
+          period_end TEXT NOT NULL,
+          summary_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE TABLE task_chain_agent_handoff_outputs (
+          id TEXT PRIMARY KEY,
+          handoff_id TEXT NOT NULL,
+          output_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
+      db.prepare(
+        `INSERT INTO task_chain_tasks (id, task_type, status, due_at, result_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        'task-1',
+        'strategy_analysis',
+        'completed',
+        '2026-05-20T12:00:00Z',
+        JSON.stringify({ summary: { human_review_ready: 1 } }),
+        '2026-05-20T12:00:00Z',
+        '2026-05-20T12:01:00Z',
+      );
+      db.prepare(
+        `INSERT INTO task_chain_summaries (id, summary_type, period_start, period_end, summary_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        'summary-1',
+        'daily',
+        '2026-05-20T00:00:00Z',
+        '2026-05-20T12:00:00Z',
+        JSON.stringify({ summary: { tasks_total: 5 } }),
+        '2026-05-20T12:02:00Z',
+      );
+      db.prepare(
+        `INSERT INTO task_chain_agent_handoff_outputs (id, handoff_id, output_json, created_at)
+         VALUES (?, ?, ?, ?)`,
+      ).run(
+        'output-1',
+        'handoff-1',
+        JSON.stringify({ summary: 'KOL evidence completed' }),
+        '2026-05-20T12:03:00Z',
+      );
+    } finally {
+      db.close();
+    }
+
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_ANALYSIS_API_ROOT = apiRoot;
+
+    const tasks = createDefaultWorkflowLocalTasks();
+    const artifact = await tasks['stock.strategy.collect_results']({
+      taskId: 'stock.strategy.collect_results',
+      nodeId: 'collect_results',
+      input: { maxTasks: 5 },
+      artifacts: {},
+    });
+
+    expect(artifact).toMatchObject({
+      status: 'ok',
+      source: 'stock_strategy_collect_results',
+      task_chain: {
+        latest_tasks: [
+          {
+            id: 'task-1',
+            task_type: 'strategy_analysis',
+            status: 'completed',
+            result: { summary: { human_review_ready: 1 } },
+          },
+        ],
+        latest_summaries: [
+          {
+            id: 'summary-1',
+            summary_type: 'daily',
+            summary: { summary: { tasks_total: 5 } },
+          },
+        ],
+        latest_handoff_outputs: [
+          {
+            id: 'output-1',
+            handoff_id: 'handoff-1',
+            output: { summary: 'KOL evidence completed' },
+          },
+        ],
+      },
+    });
+  });
+
+  test('analyze_value returns degraded sub-results instead of failing the workflow', async () => {
+    const apiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-root-'));
+    const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-bin-'));
+    tempDirs.push(apiRoot, binRoot);
+    fs.mkdirSync(path.join(apiRoot, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(apiRoot, 'scripts', 'futu_market_data.py'), '');
+    fs.writeFileSync(
+      path.join(apiRoot, 'scripts', 'trading_daily_summary.py'),
+      '',
+    );
+    fs.writeFileSync(
+      path.join(apiRoot, 'scripts', 'alpha_daily_report.py'),
+      '',
+    );
+    const fakeUv = path.join(binRoot, 'uv');
+    writeExecutable(
+      fakeUv,
+      [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const script = args[2];',
+        'if (script === "scripts/trading_daily_summary.py") {',
+        '  process.stdout.write(JSON.stringify({ status: "ok", report_type: "trading_daily_summary" }));',
+        '} else if (script === "scripts/alpha_daily_report.py") {',
+        '  const market = args[args.indexOf("--market") + 1];',
+        '  if (market === "us") { process.stderr.write("not enough mature samples"); process.exit(1); }',
+        '  process.stdout.write(JSON.stringify({ status: "ok", report_type: "alpha_daily_report", market, alpha_backtest_summary: { total_return: 0.12 } }));',
+        '} else {',
+        '  process.stderr.write(`unexpected script ${script}`);',
+        '  process.exit(2);',
+        '}',
+      ].join('\n'),
+    );
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_ANALYSIS_API_ROOT = apiRoot;
+    process.env.STOCK_ANALYSIS_UV = fakeUv;
+
+    const tasks = createDefaultWorkflowLocalTasks();
+    const artifact = await tasks['stock.strategy.analyze_value']({
+      taskId: 'stock.strategy.analyze_value',
+      nodeId: 'analyze_value',
+      input: { reportDate: '2026-05-20', markets: ['hk', 'us'] },
+      artifacts: {},
+    });
+
+    expect(artifact).toMatchObject({
+      status: 'degraded',
+      source: 'stock_strategy_analyze_value',
+      trading_daily_summary: {
+        status: 'ok',
+        report_type: 'trading_daily_summary',
+      },
+      alpha_daily_reports: [
+        {
+          market: 'hk',
+          status: 'ok',
+          report_type: 'alpha_daily_report',
+          alpha_backtest_summary: { total_return: 0.12 },
+        },
+        {
+          market: 'us',
+          status: 'degraded',
+          reason: expect.stringContaining('not enough mature samples'),
+        },
+      ],
+    });
   });
 });

@@ -56,6 +56,10 @@ node scripts/stock-handoff-agent-bridge.mjs \
 
 该脚本只做一件事：读取 `stock-analysis-api` P1b handoff queue 中的 pending item，并为缺失的 item 幂等创建 `execution_type=agent`、`schedule_type=once` 的 Cli Claw scheduled task。它不会预先 claim stock handoff，不会运行 agent，不会写 strategy registry，不会 approve / activate 策略，也不会调用 broker。scheduled agent 真正执行时必须先 claim 指定 handoff id，再用 owner / lease / hash 校验后的 `complete/fail` 回写 stock task-chain。
 
+股票策略自分析 / 自迭代闭环使用 scheduled workflow task，而不是直接使用分钟级 launchd tick 运行 Agent。`scheduled_tasks.execution_type='workflow'` 时，`script_command` 保存 workflow id，`prompt` 保存 workflow prompt；scheduler 会复用 `/workflow <id> <prompt>` 的同一条执行路径，并写 workflow run/step 审计。内置 `stock-strategy-loop` workflow 的目标是低频审阅 task-chain 结果、分析实盘/模拟盘/回测价值并规划下一轮只读迭代；它不写 registry、不 approve、不 activate、不触发 broker。
+
+scheduled agent / scheduled workflow 默认带 usage guard：OpenAI 5h 或 7d 剩余额低于 30% 时不启动 Agent，并把任务延后到 usage reset 后继续。阈值可用 `CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT` 覆盖；usage 不可读时按 `CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS` 做保守重试。
+
 ## 应用内命令概览
 
 Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实源：
@@ -107,6 +111,7 @@ skill command 的执行结果有三类：
 - `/workflow` 不复用用户会话主 runtime session。它只把当前 Web / IM 会话作为触发入口和结果回填通道；workflow 自身按 `(folder, workflowId)` 生成独立 `workflowContextId` / LangGraph `thread_id`，role node 通过独立 `agentId=workflow:<workflowContextId>` 启动 runner。workflow 定义优先来自当前工作区 `.agents/workflows/<id>.json`，缺失时可使用 Cli Claw 内置 `.agents/workflows/<id>.json`；runtime role card 同理优先读取 `.agents/agent-roles/<id>.md`。role 的 `allowedTools` 会在 runner tool factory 层硬过滤。
 - 输入 bare `/workflow` 会列出当前工作区可用 workflow；输入 `/workflow <id> <任务>` 会创建一条 `workflow_runs` 审计记录并后台执行对应 graph。run 创建成功后，Web / IM 会立即收到 `🚀 已启动工作流 ...` 回执，包含 run id；成功、失败或 runner 超时后，系统会再向同一触发会话发送 `✅ 完成` 或 `❌ 失败` 终态消息。
 - 内置 `hkipo` workflow 是 9 节点 crew：Futu/OpenD IPO 池发现、池标准化、核心数据采集计划、二级热度/结构/估值证据采集、热度核验、官方文件下载解析、发行结构/基本面/估值分析、回测校准、最终短报告。用户仍输入 `/hkipo [--all]`；skill executor 只负责把它转成 `hkipo` workflow trigger，`--all` 作为结构化 input 传入 workflow state。最终报告面向飞书普通文本气泡，中文公司名优先，用短行和 emoji 突出排名、热度、入场费、绿鞋/基石/保荐/回拨、同类估值、合理区间、风险与池子校验，不依赖 Markdown 粗体或表格渲染。热度分只允许来自报告日同日的 `margin_multiple` 或 `subscription_multiple` evidence；`margin_multiple` 表示融资/孖展超额倍数，`subscription_multiple` 表示认购倍数，报告不得互相改名。若只有单一券商认购倍数，必须写“单一券商下限；融资/孖展倍数暂无多源核验”；若 `subscription_heat.score_status=not_scorable` 或核心因子不足，报告必须写 `0/N/A` 或“数据不足”，不得输出精确总分或主观“热5”。HKIPO 单个 role node 有 180s runtime 预算；对 `UND_ERR_SOCKET` 等 transient OpenAI socket 异常会有界重试，非最终 role 仍失败或超时时写降级 artifact 继续，最终报告 role 仍失败时用已完成的本地 artifact 生成“降级报告”，避免用户只看到 undici 堆栈。投递前还会对 `hkipo` 最终文本做轻量确定性归一化：把旧来源名统一为“致富证券 IPO”，把旧版“孖展多源未取到”改为“融资/孖展倍数暂无多源核验”，并把“卡：热17 结构8 ...”这类内部短码改写成独立 `🧮 评分` 行。
+- 内置 `stock-strategy-loop` workflow 用于定时股票策略自分析 / 自迭代：先收集 stock-analysis-api task-chain、summary 与 handoff evidence，再分析 paper/live ledger 和 HK/US alpha daily report / backtest summary，最后输出下一轮只读迭代计划。该 workflow 的 role card 均为 readonly，禁止真实交易、自动 approve 和自动 activate。
 - 当工作区未显式设置 `openai` 的模型、思考强度或速度时，`/status`、`/openai` 配置卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 OpenAI 环境变量 fallback，避免不同入口看到不同值。
 - `openai` 的模型选项使用内置 preset；若当前 effective model 不在 preset 中，配置卡仍会把它作为当前值展示，避免 `/status` 与 `/openai` 不一致。
 - 普通回复 footer 会始终保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。当当前 runtime usage 可用时，会追加 5h / 7d 剩余额；OpenAI/Codex 通过 Codex CLI 登录态请求 ChatGPT Codex usage API，不依赖 `OPENAI_API_KEY` 或过期的本地 jsonl 快照。

@@ -9,7 +9,7 @@ export const TaskPatchSchema = z.object({
   prompt: z.string().optional(),
   schedule_type: z.enum(['cron', 'interval', 'once']).optional(),
   schedule_value: z.string().optional(),
-  execution_type: z.enum(['agent', 'script']).optional(),
+  execution_type: z.enum(['agent', 'script', 'workflow']).optional(),
   script_command: z.string().max(4096).nullable().optional(),
   status: z.enum(['active', 'paused']).optional(),
   next_run: z.string().optional(),
@@ -31,7 +31,7 @@ export const TaskCreateSchema = z
     prompt: z.string().optional().default(''),
     schedule_type: z.enum(['cron', 'interval', 'once']),
     schedule_value: z.string().min(1),
-    execution_type: z.enum(['agent', 'script']).optional(),
+    execution_type: z.enum(['agent', 'script', 'workflow']).optional(),
     script_command: z.string().max(4096).optional(),
     notify_channels: z
       .array(z.enum(['feishu', 'telegram', 'qq', 'wechat', 'dingtalk']))
@@ -52,6 +52,13 @@ export const TaskCreateSchema = z
         code: z.ZodIssueCode.custom,
         path: ['script_command'],
         message: '脚本模式下 script_command 为必填项',
+      });
+    }
+    if (execType === 'workflow' && !data.script_command?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['script_command'],
+        message: 'Workflow 模式下 workflow id 为必填项',
       });
     }
     if (data.schedule_type === 'cron') {

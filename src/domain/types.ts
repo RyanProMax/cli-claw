@@ -161,7 +161,7 @@ export interface ScheduledTask {
   schedule_type: 'cron' | 'interval' | 'once';
   schedule_value: string;
   context_mode: 'isolated';
-  execution_type: 'agent' | 'script';
+  execution_type: 'agent' | 'script' | 'workflow';
   script_command: string | null;
   workspace_jid?: string | null;
   workspace_folder?: string | null;
