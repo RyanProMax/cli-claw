@@ -352,4 +352,102 @@ describe('default workflow local tasks', () => {
       ],
     });
   });
+
+  test('discovery_cycle runs alpha scan and research loop while preserving degraded market results', async () => {
+    const apiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-root-'));
+    const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-bin-'));
+    tempDirs.push(apiRoot, binRoot);
+    fs.mkdirSync(path.join(apiRoot, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(apiRoot, 'scripts', 'futu_market_data.py'), '');
+    fs.writeFileSync(path.join(apiRoot, 'scripts', 'alpha_scan.py'), '');
+    fs.writeFileSync(
+      path.join(apiRoot, 'scripts', 'alpha_research_loop.py'),
+      '',
+    );
+    const fakeUv = path.join(binRoot, 'uv');
+    writeExecutable(
+      fakeUv,
+      [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const script = args[2];',
+        'const market = args[args.indexOf("--market") + 1];',
+        'if (script === "scripts/alpha_scan.py") {',
+        '  process.stdout.write(JSON.stringify({ status: "ok", source: "alpha_scan", market, items: [{ symbol: `${market}.00001`, score: 0.9 }] }));',
+        '} else if (script === "scripts/alpha_research_loop.py") {',
+        '  if (market === "us") { process.stderr.write("insufficient_oos_samples"); process.exit(1); }',
+        '  process.stdout.write(JSON.stringify({ status: "ok", source: "alpha_research_loop", market, selected_factor: "momentum_20d", verdict: { gate_status: "blocked" } }));',
+        '} else {',
+        '  process.stderr.write(`unexpected script ${script}`);',
+        '  process.exit(2);',
+        '}',
+      ].join('\n'),
+    );
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_ANALYSIS_API_ROOT = apiRoot;
+    process.env.STOCK_ANALYSIS_UV = fakeUv;
+
+    const tasks = createDefaultWorkflowLocalTasks();
+    const artifact = await tasks['stock.strategy.discovery_cycle']({
+      taskId: 'stock.strategy.discovery_cycle',
+      nodeId: 'discover_candidates',
+      input: {
+        reportDate: '2026-05-20',
+        factors: ['momentum_20d', 'volume_change_5d'],
+        top: 15,
+      },
+      artifacts: {},
+    });
+
+    expect(artifact).toMatchObject({
+      status: 'degraded',
+      source: 'stock_strategy_discovery_cycle',
+      cadence: 'discovery',
+      report_date: '2026-05-20',
+      constraints: expect.arrayContaining([
+        'no_broker_or_order_side_effects',
+        'no_auto_approve',
+        'no_auto_activate',
+      ]),
+      request: {
+        markets: ['cn', 'hk', 'us'],
+      },
+      markets: [
+        {
+          market: 'cn',
+          scan: {
+            status: 'ok',
+            source: 'alpha_scan',
+            items: [{ symbol: 'cn.00001', score: 0.9 }],
+          },
+          research_loop: {
+            status: 'ok',
+            source: 'alpha_research_loop',
+            selected_factor: 'momentum_20d',
+          },
+        },
+        {
+          market: 'hk',
+          scan: {
+            status: 'ok',
+            source: 'alpha_scan',
+            items: [{ symbol: 'hk.00001', score: 0.9 }],
+          },
+          research_loop: {
+            status: 'ok',
+            source: 'alpha_research_loop',
+            selected_factor: 'momentum_20d',
+          },
+        },
+        {
+          market: 'us',
+          scan: { status: 'ok', source: 'alpha_scan' },
+          research_loop: {
+            status: 'degraded',
+            reason: expect.stringContaining('insufficient_oos_samples'),
+          },
+        },
+      ],
+    });
+  });
 });

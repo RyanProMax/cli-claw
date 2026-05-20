@@ -30,7 +30,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 
 `/hkipo` 是当前内置 workflow 示例：用户仍从 skill slash command 入口触发，但 skill executor 只返回 `workflowId=hkipo` 和结构化 input；主进程随后执行 Futu IPO 池发现、池标准化、核心数据采集计划、二级热度/发行结构/估值证据采集、证据核验、官方文件下载解析、发行结构与估值分析、回测校准和最终报告节点。Futu/OpenD 不可用时 pool discovery 失败；Futu 可用但热度、绿鞋、基石、回拨、保荐或估值字段缺失时，证据采集节点继续按公开只读来源和 HKEX 官方文件补齐并记录降级。采集脚本自身失败或超时时，只允许 `stock.hkipo.scan_heat` / `stock.hkipo.fetch_official_docs` 返回降级 artifact，不能中断整个 workflow；后续 verifier / report 必须把该情况表述为“热度未达当日核验门槛”或“多源未取到”，并说明缺失字段。
 
-股票策略自分析 / 自迭代现在使用同一 workflow 编排层，而不是独立的分钟级 launchd tick 直接驱动 Agent。`stock-strategy-loop` workflow 由 scheduled workflow task 低频触发，先用 local task 收集 stock-analysis-api task-chain、summary、handoff output 和策略价值证据，再由分离的 review / value / planning role 生成下一轮只读迭代建议。该 workflow 只产出审阅和计划 evidence，不写 strategy registry、不 approve、不 activate、不触发 broker。
+股票策略自分析 / 自迭代现在使用同一 workflow 编排层，而不是独立的分钟级 launchd tick 直接驱动 Agent。策略发现期由 `stock-strategy-discovery-loop` scheduled workflow 短间隔触发，先运行只读 `alpha_scan` 与离线 `alpha_research_loop` 形成候选和回测 evidence，再由 discovery reviewer / planner 判断下一步验证；成熟或候选复盘期由 `stock-strategy-loop` 低频触发，收集 task-chain、summary、handoff output、paper/live ledger 与回测价值证据，再由分离的 review / value / planning role 生成下一轮只读迭代建议。两类 workflow 都只产出审阅和计划 evidence，不自动 approve、不 activate、不触发 broker。
 
 ## IM 消息可靠性
 

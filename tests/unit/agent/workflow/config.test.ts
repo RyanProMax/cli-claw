@@ -532,4 +532,61 @@ describe('workflow config discovery', () => {
       expect(role).toContain('禁止自动 activate');
     }
   });
+
+  test('bundled stock strategy discovery workflow is short-cadence and readonly', () => {
+    const repoRoot = process.cwd();
+    const workflow = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          '.agents',
+          'workflows',
+          'stock-strategy-discovery-loop.json',
+        ),
+        'utf-8',
+      ),
+    ) as {
+      roles: string[];
+      nodes: Array<{ id: string; taskId?: string; roleId?: string }>;
+    };
+
+    expect(workflow.roles).toEqual([
+      'stock-strategy-discovery-reviewer',
+      'stock-strategy-iteration-planner',
+    ]);
+    expect(workflow.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'collect_results',
+          taskId: 'stock.strategy.collect_results',
+        }),
+        expect.objectContaining({
+          id: 'discover_candidates',
+          taskId: 'stock.strategy.discovery_cycle',
+        }),
+        expect.objectContaining({
+          id: 'review_discovery',
+          roleId: 'stock-strategy-discovery-reviewer',
+        }),
+        expect.objectContaining({
+          id: 'plan_next_iteration',
+          roleId: 'stock-strategy-iteration-planner',
+        }),
+      ]),
+    );
+
+    const role = fs.readFileSync(
+      path.join(
+        repoRoot,
+        '.agents',
+        'agent-roles',
+        'stock-strategy-discovery-reviewer.md',
+      ),
+      'utf-8',
+    );
+    expect(role).toContain('30 分钟');
+    expect(role).toContain('禁止真实交易');
+    expect(role).toContain('禁止自动 approve');
+    expect(role).toContain('禁止自动 activate');
+  });
 });

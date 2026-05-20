@@ -20,14 +20,14 @@
 
 - Status: `monitoring`
 - Source: 2026-05-20 user request to replace the old stock strategy self-analysis / self-iteration timer chain with a Cli Claw workflow loop.
-- Summary: 旧股票定时链路已冻结：Cli Claw 中 `stock-loop-progress-notifier` 与 `stock-watch-feishu-20260427-0208` 保持 paused，`launchd` 的 `com.ryan.stock-analysis-task-chain` 已 disabled。新闭环使用 `stock-strategy-loop-review` scheduled workflow task，每 6 小时触发内置 `stock-strategy-loop`：先只读收集 stock-analysis-api task-chain / summary / handoff output，再分析 paper/live ledger 与 HK/US alpha daily report / backtest summary，最后由 readonly role 输出下一轮迭代计划。scheduled agent / workflow 启动前会检查 OpenAI 5h / 7d usage，任一窗口剩余额低于 30% 时延后到 reset time 或保守重试。
+- Summary: 旧股票定时链路已冻结：Cli Claw 中 `stock-loop-progress-notifier` 与 `stock-watch-feishu-20260427-0208` 保持 paused，`launchd` 的 `com.ryan.stock-analysis-task-chain` 已 disabled。新闭环改成阶段化调度：探索期 `stock-strategy-discovery-loop` 每 30 分钟触发内置 `stock-strategy-discovery-loop`，只读运行 alpha scan / offline research loop 并审阅候选；成熟或候选复盘期 `stock-strategy-loop-review` 每 6 小时触发 `stock-strategy-loop`，收集 task-chain / summary / handoff output、分析 paper/live ledger 与 HK/US alpha daily report / backtest summary，最后由 readonly role 输出下一轮迭代计划。scheduled agent / workflow 启动前会检查 OpenAI 5h / 7d usage，任一窗口剩余额低于 30% 时延后到 reset time 或保守重试。
 - Durable contract:
   - scheduled workflow task 和 stock strategy loop 用户/运维入口见 `docs/COMMAND.md`。
   - workflow local task、usage guard 与 stock strategy artifact 边界见 `docs/RUNTIME.md`。
   - 架构边界见 `docs/ARCHITECTURE.md`，文件定位见 `docs/MODULE.md`。
 - Next action:
-  - 观察第一轮真实 `stock-strategy-loop-review` 运行：若 usage guard defer，记录 defer reason 与 next_run；若 workflow 完成，检查 `task_review`、`strategy_value_review` 和 `next_iteration_plan` 是否足够 summary-only 且没有交易/approve/activate 越界。
-  - 如果 6 小时节奏仍噪声偏高，拆成 HK close / US close 两个 workflow task；如果 artifact 太长，继续裁剪 `stock.strategy.collect_results` 和 `stock.strategy.analyze_value`。
+  - 第一轮真实 `stock-strategy-discovery-loop` 已于 2026-05-20T16:30:52Z 成功完成，下一轮排到 2026-05-20T17:00:00Z；继续观察后续 discovery 是否稳定区分新候选、重复候选、样本不足和 OOS 未成熟，且没有交易/approve/activate 越界。
+  - 观察 `stock-strategy-loop-review` 6 小时复盘是否只承担成熟/候选复盘，不再作为前期挖掘主循环；如果 discovery role usage 消耗过快，可改为本地 discovery 每 30 分钟、Agent review 每 2 小时。
   - 后续可增加 golden dataset / semantic eval，评价 planner 是否持续提出可验证、不过拟合、只读的下一轮迭代任务。
 
 ### P1 RM-2026-05-18-03 HKIPO Official Document Parser

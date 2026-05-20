@@ -283,12 +283,80 @@ function readWorkflowMarkets(input: WorkflowLocalTaskInput): string[] {
   return ['hk', 'us'];
 }
 
+function readWorkflowDiscoveryMarkets(input: WorkflowLocalTaskInput): string[] {
+  const explicitMarkets = readWorkflowMarkets(input);
+  if (resolveWorkflowTaskInput(input).markets !== undefined) {
+    return explicitMarkets;
+  }
+  return ['cn', 'hk', 'us'];
+}
+
+function readWorkflowFactors(input: WorkflowLocalTaskInput): string[] {
+  const taskInput = resolveWorkflowTaskInput(input);
+  const rawFactors = taskInput.factors;
+  const normalize = (items: unknown[]): string[] =>
+    items
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter((item) => item.length > 0)
+      .slice(0, 8);
+  if (Array.isArray(rawFactors)) {
+    const factors = normalize(rawFactors);
+    if (factors.length > 0) return factors;
+  }
+  if (typeof rawFactors === 'string') {
+    const factors = normalize(rawFactors.split(','));
+    if (factors.length > 0) return factors;
+  }
+  return ['momentum_5d', 'momentum_20d', 'volume_change_5d'];
+}
+
 function readWorkflowMaxTasks(input: WorkflowLocalTaskInput): number {
   const value = resolveWorkflowTaskInput(input).maxTasks;
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
     return Math.min(50, Math.floor(value));
   }
   return 12;
+}
+
+function readWorkflowTop(input: WorkflowLocalTaskInput): number {
+  const value = resolveWorkflowTaskInput(input).top;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.min(100, Math.floor(value));
+  }
+  return 20;
+}
+
+function readWorkflowMinObservations(input: WorkflowLocalTaskInput): number {
+  const value = resolveWorkflowTaskInput(input).minObservations;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.min(250, Math.floor(value));
+  }
+  return 20;
+}
+
+function readWorkflowMinBacktestPeriods(input: WorkflowLocalTaskInput): number {
+  const value = resolveWorkflowTaskInput(input).minBacktestPeriods;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.min(120, Math.floor(value));
+  }
+  return 3;
+}
+
+function readWorkflowUniverse(input: WorkflowLocalTaskInput): string {
+  const value = resolveWorkflowTaskInput(input).universe;
+  return typeof value === 'string' && value.trim() ? value.trim() : 'all';
+}
+
+function readWorkflowSymbols(input: WorkflowLocalTaskInput): string | null {
+  const value = resolveWorkflowTaskInput(input).symbols;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const symbols = value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+    return symbols.length > 0 ? symbols.join(',') : null;
+  }
+  return null;
 }
 
 function getCode(item: unknown): string {
@@ -596,6 +664,109 @@ function createAnalyzeStrategyValueTask(
   };
 }
 
+function createDiscoveryCycleTask(
+  options: DefaultWorkflowLocalTaskOptions,
+): WorkflowLocalTask {
+  return async (input) => {
+    const reportDate = readWorkflowReportDate(input);
+    const markets = readWorkflowDiscoveryMarkets(input);
+    const factors = readWorkflowFactors(input);
+    const top = readWorkflowTop(input);
+    const universe = readWorkflowUniverse(input);
+    const symbols = readWorkflowSymbols(input);
+    const minObservations = readWorkflowMinObservations(input);
+    const minBacktestPeriods = readWorkflowMinBacktestPeriods(input);
+    const recordToRegistry =
+      resolveWorkflowTaskInput(input).recordToRegistry === true;
+    const marketResults = await Promise.all(
+      markets.map(async (market) => {
+        const scanArgs = [
+          'scripts/alpha_scan.py',
+          '--market',
+          market,
+          '--universe',
+          universe,
+          '--top',
+          String(top),
+          '--as-of',
+          reportDate,
+        ];
+        if (symbols) scanArgs.push('--symbols', symbols);
+
+        const researchArgs = [
+          'scripts/alpha_research_loop.py',
+          '--market',
+          market,
+          '--universe',
+          universe,
+          '--factors',
+          factors.join(','),
+          '--date',
+          reportDate,
+          '--top',
+          String(top),
+          '--min-observations',
+          String(minObservations),
+          '--min-backtest-periods',
+          String(minBacktestPeriods),
+        ];
+        if (symbols) researchArgs.push('--symbols', symbols);
+        if (recordToRegistry) researchArgs.push('--record-to-registry');
+
+        const [scan, researchLoop] = await Promise.all([
+          runStockApiJsonOrDegraded('alpha_scan', scanArgs, input, options),
+          runStockApiJsonOrDegraded(
+            'alpha_research_loop',
+            researchArgs,
+            input,
+            options,
+          ),
+        ]);
+
+        return {
+          market,
+          scan: pruneArtifactValue(scan),
+          research_loop: pruneArtifactValue(researchLoop),
+        };
+      }),
+    );
+    const degraded = marketResults.some((result) => {
+      const scan = result.scan;
+      const researchLoop = result.research_loop;
+      return (
+        (isObject(scan) && scan.status === 'degraded') ||
+        (isObject(researchLoop) && researchLoop.status === 'degraded')
+      );
+    });
+
+    return {
+      status: degraded ? 'degraded' : 'ok',
+      source: 'stock_strategy_discovery_cycle',
+      cadence: 'discovery',
+      report_date: reportDate,
+      generatedAt: new Date().toISOString(),
+      request: {
+        markets,
+        factors,
+        top,
+        universe,
+        symbols,
+        min_observations: minObservations,
+        min_backtest_periods: minBacktestPeriods,
+        record_to_registry: recordToRegistry,
+      },
+      constraints: [
+        'summary_only_artifact',
+        'no_broker_or_order_side_effects',
+        'no_auto_approve',
+        'no_auto_activate',
+        'human_approval_required_before_activation',
+      ],
+      markets: marketResults,
+    };
+  };
+}
+
 function createFetchPoolTask(
   options: DefaultWorkflowLocalTaskOptions,
 ): WorkflowLocalTask {
@@ -751,6 +922,7 @@ export function createDefaultWorkflowLocalTasks(
     'stock.hkipo.run_backtest': createBacktestTask(options),
     'stock.strategy.collect_results': createCollectStrategyResultsTask(options),
     'stock.strategy.analyze_value': createAnalyzeStrategyValueTask(options),
+    'stock.strategy.discovery_cycle': createDiscoveryCycleTask(options),
   };
 }
 

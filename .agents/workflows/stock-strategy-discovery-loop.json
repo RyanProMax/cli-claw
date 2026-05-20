@@ -1,0 +1,47 @@
+{
+  "id": "stock-strategy-discovery-loop",
+  "name": "股票策略短间隔发现工作流",
+  "description": "探索期短间隔运行只读 alpha scan / offline research loop，审阅候选并规划下一轮验证。",
+  "roles": [
+    "stock-strategy-discovery-reviewer",
+    "stock-strategy-iteration-planner"
+  ],
+  "start": "collect_results",
+  "nodes": [
+    {
+      "id": "collect_results",
+      "type": "local_task",
+      "taskId": "stock.strategy.collect_results",
+      "outputArtifact": "strategy_task_results",
+      "prompt": "读取 stock-analysis-api task-chain 最近任务、pending/running 任务、summary 和 agent handoff outputs；判断当前是否仍处于策略发现期。"
+    },
+    {
+      "id": "discover_candidates",
+      "type": "local_task",
+      "taskId": "stock.strategy.discovery_cycle",
+      "outputArtifact": "strategy_discovery_evidence",
+      "prompt": "运行短间隔策略发现：alpha_scan + 离线 alpha_research_loop。只输出 summary-only 候选、评估、回测和阻断原因；不要 approve、activate 或交易。"
+    },
+    {
+      "id": "review_discovery",
+      "type": "role_task",
+      "roleId": "stock-strategy-discovery-reviewer",
+      "outputArtifact": "strategy_discovery_review",
+      "prompt": "审阅短间隔 discovery evidence。区分新候选、重复候选、样本不足、OOS 不成熟、数据缺口和需要等待的事项；不要把 blocked verdict 当作可上线策略。"
+    },
+    {
+      "id": "plan_next_iteration",
+      "type": "role_task",
+      "roleId": "stock-strategy-iteration-planner",
+      "outputArtifact": "next_iteration_plan",
+      "prompt": "基于 discovery review 输出下一轮最小验证计划：需要补哪些数据、继续哪些因子、暂停哪些重复尝试、何时进入 2 小时候选验证或 6 小时成熟复盘。"
+    }
+  ],
+  "edges": [
+    { "from": "collect_results", "to": "discover_candidates" },
+    { "from": "discover_candidates", "to": "review_discovery" },
+    { "from": "review_discovery", "to": "plan_next_iteration" },
+    { "from": "plan_next_iteration", "to": "__end__" }
+  ],
+  "maxRetries": 1
+}
