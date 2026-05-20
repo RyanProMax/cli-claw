@@ -225,7 +225,7 @@ export async function runAgentProcess(
   input: AgentProcessInput,
   onProcess: (proc: ChildProcess, identifier: string) => void,
   onOutput?: (output: AgentProcessOutput) => Promise<void>,
-  options?: { executionCwd?: string },
+  options?: { executionCwd?: string; processTimeoutMs?: number },
 ): Promise<AgentProcessOutput> {
   const startTime = Date.now();
   const setupInstallHint = 'npm --prefix container/agent-runner install';
@@ -461,7 +461,8 @@ export async function runAgentProcess(
       proc.stdin.end();
 
       let timedOut = false;
-      const timeoutMs = getSystemSettings().processTimeout;
+      const timeoutMs =
+        options?.processTimeoutMs ?? getSystemSettings().processTimeout;
 
       let killTimer: ReturnType<typeof setTimeout> | null = null;
 

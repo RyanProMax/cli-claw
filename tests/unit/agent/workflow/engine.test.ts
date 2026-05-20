@@ -301,4 +301,241 @@ describe('workflow graph engine', () => {
       ]),
     );
   });
+
+  test('degrades non-final hkipo role nodes on transient socket failures and continues', async () => {
+    const workflow: WorkflowDefinition = {
+      id: 'hkipo',
+      name: '港股 IPO 打新工作流',
+      description: '港股新股打新 crew',
+      roles: ['analyst'],
+      start: 'ipo_pool_discovery',
+      nodes: [
+        {
+          id: 'ipo_pool_discovery',
+          type: 'local_task',
+          taskId: 'stock.hkipo.fetch_pool',
+          outputArtifact: 'ipo_pool',
+        },
+        {
+          id: 'core_data_researcher',
+          type: 'role_task',
+          roleId: 'analyst',
+          outputArtifact: 'core_data_query_plan',
+        },
+        {
+          id: 'heat_data_crawler',
+          type: 'local_task',
+          taskId: 'stock.hkipo.scan_heat',
+          outputArtifact: 'heat_evidence',
+        },
+        {
+          id: 'ranking_report_editor',
+          type: 'role_task',
+          roleId: 'analyst',
+        },
+      ] as any,
+      edges: [
+        { from: 'ipo_pool_discovery', to: 'core_data_researcher' },
+        { from: 'core_data_researcher', to: 'heat_data_crawler' },
+        { from: 'heat_data_crawler', to: 'ranking_report_editor' },
+        { from: 'ranking_report_editor', to: '__end__' },
+      ],
+      maxRetries: 0,
+      sourcePath: '/workspace/.agents/workflows/hkipo.json',
+    };
+    const role = makeRole();
+    const context = { ...makeContext(), workflow_id: 'hkipo' };
+    const run = { ...makeRun(), workflow_id: 'hkipo' };
+    const stepEvents: unknown[] = [];
+
+    const result = await runWorkflowGraph({
+      workflow,
+      roles: new Map([[role.id, role]]),
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      context,
+      run,
+      prompt: '港股 IPO 打新分析',
+      localTasks: {
+        'stock.hkipo.fetch_pool': async () => ({
+          status: 'ok',
+          data: [{ code: 'HK.02723', name: '深演智能' }],
+        }),
+        'stock.hkipo.scan_heat': async (input: any) => ({
+          status: 'ok',
+          sawDegradedPlan:
+            input.artifacts.core_data_query_plan?.status === 'degraded',
+          data: [{ code: 'HK.02723', name: '深演智能', evidence: [] }],
+        }),
+      },
+      runner: async (input) => {
+        if (input.workflow?.nodeId === 'core_data_researcher') {
+          return {
+            status: 'error',
+            result: null,
+            error:
+              'Agent process exited with code 1: Symbol(undici.error.UND_ERR_SOCKET): true',
+          };
+        }
+        return {
+          status: 'success',
+          result: '📌 港股IPO打新｜降级后仍生成报告',
+        };
+      },
+      recordStep: (step) => {
+        stepEvents.push(step);
+      },
+      updateRunStatus: (runId, update) => ({ ...run, ...update }),
+    } as any);
+
+    expect(result.result).toContain('降级后仍生成报告');
+    expect((result as any).artifacts.core_data_query_plan).toMatchObject({
+      status: 'degraded',
+      nodeId: 'core_data_researcher',
+      reason: expect.stringContaining('UND_ERR_SOCKET'),
+    });
+    expect((result as any).artifacts.heat_evidence).toMatchObject({
+      sawDegradedPlan: true,
+    });
+    expect(stepEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'core_data_researcher',
+          status: 'success',
+          output: expect.objectContaining({
+            artifact: expect.objectContaining({
+              status: 'degraded',
+              nodeId: 'core_data_researcher',
+            }),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test('returns a deterministic hkipo fallback report when the final role hits a transient socket failure', async () => {
+    const workflow: WorkflowDefinition = {
+      id: 'hkipo',
+      name: '港股 IPO 打新工作流',
+      description: '港股新股打新 crew',
+      roles: ['analyst'],
+      start: 'ipo_pool_discovery',
+      nodes: [
+        {
+          id: 'ipo_pool_discovery',
+          type: 'local_task',
+          taskId: 'stock.hkipo.fetch_pool',
+          outputArtifact: 'ipo_pool',
+        },
+        {
+          id: 'heat_data_crawler',
+          type: 'local_task',
+          taskId: 'stock.hkipo.scan_heat',
+          outputArtifact: 'heat_evidence',
+        },
+        {
+          id: 'ranking_report_editor',
+          type: 'role_task',
+          roleId: 'analyst',
+          outputArtifact: 'final_report',
+        },
+      ] as any,
+      edges: [
+        { from: 'ipo_pool_discovery', to: 'heat_data_crawler' },
+        { from: 'heat_data_crawler', to: 'ranking_report_editor' },
+        { from: 'ranking_report_editor', to: '__end__' },
+      ],
+      maxRetries: 0,
+      sourcePath: '/workspace/.agents/workflows/hkipo.json',
+    };
+    const role = makeRole();
+    const context = { ...makeContext(), workflow_id: 'hkipo' };
+    const run = { ...makeRun(), workflow_id: 'hkipo' };
+    const runEvents: unknown[] = [];
+    const stepEvents: unknown[] = [];
+
+    const result = await runWorkflowGraph({
+      workflow,
+      roles: new Map([[role.id, role]]),
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      context,
+      run,
+      prompt: '港股 IPO 打新分析',
+      localTasks: {
+        'stock.hkipo.fetch_pool': async () => ({
+          status: 'ok',
+          data: [
+            {
+              code: 'HK.02723',
+              name: '深演智能',
+              entry_fee: 5605.97,
+            },
+          ],
+        }),
+        'stock.hkipo.scan_heat': async () => ({
+          status: 'ok',
+          summary: { same_day_heat_count: 1, ipo_count: 1 },
+          data: [
+            {
+              code: 'HK.02723',
+              name: '深演智能',
+              evidence: [
+                {
+                  field: 'margin_multiple',
+                  value: 143.95,
+                  unit: 'x',
+                  source: 'TradeSmart IPO Tracker',
+                  updated_at: '2026-05-19T02:04:10.000Z',
+                },
+              ],
+            },
+          ],
+        }),
+      },
+      runner: async () => ({
+        status: 'error',
+        result: null,
+        error:
+          'Agent process exited with code 1: Symbol(undici.error.UND_ERR_SOCKET): true',
+      }),
+      updateRunStatus: (runId, update) => {
+        runEvents.push({ runId, ...update });
+        return { ...run, ...update };
+      },
+      recordStep: (step) => {
+        stepEvents.push(step);
+      },
+    } as any);
+
+    expect(result.result).toContain('⚠️ 港股IPO打新｜降级报告');
+    expect(result.result).toContain('深演智能');
+    expect(result.result).toContain('融资/孖展超额 143.95x');
+    expect(result.result).toContain('Agent runtime socket');
+    expect(runEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          result: expect.stringContaining('降级报告'),
+        }),
+      ]),
+    );
+    expect(stepEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'ranking_report_editor',
+          status: 'success',
+          output: expect.objectContaining({
+            artifact: expect.objectContaining({ status: 'degraded' }),
+          }),
+        }),
+      ]),
+    );
+  });
 });

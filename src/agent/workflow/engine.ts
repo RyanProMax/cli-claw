@@ -113,6 +113,206 @@ const WorkflowState = Annotation.Root({
 let persistentWorkflowCheckpointer: BaseCheckpointSaver | null = null;
 let persistentWorkflowCheckpointPath: string | null = null;
 
+const HKIPO_FINAL_REPORT_NODE_ID = 'ranking_report_editor';
+const HKIPO_ROLE_PROCESS_TIMEOUT_MS = 180_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function artifactRows(artifact: unknown): unknown[] {
+  if (Array.isArray(artifact)) return artifact;
+  if (isRecord(artifact) && Array.isArray(artifact.data)) return artifact.data;
+  return [];
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function extractIpoCode(item: unknown): string {
+  if (!isRecord(item)) return '';
+  const direct = readString(item.code);
+  if (direct) return direct;
+  if (isRecord(item.code)) {
+    return (
+      readString(item.code.full) ||
+      readString(item.code.numeric) ||
+      readString(item.code.symbol)
+    );
+  }
+  return readString(item.symbol);
+}
+
+function extractIpoName(item: unknown): string {
+  if (!isRecord(item)) return '';
+  if (isRecord(item.name)) {
+    return (
+      readString(item.name.display) ||
+      readString(item.name.zh) ||
+      readString(item.name.cn) ||
+      readString(item.name.en)
+    );
+  }
+  return (
+    readString(item.display_name) ||
+    readString(item.displayName) ||
+    readString(item.name) ||
+    readString(item.short_name)
+  );
+}
+
+function compactCode(code: string): string {
+  return code.replace(/^HK\./i, '').trim();
+}
+
+function findHeatItemForIpo(heatRows: unknown[], ipo: unknown): unknown {
+  const ipoCode = compactCode(extractIpoCode(ipo));
+  const ipoName = extractIpoName(ipo);
+  return (
+    heatRows.find((candidate) => {
+      const candidateCode = compactCode(extractIpoCode(candidate));
+      const candidateName = extractIpoName(candidate);
+      return (
+        (ipoCode && candidateCode && ipoCode === candidateCode) ||
+        (ipoName && candidateName && ipoName === candidateName)
+      );
+    }) ?? null
+  );
+}
+
+function findEvidence(
+  item: unknown,
+  field: string,
+): Record<string, unknown> | null {
+  if (!isRecord(item)) return null;
+  return (
+    asArray(item.evidence).find(
+      (entry): entry is Record<string, unknown> =>
+        isRecord(entry) && entry.field === field,
+    ) ?? null
+  );
+}
+
+function formatMultipleEvidence(
+  evidence: Record<string, unknown> | null,
+  label: string,
+): string | null {
+  const value = readNumber(evidence?.value);
+  if (value === null) return null;
+  const unit = readString(evidence?.unit) || 'x';
+  const source = readString(evidence?.source);
+  const sourceText = source ? `（${source}）` : '';
+  return `${label} ${Number(value.toFixed(2))}${unit}${sourceText}`;
+}
+
+function isTransientAgentRuntimeError(message: string): boolean {
+  return /UND_ERR_SOCKET|undici\.error\.UND_ERR_SOCKET|socket hang up|other side closed|ECONNRESET|ETIMEDOUT|EPIPE|network socket|fetch failed|terminated|timed out|timeout|502|503|504|529/i.test(
+    message,
+  );
+}
+
+function isAgentRuntimeTimeout(message: string): boolean {
+  return /timed out|timeout/i.test(message);
+}
+
+function getWorkflowRoleProcessTimeoutMs(
+  input: AgentProcessInput,
+): number | undefined {
+  return input.workflow?.id === 'hkipo'
+    ? HKIPO_ROLE_PROCESS_TIMEOUT_MS
+    : undefined;
+}
+
+function buildDegradedRoleNotice(input: {
+  nodeId: string;
+  roleId: string;
+  message: string;
+}): string {
+  return [
+    `⚠️ ${input.nodeId} 已降级`,
+    `原因：Agent runtime socket 异常，已保留上游结构化数据继续执行。`,
+    `原始错误：${input.message.slice(0, 500)}`,
+  ].join('\n');
+}
+
+function buildHkipoFallbackReport(
+  state: WorkflowGraphState,
+  message: string,
+): string {
+  const ipoPool = state.artifacts.ipo_pool;
+  const heatEvidence = state.artifacts.heat_evidence;
+  const officialDocs = state.artifacts.official_docs;
+  const ipos = artifactRows(ipoPool);
+  const heatRows = artifactRows(heatEvidence);
+  const officialRows = artifactRows(officialDocs);
+  const heatSummary = isRecord(heatEvidence) ? heatEvidence.summary : null;
+  const sameDayCount =
+    isRecord(heatSummary) && typeof heatSummary.same_day_heat_count === 'number'
+      ? heatSummary.same_day_heat_count
+      : heatRows.filter((item) =>
+          asArray(isRecord(item) ? item.evidence : []).some(
+            (entry) => isRecord(entry) && entry.staleness_status === 'same_day',
+          ),
+        ).length;
+
+  const lines = [
+    '⚠️ 港股IPO打新｜降级报告',
+    `原因：Agent runtime socket 异常，报告编辑角色中断；以下基于已完成的本地采集 artifact 自动生成，建议稍后重试获取完整分析。`,
+    `Run 仍保留审计记录；原始错误：${message.slice(0, 220)}`,
+    '',
+    `📦 池子：Futu池 ${ipos.length}只｜同日热度 ${sameDayCount}/${Math.max(ipos.length, heatRows.length)}`,
+  ];
+
+  const docCount =
+    isRecord(officialDocs) &&
+    isRecord(officialDocs.summary) &&
+    typeof officialDocs.summary.parsed_document_count === 'number'
+      ? officialDocs.summary.parsed_document_count
+      : officialRows.reduce<number>((count, item) => {
+          if (!isRecord(item)) return count;
+          return count + asArray(item.documents).length;
+        }, 0);
+  if (docCount > 0) {
+    lines.push(
+      `📄 官方文件：已解析 ${docCount} 份，结构/估值仍需完整报告角色复核`,
+    );
+  }
+
+  const rows = ipos.length > 0 ? ipos : heatRows;
+  for (const [index, ipo] of rows.slice(0, 8).entries()) {
+    const heatItem = findHeatItemForIpo(heatRows, ipo) ?? ipo;
+    const code = extractIpoCode(ipo) || extractIpoCode(heatItem) || 'N/A';
+    const name = extractIpoName(ipo) || extractIpoName(heatItem) || code;
+    const margin = formatMultipleEvidence(
+      findEvidence(heatItem, 'margin_multiple'),
+      '融资/孖展超额',
+    );
+    const subscription = formatMultipleEvidence(
+      findEvidence(heatItem, 'subscription_multiple'),
+      '认购倍数',
+    );
+    const heatLine =
+      [margin, subscription].filter(Boolean).join('；') ||
+      '热度未达当日核验门槛';
+    lines.push(`${index + 1}. ${name} ${code}｜🔥 ${heatLine}`);
+  }
+
+  if (rows.length === 0) {
+    lines.push('未能从 artifact 读取 IPO 池，请查看 workflow run steps。');
+  }
+
+  return lines.join('\n');
+}
+
 export function getWorkflowCheckpointSqlitePath(): string {
   return path.join(STORE_DIR, 'workflow-checkpoints.sqlite');
 }
@@ -261,83 +461,162 @@ function createRoleTaskNode(options: {
   run: WorkflowRun;
   runner: WorkflowNodeRunner;
   recordStep: WorkflowStepRecorder;
+  maxAttempts: number;
 }) {
   return async (
     state: typeof WorkflowState.State,
   ): Promise<Partial<WorkflowGraphState>> => {
-    options.recordStep({
-      runId: options.run.id,
-      nodeId: options.node.id,
-      roleId: options.role.id,
-      status: 'running',
-      attempt: 1,
-      input: { prompt: state.prompt },
+    const maxAttempts = Math.max(1, options.maxAttempts);
+    const agentInput = buildWorkflowAgentInput({
+      workflow: options.workflow,
+      node: options.node,
+      role: options.role,
+      group: options.group,
+      context: options.context,
+      run: options.run,
+      userPrompt: state.prompt,
+      stepResults: state.stepResults,
+      artifacts: state.artifacts,
+      initialInput: state.input,
     });
 
-    const output = await options.runner(
-      buildWorkflowAgentInput({
-        workflow: options.workflow,
-        node: options.node,
-        role: options.role,
-        group: options.group,
-        context: options.context,
-        run: options.run,
-        userPrompt: state.prompt,
-        stepResults: state.stepResults,
-        artifacts: state.artifacts,
-        initialInput: state.input,
-      }),
-    );
-
-    if (output.status !== 'success') {
-      const error = output.error || output.result || 'Workflow node failed';
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       options.recordStep({
         runId: options.run.id,
         nodeId: options.node.id,
         roleId: options.role.id,
-        status: 'error',
-        attempt: 1,
+        status: 'running',
+        attempt,
         input: { prompt: state.prompt },
-        error,
       });
-      throw new Error(error);
-    }
 
-    const result = output.result ?? null;
-    const artifactKey = options.node.outputArtifact;
-    const roleArtifact = artifactKey
-      ? {
-          nodeId: options.node.id,
-          roleId: options.role.id,
-          result,
+      const output = await options
+        .runner(agentInput)
+        .catch((error: unknown) => {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return {
+            status: 'error' as const,
+            result: null,
+            error: message,
+          };
+        });
+
+      if (output.status !== 'success') {
+        const error = output.error || output.result || 'Workflow node failed';
+        const transientRuntimeError = isTransientAgentRuntimeError(error);
+        const shouldRetryTransient =
+          transientRuntimeError &&
+          !isAgentRuntimeTimeout(error) &&
+          attempt < maxAttempts;
+        if (shouldRetryTransient) {
+          options.recordStep({
+            runId: options.run.id,
+            nodeId: options.node.id,
+            roleId: options.role.id,
+            status: 'error',
+            attempt,
+            input: { prompt: state.prompt },
+            error,
+          });
+          continue;
         }
-      : null;
-    options.recordStep({
-      runId: options.run.id,
-      nodeId: options.node.id,
-      roleId: options.role.id,
-      status: 'success',
-      attempt: 1,
-      input: { prompt: state.prompt },
-      output: roleArtifact
-        ? { result, artifactKey, artifact: roleArtifact }
-        : { result },
-    });
 
-    const nextState: Partial<WorkflowGraphState> = {
-      result,
-      stepResults: {
-        [options.node.id]: {
+        if (options.workflow.id === 'hkipo' && transientRuntimeError) {
+          const fallbackResult =
+            options.node.id === HKIPO_FINAL_REPORT_NODE_ID
+              ? buildHkipoFallbackReport(state, error)
+              : buildDegradedRoleNotice({
+                  nodeId: options.node.id,
+                  roleId: options.role.id,
+                  message: error,
+                });
+          const artifactKey = options.node.outputArtifact ?? options.node.id;
+          const roleArtifact = {
+            status: 'degraded',
+            nodeId: options.node.id,
+            roleId: options.role.id,
+            reason: error,
+            result: fallbackResult,
+          };
+          options.recordStep({
+            runId: options.run.id,
+            nodeId: options.node.id,
+            roleId: options.role.id,
+            status: 'success',
+            attempt,
+            input: { prompt: state.prompt },
+            output: {
+              result: fallbackResult,
+              artifactKey,
+              artifact: roleArtifact,
+            },
+          });
+          return {
+            result: fallbackResult,
+            artifacts: {
+              [artifactKey]: roleArtifact,
+            },
+            stepResults: {
+              [options.node.id]: {
+                nodeId: options.node.id,
+                roleId: options.role.id,
+                result: fallbackResult,
+              },
+            },
+          };
+        }
+
+        options.recordStep({
+          runId: options.run.id,
           nodeId: options.node.id,
           roleId: options.role.id,
-          result,
+          status: 'error',
+          attempt,
+          input: { prompt: state.prompt },
+          error,
+        });
+        throw new Error(error);
+      }
+
+      const result = output.result ?? null;
+      const artifactKey = options.node.outputArtifact;
+      const roleArtifact = artifactKey
+        ? {
+            nodeId: options.node.id,
+            roleId: options.role.id,
+            result,
+          }
+        : null;
+      options.recordStep({
+        runId: options.run.id,
+        nodeId: options.node.id,
+        roleId: options.role.id,
+        status: 'success',
+        attempt,
+        input: { prompt: state.prompt },
+        output: roleArtifact
+          ? { result, artifactKey, artifact: roleArtifact }
+          : { result },
+      });
+
+      const nextState: Partial<WorkflowGraphState> = {
+        result,
+        stepResults: {
+          [options.node.id]: {
+            nodeId: options.node.id,
+            roleId: options.role.id,
+            result,
+          },
         },
-      },
-    };
-    if (artifactKey && roleArtifact) {
-      nextState.artifacts = { [artifactKey]: roleArtifact };
+      };
+      if (artifactKey && roleArtifact) {
+        nextState.artifacts = { [artifactKey]: roleArtifact };
+      }
+      return nextState;
     }
-    return nextState;
+
+    throw new Error('Workflow node failed');
   };
 }
 
@@ -449,9 +728,14 @@ export function compileWorkflowGraph(
         input,
         options.onProcess ?? (() => {}),
         options.onOutput,
-        options.executionCwd
-          ? { executionCwd: options.executionCwd }
-          : undefined,
+        {
+          ...(options.executionCwd
+            ? { executionCwd: options.executionCwd }
+            : {}),
+          ...(getWorkflowRoleProcessTimeoutMs(input)
+            ? { processTimeoutMs: getWorkflowRoleProcessTimeoutMs(input) }
+            : {}),
+        },
       ));
   const recordStep = options.recordStep ?? persistWorkflowRunStep;
   const localTasks = options.localTasks ?? {};
@@ -478,10 +762,11 @@ export function compileWorkflowGraph(
           run: options.run,
           runner,
           recordStep,
+          maxAttempts,
         }),
         {
           retryPolicy: {
-            maxAttempts,
+            maxAttempts: 1,
             initialInterval: 100,
             jitter: false,
           },

@@ -25,6 +25,56 @@
 
 ## Milestones
 
+### Milestone 15：HKIPO Agent Process Socket 异常恢复
+
+Objective:
+- 分析并修复 `/hkipo` workflow 在 role node 调用 agent runtime 时遇到 `undici UND_ERR_SOCKET` / `Agent process exited with code 1` 后直接失败的问题；要求工作流不要因为 OpenAI/网络 socket 瞬断丢失已采集数据，至少能在可降级节点给出可见失败说明或 deterministic fallback 报告。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `.agents/workflows/hkipo.json`
+- `.agents/agent-roles/*.md`
+- `src/agent/workflow/**`
+- `src/agent/runner/**`
+- `src/messaging/**`
+- `tests/unit/agent/workflow/**`
+- `tests/unit/messaging/**`
+- owner docs if runtime/error contract changes
+
+Validation:
+- Root-cause：定位失败 workflow run、失败节点、agent stderr/exit 信息与最近改动关系。
+- TDD 红测：模拟 role runner 抛出 `Agent process exited with code 1 ... UND_ERR_SOCKET` 时，hkipo 可降级节点不会让整条工作流直接终止，最终能返回含 run id / 降级原因 / 已采集数据摘要的可见结果。
+- `npm test -- tests/unit/agent/workflow/engine.test.ts tests/unit/agent/workflow/command.test.ts`
+- `npm run typecheck`
+- 真实 `/hkipo` E2E 或等价 workflow live smoke，确认 Feishu/Web 收到启动回执、失败/降级或成功终态。
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 根因已定位到 workflow run `wfrun_1102c43a-ecdd-41f0-893e-455e34339486` 的 `core_data_researcher` role node：agent runtime 进程因 OpenAI/undici transient socket 异常退出，错误包含 `UND_ERR_SOCKET`，上一版 `hkipo` workflow `maxRetries=0` 且 role node 直接 rethrow，导致整条 workflow 失败并把底层 socket 堆栈暴露给用户。
+- 已处理：`hkipo` role node 对 `UND_ERR_SOCKET`、`ECONNRESET`、`ETIMEDOUT` 等 transient runtime/socket 错误做有界重试；非最终 role node 重试后仍失败或 timeout 时写 `status=degraded` artifact 继续执行；最终 `ranking_report_editor` 失败时基于已完成本地 artifacts 生成 deterministic 降级报告。
+- 已处理：`hkipo` workflow `maxRetries=1`，并给单个 role agent process 设置 180s runtime 预算，避免再次拖到全局 30min 后才失败。
+- 仍保留边界：鉴权、额度、schema、prompt 或不可识别 runtime 错误不降级，仍按失败处理，避免吞掉真实实现错误。
+- 已运行并通过：
+  - 红测：`npm test -- tests/unit/agent/workflow/engine.test.ts` 曾在实现前复现 socket 错误会终止 workflow；实现后通过。
+  - `npm test -- tests/unit/agent/workflow/engine.test.ts tests/unit/agent/workflow/command.test.ts`
+  - `npm test -- tests/unit/agent/workflow/engine-runner-options.test.ts tests/unit/agent/workflow/engine.test.ts`
+  - `npm run typecheck`
+  - `npm run build`
+  - `./scripts/validate.sh`（72 test files passed, 1 skipped；500 tests passed, 1 skipped；typecheck/build passed）
+  - `./scripts/review.sh`（diff hygiene / format check passed）
+  - `git diff --check`
+- 真实 E2E：安全重启后通过 Web/API 入口向 Feishu 绑定会话发送 `/hkipo [e2e] e2e-socketfix-1779287948`，创建 run `wfrun_43395015-896a-47e2-acf0-dfacf25f6d97`；触发会话写入启动回执，9 个 workflow steps 全部 `success`，最终消息写入 `✅ 工作流 港股 IPO 打新工作流 (hkipo) 完成：`，结果不包含 `UND_ERR_SOCKET`，包含 `融资/孖展超额` 与 `TradeSmart IPO Tracker`，且不再出现旧文案 `孖展多源未取到`。
+- 验证警告均为既有噪声或构建提示：locale `LC_ALL` warning、测试内预期 Feishu fallback/error logs、MaxListeners warning、Vite chunk size warning。
+
 ### Milestone 14：HKIPO 孖展术语文案与数据源决策
 
 Objective:
@@ -768,29 +818,26 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 14
+- Milestone 15
 
 Current status:
 - done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `.agents/agent-roles/hkipo-ranking-report-editor.md`
-- `src/agent/workflow/command.ts`
-- `tests/unit/agent/workflow/command.test.ts`
+- `.agents/workflows/hkipo.json`
+- `src/agent/workflow/engine.ts`
+- `src/agent/runner/container-runner.ts`
+- `tests/unit/agent/workflow/engine.test.ts`
+- `tests/unit/agent/workflow/engine-runner-options.test.ts`
 - `docs/COMMAND.md`
 - `docs/RUNTIME.md`
-- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
-- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-heat-scan-cli.md`
-- `/Users/ryan/projects/stock-analysis-api/src/services/hkipo_heat_scan_service.py`
-- `/Users/ryan/projects/stock-analysis-api/tests/test_hkipo_heat_scan_cli.py`
 
 Last failure summary:
-- 红测曾确认最终投递 normalizer 仍会透出旧文案“孖展多源未取到”，stock-analysis-api fixture 也确认 TradeSmart 孖展脉搏尚未生成 `margin_multiple`。实现后相关测试、全量验证和真实 Feishu E2E 均通过。
+- 线上失败 run `wfrun_1102c43a-ecdd-41f0-893e-455e34339486` 卡在 `core_data_researcher`，agent runtime 因 `UND_ERR_SOCKET` 退出；上一版 role node 没有 workflow 层 retry/degrade/fallback，直接让 `/hkipo` 失败并把底层 undici 堆栈发给用户。
 
 Suspected cause:
-- 已处理：`subscription_multiple` 与 `margin_multiple` 是不同字段，上一版只稳定拿到券商认购倍数；新增 TradeSmart IPO Tracker source-specific parser 后，当前公开页可补同日融资/孖展超额倍数和孖展金额。AiPO 关闭风险已写入 roadmap。
+- 已处理：这是 OpenAI/undici transient socket 断连触发的 runtime crash，不是 IPO 池或数据源本身错误；workflow 现在对可识别 transient runtime 错误做有界重试和 HKIPO 专用降级，最终节点还有 artifact fallback 报告兜底。
 
 Next step:
-- 提交本轮两个仓库改动；继续监控 TradeSmart/AiPO 稳定性，并补更多券商/财经站 fallback，避免单一源退化后再次丢失孖展因子。
+- 已通过全量 validation、review gate 和真实 E2E；提交本轮 cli-claw 改动。
