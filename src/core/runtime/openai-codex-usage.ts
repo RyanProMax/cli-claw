@@ -11,6 +11,7 @@ import {
 import type { UsageProviderResult } from './usage-command.js';
 
 const CODEX_USAGE_CACHE_TTL_MS = 3 * 60 * 1000;
+const CODEX_USAGE_STALE_FALLBACK_TTL_MS = 90 * 60 * 1000;
 const CODEX_USAGE_SOURCE = 'Codex usage API';
 
 interface CodexUsageFetchResponse {
@@ -267,6 +268,22 @@ function cacheKey(auth: CodexCliRuntimeAuth): string {
   return `${auth.baseURL}|${auth.accountId ?? ''}`;
 }
 
+function staleCachedUsage(
+  cached: CachedOpenAiCodexUsage | undefined,
+  nowMs: number,
+  reason: string,
+): UsageProviderResult | null {
+  if (!cached?.result.available) return null;
+  if (nowMs - cached.fetchedAt > CODEX_USAGE_STALE_FALLBACK_TTL_MS) {
+    return null;
+  }
+  return {
+    ...cached.result,
+    source: `${cached.result.source} stale cache`,
+    reason: `Using stale successful usage snapshot because latest fetch failed: ${reason}`,
+  };
+}
+
 export function clearOpenAiCodexUsageCacheForTests(): void {
   usageCache.clear();
   inFlightUsageRequests.clear();
@@ -306,6 +323,15 @@ export async function getOpenAiCodexUsageSnapshot(
         { headers },
       );
       if (!response.ok) {
+        const stale =
+          response.status >= 500
+            ? staleCachedUsage(
+                usageCache.get(key),
+                now(),
+                `Codex usage API returned ${response.status}`,
+              )
+            : null;
+        if (stale) return stale;
         return unavailable(`Codex usage API returned ${response.status}`);
       }
 
@@ -318,7 +344,11 @@ export async function getOpenAiCodexUsageSnapshot(
       }
       return parsed;
     } catch (error) {
-      return unavailable(stringifyError(error));
+      const reason = stringifyError(error);
+      return (
+        staleCachedUsage(usageCache.get(key), now(), reason) ??
+        unavailable(reason)
+      );
     } finally {
       inFlightUsageRequests.delete(key);
     }

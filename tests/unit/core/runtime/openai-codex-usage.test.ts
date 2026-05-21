@@ -138,6 +138,51 @@ describe('OpenAI Codex usage snapshot', () => {
     expect(second).toEqual(first);
   });
 
+  test('uses a recent successful snapshot when a later usage fetch is transiently unavailable', async () => {
+    let nowMs = 1_000;
+    const fetchUsage = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          rate_limit: {
+            primary_window: { used_percent: 10 },
+            secondary_window: { used_percent: 25 },
+          },
+        }),
+      )
+      .mockRejectedValueOnce(
+        new Error('The socket connection was closed unexpectedly'),
+      );
+
+    const deps = {
+      fetchUsage,
+      now: () => nowMs,
+      resolveAuth: async () => ({
+        accessToken: 'codex-token',
+        accountId: 'acct_123',
+        baseURL: 'https://chatgpt.com/backend-api/codex',
+        source: 'codex-auth-json' as const,
+      }),
+    };
+
+    await expect(getOpenAiCodexUsageSnapshot(deps)).resolves.toMatchObject({
+      available: true,
+      primaryRemainingPct: 90,
+      secondaryRemainingPct: 75,
+      source: 'Codex usage API',
+    });
+
+    nowMs += 10 * 60 * 1000;
+    await expect(getOpenAiCodexUsageSnapshot(deps)).resolves.toMatchObject({
+      available: true,
+      primaryRemainingPct: 90,
+      secondaryRemainingPct: 75,
+      source: 'Codex usage API stale cache',
+      reason: expect.stringContaining('latest fetch failed'),
+    });
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+  });
+
   test('returns unavailable when auth or the usage endpoint fails', async () => {
     await expect(
       getOpenAiCodexUsageSnapshot({

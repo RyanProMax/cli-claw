@@ -181,6 +181,55 @@ describe('scheduled workflow task helpers', () => {
     );
   });
 
+  test('records an error when the workflow command returns a failure message', async () => {
+    const scheduledTask = task({});
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const workflowResult =
+      '❌ 工作流 股票策略自分析自迭代工作流 (stock-strategy-loop) 失败：planner overloaded';
+    const runWorkflowCommand = vi.fn().mockResolvedValue(workflowResult);
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:main': {
+            name: 'Main',
+            folder: 'main',
+            added_at: '2026-05-20T14:00:00.000Z',
+            agentType: 'openai',
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:main',
+    );
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'web:main',
+      `cli-claw: ${workflowResult}`,
+      { source: 'scheduled_task' },
+    );
+    expect(updateTaskRunLogMock).toHaveBeenCalledWith(
+      1001,
+      expect.objectContaining({
+        status: 'error',
+        result: workflowResult,
+        error: 'planner overloaded',
+      }),
+    );
+    expect(updateTaskAfterRunMock).toHaveBeenCalledWith(
+      'stock-strategy-loop-review',
+      expect.any(String),
+      'Error: planner overloaded',
+    );
+  });
+
   test('records an error when the workflow id is missing', async () => {
     const scheduledTask = task({ script_command: '', prompt: '' });
     getTaskByIdMock.mockReturnValue(scheduledTask);

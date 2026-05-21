@@ -115,6 +115,11 @@ let persistentWorkflowCheckpointPath: string | null = null;
 
 const HKIPO_FINAL_REPORT_NODE_ID = 'ranking_report_editor';
 const HKIPO_ROLE_PROCESS_TIMEOUT_MS = 180_000;
+const STOCK_STRATEGY_PLANNER_NODE_ID = 'plan_next_iteration';
+const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
+  'stock-strategy-discovery-loop',
+  'stock-strategy-loop',
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -215,7 +220,7 @@ function formatMultipleEvidence(
 }
 
 function isTransientAgentRuntimeError(message: string): boolean {
-  return /UND_ERR_SOCKET|undici\.error\.UND_ERR_SOCKET|socket hang up|other side closed|ECONNRESET|ETIMEDOUT|EPIPE|network socket|fetch failed|terminated|timed out|timeout|502|503|504|529/i.test(
+  return /UND_ERR_SOCKET|undici\.error\.UND_ERR_SOCKET|socket hang up|other side closed|ECONNRESET|ETIMEDOUT|EPIPE|network socket|fetch failed|terminated|timed out|timeout|502|503|504|529|server_is_overloaded|service_unavailable_error|server_error|servers are currently overloaded|please try again later/i.test(
     message,
   );
 }
@@ -311,6 +316,188 @@ function buildHkipoFallbackReport(
   }
 
   return lines.join('\n');
+}
+
+function parseJsonObjectLike(value: string): Record<string, unknown> | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const candidates = [fenced?.[1] ?? trimmed];
+  const objectStart = trimmed.indexOf('{');
+  const objectEnd = trimmed.lastIndexOf('}');
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    candidates.push(trimmed.slice(objectStart, objectEnd + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      // Role output can include prose around JSON; try the next candidate.
+    }
+  }
+  return null;
+}
+
+function readRoleArtifactObject(artifact: unknown): Record<string, unknown> {
+  if (!isRecord(artifact)) return {};
+  const result = artifact.result;
+  if (isRecord(result)) return result;
+  if (typeof result === 'string') return parseJsonObjectLike(result) ?? {};
+  return artifact;
+}
+
+function compactFallbackText(value: unknown, maxLength = 180): string {
+  const text =
+    typeof value === 'string'
+      ? value
+      : value === null || value === undefined
+        ? ''
+        : JSON.stringify(value);
+  const compacted = text.replace(/\s+/g, ' ').trim();
+  return compacted.length > maxLength
+    ? `${compacted.slice(0, maxLength - 1)}…`
+    : compacted;
+}
+
+function summarizeStockStrategyReview(
+  state: WorkflowGraphState,
+  workflowId: string,
+): {
+  changeSummary: string;
+  repeatSummary: string;
+  validationPlan: string[];
+  candidateTasks: Array<Record<string, unknown>>;
+} {
+  if (workflowId === 'stock-strategy-discovery-loop') {
+    const review = readRoleArtifactObject(
+      state.artifacts.strategy_discovery_review,
+    );
+    const newCandidates = asArray(review.new_candidates).filter(isRecord);
+    const repeatedCandidates = asArray(review.repeated_candidates);
+    const blockedReasons = asArray(review.blocked_reasons);
+    const dataGaps = asArray(review.data_gaps);
+    const recommendedChecks = asArray(review.recommended_checks)
+      .map((item) => compactFallbackText(item, 120))
+      .filter(Boolean)
+      .slice(0, 4);
+    const changeSummary =
+      newCandidates.length > 0
+        ? `Planner runtime 中断；上游 discovery review 已保留 ${newCandidates.length} 个新增候选，仍需人工复核后才能进入验证。`
+        : 'Planner runtime 中断；上游 discovery review 已保留，本轮未确认可上线策略。';
+    const repeatSummary =
+      repeatedCandidates.length > 0 ||
+      blockedReasons.length > 0 ||
+      dataGaps.length > 0
+        ? `存在重复/阻断信号：repeated=${repeatedCandidates.length}，blocked=${blockedReasons.length}，data_gaps=${dataGaps.length}；不要同配置原样重跑。`
+        : '未能从降级 fallback 中确认重复候选；请重试 planner 或查看 workflow artifacts。';
+    const candidateTasks = newCandidates.slice(0, 3).map((candidate) => ({
+      task_name:
+        readString(candidate.candidate) ||
+        readString(candidate.factor) ||
+        '候选补证验证',
+      market: readString(candidate.market),
+      goal:
+        readString(candidate.summary) ||
+        '基于已保留 discovery evidence 做只读补证验证。',
+      evidence: candidate.evidence ?? null,
+    }));
+    return {
+      changeSummary,
+      repeatSummary,
+      validationPlan:
+        recommendedChecks.length > 0
+          ? recommendedChecks
+          : [
+              '查看 strategy_discovery_review artifact',
+              '待 runtime 恢复后重试 planner',
+            ],
+      candidateTasks,
+    };
+  }
+
+  const valueReview = readRoleArtifactObject(
+    state.artifacts.strategy_value_review,
+  );
+  const valueVerdict = isRecord(valueReview.value_verdict)
+    ? valueReview.value_verdict
+    : {};
+  const overallStatus = readString(valueVerdict.overall_status);
+  const runtimeStatus = readString(valueVerdict.runtime_status);
+  const assessments = asArray(valueVerdict.market_assessments);
+  return {
+    changeSummary: `Planner runtime 中断；上游价值分析已保留，当前状态为 ${overallStatus || 'insufficient_evidence'}${runtimeStatus ? ` / ${runtimeStatus}` : ''}。`,
+    repeatSummary:
+      '最终规划节点未完成；在 planner 恢复前不要重复上线判断，只允许查看已保存的 task/value review artifact。',
+    validationPlan: [
+      '查看 strategy_value_review artifact',
+      '待 runtime 恢复后重试 planner',
+      '保持只读，不自动 approve / activate / trade',
+    ],
+    candidateTasks: assessments
+      .slice(0, 3)
+      .filter(isRecord)
+      .map((item) => ({
+        task_name: `${readString(item.market).toUpperCase() || 'UNKNOWN'} 价值补证`,
+        market: readString(item.market),
+        goal:
+          readString(item.judgement) ||
+          '基于已保留 value evidence 做只读补证验证。',
+        evidence_strength: readString(item.evidence_strength),
+      })),
+  };
+}
+
+function buildStockStrategyFallbackPlan(
+  state: WorkflowGraphState,
+  workflowId: string,
+  message: string,
+): string {
+  const summary = summarizeStockStrategyReview(state, workflowId);
+  return JSON.stringify(
+    {
+      status: 'degraded',
+      change_summary: summary.changeSummary,
+      repeat_decision: {
+        is_repeated: true,
+        summary: summary.repeatSummary,
+        next_step:
+          '保留上游 artifact；待 runtime 恢复后重试 planner，或按已保存证据进入人工只读补证。',
+      },
+      next_iteration_objective: {
+        summary:
+          '最终 planner 因 transient runtime 错误降级；本轮不生成新的上线结论，只保留已完成 evidence 并要求人工复核。',
+        cadence_decision: {
+          discovery: '连续重复时暂停同配置高频 discovery，优先补证或降频',
+          validation: '只读候选验证必须等 OOS / 对照 / 风控证据齐备',
+        },
+      },
+      candidate_tasks: summary.candidateTasks,
+      validation_plan: summary.validationPlan,
+      stop_conditions: [
+        'no_auto_approve',
+        'no_auto_activate',
+        'no_broker_or_order_side_effects',
+      ],
+      human_review_needed: true,
+      degraded_reason: message.slice(0, 700),
+    },
+    null,
+    2,
+  );
+}
+
+function shouldFallbackStockStrategyPlanner(input: {
+  workflow: WorkflowDefinition;
+  node: WorkflowNodeDefinition;
+  transientRuntimeError: boolean;
+}): boolean {
+  return (
+    input.transientRuntimeError &&
+    STOCK_STRATEGY_WORKFLOW_IDS.has(input.workflow.id) &&
+    input.node.id === STOCK_STRATEGY_PLANNER_NODE_ID
+  );
 }
 
 export function getWorkflowCheckpointSqlitePath(): string {
@@ -531,6 +718,54 @@ function createRoleTaskNode(options: {
                   roleId: options.role.id,
                   message: error,
                 });
+          const artifactKey = options.node.outputArtifact ?? options.node.id;
+          const roleArtifact = {
+            status: 'degraded',
+            nodeId: options.node.id,
+            roleId: options.role.id,
+            reason: error,
+            result: fallbackResult,
+          };
+          options.recordStep({
+            runId: options.run.id,
+            nodeId: options.node.id,
+            roleId: options.role.id,
+            status: 'success',
+            attempt,
+            input: { prompt: state.prompt },
+            output: {
+              result: fallbackResult,
+              artifactKey,
+              artifact: roleArtifact,
+            },
+          });
+          return {
+            result: fallbackResult,
+            artifacts: {
+              [artifactKey]: roleArtifact,
+            },
+            stepResults: {
+              [options.node.id]: {
+                nodeId: options.node.id,
+                roleId: options.role.id,
+                result: fallbackResult,
+              },
+            },
+          };
+        }
+
+        if (
+          shouldFallbackStockStrategyPlanner({
+            workflow: options.workflow,
+            node: options.node,
+            transientRuntimeError,
+          })
+        ) {
+          const fallbackResult = buildStockStrategyFallbackPlan(
+            state,
+            options.workflow.id,
+            error,
+          );
           const artifactKey = options.node.outputArtifact ?? options.node.id;
           const roleArtifact = {
             status: 'degraded',

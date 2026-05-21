@@ -352,9 +352,9 @@ async function deferScheduledTaskIfUsageLow(
   );
   updateTaskRunLog(runLogId, {
     duration_ms: Date.now() - startTime,
-    status: 'error',
-    result: null,
-    error: reason,
+    status: 'success',
+    result: `Deferred: ${reason}`,
+    error: null,
   });
   updateTaskAfterRun(
     task.id,
@@ -362,6 +362,13 @@ async function deferScheduledTaskIfUsageLow(
     `Deferred: ${reason}`,
   );
   return true;
+}
+
+function extractWorkflowCommandFailure(result: string | null): string | null {
+  if (!result) return null;
+  const match = result.match(/^❌\s*工作流\s+.+?失败[：:]\s*([\s\S]+)$/);
+  if (!match) return null;
+  return (match[1] ?? '').trim() || 'Workflow command failed';
 }
 
 /**
@@ -950,6 +957,10 @@ export async function runWorkflowTask(
         scheduleValue: task.schedule_value,
       },
     );
+    const workflowFailure = extractWorkflowCommandFailure(result);
+    if (workflowFailure) {
+      error = workflowFailure;
+    }
 
     if (result) {
       await deps.sendMessage(

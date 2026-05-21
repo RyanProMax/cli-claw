@@ -326,10 +326,10 @@ describe('task scheduler workspace cwd forwarding', () => {
     expect(db.updateTaskRunLog).toHaveBeenCalledWith(
       'run-log-1',
       expect.objectContaining({
-        status: 'error',
-        result: null,
-        error:
-          'OpenAI usage guard deferred scheduled task: 5h remaining 29% < 30%',
+        status: 'success',
+        result:
+          'Deferred: OpenAI usage guard deferred scheduled task: 5h remaining 29% < 30%',
+        error: null,
       }),
     );
     expect(db.updateTaskAfterRun).toHaveBeenCalledWith(
