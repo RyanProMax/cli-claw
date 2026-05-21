@@ -203,7 +203,7 @@ scheduled agent / scheduled workflow 在启动任何 Agent runtime 前会读取 
 
 股票策略自迭代采用阶段化调度，而不是一个固定 6 小时循环。`stock-strategy-discovery-loop` 是探索期 workflow，默认 30 分钟一次：`stock.strategy.collect_results` 只读 stock-analysis-api task-chain SQLite，`stock.strategy.discovery_cycle` 默认扫描 `cn/hk/us`，调用 stock-analysis-api `alpha_scan.py` 和 `alpha_research_loop.py`，输出 summary-only 的候选、评估、回测与阻断原因；任一市场或底层 CLI 失败时返回 degraded 子 artifact，后续角色继续审阅数据缺口。`stock-strategy-loop` 是成熟/候选复盘 workflow，默认 6 小时一次：`stock.strategy.analyze_value` 生成 paper/live ledger 摘要与 HK/US alpha daily report / backtest summary。两类 workflow 都不能伪造实盘收益或策略价值；discovery 默认不写 registry，显式 `recordToRegistry=true` 也只允许记录候选/评估/proposal，不允许 approve / activate。
 
-`stock-strategy-discovery-loop` / `stock-strategy-loop` 的用户可见终态消息会在 command 层做只影响展示的摘要化：飞书正文固定展示阶段目标、当前进展、策略效果和后续规划，并用 emoji 帮助扫读；原始 role JSON / 长文本仍保留在 workflow run 和 step 审计表中，避免为了可读性丢失排查证据。
+`stock-strategy-discovery-loop` / `stock-strategy-loop` 的用户可见终态消息会在 command 层做只影响展示的摘要化：飞书正文固定展示阶段目标、本轮完成、策略效果和后续规划；每个要点使用加粗标签和空行帮助扫读；原始 role JSON / 长文本仍保留在 workflow run 和 step 审计表中，避免为了可读性丢失排查证据。股票策略 planner 应优先输出 `change_summary` 和 `repeat_decision`，这样连续无新增时会先展示重复判断、等待/降频/补证或转候选验证建议，而不是把同一组 discovery evidence 包装成新的策略进展。
 
 `stock.hkipo.fetch_official_docs` 会调用 stock-analysis-api 内部只读 CLI `scripts/hkipo_official_docs.py`，先尝试 HKEX 标题检索，再回退解析 HKEX “新上市资料” Main Board / GEM 表格，把招股章程、配发结果、定价公告、稳定价格公告等文件下载到共享 cache namespace `hkipo-official-docs`，解析正文后只输出文件元数据、hash、短 snippet、结构化 `structure_evidence` / `valuation_evidence` 和 `source_errors`。IPO pool JSON 等一次性输入使用 `withCacheTempDir`，任务结束或失败时立即清理；可重建官方文件缓存由统一 cache cleanup loop 按 TTL / 容量清理。
 

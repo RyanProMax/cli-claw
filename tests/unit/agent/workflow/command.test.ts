@@ -369,6 +369,12 @@ describe('workflow command execution', () => {
       prompt: 'Run stock strategy discovery.',
       result: JSON.stringify(
         {
+          change_summary:
+            '本轮无新增可上线策略，只确认 US momentum_5d 仍是唯一可补证候选。',
+          repeat_decision: {
+            verdict: 'HK 与 CN 仍是重复阻断',
+            action: '暂停同配置原样重跑，转向 US 候选补证与 CN universe 修复。',
+          },
           next_iteration_objective: {
             summary:
               '下一轮采取最小有价值迭代：以 US momentum_5d 候选做补证验证；HK 暂停相同三因子原样重跑；CN 先补 universe/扫描链路证据。',
@@ -411,13 +417,21 @@ describe('workflow command execution', () => {
 
     expect(reply).toContain('✅ 工作流 股票策略短间隔发现工作流');
     expect(reply).toContain('🎯 阶段目标');
-    expect(reply).toContain('📍 当前进展');
+    expect(reply).toContain('📍 本轮完成');
     expect(reply).toContain('📈 策略效果');
     expect(reply).toContain('🧭 后续规划');
+    expect(reply).toContain('🎯 阶段目标\n\n- **目标：**');
+    expect(reply).toContain('📍 本轮完成\n\n- **本轮：**');
+    expect(reply).toContain(
+      '- **重复判断：** HK 与 CN 仍是重复阻断；暂停同配置原样重跑',
+    );
     expect(reply).toContain('US_momentum_5d');
     expect(reply).toContain('rank IC 0.058');
+    expect(reply).not.toContain('📍 当前进展');
     expect(reply).not.toContain('next_iteration_objective');
     expect(reply).not.toContain('candidate_tasks');
+    expect(reply).not.toContain('change_summary');
+    expect(reply).not.toContain('repeat_decision');
     expect(reply).not.toContain('{\n');
 
     db.closeDatabase();

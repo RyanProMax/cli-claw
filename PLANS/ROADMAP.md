@@ -27,9 +27,10 @@
   - 架构边界见 `docs/ARCHITECTURE.md`，文件定位见 `docs/MODULE.md`。
 - Next action:
   - 第一轮真实 `stock-strategy-discovery-loop` 已于 2026-05-20T16:30:52Z 成功完成，下一轮排到 2026-05-20T17:00:00Z；继续观察后续 discovery 是否稳定区分新候选、重复候选、样本不足和 OOS 未成熟，且没有交易/approve/activate 越界。
-  - 2026-05-21 已新增股票策略 workflow 飞书摘要层：用户可见消息固定展示阶段目标、当前进展、策略效果和后续规划，完整 JSON 只留在 workflow 审计中。
-  - 观察 `stock-strategy-loop-review` 6 小时复盘是否只承担成熟/候选复盘，不再作为前期挖掘主循环；如果 discovery role usage 消耗过快，可改为本地 discovery 每 30 分钟、Agent review 每 2 小时。
-  - 后续可增加 golden dataset / semantic eval，评价 planner 是否持续提出可验证、不过拟合、只读的下一轮迭代任务。
+  - 2026-05-21 已新增股票策略 workflow 飞书摘要层并完成卡片精修：用户可见消息固定展示阶段目标、本轮完成、策略效果和后续规划；要点使用加粗标题与空行；完整 JSON 只留在 workflow 审计中。
+  - 2026-05-21 已收紧 planner 契约：`stock-strategy-iteration-planner` 必须输出 `change_summary` 与 `repeat_decision`，连续无新增时要明确写重复判断、等待、降频、补证或转候选验证，避免把同一 discovery 结果包装成新结论。
+  - 观察 `stock-strategy-loop-review` 6 小时复盘是否只承担成熟/候选复盘，不再作为前期挖掘主循环；如果 discovery role usage 消耗过快或连续多轮 `repeat_decision` 无新增，可改为本地 discovery 每 30 分钟、Agent review 每 2 小时，并增加跨 run 去重/自动降频策略。
+  - 后续可增加 golden dataset / semantic eval，评价 planner 是否持续提出可验证、不过拟合、只读、且具备真实增量的下一轮迭代任务。
 
 ### P1 RM-2026-05-18-03 HKIPO Official Document Parser
 

@@ -154,6 +154,11 @@ function readArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+interface StockStrategyBullet {
+  label: string;
+  text: string;
+}
+
 function compactLine(value: string, maxLength = 96): string {
   const compacted = value.replace(/\s+/g, ' ').trim();
   return compacted.length > maxLength
@@ -263,12 +268,29 @@ function formatMetricEvidenceText(text: string): string | null {
 function collectMetricLines(value: unknown, limit = 3): string[] {
   const lines: string[] = [];
   const seen = new Set<string>();
+  const seenMetricEvidence = new Set<string>();
+  const hasDirectMetricKey = (record: Record<string, unknown>): boolean =>
+    [
+      'rank_ic_mean',
+      'rank_ic_tstat',
+      'cost_adjusted_quantile_spread',
+      'turnover',
+      'observations',
+      'total_return',
+      'sharpe',
+      'max_drawdown',
+    ].some((key) => Object.prototype.hasOwnProperty.call(record, key));
   const visit = (candidate: unknown): void => {
     if (lines.length >= limit) return;
     if (typeof candidate === 'string') {
       const metricLine = formatMetricEvidenceText(candidate);
-      if (metricLine && !seen.has(metricLine)) {
+      if (
+        metricLine &&
+        !seen.has(metricLine) &&
+        !seenMetricEvidence.has(metricLine)
+      ) {
         seen.add(metricLine);
+        seenMetricEvidence.add(metricLine);
         lines.push(metricLine);
       }
       return;
@@ -279,18 +301,23 @@ function collectMetricLines(value: unknown, limit = 3): string[] {
     }
     if (!isRecord(candidate)) return;
     const evidence = readRecord(candidate.evidence);
-    const metricLine = evidence
-      ? formatMetricEvidenceText(JSON.stringify(evidence))
-      : formatMetricEvidenceText(JSON.stringify(candidate));
     const label =
       readString(candidate.candidate) ||
       readString(candidate.task_name) ||
       readString(candidate.strategy) ||
       '';
+    const metricSource =
+      evidence || label || hasDirectMetricKey(candidate) ? candidate : null;
+    const metricLine = evidence
+      ? formatMetricEvidenceText(JSON.stringify(evidence))
+      : metricSource
+        ? formatMetricEvidenceText(JSON.stringify(metricSource))
+        : null;
     if (metricLine) {
       const line = label ? `${label}：${metricLine}` : metricLine;
       if (!seen.has(line)) {
         seen.add(line);
+        seenMetricEvidence.add(metricLine);
         lines.push(line);
       }
     }
@@ -298,6 +325,76 @@ function collectMetricLines(value: unknown, limit = 3): string[] {
   };
   visit(value);
   return lines.slice(0, limit);
+}
+
+function stringifySummaryValue(value: unknown): string {
+  if (typeof value === 'string') return compactLine(value, 144);
+  if (Array.isArray(value)) {
+    return value
+      .map(stringifySummaryValue)
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('；');
+  }
+  if (!isRecord(value)) return '';
+
+  const priorityKeys = [
+    'summary',
+    'verdict',
+    'decision',
+    'reason',
+    'action',
+    'next_action',
+    'recommendation',
+  ];
+  const pieces: string[] = [];
+  for (const key of priorityKeys) {
+    const text = stringifySummaryValue(value[key]);
+    if (text) pieces.push(text);
+    if (pieces.length >= 2) break;
+  }
+  return compactLine(pieces.join('；'), 144);
+}
+
+function readChangeSummary(data: Record<string, unknown>): string {
+  return (
+    stringifySummaryValue(data.change_summary) ||
+    stringifySummaryValue(data.delta_summary) ||
+    stringifySummaryValue(data.incremental_summary) ||
+    stringifySummaryValue(data.this_round_summary)
+  );
+}
+
+function readRepeatDecision(data: Record<string, unknown>): string {
+  return (
+    stringifySummaryValue(data.repeat_decision) ||
+    stringifySummaryValue(data.repetition_decision) ||
+    stringifySummaryValue(data.duplication_decision)
+  );
+}
+
+function formatBullet(label: string, text: string, maxLength = 144): string {
+  return `- **${compactLine(label, 28)}：** ${compactLine(text, maxLength)}`;
+}
+
+function splitLabeledBullet(
+  line: string,
+  fallbackLabel: string,
+): StockStrategyBullet {
+  const match = line.match(/^([^：:]{1,36})[：:]\s*(.+)$/);
+  if (!match) return { label: fallbackLabel, text: line };
+  return {
+    label: match[1].trim(),
+    text: match[2].trim(),
+  };
+}
+
+function formatBullets(
+  bullets: StockStrategyBullet[],
+  fallback: StockStrategyBullet,
+): string[] {
+  const items = bullets.length > 0 ? bullets : [fallback];
+  return items.map((item) => formatBullet(item.label, item.text));
 }
 
 function readObjectiveSummary(data: Record<string, unknown>): string {
@@ -309,10 +406,22 @@ function readObjectiveSummary(data: Record<string, unknown>): string {
   );
 }
 
-function formatProgressLines(data: Record<string, unknown>): string[] {
-  const lines: string[] = [];
+function formatCompletionBullets(
+  data: Record<string, unknown>,
+): StockStrategyBullet[] {
+  const bullets: StockStrategyBullet[] = [];
+  const changeSummary = readChangeSummary(data);
+  if (changeSummary) bullets.push({ label: '本轮', text: changeSummary });
+
+  const repeatDecision = readRepeatDecision(data);
+  if (repeatDecision) {
+    bullets.push({ label: '重复判断', text: repeatDecision });
+  }
+
   const summary = readObjectiveSummary(data);
-  if (summary) lines.push(compactLine(summary, 120));
+  if (!changeSummary && summary) {
+    bullets.push({ label: '结论', text: compactLine(summary, 120) });
+  }
 
   const objective = readRecord(data.next_iteration_objective);
   const cadenceDecision = readRecord(objective?.cadence_decision);
@@ -322,7 +431,12 @@ function formatProgressLines(data: Record<string, unknown>): string[] {
       2,
     )) {
       const text = readString(decision);
-      if (text) lines.push(`${market.toUpperCase()}：${compactLine(text, 72)}`);
+      if (text) {
+        bullets.push({
+          label: `${market.toUpperCase()} 节奏`,
+          text: compactLine(text, 72),
+        });
+      }
     }
   }
 
@@ -330,10 +444,10 @@ function formatProgressLines(data: Record<string, unknown>): string[] {
     .map(readString)
     .filter(Boolean)
     .slice(0, 3);
-  if (lines.length < 3 && priority.length > 0) {
-    lines.push(`优先级：${priority.join(' / ')}`);
+  if (bullets.length < 4 && priority.length > 0) {
+    bullets.push({ label: '优先级', text: priority.join(' / ') });
   }
-  return lines.slice(0, 3);
+  return bullets.slice(0, 4);
 }
 
 function formatPlanningLines(data: Record<string, unknown>): string[] {
@@ -343,7 +457,14 @@ function formatPlanningLines(data: Record<string, unknown>): string[] {
     const name = readString(task.task_name) || readString(task.name);
     const market = readString(task.market).toUpperCase();
     const goal = readString(task.goal) || readString(task.objective);
-    const prefix = [market, name].filter(Boolean).join(' ');
+    const normalizedName = name.toUpperCase();
+    const marketPrefix =
+      market &&
+      !normalizedName.startsWith(`${market}_`) &&
+      !normalizedName.startsWith(`${market} `)
+        ? market
+        : '';
+    const prefix = [marketPrefix, name].filter(Boolean).join(' ');
     const line = prefix
       ? `${prefix}：${compactLine(goal || '继续补证验证', 72)}`
       : compactLine(goal, 80);
@@ -377,18 +498,30 @@ function formatStockStrategyFallback(result: string): string {
     .slice(0, 3);
   return [
     '🎯 阶段目标',
-    '- 股票策略自迭代结果摘要；完整原文保留在 workflow run 审计中。',
     '',
-    '📍 当前进展',
+    formatBullet(
+      '目标',
+      '股票策略自迭代结果摘要；完整原文保留在 workflow run 审计中。',
+    ),
+    '',
+    '📍 本轮完成',
+    '',
     ...(lines.length > 0
-      ? lines.map((line) => `- ${line}`)
-      : ['- 暂未解析到结构化进展。']),
+      ? lines.map((line, index) =>
+          formatBullet(index === 0 ? '摘要' : `要点 ${index + 1}`, line),
+        )
+      : [formatBullet('结论', '暂未解析到结构化进展。')]),
     '',
     '📈 策略效果',
-    '- 暂未解析到可展示的核心指标，不能据此判断可上线。',
+    '',
+    formatBullet('结论', '暂未解析到可展示的核心指标，不能据此判断可上线。'),
     '',
     '🧭 后续规划',
-    '- 查看 workflow run / step artifact 后继续补证；保持只读，不自动 approve / activate / trade。',
+    '',
+    formatBullet(
+      '下一步',
+      '查看 workflow run / step artifact 后继续补证；保持只读，不自动 approve / activate / trade。',
+    ),
   ].join('\n');
 }
 
@@ -406,7 +539,7 @@ function formatStockStrategyResultForDelivery(
   const goal = isDiscovery
     ? '短间隔挖掘候选，先补证再候选验证；不自动上线。'
     : '复盘成熟/候选策略价值，决定继续、降频或停止。';
-  const progressLines = formatProgressLines(data);
+  const completionBullets = formatCompletionBullets(data);
   const metricLines = collectMetricLines(data, 3);
   const planningLines = formatPlanningLines(data);
 
@@ -414,25 +547,41 @@ function formatStockStrategyResultForDelivery(
     title,
     '',
     '🎯 阶段目标',
-    `- ${goal}`,
     '',
-    '📍 当前进展',
-    ...(progressLines.length > 0
-      ? progressLines.map((line) => `- ${line}`)
-      : ['- 暂无结构化进展摘要。']),
+    formatBullet('目标', goal),
+    '',
+    '📍 本轮完成',
+    '',
+    ...formatBullets(completionBullets, {
+      label: '结论',
+      text: '暂无结构化本轮完成摘要。',
+    }),
     '',
     '📈 策略效果',
+    '',
     ...(metricLines.length > 0
-      ? metricLines.map((line) => `- ${line}`)
-      : ['- 暂无可判定收益；当前仍处候选/补证阶段。']),
-    '- 以上仅为研究证据，不代表可实盘上线。',
+      ? metricLines.map((line) => {
+          const bullet = splitLabeledBullet(line, '指标');
+          return formatBullet(bullet.label, bullet.text);
+        })
+      : [formatBullet('结论', '暂无可判定收益；当前仍处候选/补证阶段。')]),
+    formatBullet('提醒', '以上仅为研究证据，不代表可实盘上线。'),
     '',
     '🧭 后续规划',
-    ...(planningLines.length > 0
-      ? planningLines.map((line) => `- ${line}`)
-      : ['- 继续补证，等待 OOS / 对照 / 风控证据齐备后再评审。']),
     '',
-    '🛡️ 边界：只读，不自动 approve / activate / trade。',
+    ...(planningLines.length > 0
+      ? planningLines.map((line) => {
+          const bullet = splitLabeledBullet(line, '下一步');
+          return formatBullet(bullet.label, bullet.text);
+        })
+      : [
+          formatBullet(
+            '下一步',
+            '继续补证，等待 OOS / 对照 / 风控证据齐备后再评审。',
+          ),
+        ]),
+    '',
+    '🛡️ **边界：** 只读，不自动 approve / activate / trade。',
   ].join('\n');
 }
 

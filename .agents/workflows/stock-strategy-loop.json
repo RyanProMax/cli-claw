@@ -42,7 +42,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-iteration-planner",
       "outputArtifact": "next_iteration_plan",
-      "prompt": "综合任务审阅和价值分析，规划下一轮迭代方向。输出下一步验证任务、预期 evidence、风险护栏和是否需要人工介入；不要 approve、activate 或交易。"
+      "prompt": "综合任务审阅和价值分析，规划下一轮迭代方向。必须先给出本轮增量 change_summary 和重复判断 repeat_decision；若实盘/模拟盘/回测 evidence 没有新增，明确写本轮无新增收益证据，并规划等待、降频或补证而不是重复同配置任务。输出下一步验证任务、预期 evidence、风险护栏和是否需要人工介入；不要 approve、activate 或交易。"
     }
   ],
   "edges": [

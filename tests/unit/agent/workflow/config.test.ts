@@ -489,8 +489,16 @@ describe('workflow config discovery', () => {
       ),
     ) as {
       roles: string[];
-      nodes: Array<{ id: string; taskId?: string; roleId?: string }>;
+      nodes: Array<{
+        id: string;
+        taskId?: string;
+        roleId?: string;
+        prompt?: string;
+      }>;
     };
+    const workflowPrompts = workflow.nodes
+      .map((node) => `${node.id}: ${node.prompt ?? ''}`)
+      .join('\n');
 
     expect(workflow.roles).toEqual([
       'stock-strategy-task-reviewer',
@@ -531,6 +539,22 @@ describe('workflow config discovery', () => {
       expect(role).toContain('禁止自动 approve');
       expect(role).toContain('禁止自动 activate');
     }
+
+    const plannerRole = fs.readFileSync(
+      path.join(
+        repoRoot,
+        '.agents',
+        'agent-roles',
+        'stock-strategy-iteration-planner.md',
+      ),
+      'utf-8',
+    );
+    expect(workflowPrompts).toContain('change_summary');
+    expect(workflowPrompts).toContain('repeat_decision');
+    expect(workflowPrompts).toContain('本轮无新增收益证据');
+    expect(plannerRole).toContain('本轮增量');
+    expect(plannerRole).toContain('change_summary');
+    expect(plannerRole).toContain('repeat_decision');
   });
 
   test('bundled stock strategy discovery workflow is short-cadence and readonly', () => {
@@ -547,8 +571,16 @@ describe('workflow config discovery', () => {
       ),
     ) as {
       roles: string[];
-      nodes: Array<{ id: string; taskId?: string; roleId?: string }>;
+      nodes: Array<{
+        id: string;
+        taskId?: string;
+        roleId?: string;
+        prompt?: string;
+      }>;
     };
+    const workflowPrompts = workflow.nodes
+      .map((node) => `${node.id}: ${node.prompt ?? ''}`)
+      .join('\n');
 
     expect(workflow.roles).toEqual([
       'stock-strategy-discovery-reviewer',
@@ -588,5 +620,9 @@ describe('workflow config discovery', () => {
     expect(role).toContain('禁止真实交易');
     expect(role).toContain('禁止自动 approve');
     expect(role).toContain('禁止自动 activate');
+    expect(workflowPrompts).toContain('change_summary');
+    expect(workflowPrompts).toContain('repeat_decision');
+    expect(workflowPrompts).toContain('本轮无新增');
+    expect(workflowPrompts).toContain('暂停同配置 30 分钟 discovery 原样重跑');
   });
 });
