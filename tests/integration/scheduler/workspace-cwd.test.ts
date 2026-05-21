@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const { runScriptMock, runAgentProcessMock, runtimeUsageMock } = vi.hoisted(
   () => ({
@@ -96,6 +96,10 @@ describe('task scheduler workspace cwd forwarding', () => {
       primaryRemainingPct: 80,
       secondaryRemainingPct: 80,
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   test('passes the source workspace cwd to script tasks', async () => {
@@ -281,6 +285,8 @@ describe('task scheduler workspace cwd forwarding', () => {
   });
 
   test('defers scheduled agent tasks when the 5h usage bucket is below threshold', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-20T15:00:00.000Z'));
     const task = buildTask({
       id: 'task-low-usage',
       next_run: '2026-05-20T15:00:00.000Z',

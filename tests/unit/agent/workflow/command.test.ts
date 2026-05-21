@@ -361,4 +361,65 @@ describe('workflow command execution', () => {
 
     db.closeDatabase();
   });
+
+  test('formats stock strategy workflow results as a concise Feishu summary', async () => {
+    const workspaceRoot = tempDir('cli-claw-workflow-command-stock-strategy-');
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: 'Run stock strategy discovery.',
+      result: JSON.stringify(
+        {
+          next_iteration_objective: {
+            summary:
+              '下一轮采取最小有价值迭代：以 US momentum_5d 候选做补证验证；HK 暂停相同三因子原样重跑；CN 先补 universe/扫描链路证据。',
+            priority_order: ['US 候选验证与补证', 'HK 失败原因拆解'],
+            cadence_decision: {
+              us: '进入 2 小时候选验证前的补证阶段',
+              hk: '仅限修改研究设计后的单轮验证',
+            },
+          },
+          candidate_tasks: [
+            {
+              task_name: 'US_momentum_5d_候选补证验证',
+              market: 'us',
+              goal: '验证 alpha_topn_momentum_5d 是否具备进入候选验证的最低证据完整性。',
+              input_evidence: [
+                '已知指标：rank_ic_mean=0.05800525，rank_ic_tstat=2.81729218，cost_adjusted_quantile_spread=0.00359111，turnover=0.28063241，observations=1252',
+              ],
+            },
+          ],
+          validation_plan: ['补齐 OOS 明细', '补 champion/challenger 对比'],
+          stop_conditions: ['不自动 approve', '不自动 activate'],
+        },
+        null,
+        2,
+      ),
+      stepResults: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'stock-strategy-discovery-loop Run stock strategy discovery.',
+      workspaceRoot,
+      runGraph,
+    });
+
+    expect(reply).toContain('✅ 工作流 股票策略短间隔发现工作流');
+    expect(reply).toContain('🎯 阶段目标');
+    expect(reply).toContain('📍 当前进展');
+    expect(reply).toContain('📈 策略效果');
+    expect(reply).toContain('🧭 后续规划');
+    expect(reply).toContain('US_momentum_5d');
+    expect(reply).toContain('rank IC 0.058');
+    expect(reply).not.toContain('next_iteration_objective');
+    expect(reply).not.toContain('candidate_tasks');
+    expect(reply).not.toContain('{\n');
+
+    db.closeDatabase();
+  });
 });

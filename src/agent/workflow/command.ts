@@ -138,12 +138,316 @@ function normalizeHkipoFinalReport(result: string): string {
     );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function readArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function compactLine(value: string, maxLength = 96): string {
+  const compacted = value.replace(/\s+/g, ' ').trim();
+  return compacted.length > maxLength
+    ? `${compacted.slice(0, maxLength - 1)}…`
+    : compacted;
+}
+
+function parseJsonObjectLike(value: string): Record<string, unknown> | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const candidates = [fenced?.[1] ?? trimmed];
+  const objectStart = trimmed.indexOf('{');
+  const objectEnd = trimmed.lastIndexOf('}');
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    candidates.push(trimmed.slice(objectStart, objectEnd + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (!isRecord(parsed)) continue;
+      const nestedResult = readString(parsed.result);
+      if (
+        nestedResult &&
+        !parsed.next_iteration_objective &&
+        !parsed.candidate_tasks
+      ) {
+        return parseJsonObjectLike(nestedResult) ?? parsed;
+      }
+      return parsed;
+    } catch {
+      // Try the next candidate; workflow role output can include prose wrappers.
+    }
+  }
+  return null;
+}
+
+function formatNumber(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  return parsed
+    .toFixed(Math.abs(parsed) >= 1 ? 2 : 3)
+    .replace(/0+$/g, '')
+    .replace(/\.$/g, '');
+}
+
+function formatRatioAsPercent(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  const percent = Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
+  return `${percent.toFixed(1).replace(/\.0$/g, '')}%`;
+}
+
+function extractPatternNumber(text: string, pattern: RegExp): string | null {
+  const match = text.match(pattern);
+  return match?.[1] ?? null;
+}
+
+function formatMetricEvidenceText(text: string): string | null {
+  const pieces: string[] = [];
+  const rankIc = extractPatternNumber(
+    text,
+    /rank_ic_mean["']?\s*[=:]\s*(-?\d+(?:\.\d+)?)/i,
+  );
+  const rankIcTstat = extractPatternNumber(
+    text,
+    /rank_ic_tstat["']?\s*[=:]\s*(-?\d+(?:\.\d+)?)/i,
+  );
+  const costSpread = extractPatternNumber(
+    text,
+    /cost_adjusted_quantile_spread["']?\s*[=:]\s*(-?\d+(?:\.\d+)?)/i,
+  );
+  const turnover = extractPatternNumber(
+    text,
+    /turnover["']?\s*[=:]\s*(-?\d+(?:\.\d+)?)/i,
+  );
+  const observations = extractPatternNumber(
+    text,
+    /observations["']?\s*[=:]\s*(\d+(?:\.\d+)?)/i,
+  );
+  const totalReturn = extractPatternNumber(
+    text,
+    /total_return["']?\s*[=:]\s*(-?\d+(?:\.\d+)?)/i,
+  );
+  const sharpe = extractPatternNumber(
+    text,
+    /sharpe["']?\s*[=:]\s*(-?\d+(?:\.\d+)?)/i,
+  );
+  const maxDrawdown = extractPatternNumber(
+    text,
+    /max_drawdown["']?\s*[=:]\s*(-?\d+(?:\.\d+)?)/i,
+  );
+
+  if (rankIc) pieces.push(`rank IC ${formatNumber(rankIc)}`);
+  if (rankIcTstat) pieces.push(`t ${formatNumber(rankIcTstat)}`);
+  if (costSpread) pieces.push(`扣成本spread ${formatNumber(costSpread)}`);
+  if (turnover) pieces.push(`换手 ${formatRatioAsPercent(turnover)}`);
+  if (observations) pieces.push(`样本 ${formatNumber(observations)}`);
+  if (totalReturn) pieces.push(`收益 ${formatRatioAsPercent(totalReturn)}`);
+  if (sharpe) pieces.push(`Sharpe ${formatNumber(sharpe)}`);
+  if (maxDrawdown) pieces.push(`回撤 ${formatRatioAsPercent(maxDrawdown)}`);
+
+  return pieces.length > 0 ? pieces.join('｜') : null;
+}
+
+function collectMetricLines(value: unknown, limit = 3): string[] {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  const visit = (candidate: unknown): void => {
+    if (lines.length >= limit) return;
+    if (typeof candidate === 'string') {
+      const metricLine = formatMetricEvidenceText(candidate);
+      if (metricLine && !seen.has(metricLine)) {
+        seen.add(metricLine);
+        lines.push(metricLine);
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) visit(item);
+      return;
+    }
+    if (!isRecord(candidate)) return;
+    const evidence = readRecord(candidate.evidence);
+    const metricLine = evidence
+      ? formatMetricEvidenceText(JSON.stringify(evidence))
+      : formatMetricEvidenceText(JSON.stringify(candidate));
+    const label =
+      readString(candidate.candidate) ||
+      readString(candidate.task_name) ||
+      readString(candidate.strategy) ||
+      '';
+    if (metricLine) {
+      const line = label ? `${label}：${metricLine}` : metricLine;
+      if (!seen.has(line)) {
+        seen.add(line);
+        lines.push(line);
+      }
+    }
+    for (const item of Object.values(candidate)) visit(item);
+  };
+  visit(value);
+  return lines.slice(0, limit);
+}
+
+function readObjectiveSummary(data: Record<string, unknown>): string {
+  const objective = readRecord(data.next_iteration_objective);
+  return (
+    readString(objective?.summary) ||
+    readString(data.summary) ||
+    readString(data.next_iteration_objective)
+  );
+}
+
+function formatProgressLines(data: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+  const summary = readObjectiveSummary(data);
+  if (summary) lines.push(compactLine(summary, 120));
+
+  const objective = readRecord(data.next_iteration_objective);
+  const cadenceDecision = readRecord(objective?.cadence_decision);
+  if (cadenceDecision) {
+    for (const [market, decision] of Object.entries(cadenceDecision).slice(
+      0,
+      2,
+    )) {
+      const text = readString(decision);
+      if (text) lines.push(`${market.toUpperCase()}：${compactLine(text, 72)}`);
+    }
+  }
+
+  const priority = readArray(objective?.priority_order)
+    .map(readString)
+    .filter(Boolean)
+    .slice(0, 3);
+  if (lines.length < 3 && priority.length > 0) {
+    lines.push(`优先级：${priority.join(' / ')}`);
+  }
+  return lines.slice(0, 3);
+}
+
+function formatPlanningLines(data: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+  for (const task of readArray(data.candidate_tasks)) {
+    if (!isRecord(task)) continue;
+    const name = readString(task.task_name) || readString(task.name);
+    const market = readString(task.market).toUpperCase();
+    const goal = readString(task.goal) || readString(task.objective);
+    const prefix = [market, name].filter(Boolean).join(' ');
+    const line = prefix
+      ? `${prefix}：${compactLine(goal || '继续补证验证', 72)}`
+      : compactLine(goal, 80);
+    if (line) lines.push(line);
+    if (lines.length >= 3) return lines;
+  }
+
+  for (const item of readArray(data.validation_plan)) {
+    const text = readString(item);
+    if (text) lines.push(compactLine(text, 84));
+    if (lines.length >= 3) return lines;
+  }
+
+  const objective = readRecord(data.next_iteration_objective);
+  for (const item of readArray(objective?.priority_order)) {
+    const text = readString(item);
+    if (text) lines.push(compactLine(text, 84));
+    if (lines.length >= 3) return lines;
+  }
+  return lines;
+}
+
+function formatStockStrategyFallback(result: string): string {
+  const lines = result
+    .split('\n')
+    .map((line) => compactLine(line, 96))
+    .filter(
+      (line) =>
+        line && !/^[{}\[\],"]+$/.test(line) && !/^"[\w.-]+"\s*:/.test(line),
+    )
+    .slice(0, 3);
+  return [
+    '🎯 阶段目标',
+    '- 股票策略自迭代结果摘要；完整原文保留在 workflow run 审计中。',
+    '',
+    '📍 当前进展',
+    ...(lines.length > 0
+      ? lines.map((line) => `- ${line}`)
+      : ['- 暂未解析到结构化进展。']),
+    '',
+    '📈 策略效果',
+    '- 暂未解析到可展示的核心指标，不能据此判断可上线。',
+    '',
+    '🧭 后续规划',
+    '- 查看 workflow run / step artifact 后继续补证；保持只读，不自动 approve / activate / trade。',
+  ].join('\n');
+}
+
+function formatStockStrategyResultForDelivery(
+  workflowId: string,
+  result: string,
+): string {
+  const data = parseJsonObjectLike(result);
+  if (!data) return formatStockStrategyFallback(result);
+
+  const isDiscovery = workflowId === 'stock-strategy-discovery-loop';
+  const title = isDiscovery
+    ? '🔎 股票策略发现｜30m 探索'
+    : '🧪 股票策略复盘｜6h 成熟/候选';
+  const goal = isDiscovery
+    ? '短间隔挖掘候选，先补证再候选验证；不自动上线。'
+    : '复盘成熟/候选策略价值，决定继续、降频或停止。';
+  const progressLines = formatProgressLines(data);
+  const metricLines = collectMetricLines(data, 3);
+  const planningLines = formatPlanningLines(data);
+
+  return [
+    title,
+    '',
+    '🎯 阶段目标',
+    `- ${goal}`,
+    '',
+    '📍 当前进展',
+    ...(progressLines.length > 0
+      ? progressLines.map((line) => `- ${line}`)
+      : ['- 暂无结构化进展摘要。']),
+    '',
+    '📈 策略效果',
+    ...(metricLines.length > 0
+      ? metricLines.map((line) => `- ${line}`)
+      : ['- 暂无可判定收益；当前仍处候选/补证阶段。']),
+    '- 以上仅为研究证据，不代表可实盘上线。',
+    '',
+    '🧭 后续规划',
+    ...(planningLines.length > 0
+      ? planningLines.map((line) => `- ${line}`)
+      : ['- 继续补证，等待 OOS / 对照 / 风控证据齐备后再评审。']),
+    '',
+    '🛡️ 边界：只读，不自动 approve / activate / trade。',
+  ].join('\n');
+}
+
 function normalizeWorkflowResultForDelivery(
   workflowId: string,
   result: string,
 ): string {
-  if (workflowId !== 'hkipo') return result;
-  return normalizeHkipoFinalReport(result);
+  if (workflowId === 'hkipo') return normalizeHkipoFinalReport(result);
+  if (
+    workflowId === 'stock-strategy-discovery-loop' ||
+    workflowId === 'stock-strategy-loop'
+  ) {
+    return formatStockStrategyResultForDelivery(workflowId, result);
+  }
+  return result;
 }
 
 function formatWorkflowSuccess(options: {
