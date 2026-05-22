@@ -77,7 +77,7 @@
 
 ### P2 RM-2026-05-17-01 Workflow Console And Retry Audit
 
-- Status: `proposed`
+- Status: `monitoring`
 - Source: 2026-05-17 Workflow/Crew Graph Engine v1
 - Summary: v1 已支持 `/workflow` 触发、独立 workflow context、LangGraph 编排、run/step 审计和 role tool allowlist；后续需要把运行记录、checkpoint、失败节点重跑和 retry attempt 展示成可操作控制台。
 - Durable contract:
@@ -85,9 +85,10 @@
   - Workflow 配置与 runner 边界见 `docs/RUNTIME.md`。
   - `/workflow` 用户入口见 `docs/COMMAND.md`。
 - Next action:
+  - 2026-05-22 已落地 Web `工作流` 看板 v1：新增 `/api/workflows/dashboard` 只读接口与 `/workflows` 页面，按当天窗口聚合 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 和 `task_run_logs`，展示运行中 workflow、定时 workflow task、今日 run / step 进度、任务日志与失败摘要；普通用户按 workspace 权限过滤，admin 可查看全部。
   - 为 `workflow_run_steps` 补真实 retry attempt 递增，避免 LangGraph retry 覆盖同一 node attempt。
   - 在 `/workflow` 触发时记录 `triggerMessageId`，便于控制台从 run 回溯到触发消息。
-  - 增加 Web 工作流控制台，展示 workflow runs、checkpoints、失败节点和重跑入口。
+  - 后续控制台增强可继续补 checkpoint 查看、失败节点重跑入口和 retry attempt 细节；v1 看板不改变调度或 checkpoint 状态。
 
 ### P0 RM-2026-04-25-02 Service Launch Command Contract
 

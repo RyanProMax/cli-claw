@@ -3190,6 +3190,68 @@ export function listWorkflowRuns(
   return rows.map(mapWorkflowRunRow);
 }
 
+export function listWorkflowRunsForDashboard(filter: {
+  folders?: string[];
+  start: string;
+  end: string;
+  limit?: number;
+}): WorkflowRun[] {
+  if (filter.folders && filter.folders.length === 0) return [];
+  const where: string[] = [
+    `(
+      (created_at >= ? AND created_at < ?)
+      OR (updated_at >= ? AND updated_at < ?)
+      OR (started_at >= ? AND started_at < ?)
+      OR (completed_at >= ? AND completed_at < ?)
+      OR status IN ('queued', 'running')
+    )`,
+  ];
+  const params: unknown[] = [
+    filter.start,
+    filter.end,
+    filter.start,
+    filter.end,
+    filter.start,
+    filter.end,
+    filter.start,
+    filter.end,
+  ];
+  if (filter.folders) {
+    const placeholders = filter.folders.map(() => '?').join(', ');
+    where.push(`folder IN (${placeholders})`);
+    params.push(...filter.folders);
+  }
+  const limit =
+    filter.limit === undefined
+      ? null
+      : Math.max(1, Math.min(filter.limit, 1000));
+  if (limit !== null) params.push(limit);
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_runs
+       WHERE ${where.join(' AND ')}
+       ORDER BY created_at DESC, id DESC
+       ${limit !== null ? 'LIMIT ?' : ''}`,
+    )
+    .all(...params) as DbWorkflowRunRow[];
+  return rows.map(mapWorkflowRunRow);
+}
+
+export function listWorkflowRunStepsForRunIds(
+  runIds: string[],
+): WorkflowRunStep[] {
+  if (runIds.length === 0) return [];
+  const placeholders = runIds.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_run_steps
+       WHERE run_id IN (${placeholders})
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(...runIds) as DbWorkflowRunStepRow[];
+  return rows.map(mapWorkflowRunStepRow);
+}
+
 // --- Registered group accessors ---
 
 /** Raw row shape from registered_groups table — single source of truth for column mapping. */
@@ -3759,6 +3821,27 @@ export function getTaskRunLogs(taskId: string, limit = 20): TaskRunLog[] {
   `,
     )
     .all(taskId, limit) as TaskRunLog[];
+}
+
+export function getTaskRunLogsForTaskIdsInRange(
+  taskIds: string[],
+  start: string,
+  end: string,
+): Array<TaskRunLog & { id: number }> {
+  if (taskIds.length === 0) return [];
+  const placeholders = taskIds.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `
+    SELECT id, task_id, run_at, duration_ms, status, result, error
+    FROM task_run_logs
+    WHERE task_id IN (${placeholders})
+      AND run_at >= ?
+      AND run_at < ?
+    ORDER BY run_at DESC, id DESC
+  `,
+    )
+    .all(...taskIds, start, end) as Array<TaskRunLog & { id: number }>;
 }
 
 // ===================== Daily Summary Queries =====================

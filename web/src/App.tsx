@@ -25,6 +25,9 @@ const ChatPage = lazy(() =>
 const TasksPage = lazy(() =>
   import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })),
 );
+const WorkflowsPage = lazy(() =>
+  import('./pages/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })),
+);
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
@@ -75,6 +78,14 @@ export function App() {
             element={
               <Suspense fallback={null}>
                 <TasksPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/workflows"
+            element={
+              <Suspense fallback={null}>
+                <WorkflowsPage />
               </Suspense>
             }
           />

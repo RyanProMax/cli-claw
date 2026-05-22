@@ -10,7 +10,7 @@ export interface ScheduledTask {
   schedule_type: 'cron' | 'interval' | 'once';
   schedule_value: string;
   context_mode: 'isolated';
-  execution_type?: 'agent' | 'script';
+  execution_type?: 'agent' | 'script' | 'workflow';
   script_command?: string | null;
   next_run: string | null;
   last_run?: string | null;
@@ -73,7 +73,10 @@ export const useTasksStore = create<TasksState>((set, get) => ({
   loadTasks: async () => {
     set({ loading: true });
     try {
-      const data = await api.get<{ tasks: ScheduledTask[]; runningTaskIds?: string[] }>('/api/tasks');
+      const data = await api.get<{
+        tasks: ScheduledTask[];
+        runningTaskIds?: string[];
+      }>('/api/tasks');
       set({
         tasks: data.tasks,
         runningTaskIds: new Set(data.runningTaskIds || []),
@@ -153,7 +156,9 @@ export const useTasksStore = create<TasksState>((set, get) => ({
 
   loadLogs: async (taskId: string) => {
     try {
-      const data = await api.get<{ logs: TaskRunLog[] }>(`/api/tasks/${taskId}/logs`);
+      const data = await api.get<{ logs: TaskRunLog[] }>(
+        `/api/tasks/${taskId}/logs`,
+      );
       set((s) => ({
         logs: { ...s.logs, [taskId]: data.logs },
         error: null,

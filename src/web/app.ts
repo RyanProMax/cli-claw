@@ -33,6 +33,7 @@ import authRoutes from './routes/auth.js';
 import groupRoutes from './routes/groups.js';
 import configRoutes, { injectConfigDeps } from './routes/config.js';
 import tasksRoutes from './routes/tasks.js';
+import workflowRoutes from './routes/workflows.js';
 import adminRoutes from './routes/admin.js';
 import fileRoutes from './routes/files.js';
 import monitorRoutes from './routes/monitor.js';
@@ -160,6 +161,7 @@ app.route('/api/groups', groupRoutes);
 app.route('/api/groups', fileRoutes); // File routes also under /api/groups
 app.route('/api/config', configRoutes);
 app.route('/api/tasks', tasksRoutes);
+app.route('/api/workflows', workflowRoutes);
 app.route('/api/skills', skillsRoutes);
 app.route('/api/admin', adminRoutes);
 app.route('/api/browse', browseRoutes);

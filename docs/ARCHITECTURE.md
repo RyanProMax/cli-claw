@@ -15,6 +15,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 - `src/agent/runner/container-runner.ts`：执行编排层，负责启动本地 Agent 进程并管理 runner 生命周期。文件名暂保留历史路径，不代表另一条执行边界。
 - `container/agent-runner/src/index.ts`：运行时执行层，负责驱动底层 CLI runtime、流式事件、MCP 工具和上下文压缩。
 - `web/src/pages/ChatPage.tsx`：Web 展示层，把流式消息、工作区状态和模型配置入口组合成用户界面。
+- `web/src/pages/WorkflowsPage.tsx`：Workflow 观测页面，按当天窗口聚合 workflow run、step 审计、scheduled workflow task 与运行中状态。
 
 ## 核心数据流
 
@@ -27,6 +28,8 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 7. runner 产生文本、思考、工具调用和任务事件，经 stdout / IPC 回到主进程。
 8. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 9. 任务调度、技能安装和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
+
+Web 工作流看板只读取主数据库中的 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 与 `task_run_logs`，不参与 workflow 调度、不写 checkpoint，也不改变 scheduled task 状态。普通用户按 workspace 访问权限过滤；admin 可查看全部工作流运行。
 
 `/hkipo` 是当前内置 workflow 示例：用户仍从 skill slash command 入口触发，但 skill executor 只返回 `workflowId=hkipo` 和结构化 input；主进程随后执行 Futu IPO 池发现、池标准化、核心数据采集计划、二级热度/发行结构/估值证据采集、证据核验、官方文件下载解析、发行结构与估值分析、回测校准和最终报告节点。Futu/OpenD 不可用时 pool discovery 失败；Futu 可用但热度、绿鞋、基石、回拨、保荐或估值字段缺失时，证据采集节点继续按公开只读来源和 HKEX 官方文件补齐并记录降级。采集脚本自身失败或超时时，只允许 `stock.hkipo.scan_heat` / `stock.hkipo.fetch_official_docs` 返回降级 artifact，不能中断整个 workflow；后续 verifier / report 必须把该情况表述为“热度未达当日核验门槛”或“多源未取到”，并说明缺失字段。
 

@@ -111,9 +111,15 @@ export function TaskCard({
                   脚本
                 </span>
               )}
+              {task.execution_type === 'workflow' && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-primary">
+                  Workflow
+                </span>
+              )}
               <span className="text-xs text-muted-foreground">
                 {task.schedule_type === 'cron' && task.schedule_value}
-                {task.schedule_type === 'interval' && `每 ${formatInterval(task.schedule_value)}`}
+                {task.schedule_type === 'interval' &&
+                  `每 ${formatInterval(task.schedule_value)}`}
                 {task.schedule_type === 'once' && '单次执行'}
               </span>
             </div>

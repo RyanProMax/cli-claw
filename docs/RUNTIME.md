@@ -187,7 +187,7 @@ Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自�
 
 这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。workflow context 使用内部生成的 thread id / workflow context id；用户会话只触发 workflow run 并接收启动回执与终态消息，不提供 thread id，也不共享 workflow 内部 runtime session。
 
-LangGraph checkpoint 使用独立 SQLite 文件 `~/.cli-claw/db/workflow-checkpoints.sqlite`，以内部 `thread_id` 作为恢复维度；workflow run/step 审计仍写入主 `messages.db` 的 `workflow_runs` / `workflow_run_steps` 表。checkpoint SQLite 通过仓库内 `sqlite-compat` 兼容层访问：Bun 服务使用 `bun:sqlite`，Node.js 工具路径使用 `better-sqlite3`；不要在 workflow runtime 路径直接引入依赖 `better-sqlite3` 的第三方 SQLite saver。
+LangGraph checkpoint 使用独立 SQLite 文件 `~/.cli-claw/db/workflow-checkpoints.sqlite`，以内部 `thread_id` 作为恢复维度；workflow run/step 审计仍写入主 `messages.db` 的 `workflow_runs` / `workflow_run_steps` 表。Web `/workflows` 看板只读这些审计记录，并与 `scheduled_tasks` / `task_run_logs` 聚合展示当天 workflow 运行、step 进度、定时任务运行和当前 running 状态；它不读取 checkpoint、不重跑节点、不改变调度状态。checkpoint SQLite 通过仓库内 `sqlite-compat` 兼容层访问：Bun 服务使用 `bun:sqlite`，Node.js 工具路径使用 `better-sqlite3`；不要在 workflow runtime 路径直接引入依赖 `better-sqlite3` 的第三方 SQLite saver。
 
 Workflow role card 的 `allowedTools` 是运行时硬边界：backend 会把 role metadata 显式传入 OpenAI runner，runner tool factory 以 `role.allowedTools` 优先过滤实际可用工具。它不是只写进 prompt 的软提示。workflow role node 以 single-turn 模式运行：角色输出由 workflow engine 捕获为节点结果，不继续等待 IPC 下一轮；除非某个 workflow 明确需要中途发用户消息，否则 role card 不应开放 `send_message`，避免中间 artifact 直接泄漏到触发会话。
 

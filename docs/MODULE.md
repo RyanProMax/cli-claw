@@ -64,6 +64,7 @@
 │   ├── web/
 │   │   ├── app.ts                   # Hono 应用、WebSocket、静态资源托管
 │   │   ├── context.ts               # Web deps、会话、权限、工作区访问 helper
+│   │   ├── workflow-dashboard.ts    # 工作流看板聚合模型，汇总 workflow run / step / scheduled task
 │   │   ├── middleware/auth.ts       # Web auth middleware
 │   │   └── routes/                  # HTTP API routes
 │   ├── skills/
@@ -77,7 +78,7 @@
 │   ├── contracts/                   # CLI/package/runtime/OpenAI 请求协议等外部契约
 │   └── scripts/                     # ops / stock 等脚本测试
 ├── web/
-│   └── src/                         # React frontend
+│   └── src/                         # React frontend；含 Chat / Tasks / Workflows / Settings 等页面与 zustand stores
 ├── container/
 │   └── agent-runner/                # Agent runner package（历史路径，实际为本地 Agent 进程）
 ├── shared/                          # 前后端与 runner 共用纯函数/类型

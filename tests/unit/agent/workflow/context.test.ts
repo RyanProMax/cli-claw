@@ -182,4 +182,61 @@ describe('workflow context persistence', () => {
 
     db.closeDatabase();
   });
+
+  test('dashboard run query includes runs updated or completed inside the selected day', async () => {
+    const { context, db } = await loadWorkflowModules();
+    const workflowContext = context.getOrCreateWorkflowContext({
+      folder: 'workspace-a',
+      workflowId: 'overnight',
+    });
+    const base = {
+      contextId: workflowContext.id,
+      folder: 'workspace-a',
+      workflowId: 'overnight',
+      threadId: workflowContext.thread_id,
+      triggerChatJid: 'web:workspace-a',
+      prompt: 'overnight work',
+    };
+
+    db.insertWorkflowRun({
+      ...base,
+      id: 'run-completed-today',
+      status: 'success',
+      startedAt: '2026-05-21T23:50:00.000Z',
+      completedAt: '2026-05-22T00:10:00.000Z',
+      createdAt: '2026-05-21T23:50:00.000Z',
+      updatedAt: '2026-05-22T00:10:00.000Z',
+    });
+    db.insertWorkflowRun({
+      ...base,
+      id: 'run-updated-today',
+      status: 'running',
+      startedAt: '2026-05-21T23:55:00.000Z',
+      completedAt: null,
+      createdAt: '2026-05-21T23:55:00.000Z',
+      updatedAt: '2026-05-22T00:20:00.000Z',
+    });
+    db.insertWorkflowRun({
+      ...base,
+      id: 'run-old',
+      status: 'success',
+      startedAt: '2026-05-21T20:00:00.000Z',
+      completedAt: '2026-05-21T20:10:00.000Z',
+      createdAt: '2026-05-21T20:00:00.000Z',
+      updatedAt: '2026-05-21T20:10:00.000Z',
+    });
+
+    const runs = db.listWorkflowRunsForDashboard({
+      folders: ['workspace-a'],
+      start: '2026-05-22T00:00:00.000Z',
+      end: '2026-05-23T00:00:00.000Z',
+    });
+
+    expect(runs.map((run) => run.id)).toEqual([
+      'run-updated-today',
+      'run-completed-today',
+    ]);
+
+    db.closeDatabase();
+  });
 });

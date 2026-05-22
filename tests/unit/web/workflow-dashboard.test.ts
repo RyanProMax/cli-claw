@@ -1,0 +1,282 @@
+import { describe, expect, test } from 'vitest';
+
+import {
+  buildWorkflowDashboardData,
+  type WorkflowDashboardInput,
+} from '../../../src/web/workflow-dashboard.ts';
+
+const dayStart = '2026-05-22T00:00:00.000Z';
+const dayEnd = '2026-05-23T00:00:00.000Z';
+const generatedAt = '2026-05-22T12:00:00.000Z';
+
+function input(
+  overrides: Partial<WorkflowDashboardInput> = {},
+): WorkflowDashboardInput {
+  return {
+    dayStart,
+    dayEnd,
+    generatedAt,
+    runningTaskIds: ['task-discovery'],
+    workflowRuns: [
+      {
+        id: 'run-running',
+        context_id: 'ctx-1',
+        folder: 'main',
+        workflow_id: 'stock-strategy-discovery-loop',
+        thread_id: 'thread-1',
+        trigger_chat_jid: 'web:main',
+        trigger_message_id: null,
+        trigger_user_id: null,
+        prompt: 'Run discovery',
+        status: 'running',
+        result: null,
+        error: null,
+        metadata: {
+          source: 'scheduled_task',
+          scheduledTaskId: 'task-discovery',
+        },
+        started_at: '2026-05-22T10:00:00.000Z',
+        completed_at: null,
+        created_at: '2026-05-22T10:00:00.000Z',
+        updated_at: '2026-05-22T10:05:00.000Z',
+      },
+      {
+        id: 'run-success',
+        context_id: 'ctx-1',
+        folder: 'main',
+        workflow_id: 'stock-strategy-discovery-loop',
+        thread_id: 'thread-1',
+        trigger_chat_jid: 'web:main',
+        trigger_message_id: null,
+        trigger_user_id: null,
+        prompt: 'Run discovery',
+        status: 'success',
+        result: 'completed',
+        error: null,
+        metadata: {
+          source: 'scheduled_task',
+          scheduledTaskId: 'task-discovery',
+        },
+        started_at: '2026-05-22T09:00:00.000Z',
+        completed_at: '2026-05-22T09:02:30.000Z',
+        created_at: '2026-05-22T09:00:00.000Z',
+        updated_at: '2026-05-22T09:02:30.000Z',
+      },
+      {
+        id: 'run-error',
+        context_id: 'ctx-2',
+        folder: 'main',
+        workflow_id: 'hkipo',
+        thread_id: 'thread-2',
+        trigger_chat_jid: 'web:main',
+        trigger_message_id: null,
+        trigger_user_id: null,
+        prompt: 'Run IPO report',
+        status: 'error',
+        result: null,
+        error: 'OpenAI server_is_overloaded',
+        metadata: null,
+        started_at: '2026-05-22T08:00:00.000Z',
+        completed_at: '2026-05-22T08:01:00.000Z',
+        created_at: '2026-05-22T08:00:00.000Z',
+        updated_at: '2026-05-22T08:01:00.000Z',
+      },
+    ],
+    workflowSteps: [
+      {
+        id: 'step-running-1',
+        run_id: 'run-running',
+        node_id: 'collect_results',
+        role_id: null,
+        status: 'success',
+        attempt: 1,
+        input: null,
+        output: { ok: true },
+        error: null,
+        started_at: '2026-05-22T10:00:05.000Z',
+        completed_at: '2026-05-22T10:00:25.000Z',
+        created_at: '2026-05-22T10:00:05.000Z',
+        updated_at: '2026-05-22T10:00:25.000Z',
+      },
+      {
+        id: 'step-running-2',
+        run_id: 'run-running',
+        node_id: 'plan_next_iteration',
+        role_id: 'planner',
+        status: 'running',
+        attempt: 1,
+        input: null,
+        output: null,
+        error: null,
+        started_at: '2026-05-22T10:00:25.000Z',
+        completed_at: null,
+        created_at: '2026-05-22T10:00:25.000Z',
+        updated_at: '2026-05-22T10:05:00.000Z',
+      },
+      {
+        id: 'step-error-1',
+        run_id: 'run-error',
+        node_id: 'final_report',
+        role_id: 'reporter',
+        status: 'error',
+        attempt: 1,
+        input: null,
+        output: null,
+        error: 'socket closed',
+        started_at: '2026-05-22T08:00:20.000Z',
+        completed_at: '2026-05-22T08:01:00.000Z',
+        created_at: '2026-05-22T08:00:20.000Z',
+        updated_at: '2026-05-22T08:01:00.000Z',
+      },
+    ],
+    scheduledTasks: [
+      {
+        id: 'task-discovery',
+        group_folder: 'main',
+        chat_jid: 'web:main',
+        prompt: 'Run stock strategy discovery',
+        schedule_type: 'interval',
+        schedule_value: String(30 * 60 * 1000),
+        context_mode: 'isolated',
+        execution_type: 'workflow',
+        script_command: 'stock-strategy-discovery-loop',
+        workspace_jid: null,
+        workspace_folder: null,
+        next_run: '2026-05-22T10:30:00.000Z',
+        last_run: '2026-05-22T10:00:00.000Z',
+        last_result: 'workflow started',
+        status: 'active',
+        created_at: '2026-05-21T00:00:00.000Z',
+        created_by: 'admin-1',
+        notify_channels: null,
+      },
+      {
+        id: 'task-script',
+        group_folder: 'main',
+        chat_jid: 'web:main',
+        prompt: 'Script health check',
+        schedule_type: 'interval',
+        schedule_value: String(60 * 60 * 1000),
+        context_mode: 'isolated',
+        execution_type: 'script',
+        script_command: 'echo ok',
+        workspace_jid: null,
+        workspace_folder: null,
+        next_run: '2026-05-22T11:00:00.000Z',
+        last_run: null,
+        last_result: null,
+        status: 'active',
+        created_at: '2026-05-21T00:00:00.000Z',
+        created_by: 'admin-1',
+        notify_channels: null,
+      },
+    ],
+    taskRunLogs: [
+      {
+        id: 1,
+        task_id: 'task-discovery',
+        run_at: '2026-05-22T09:00:00.000Z',
+        duration_ms: 150000,
+        status: 'success',
+        result: 'workflow started',
+        error: null,
+      },
+      {
+        id: 2,
+        task_id: 'task-discovery',
+        run_at: '2026-05-22T10:00:00.000Z',
+        duration_ms: 0,
+        status: 'running',
+        result: null,
+        error: null,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+describe('workflow dashboard aggregation', () => {
+  test('summarizes today workflow runs, running runs, steps, and scheduled workflow tasks', () => {
+    const dashboard = buildWorkflowDashboardData(input());
+
+    expect(dashboard.summary).toMatchObject({
+      totalRuns: 3,
+      runningRuns: 1,
+      queuedRuns: 0,
+      successRuns: 1,
+      errorRuns: 1,
+      scheduledWorkflowTasks: 1,
+      runningScheduledTasks: 1,
+      failedTaskRuns: 0,
+      completedTaskRuns: 1,
+    });
+
+    expect(dashboard.runningRuns.map((run) => run.id)).toEqual(['run-running']);
+    expect(dashboard.todayRuns.map((run) => run.id)).toEqual([
+      'run-running',
+      'run-success',
+      'run-error',
+    ]);
+    expect(dashboard.todayRuns[0].stepSummary).toEqual({
+      total: 2,
+      pending: 0,
+      running: 1,
+      success: 1,
+      error: 0,
+      skipped: 0,
+    });
+    expect(dashboard.todayRuns[0].steps.map((step) => step.nodeId)).toEqual([
+      'collect_results',
+      'plan_next_iteration',
+    ]);
+    expect(dashboard.todayRuns[2].sourceTask).toBeNull();
+
+    expect(dashboard.scheduledTasks).toHaveLength(1);
+    expect(dashboard.scheduledTasks[0]).toMatchObject({
+      id: 'task-discovery',
+      workflowId: 'stock-strategy-discovery-loop',
+      running: true,
+      todayRunCount: 2,
+      todayErrorCount: 0,
+      todayLastLogStatus: 'running',
+    });
+  });
+
+  test('keeps active runs visible even when they started before the selected day', () => {
+    const dashboard = buildWorkflowDashboardData(
+      input({
+        workflowRuns: [
+          {
+            id: 'run-overnight',
+            context_id: 'ctx-overnight',
+            folder: 'main',
+            workflow_id: 'overnight',
+            thread_id: 'thread-overnight',
+            trigger_chat_jid: 'web:main',
+            trigger_message_id: null,
+            trigger_user_id: null,
+            prompt: 'Continue overnight workflow',
+            status: 'running',
+            result: null,
+            error: null,
+            metadata: null,
+            started_at: '2026-05-21T23:50:00.000Z',
+            completed_at: null,
+            created_at: '2026-05-21T23:50:00.000Z',
+            updated_at: '2026-05-22T00:10:00.000Z',
+          },
+        ],
+        workflowSteps: [],
+        scheduledTasks: [],
+        taskRunLogs: [],
+      }),
+    );
+
+    expect(dashboard.summary.totalRuns).toBe(1);
+    expect(dashboard.summary.runningRuns).toBe(1);
+    expect(dashboard.runningRuns[0]).toMatchObject({
+      id: 'run-overnight',
+      createdAt: '2026-05-21T23:50:00.000Z',
+    });
+  });
+});
