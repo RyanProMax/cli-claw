@@ -51,7 +51,7 @@ export function TaskCard({
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'active':
-        return '运行中';
+        return '活跃';
       case 'parsing':
         return 'AI 解析中...';
       case 'paused':

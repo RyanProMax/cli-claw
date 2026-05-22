@@ -721,7 +721,15 @@ function EditWorkflowTaskDialog({
   );
 }
 
-export function WorkflowsPage() {
+type WorkflowsPageMode = 'all' | 'runs' | 'workflows';
+
+export function WorkflowsPage({
+  embedded = false,
+  mode = 'all',
+}: {
+  embedded?: boolean;
+  mode?: WorkflowsPageMode;
+}) {
   const { dashboard, loading, error, loadDashboard } = useWorkflowsStore();
   const [selectedDate, setSelectedDate] = useState(localDateValue());
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
@@ -751,6 +759,14 @@ export function WorkflowsPage() {
     () => dashboard?.runningRuns.filter((run) => run.status === 'queued') ?? [],
     [dashboard],
   );
+  const showRunningSection = mode !== 'workflows';
+  const showScheduledSection = mode !== 'runs';
+  const headerTitle =
+    mode === 'runs'
+      ? 'Workflow 运行'
+      : mode === 'workflows'
+        ? '工作流'
+        : '工作流看板';
 
   const handleDeleteWorkflowTask = async (task: DeletableWorkflowTask) => {
     const runningNotice = task.running
@@ -788,10 +804,15 @@ export function WorkflowsPage() {
   };
 
   return (
-    <div className="min-h-full bg-background p-4 lg:p-8">
-      <div className="mx-auto max-w-7xl">
+    <div
+      className={cn(
+        !embedded && 'min-h-full bg-background p-4 lg:p-8',
+        embedded && 'bg-transparent',
+      )}
+    >
+      <div className={cn('mx-auto', embedded ? 'max-w-none' : 'max-w-7xl')}>
         <PageHeader
-          title="工作流看板"
+          title={headerTitle}
           subtitle={subtitle}
           className="mb-6"
           actions={
@@ -857,39 +878,23 @@ export function WorkflowsPage() {
               />
             </div>
 
-            <section>
-              <div className="mb-3 flex items-center gap-2">
-                <PlayCircle className="size-4 text-primary" />
-                <h2 className="text-sm font-semibold text-foreground">
-                  正在运行
-                </h2>
-              </div>
-              {dashboard.runningRuns.length === 0 ? (
-                <div className="rounded-lg border border-border bg-card px-4 py-5 text-sm text-muted-foreground">
-                  当前没有运行中的工作流
+            {showRunningSection && (
+              <section>
+                <div className="mb-3 flex items-center gap-2">
+                  <PlayCircle className="size-4 text-primary" />
+                  <h2 className="text-sm font-semibold text-foreground">
+                    正在运行
+                  </h2>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {runningRuns.length > 0 && (
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      {runningRuns.map((run) => (
-                        <RunningRunCard
-                          key={run.id}
-                          run={run}
-                          onDeleteTask={handleDeleteWorkflowTask}
-                          deletingTaskId={busyTaskId}
-                        />
-                      ))}
-                    </div>
-                  )}
-                  {queuedRuns.length > 0 && (
-                    <div>
-                      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                        <CircleDashed className="size-3.5" />
-                        排队中：run 已创建，等待调度器进入执行
-                      </div>
+                {dashboard.runningRuns.length === 0 ? (
+                  <div className="rounded-lg border border-border bg-card px-4 py-5 text-sm text-muted-foreground">
+                    当前没有运行中的工作流
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {runningRuns.length > 0 && (
                       <div className="grid gap-3 lg:grid-cols-2">
-                        {queuedRuns.map((run) => (
+                        {runningRuns.map((run) => (
                           <RunningRunCard
                             key={run.id}
                             run={run}
@@ -898,63 +903,83 @@ export function WorkflowsPage() {
                           />
                         ))}
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
-
-            <Card className="rounded-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <CalendarDays className="size-4 text-muted-foreground" />
-                  定时工作流
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="overflow-x-auto px-0">
-                {dashboard.scheduledTasks.length === 0 ? (
-                  <div className="px-4 pb-4 text-sm text-muted-foreground">
-                    暂无定时 workflow 任务
+                    )}
+                    {queuedRuns.length > 0 && (
+                      <div>
+                        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                          <CircleDashed className="size-3.5" />
+                          排队中：run 已创建，等待调度器进入执行
+                        </div>
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          {queuedRuns.map((run) => (
+                            <RunningRunCard
+                              key={run.id}
+                              run={run}
+                              onDeleteTask={handleDeleteWorkflowTask}
+                              deletingTaskId={busyTaskId}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <table className="min-w-[960px] table-fixed text-left">
-                    <colgroup>
-                      <col className="w-[32%]" />
-                      <col className="w-[13%]" />
-                      <col className="w-[16%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[7%]" />
-                    </colgroup>
-                    <thead>
-                      <tr className="border-b border-border text-xs text-muted-foreground">
-                        <th className="px-4 py-2 font-medium">Workflow</th>
-                        <th className="px-4 py-2 font-medium">频率</th>
-                        <th className="px-4 py-2 font-medium">下次运行</th>
-                        <th className="px-4 py-2 font-medium">状态</th>
-                        <th className="px-4 py-2 font-medium">今日</th>
-                        <th className="px-4 py-2 font-medium">最近日志</th>
-                        <th className="px-4 py-2 text-right font-medium">
-                          操作
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dashboard.scheduledTasks.map((task) => (
-                        <ScheduledTaskRow
-                          key={task.id}
-                          task={task}
-                          onEdit={setEditingTask}
-                          onDelete={handleDeleteWorkflowTask}
-                          busyTaskId={busyTaskId}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
                 )}
-              </CardContent>
-            </Card>
+              </section>
+            )}
+
+            {showScheduledSection && (
+              <Card className="rounded-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <CalendarDays className="size-4 text-muted-foreground" />
+                    定时工作流
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-x-auto px-0">
+                  {dashboard.scheduledTasks.length === 0 ? (
+                    <div className="px-4 pb-4 text-sm text-muted-foreground">
+                      暂无定时 workflow 任务
+                    </div>
+                  ) : (
+                    <table className="min-w-[960px] table-fixed text-left">
+                      <colgroup>
+                        <col className="w-[32%]" />
+                        <col className="w-[13%]" />
+                        <col className="w-[16%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[12%]" />
+                        <col className="w-[7%]" />
+                      </colgroup>
+                      <thead>
+                        <tr className="border-b border-border text-xs text-muted-foreground">
+                          <th className="px-4 py-2 font-medium">Workflow</th>
+                          <th className="px-4 py-2 font-medium">频率</th>
+                          <th className="px-4 py-2 font-medium">下次运行</th>
+                          <th className="px-4 py-2 font-medium">状态</th>
+                          <th className="px-4 py-2 font-medium">今日</th>
+                          <th className="px-4 py-2 font-medium">最近日志</th>
+                          <th className="px-4 py-2 text-right font-medium">
+                            操作
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboard.scheduledTasks.map((task) => (
+                          <ScheduledTaskRow
+                            key={task.id}
+                            task={task}
+                            onEdit={setEditingTask}
+                            onDelete={handleDeleteWorkflowTask}
+                            busyTaskId={busyTaskId}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="rounded-lg">
               <CardHeader>

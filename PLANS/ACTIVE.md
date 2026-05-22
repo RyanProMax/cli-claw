@@ -1,57 +1,55 @@
-# 当前任务：Web 工作流运行看板
+# 当前任务：整合任务与工作流入口
 
 > **给 agentic workers：** 本轮计划统一维护在 `PLANS/ACTIVE.md`；不得在 `docs/superpowers/`、`docs/**/plans/` 或 `docs/**/specs/` 新增计划。一次只推进一个 milestone；validation 和 review 均通过后才可提交。
 
 ## 背景
 
-当前 workflow / scheduled workflow 已有运行与 step 审计表，定时任务页也能管理单个 scheduled task，但 Web UI 缺少一个按运行态聚合的工作流看板。用户希望能看到当前正在运行的工作流，特别是定时任务，并体系化展示当天所有运行情况。
+Web 侧边栏当前同时存在 `任务` 与 `工作流` 两个一级入口。实际系统中，`任务` 管理 `scheduled_tasks` 计划对象，`工作流` 观察 `workflow_runs` / `workflow_run_steps` 执行审计；而 `execution_type='workflow'` 的定时任务同时落在两边，导致用户在“设置自动跑什么”和“看工作流跑到哪里”之间来回切换，心智割裂。
 
-Roadmap 中已有 `P2 RM-2026-05-17-01 Workflow Console And Retry Audit`，本轮先落地可观测看板的第一阶段：当天运行概览、当前运行中、定时 workflow 视角、run / step 明细与刷新。
+用户已确认整合方向：把两者收敛到一个 `自动化` 入口，内部按 `计划`、`运行`、`工作流` 分视角承载现有能力。
 
 ## 目标
 
-- 基于现有 Web UI 设计并落地一个工作流可视化看板。
-- 展示当前正在运行的 workflow run，并突出 scheduled workflow / 定时任务。
-- 体系化展示当天所有运行情况，包括成功、失败、运行中、排队、耗时、来源任务、下次运行和 step 进度。
-- 优化真实页面反馈：区分 running / queued，压缩定时 workflow 表格长文本占位，修正 step 明细空字段展示，并在看板内支持定时 workflow task 编辑 / 删除。
-- 不改变 workflow 执行语义、调度语义或权限边界；本轮以观测为主，只允许对定时 workflow task 做编辑 / 删除。
+- 侧边栏一级入口从 `任务` + `工作流` 收敛为一个 `自动化`。
+- 新增 `/automations` 页面，用 tab 组织三类视角：
+  - `计划`：管理所有定时计划，复用现有任务管理能力。
+  - `运行`：聚焦当前 running / queued 和今日运行记录。
+  - `工作流`：保留 workflow 专属看板、定时 workflow task 和 step 审计。
+- 保留旧路由 `/tasks`、`/workflows` 的兼容跳转，避免已有链接失效。
+- 不改变 scheduler / workflow engine / 数据库语义；本轮只做 Web 信息架构与路由整合。
 
 ## 非目标
 
-- 本轮不实现失败节点重跑、retry attempt 手工操作或 checkpoint 回滚。
-- 本轮不重构 workflow engine / scheduler。
-- 本轮不新增长期运行时状态表；优先复用 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 和 `task_run_logs`。
-- 本轮不实现强制中断已经启动的 workflow run；删除定时 workflow task 只移除未来调度与任务入口，既有 run 审计继续保留。
+- 不新增自动化后端聚合 API；本轮优先复用现有 `/api/tasks` 与 `/api/workflows/dashboard`。
+- 不实现 workflow 定义编辑器、checkpoint 查看或失败节点重跑。
+- 不改变 `/workflow` slash command、scheduled task 执行语义或运行中删除边界。
 
 ## Milestones
 
-### Milestone 1：确认设计与数据边界
+### Milestone 1：计划与边界确认
 
 Objective:
 
-- 读清现有前端、API、workflow 审计和 scheduled task 数据模型，提出看板设计并取得确认。
+- 确认现有页面、路由、导航和数据边界，锁定整合方案。
 
 Allowed scope:
 
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
-- `docs/ARCHITECTURE.md`
-- `docs/MODULE.md`
 - `docs/COMMAND.md`
+- `docs/ARCHITECTURE.md`
 - `docs/RUNTIME.md`
-- `web/src/**`
-- `src/web/routes/**`
-- `src/storage/db.ts`
-- `src/domain/types.ts`
-- `src/core/schemas.ts`
-- `tests/unit/**`
-- `tests/integration/**`
+- `web/src/App.tsx`
+- `web/src/components/layout/nav-items.ts`
+- `web/src/pages/**`
+- `web/src/components/tasks/**`
+- `web/src/stores/**`
+- `tests/**`
 
 Validation:
 
-- 完成上下文阅读并记录可复用数据源。
-- 明确首版看板的信息架构、API contract、前端入口和权限边界。
-- 用户以 `/goal` 授权直接设计并落地；首版采用只读观测看板，不扩展到重跑 / checkpoint 操作。
+- 已阅读现有 `TasksPage`、`WorkflowsPage`、导航、路由和 owner docs。
+- 用户已批准将入口整合为 `自动化`。
 
 Status:
 
@@ -67,108 +65,29 @@ Review status:
 
 Risks / Notes / Handoff:
 
-- 已确认 Roadmap 中 `Workflow Console And Retry Audit` 与本轮需求重合。
-- 现有 `/tasks` 页面偏单任务管理，不满足当天 workflow 运行态聚合。
-- `workflow_runs` / `workflow_run_steps` 可提供 run 与 step 审计；`scheduled_tasks` / `task_run_logs` 可提供定时任务配置、运行日志与下次触发时间。
-- 看板信息架构确定为：顶部概览、运行中 workflow、定时 workflow task 表、当天 run / step 明细、刷新与日期选择。
+- `任务` 是计划管理视角，`工作流` 是 workflow run 审计视角；整合时不能把两者误改成同一个数据模型。
+- 本轮优先前端整合，避免扩大到 scheduler 或 workflow engine。
 
-### Milestone 2：后端 dashboard API
+### Milestone 2：自动化页面与路由整合
 
 Objective:
 
-- 增加只读工作流看板 API，按权限返回当天 workflow 运行、运行中 run、scheduled workflow 任务和 step 摘要。
-
-Allowed scope:
-
-- `src/web/routes/**`
-- `src/storage/db.ts`
-- `src/domain/types.ts`
-- `tests/unit/**`
-- `tests/integration/**`
-- 必要的 owner docs
-
-Validation:
-
-- 针对 API 查询、权限过滤、日期窗口、step 聚合和 scheduled task 关联补测试。
-- 运行相关测试。
-
-Status:
-
-- done
-
-Validation status:
-
-- passed
-
-Review status:
-
-- passed
-
-Risks / Notes / Handoff:
-
-- 需要避免 admin 与普通用户可见范围混淆；普通用户只能看到自己可访问 workspace 的 workflow / task。
-- 已新增 `/api/workflows/dashboard`，普通用户按可访问 workspace folder 过滤，admin 不带 folder 过滤；scheduled task 只返回 `execution_type='workflow'`。
-- 日期窗口使用前端传入的 `tzOffsetMinutes` 解析本地当天；active `queued/running` run 即使跨日仍保留在看板中。
-
-### Milestone 3：Web 看板页面
-
-Objective:
-
-- 在 Web UI 增加工作流看板入口与页面，展示当天概览、运行中、定时任务日程、run 列表和 step 明细。
+- 新增自动化总入口，整合计划 / 运行 / 工作流视角，并让旧路由兼容跳转。
 
 Allowed scope:
 
 - `web/src/App.tsx`
 - `web/src/components/layout/nav-items.ts`
-- `web/src/pages/**`
-- `web/src/stores/**`
-- `web/src/components/**`
-- 必要的 owner docs
-
-Validation:
-
-- `npm run typecheck`
-- 前端构建或仓库统一验证入口。
-- 使用浏览器打开本地页面检查桌面与移动布局。
-
-Status:
-
-- done
-
-Validation status:
-
-- passed
-
-Review status:
-
-- passed
-
-Risks / Notes / Handoff:
-
-- UI 应保持操作型控制台风格，避免营销式页面；首屏直接展示可操作运行情况。
-- Web 新增 `/workflows` 路由与导航项 `工作流`；页面每 10 秒刷新一次，支持日期选择和手动刷新。
-- 页面展示 summary cards、running run cards、scheduled workflow table、可展开 run / step 明细，并兼容 workflow 类型 scheduled task 的现有任务详情展示。
-
-### Milestone 3.5：看板交互与信息密度优化
-
-Objective:
-
-- 响应真实页面反馈，优化运行态分组、定时 workflow 表格换行、step 明细空值语义，以及定时 workflow task 的编辑 / 删除入口。
-
-Allowed scope:
-
-- `PLANS/ACTIVE.md`
-- `src/web/routes/tasks.ts`
-- `tests/integration/routes/**`
+- `web/src/pages/AutomationsPage.tsx`
+- `web/src/pages/TasksPage.tsx`
 - `web/src/pages/WorkflowsPage.tsx`
-- `web/src/stores/workflows.ts`
 - 必要的 owner docs
 
 Validation:
 
-- 覆盖 running workflow task 可删除、running agent/script task 仍受保护的路由测试。
-- 运行相关测试、前端 typecheck / build。
-- 使用浏览器验证 `/workflows` 桌面与窄屏布局；若当前浏览器控制工具不可用，则以 Web build、类型检查和 API/路由测试兜底，并在 handoff 中记录未做截图级验证。
+- `npm --prefix web run build`
+- `npm run typecheck`
+- `git diff --check`
 
 Status:
 
@@ -184,16 +103,15 @@ Review status:
 
 Risks / Notes / Handoff:
 
-- `queued` 表示 workflow run 已创建但尚未进入执行中，不能混在“正在运行”里造成误解。
-- 看板删除定时 workflow task 不强杀已启动 run；当前 run 会继续在审计列表中展示。
-- 已完成优化：运行中与排队 run 分区展示；排队卡片解释 queued 含义；定时 workflow 表格首列固定宽度并允许副标题换行；step 明细空值改为“进行中 / 未开始 / 未记录耗时”等语义文案；定时 workflow 支持编辑 / 删除。
-- 本轮未重复截图级浏览器验证：Browser Node REPL 控制面不可用。已通过 `npm --prefix web run build`、`bun tsc --noEmit`、相关路由测试与完整 `./scripts/validate.sh` 兜底。
+- 已新增 `AutomationsPage`，侧边栏只保留 `自动化` 一级入口。
+- `计划` tab 嵌入任务管理页，`运行` tab 同时展示 agent/script 运行中任务和 workflow running / queued，`工作流` tab 保留 workflow 专属审计。
+- `/tasks` 与 `/workflows` 已重定向到 `/automations?tab=plans` 和 `/automations?tab=workflows`。
 
-### Milestone 4：验证、review、文档与提交
+### Milestone 3：文档、验证、review 与提交
 
 Objective:
 
-- 完成验证与 review gate，必要时同步 owner docs / roadmap，并提交本轮改动。
+- 同步 owner docs / roadmap，完成验证和 review gate，提交并安全重启服务。
 
 Allowed scope:
 
@@ -204,8 +122,8 @@ Allowed scope:
 
 Validation:
 
+- `npm --prefix web run build`
 - `npm run typecheck`
-- 相关测试
 - `./scripts/review.sh`
 - `git diff --check`
 - 必要时 `./scripts/validate.sh`
@@ -224,16 +142,16 @@ Review status:
 
 Risks / Notes / Handoff:
 
-- 若改动影响正在运行服务，提交后按 `docs/COMMAND.md` 走安全重启路径，不直接 kill 服务。
-- 首版验证曾通过：`npm test -- tests/unit/agent/workflow/context.test.ts tests/integration/routes/workflows-dashboard.test.ts tests/unit/web/workflow-dashboard.test.ts`、`npm run typecheck`、`npm --prefix web run build`、`git diff --check`、`./scripts/review.sh`、`./scripts/validate.sh`；收到优化反馈后需要重新验证。
-- 本轮追加验证已通过：`npm test -- tests/integration/routes/tasks-delete-workflow.test.ts tests/integration/routes/workflows-dashboard.test.ts tests/unit/web/workflow-dashboard.test.ts tests/unit/agent/workflow/context.test.ts`、`bun tsc --noEmit`（web）、`npm run typecheck`、`npm --prefix web run build`、`git diff --check`、`./scripts/review.sh`、`./scripts/validate.sh`。
-- Review gate 结果：scope / objective / pattern-fit / test / hygiene / docs / contract checks 均通过；未发现阻塞项。
+- 若当前环境仍无法使用浏览器控制工具，收尾需说明截图级浏览器验证缺口，并用 build / typecheck / route-level 检查兜底。
+- 提交后按 `docs/COMMAND.md` 走安全重启路径，不直接 kill 服务。
+- 已通过 `bun tsc --noEmit`（web）、`npm --prefix web run build`、`npm run typecheck`、`git diff --check`、`./scripts/review.sh`、`./scripts/validate.sh`。
+- Review gate 结果：scope / objective / pattern-fit / test / hygiene / docs / route compatibility 均通过；曾发现 tab 内容可能重复挂载轮询，已改为仅挂载当前视图。
 
 ## Handoff
 
 Current milestone:
 
-- Milestone 4
+- Milestone 3
 
 Current status:
 
@@ -247,31 +165,21 @@ Changed files:
 - `docs/COMMAND.md`
 - `docs/MODULE.md`
 - `docs/RUNTIME.md`
-- `src/storage/db.ts`
-- `src/web/app.ts`
-- `src/web/routes/workflows.ts`
-- `src/web/workflow-dashboard.ts`
-- `tests/integration/routes/workflows-dashboard.test.ts`
-- `tests/integration/routes/tasks-delete-workflow.test.ts`
-- `tests/unit/agent/workflow/context.test.ts`
-- `tests/unit/web/workflow-dashboard.test.ts`
-- `src/web/routes/tasks.ts`
 - `web/src/App.tsx`
 - `web/src/components/layout/nav-items.ts`
 - `web/src/components/tasks/TaskCard.tsx`
-- `web/src/components/tasks/TaskDetail.tsx`
+- `web/src/pages/AutomationsPage.tsx`
+- `web/src/pages/TasksPage.tsx`
 - `web/src/pages/WorkflowsPage.tsx`
-- `web/src/stores/tasks.ts`
-- `web/src/stores/workflows.ts`
 
 Last failure summary:
 
-- 初始实现阶段曾暴露三类问题：缺少 dashboard route / aggregator、dashboard 查询默认 limit 与“当天所有运行”目标不一致、跨日完成 run 未被查询覆盖；均已通过实现和回归测试修复。
+- n/a
 
 Suspected cause:
 
-- n/a，当前无未解决失败。
+- n/a
 
 Next step:
 
-- 本轮优化实现、验证与 review 均已完成；下一步提交改动并安全重启服务。后续若继续 Roadmap，可扩展 checkpoint 查看、失败节点重跑和 retry attempt 细节。
+- 提交改动并安全重启服务。后续可继续抽象 `/api/automations/dashboard`，把计划与运行数据在后端统一聚合。
