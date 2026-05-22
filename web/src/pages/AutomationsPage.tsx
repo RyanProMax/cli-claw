@@ -149,9 +149,13 @@ export function AutomationsPage() {
         />
 
         <Tabs value={activeTab} onValueChange={selectTab} className="gap-5">
-          <TabsList className="w-full justify-start overflow-x-auto sm:w-fit">
+          <TabsList className="!grid w-full grid-cols-3 justify-start sm:!inline-flex sm:w-fit">
             {AUTOMATION_TABS.map(({ value, label, Icon }) => (
-              <TabsTrigger key={value} value={value} className="min-w-24">
+              <TabsTrigger
+                key={value}
+                value={value}
+                className="min-w-0 px-3 sm:min-w-24 sm:px-1.5"
+              >
                 <Icon className="size-4" />
                 {label}
               </TabsTrigger>

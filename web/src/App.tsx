@@ -73,20 +73,12 @@ export function App() {
             element={<Navigate to="/settings?tab=groups" replace />}
           />
           <Route
-            path="/tasks"
-            element={<Navigate to="/automations?tab=plans" replace />}
-          />
-          <Route
             path="/automations"
             element={
               <Suspense fallback={null}>
                 <AutomationsPage />
               </Suspense>
             }
-          />
-          <Route
-            path="/workflows"
-            element={<Navigate to="/automations?tab=workflows" replace />}
           />
           <Route
             path="/monitor"
