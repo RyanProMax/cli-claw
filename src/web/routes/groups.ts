@@ -577,7 +577,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
       return c.json({ error: 'Group not found' }, 404);
     }
   } else {
-    // Name/skills changes require canModifyGroup (owner only)
+    // Workspace identity/runtime changes require canModifyGroup (owner only)
     if (
       !canModifyGroup(
         { id: authUser.id, role: authUser.role },

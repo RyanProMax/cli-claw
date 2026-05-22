@@ -8,8 +8,6 @@ export const DEFAULT_WORKFLOW_KNOWN_TOOLS = [
   'resume_task',
   'cancel_task',
   'register_group',
-  'install_skill',
-  'uninstall_skill',
 ] as const;
 
 export const DEFAULT_WORKFLOW_LOCAL_TASK_IDS = [

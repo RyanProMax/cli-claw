@@ -27,7 +27,7 @@ Cli Claw 是一个自托管、多用户的 CLI Agent 协作系统。它接收 We
 6. 队列或 workflow dispatcher 启动本地 Agent 进程，再由 `agent-runner` 加载工作区的 Codex/OpenAI 模型配置以及显式传入的 workflow/role metadata。
 7. runner 产生文本、思考、工具调用和任务事件，经 stdout / IPC 回到主进程。
 8. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
-9. 任务调度、技能安装和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行。
+9. 任务调度和跨工作区通知等能力，通过内置 MCP 工具回到主进程执行；Skill 扩展只保留仓库级 `.agents/skills` slash command 文件，不再通过 Web UI 或 runner 工具安装用户 Skill。
 
 Web `自动化` 页面统一承载定时计划、当前运行和 workflow 看板。Workflow 看板主要读取主数据库中的 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 与 `task_run_logs`，不参与 workflow 调度、不写 checkpoint，也不重跑节点。看板允许对 `execution_type='workflow'` 的定时任务做编辑 / 删除：编辑只改 `scheduled_tasks` 的 workflow id、prompt、调度和值状态；删除只移除后续调度任务，不强制中断已经启动的 workflow run，既有 run/step 审计继续保留。普通用户按 workspace 访问权限过滤；admin 可查看全部工作流运行。
 

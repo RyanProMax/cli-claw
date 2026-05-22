@@ -3,7 +3,6 @@ import {
   User,
   Shield,
   Layers,
-  Puzzle,
   Server,
   Bot,
   UserCog,
@@ -77,12 +76,6 @@ const featureItems: NavItem[] = [
     key: 'groups',
     label: '会话管理',
     icon: <Layers className="w-4 h-4" />,
-    group: 'features',
-  },
-  {
-    key: 'skills',
-    label: '技能(Skill)管理',
-    icon: <Puzzle className="w-4 h-4" />,
     group: 'features',
   },
   {

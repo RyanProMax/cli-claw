@@ -322,11 +322,6 @@ export function createOpenAiAgentTools(ctx: OpenAiToolContext): Tool[] {
     }),
   ];
 
-  if (ctx.isHome) {
-    tools.push(createInstallSkillTool(tasksDir, ctx));
-    tools.push(createUninstallSkillTool(tasksDir, ctx));
-  }
-
   return filterAllowedTools(tools, ctx.allowedTools);
 }
 
@@ -350,81 +345,6 @@ function taskControlTool(
         timestamp: new Date().toISOString(),
       });
       return `Task ${task_id} ${action} requested.`;
-    },
-  });
-}
-
-function createInstallSkillTool(
-  tasksDir: string,
-  ctx: OpenAiToolContext,
-): Tool {
-  return tool({
-    name: 'install_skill',
-    description:
-      'Install a skill from the skills registry. The skill is available in future conversations.',
-    parameters: z.object({ package: z.string() }),
-    strict: true,
-    execute: async (args) => {
-      const pkg = args.package.trim();
-      if (
-        !/^[\w-]+\/[\w-.]+(?:[@#][\w-./]+)?$/.test(pkg) &&
-        !/^https?:\/\//.test(pkg)
-      ) {
-        return `Error: invalid package format "${pkg}".`;
-      }
-      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const result = await pollIpcResult(
-        tasksDir,
-        {
-          type: 'install_skill',
-          package: pkg,
-          requestId,
-          groupFolder: ctx.groupFolder,
-          timestamp: new Date().toISOString(),
-        },
-        'install_skill_result',
-        120_000,
-      );
-      if (!result.success) {
-        return `Failed to install skill "${pkg}": ${result.error || 'Unknown error'}`;
-      }
-      const installed =
-        ((result.installed as string[]) || []).join(', ') || pkg;
-      return `Skill installed successfully: ${installed}`;
-    },
-  });
-}
-
-function createUninstallSkillTool(
-  tasksDir: string,
-  ctx: OpenAiToolContext,
-): Tool {
-  return tool({
-    name: 'uninstall_skill',
-    description: 'Uninstall a user-level skill by its ID.',
-    parameters: z.object({ skill_id: z.string() }),
-    strict: true,
-    execute: async ({ skill_id }) => {
-      const skillId = skill_id.trim();
-      if (!skillId || !/^[\w-]+$/.test(skillId)) {
-        return `Error: invalid skill ID "${skillId}".`;
-      }
-      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const result = await pollIpcResult(
-        tasksDir,
-        {
-          type: 'uninstall_skill',
-          skillId,
-          requestId,
-          groupFolder: ctx.groupFolder,
-          timestamp: new Date().toISOString(),
-        },
-        'uninstall_skill_result',
-      );
-      if (!result.success) {
-        return `Failed to uninstall skill "${skillId}": ${result.error || 'Unknown error'}`;
-      }
-      return `Skill "${skillId}" uninstalled successfully.`;
     },
   });
 }

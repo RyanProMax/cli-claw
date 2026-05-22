@@ -627,7 +627,6 @@ export function initDatabase(): void {
       custom_cwd TEXT,
       created_by TEXT,
       is_home INTEGER DEFAULT 0,
-      selected_skills TEXT,
       target_agent_id TEXT,
       target_main_jid TEXT,
       reply_policy TEXT DEFAULT 'source_only',
@@ -978,7 +977,6 @@ export function initDatabase(): void {
   ensureColumn('scheduled_tasks', 'notify_channels', 'TEXT');
   ensureColumn('scheduled_tasks', 'workspace_jid', 'TEXT');
   ensureColumn('scheduled_tasks', 'workspace_folder', 'TEXT');
-  ensureColumn('registered_groups', 'selected_skills', 'TEXT');
   ensureColumn('sessions', 'agent_id', "TEXT NOT NULL DEFAULT ''");
   ensureColumn('agents', 'kind', "TEXT NOT NULL DEFAULT 'task'");
   ensureColumn('registered_groups', 'target_agent_id', 'TEXT');
@@ -1083,11 +1081,6 @@ export function initDatabase(): void {
         'NULL',
       ),
       is_home: selectColumnOrDefault('registered_groups', 'is_home', '0'),
-      selected_skills: selectColumnOrDefault(
-        'registered_groups',
-        'selected_skills',
-        'NULL',
-      ),
       target_agent_id: selectColumnOrDefault(
         'registered_groups',
         'target_agent_id',
@@ -1138,7 +1131,6 @@ export function initDatabase(): void {
           custom_cwd TEXT,
           created_by TEXT,
           is_home INTEGER DEFAULT 0,
-          selected_skills TEXT,
           target_agent_id TEXT,
           target_main_jid TEXT,
           reply_policy TEXT DEFAULT 'source_only',
@@ -1149,14 +1141,14 @@ export function initDatabase(): void {
         );
         INSERT INTO registered_groups_new (
           jid, name, folder, added_at, agent_type, model, reasoning_effort,
-          speed_tier, custom_cwd, created_by, is_home, selected_skills,
+          speed_tier, custom_cwd, created_by, is_home,
           target_agent_id, target_main_jid, reply_policy, require_mention,
           activation_mode, mcp_mode, selected_mcps
         )
         SELECT
           jid, name, folder, added_at, ${source.agent_type}, ${source.model},
           ${source.reasoning_effort}, ${source.speed_tier}, ${source.custom_cwd},
-          ${source.created_by}, ${source.is_home}, ${source.selected_skills},
+          ${source.created_by}, ${source.is_home},
           ${source.target_agent_id}, ${source.target_main_jid},
           ${source.reply_policy}, ${source.require_mention},
           ${source.activation_mode}, ${source.mcp_mode}, ${source.selected_mcps}
@@ -1263,7 +1255,6 @@ export function initDatabase(): void {
       'custom_cwd',
       'created_by',
       'is_home',
-      'selected_skills',
       'target_agent_id',
       'target_main_jid',
       'reply_policy',
@@ -3267,7 +3258,6 @@ type RegisteredGroupRow = {
   custom_cwd: string | null;
   created_by: string | null;
   is_home: number;
-  selected_skills: string | null;
   target_agent_id: string | null;
   target_main_jid: string | null;
   reply_policy: string | null;
@@ -3332,8 +3322,8 @@ export function getRegisteredGroup(
 
 export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, agent_type, model, reasoning_effort, speed_tier, custom_cwd, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, agent_type, model, reasoning_effort, speed_tier, custom_cwd, created_by, is_home, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
@@ -3346,7 +3336,6 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     group.customCwd ?? null,
     group.created_by ?? null,
     group.is_home ? 1 : 0,
-    null, // selected_skills: deprecated, always null (user-level skills apply globally)
     group.target_agent_id ?? null,
     group.target_main_jid ?? null,
     group.reply_policy ?? 'source_only',
@@ -3888,7 +3877,6 @@ export function getGroupsByOwner(
     custom_cwd: string | null;
     created_by: string | null;
     is_home: number;
-    selected_skills: string | null;
   }>;
 
   return rows.map((row) => ({

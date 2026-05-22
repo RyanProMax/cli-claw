@@ -1,8 +1,7 @@
-import { MessageCircle, Puzzle, Wallet, User, Workflow } from 'lucide-react';
+import { MessageCircle, Wallet, User, Workflow } from 'lucide-react';
 
 export const baseNavItems = [
   { path: '/chat', icon: MessageCircle, label: '工作台' },
-  { path: '/skills', icon: Puzzle, label: 'Skill' },
   { path: '/automations', icon: Workflow, label: '自动化' },
   { path: '/billing', icon: Wallet, label: '账单', requiresBilling: true },
   { path: '/settings', icon: User, label: '设置' },

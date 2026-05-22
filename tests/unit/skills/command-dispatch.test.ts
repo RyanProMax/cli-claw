@@ -56,19 +56,21 @@ describe('skill command dispatch', () => {
     }
   });
 
-  test('discovers workspace skill commands before user-level ones', async () => {
-    const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'skill-cmd-ws-'),
+  test('honors earlier command roots over later fallback roots', async () => {
+    const primaryRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-primary-'),
     );
-    const userRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-cmd-user-'));
-    tempDirs.push(workspaceRoot, userRoot);
+    const fallbackRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-fallback-'),
+    );
+    tempDirs.push(primaryRoot, fallbackRoot);
 
     writeSkill({
-      rootDir: userRoot,
-      skillId: 'user-stock-skill',
+      rootDir: fallbackRoot,
+      skillId: 'fallback-stock-skill',
       commands: {
         hkipo: {
-          description: 'user level description',
+          description: 'fallback description',
           entrypoints: ['im', 'web'],
           executor: { command: process.execPath, args: ['reply.js'] },
         },
@@ -76,11 +78,11 @@ describe('skill command dispatch', () => {
     });
 
     writeSkill({
-      rootDir: workspaceRoot,
-      skillId: 'workspace-stock-skill',
+      rootDir: primaryRoot,
+      skillId: 'primary-stock-skill',
       commands: {
         hkipo: {
-          description: 'workspace level description',
+          description: 'primary description',
           entrypoints: ['im', 'web'],
           executor: { command: process.execPath, args: ['reply.js'] },
         },
@@ -89,14 +91,14 @@ describe('skill command dispatch', () => {
 
     const discovered = await discoverSkillCommands({
       entrypoint: 'im',
-      roots: [workspaceRoot, userRoot],
+      roots: [primaryRoot, fallbackRoot],
     });
 
     expect(discovered.commands).toHaveLength(1);
     expect(discovered.commands[0]).toMatchObject({
       name: 'hkipo',
-      description: 'workspace level description',
-      skillId: 'workspace-stock-skill',
+      description: 'primary description',
+      skillId: 'primary-stock-skill',
     });
   });
 

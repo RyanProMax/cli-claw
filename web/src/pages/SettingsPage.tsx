@@ -12,7 +12,6 @@ import { AppearanceSection } from '../components/settings/AppearanceSection';
 import { SystemSettingsSection } from '../components/settings/SystemSettingsSection';
 import { UserChannelsSection } from '../components/settings/UserChannelsSection';
 import { GroupsPage } from './GroupsPage';
-import { SkillsPage } from './SkillsPage';
 import { McpServersPage } from './McpServersPage';
 import { AgentDefinitionsPage } from './AgentDefinitionsPage';
 import { UsersPage } from './UsersPage';
@@ -30,7 +29,6 @@ const VALID_TABS: SettingsTab[] = [
   'my-channels',
   'security',
   'groups',
-  'skills',
   'mcp-servers',
   'agent-definitions',
   'users',
@@ -46,7 +44,6 @@ const SYSTEM_TABS: SettingsTab[] = [
 ];
 const FULLPAGE_TABS: SettingsTab[] = [
   'groups',
-  'skills',
   'mcp-servers',
   'agent-definitions',
   'users',
@@ -113,7 +110,6 @@ export function SettingsPage() {
       tabs.push({ key: 'system', label: '系统' });
     }
     tabs.push({ key: 'groups', label: '会话' });
-    tabs.push({ key: 'skills', label: '技能' });
     tabs.push({ key: 'mcp-servers', label: 'MCP' });
     tabs.push({ key: 'agent-definitions', label: 'Agent' });
     tabs.push({ key: 'bindings', label: 'IM 绑定' });
@@ -151,7 +147,6 @@ export function SettingsPage() {
     'my-channels': '消息通道',
     security: '安全与设备',
     groups: '会话管理',
-    skills: '技能(Skill)管理',
     'mcp-servers': 'MCP 服务器',
     'agent-definitions': 'Agent 管理',
     users: '用户管理',
@@ -220,7 +215,6 @@ export function SettingsPage() {
         {FULLPAGE_TABS.includes(activeTab) ? (
           <>
             {activeTab === 'groups' && <GroupsPage />}
-            {activeTab === 'skills' && <SkillsPage />}
             {activeTab === 'mcp-servers' && <McpServersPage />}
             {activeTab === 'agent-definitions' && <AgentDefinitionsPage />}
             {activeTab === 'users' && <UsersPage />}

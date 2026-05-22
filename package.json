@@ -13,7 +13,6 @@
     "config",
     "shared",
     "shared/dist",
-    "container/skills",
     "container/agent-runner/package.json",
     "container/agent-runner/dist",
     "container/agent-runner/prompts",

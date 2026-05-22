@@ -10,7 +10,6 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { SetupPage } from './pages/SetupPage';
 import { SetupChannelsPage } from './pages/SetupChannelsPage';
-import { SkillsPage } from './pages/SkillsPage';
 import { McpServersPage } from './pages/McpServersPage';
 import { AgentDefinitionsPage } from './pages/AgentDefinitionsPage';
 import { UsersPage } from './pages/UsersPage';
@@ -96,7 +95,6 @@ export function App() {
               </Suspense>
             }
           />
-          <Route path="/skills" element={<SkillsPage />} />
           <Route path="/mcp-servers" element={<McpServersPage />} />
           <Route path="/agent-definitions" element={<AgentDefinitionsPage />} />
           <Route

@@ -1,7 +1,7 @@
 /**
- * Workspace-level Skills and MCP Servers management routes.
+ * Workspace-level MCP Servers management routes.
  *
- * Operates on the workspace's `.agents/` directory for explicit skill/MCP
+ * Operates on the workspace's `.agents/` directory for explicit MCP
  * management.
  */
 
@@ -15,13 +15,6 @@ import { GROUPS_DIR } from '../../core/config.js';
 import { canAccessGroup } from '../context.js';
 import { getJidsByFolder, getRegisteredGroup } from '../../storage/db.js';
 import { resolveEffectiveWorkspaceCwd } from '../../core/workspace/workspace-cwd.js';
-import {
-  parseFrontmatter,
-  validateSkillId,
-  validateSkillPath,
-  scanSkillDirectory,
-  listFiles,
-} from '../../skills/utils.js';
 
 const workspaceConfigRoutes = new Hono<{ Variables: Variables }>();
 
@@ -65,12 +58,6 @@ function getWorkspaceAgentsDir(
     getWorkspaceRoot(group, findHomeSiblingGroup(group)),
     '.agents',
   );
-}
-
-function getWorkspaceSkillsDir(
-  group: RegisteredGroup & { jid: string },
-): string {
-  return path.join(getWorkspaceAgentsDir(group), 'skills');
 }
 
 function getWorkspaceSettingsPath(
@@ -218,129 +205,6 @@ function resolveGroup(
 
   return group;
 }
-
-// ===========================
-// Skills API
-// ===========================
-
-// GET /workspace-config/skills — list workspace skills
-workspaceConfigRoutes.get(
-  '/:jid/workspace-config/skills',
-  authMiddleware,
-  async (c) => {
-    const group = resolveGroup(c);
-    if (!group)
-      return c.json({ error: 'Group not found or access denied' }, 404);
-
-    const skillsDir = getWorkspaceSkillsDir(group);
-    const skills = scanSkillDirectory(skillsDir, 'workspace');
-    return c.json({ skills });
-  },
-);
-
-// POST /workspace-config/skills/install — install skill to workspace
-workspaceConfigRoutes.post(
-  '/:jid/workspace-config/skills/install',
-  authMiddleware,
-  async (c) => {
-    const group = resolveGroup(c);
-    if (!group)
-      return c.json({ error: 'Group not found or access denied' }, 404);
-
-    const body = await c.req.json().catch(() => ({}));
-    const pkg = typeof body.package === 'string' ? body.package.trim() : '';
-
-    if (
-      !/^[\w\-]+\/[\w\-.]+(?:[@#][\w\-.\/]+)?$/.test(pkg) &&
-      !/^https?:\/\//.test(pkg)
-    ) {
-      return c.json({ error: 'Invalid package name format' }, 400);
-    }
-
-    return c.json(
-      {
-        error: 'Skill package installation is not available in this runtime',
-        details: `Add unpacked skill folders under ${getWorkspaceSkillsDir(group)}`,
-      },
-      501,
-    );
-  },
-);
-
-// PATCH /workspace-config/skills/:id — enable/disable
-workspaceConfigRoutes.patch(
-  '/:jid/workspace-config/skills/:id',
-  authMiddleware,
-  async (c) => {
-    const group = resolveGroup(c);
-    if (!group)
-      return c.json({ error: 'Group not found or access denied' }, 404);
-
-    const id = c.req.param('id');
-    if (!validateSkillId(id)) {
-      return c.json({ error: 'Invalid skill ID' }, 400);
-    }
-
-    const { enabled } = await c.req.json<{ enabled: boolean }>();
-    const skillsDir = getWorkspaceSkillsDir(group);
-    const skillDir = path.join(skillsDir, id);
-
-    if (!fs.existsSync(skillDir)) {
-      return c.json({ error: 'Skill not found' }, 404);
-    }
-    if (!validateSkillPath(skillsDir, skillDir)) {
-      return c.json({ error: 'Invalid skill path' }, 400);
-    }
-
-    const srcPath = path.join(
-      skillDir,
-      enabled ? 'SKILL.md.disabled' : 'SKILL.md',
-    );
-    const dstPath = path.join(
-      skillDir,
-      enabled ? 'SKILL.md' : 'SKILL.md.disabled',
-    );
-
-    if (!fs.existsSync(srcPath)) {
-      return c.json(
-        { error: 'Skill not found or already in desired state' },
-        404,
-      );
-    }
-
-    fs.renameSync(srcPath, dstPath);
-    return c.json({ success: true });
-  },
-);
-
-// DELETE /workspace-config/skills/:id — delete skill
-workspaceConfigRoutes.delete(
-  '/:jid/workspace-config/skills/:id',
-  authMiddleware,
-  async (c) => {
-    const group = resolveGroup(c);
-    if (!group)
-      return c.json({ error: 'Group not found or access denied' }, 404);
-
-    const id = c.req.param('id');
-    if (!validateSkillId(id)) {
-      return c.json({ error: 'Invalid skill ID' }, 400);
-    }
-
-    const skillsDir = getWorkspaceSkillsDir(group);
-    const skillDir = path.join(skillsDir, id);
-
-    if (!fs.existsSync(skillDir)) {
-      return c.json({ error: 'Skill not found' }, 404);
-    }
-    if (!validateSkillPath(skillsDir, skillDir)) {
-      return c.json({ error: 'Invalid skill path' }, 400);
-    }
-
-    fs.rmSync(skillDir, { recursive: true, force: true });
-    return c.json({ success: true });
-  },
-);
 
 // ===========================
 // MCP Servers API

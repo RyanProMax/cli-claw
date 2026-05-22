@@ -249,11 +249,6 @@ import {
   getActiveStreamingTexts,
   clearStreamingSnapshot,
 } from './web/app.js';
-import {
-  installSkillForUser,
-  deleteSkillForUser,
-  syncHostSkillsForUser,
-} from './web/routes/skills.js';
 import { verifyPairingCode } from './messaging/providers/telegram-pairing.js';
 import { executeSessionReset } from './commands.js';
 import { formatLoopStatusSection } from './presentation/loop-status.js';
@@ -2131,17 +2126,6 @@ async function handleWorkflowSlashCommand(
   });
 }
 
-function resolveSkillCommandUserId(
-  target: ResolvedRuntimeWorkspaceTarget,
-): string | null {
-  return (
-    target.workspaceGroup.created_by ??
-    target.sourceGroup.created_by ??
-    target.runtimeOwnerGroup.created_by ??
-    null
-  );
-}
-
 async function discoverSkillCommandsForTarget(
   entrypoint: 'im' | 'web',
   target: ResolvedRuntimeWorkspaceTarget,
@@ -2153,7 +2137,6 @@ async function discoverSkillCommandsForTarget(
       homeGroup: target.runtimeOwnerGroup.is_home
         ? target.runtimeOwnerGroup
         : null,
-      userId: resolveSkillCommandUserId(target),
     }),
   });
 }
@@ -6411,9 +6394,7 @@ function startIpcWatcher(): void {
           if (
             entry.isFile() &&
             entry.name.endsWith('.json') &&
-            (entry.name.startsWith('install_skill_result_') ||
-              entry.name.startsWith('uninstall_skill_result_') ||
-              entry.name.startsWith('list_tasks_result_'))
+            entry.name.startsWith('list_tasks_result_')
           ) {
             try {
               const filePath = path.join(tasksDir, entry.name);
@@ -6422,7 +6403,7 @@ function startIpcWatcher(): void {
                 await fsp.unlink(filePath);
                 logger.debug(
                   { sourceGroup, file: entry.name },
-                  'Cleaned up stale skill result file',
+                  'Cleaned up stale IPC result file',
                 );
               }
             } catch {
@@ -6436,8 +6417,6 @@ function startIpcWatcher(): void {
             (entry) =>
               entry.isFile() &&
               entry.name.endsWith('.json') &&
-              !entry.name.startsWith('install_skill_result_') &&
-              !entry.name.startsWith('uninstall_skill_result_') &&
               !entry.name.startsWith('list_tasks_result_'),
           )
           .map((entry) => entry.name);
@@ -6542,10 +6521,7 @@ async function processTaskIpc(
     jid?: string;
     name?: string;
     folder?: string;
-    // For install_skill / uninstall_skill
-    package?: string;
     requestId?: string;
-    skillId?: string;
     // For send_file
     filePath?: string;
     fileName?: string;
@@ -6837,144 +6813,6 @@ async function processTaskIpc(
         logger.warn(
           { data },
           'Invalid register_group request - missing required fields',
-        );
-      }
-      break;
-
-    case 'install_skill':
-      if (data.package && data.requestId) {
-        const pkg = data.package;
-        const requestId = data.requestId;
-        if (!SAFE_REQUEST_ID_RE.test(requestId)) {
-          logger.warn(
-            { sourceGroup, requestId },
-            'Rejected install_skill request with invalid requestId',
-          );
-          break;
-        }
-        const tasksDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'tasks');
-        const tasksDirResolved = path.resolve(tasksDir);
-        const resultFileName = `install_skill_result_${requestId}.json`;
-        const resultFilePath = path.resolve(tasksDir, resultFileName);
-        if (!resultFilePath.startsWith(`${tasksDirResolved}${path.sep}`)) {
-          logger.warn(
-            { sourceGroup, requestId, resultFilePath },
-            'Rejected install_skill request with unsafe result file path',
-          );
-          break;
-        }
-
-        // Find the user who owns this group
-        const sourceGroupForSkill = Object.values(registeredGroups).find(
-          (g) => g.folder === sourceGroup,
-        );
-        const userId = sourceGroupForSkill?.created_by;
-
-        if (!userId) {
-          logger.warn(
-            { sourceGroup },
-            'Cannot install skill: no user associated with group',
-          );
-          const errorResult = JSON.stringify({
-            success: false,
-            error: 'No user associated with this group',
-          });
-          const tmpPath = `${resultFilePath}.tmp`;
-          fs.mkdirSync(path.dirname(resultFilePath), { recursive: true });
-          fs.writeFileSync(tmpPath, errorResult);
-          fs.renameSync(tmpPath, resultFilePath);
-          break;
-        }
-
-        try {
-          const result = await installSkillForUser(userId, pkg);
-          const tmpPath = `${resultFilePath}.tmp`;
-          fs.mkdirSync(path.dirname(resultFilePath), { recursive: true });
-          fs.writeFileSync(tmpPath, JSON.stringify(result));
-          fs.renameSync(tmpPath, resultFilePath);
-          logger.info(
-            { sourceGroup, userId, pkg, success: result.success },
-            'Skill installation via IPC completed',
-          );
-        } catch (err) {
-          const errorResult = JSON.stringify({
-            success: false,
-            error: serializeErrorForOutput(err),
-          });
-          const tmpPath = `${resultFilePath}.tmp`;
-          fs.mkdirSync(path.dirname(resultFilePath), { recursive: true });
-          fs.writeFileSync(tmpPath, errorResult);
-          fs.renameSync(tmpPath, resultFilePath);
-          logger.error(
-            { sourceGroup, userId, pkg, err },
-            'Skill installation via IPC failed',
-          );
-        }
-      } else {
-        logger.warn(
-          { data },
-          'Invalid install_skill request - missing required fields',
-        );
-      }
-      break;
-
-    case 'uninstall_skill':
-      if (data.skillId && data.requestId) {
-        const skillId = data.skillId;
-        const requestId = data.requestId;
-        if (!SAFE_REQUEST_ID_RE.test(requestId)) {
-          logger.warn(
-            { sourceGroup, requestId },
-            'Rejected uninstall_skill request with invalid requestId',
-          );
-          break;
-        }
-        const tasksDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'tasks');
-        const tasksDirResolved = path.resolve(tasksDir);
-        const resultFileName = `uninstall_skill_result_${requestId}.json`;
-        const resultFilePath = path.resolve(tasksDir, resultFileName);
-        if (!resultFilePath.startsWith(`${tasksDirResolved}${path.sep}`)) {
-          logger.warn(
-            { sourceGroup, requestId, resultFilePath },
-            'Rejected uninstall_skill request with unsafe result file path',
-          );
-          break;
-        }
-
-        const sourceGroupForUninstall = Object.values(registeredGroups).find(
-          (g) => g.folder === sourceGroup,
-        );
-        const userId = sourceGroupForUninstall?.created_by;
-
-        if (!userId) {
-          logger.warn(
-            { sourceGroup },
-            'Cannot uninstall skill: no user associated with group',
-          );
-          const errorResult = JSON.stringify({
-            success: false,
-            error: 'No user associated with this group',
-          });
-          const tmpPath = `${resultFilePath}.tmp`;
-          fs.mkdirSync(path.dirname(resultFilePath), { recursive: true });
-          fs.writeFileSync(tmpPath, errorResult);
-          fs.renameSync(tmpPath, resultFilePath);
-          break;
-        }
-
-        const result = deleteSkillForUser(userId, skillId);
-        const tmpPath = `${resultFilePath}.tmp`;
-        fs.mkdirSync(path.dirname(resultFilePath), { recursive: true });
-        fs.writeFileSync(tmpPath, JSON.stringify(result));
-        fs.renameSync(tmpPath, resultFilePath);
-        logger.info(
-          { sourceGroup, userId, skillId, success: result.success },
-          'Skill uninstall via IPC completed',
-        );
-      } else {
-        logger.warn(
-          { data },
-          'Invalid uninstall_skill request - missing required fields',
         );
       }
       break;
@@ -10179,90 +10017,6 @@ export async function startCliClaw(
     },
     24 * 60 * 60 * 1000,
   );
-
-  // Skills auto-sync: periodically sync local skills to all admin users
-  let skillAutoSyncTimer: ReturnType<typeof setInterval> | null = null;
-
-  function startSkillAutoSync(): void {
-    stopSkillAutoSync();
-    const settings = getSystemSettings();
-    if (!settings.skillAutoSyncEnabled) return;
-
-    const intervalMs = settings.skillAutoSyncIntervalMinutes * 60 * 1000;
-    logger.info(
-      { intervalMinutes: settings.skillAutoSyncIntervalMinutes },
-      'Starting skill auto-sync timer',
-    );
-
-    const runSync = async () => {
-      const currentSettings = getSystemSettings();
-      if (!currentSettings.skillAutoSyncEnabled) {
-        stopSkillAutoSync();
-        return;
-      }
-
-      try {
-        const { users: adminUsers } = listUsers({
-          role: 'admin',
-          status: 'active',
-        });
-        for (const admin of adminUsers) {
-          try {
-            const result = await syncHostSkillsForUser(admin.id);
-            const { added, updated, deleted } = result.stats;
-            if (added > 0 || updated > 0 || deleted > 0) {
-              logger.info(
-                {
-                  userId: admin.id,
-                  username: admin.username,
-                  ...result.stats,
-                  total: result.total,
-                },
-                'Skill auto-sync completed with changes',
-              );
-            }
-          } catch (err) {
-            logger.warn(
-              { err, userId: admin.id },
-              'Skill auto-sync failed for user',
-            );
-          }
-        }
-      } catch (err) {
-        logger.error({ err }, 'Skill auto-sync failed');
-      }
-    };
-
-    // Run once immediately, then on interval
-    void runSync();
-    skillAutoSyncTimer = setInterval(() => void runSync(), intervalMs);
-  }
-
-  function stopSkillAutoSync(): void {
-    if (skillAutoSyncTimer) {
-      clearInterval(skillAutoSyncTimer);
-      skillAutoSyncTimer = null;
-    }
-  }
-
-  // Initial start + restart when settings change (check every 60s)
-  const initSettings = getSystemSettings();
-  let _lastSkillSyncEnabled: boolean = initSettings.skillAutoSyncEnabled;
-  let _lastSkillSyncInterval: number =
-    initSettings.skillAutoSyncIntervalMinutes;
-  startSkillAutoSync();
-
-  setInterval(() => {
-    const settings = getSystemSettings();
-    if (
-      settings.skillAutoSyncEnabled !== _lastSkillSyncEnabled ||
-      settings.skillAutoSyncIntervalMinutes !== _lastSkillSyncInterval
-    ) {
-      _lastSkillSyncEnabled = settings.skillAutoSyncEnabled;
-      _lastSkillSyncInterval = settings.skillAutoSyncIntervalMinutes;
-      startSkillAutoSync();
-    }
-  }, 60 * 1000);
 
   await cleanupOrphanedAgentProcesses();
 

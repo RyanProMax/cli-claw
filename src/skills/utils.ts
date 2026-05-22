@@ -1,30 +1,11 @@
 /**
  * Shared skill utility functions.
- * Used by both src/routes/skills.ts (user-level) and src/routes/workspace-config.ts (workspace-level).
+ * Used by repository-level skill command dispatch and workflow role parsing.
  */
 import fs from 'fs';
 import path from 'path';
 
-// --- Types ---
-
-export interface SkillInfo {
-  id: string;
-  name: string;
-  description: string;
-  source: string;
-  enabled: boolean;
-  userInvocable: boolean;
-  allowedTools: string[];
-  argumentHint: string | null;
-  updatedAt: string;
-  files: Array<{ name: string; type: 'file' | 'directory'; size: number }>;
-}
-
 // --- Functions ---
-
-export function validateSkillId(id: string): boolean {
-  return /^[\w\-]+$/.test(id);
-}
 
 export function validateSkillPath(
   skillsRoot: string,
@@ -94,87 +75,4 @@ export function parseFrontmatter(content: string): Record<string, string> {
   }
 
   return result;
-}
-
-export function listFiles(
-  dir: string,
-): Array<{ name: string; type: 'file' | 'directory'; size: number }> {
-  try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    return entries
-      .filter((entry) => !entry.name.startsWith('.'))
-      .map((entry) => {
-        const fullPath = path.join(dir, entry.name);
-        const stats = fs.statSync(fullPath);
-        return {
-          name: entry.name,
-          type: entry.isDirectory() ? 'directory' : 'file',
-          size: entry.isDirectory() ? 0 : stats.size,
-        };
-      });
-  } catch {
-    return [];
-  }
-}
-
-export function scanSkillDirectory(
-  rootDir: string,
-  source: string,
-): SkillInfo[] {
-  const skills: SkillInfo[] = [];
-  if (!fs.existsSync(rootDir)) return skills;
-
-  try {
-    const entries = fs.readdirSync(rootDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-
-      const skillDir = path.join(rootDir, entry.name);
-      const skillMdPath = path.join(skillDir, 'SKILL.md');
-      const skillMdDisabledPath = path.join(skillDir, 'SKILL.md.disabled');
-
-      let enabled = false;
-      let skillFilePath: string | null = null;
-
-      if (fs.existsSync(skillMdPath)) {
-        enabled = true;
-        skillFilePath = skillMdPath;
-      } else if (fs.existsSync(skillMdDisabledPath)) {
-        enabled = false;
-        skillFilePath = skillMdDisabledPath;
-      } else {
-        continue;
-      }
-
-      try {
-        const content = fs.readFileSync(skillFilePath, 'utf-8');
-        const frontmatter = parseFrontmatter(content);
-        const stats = fs.statSync(skillDir);
-
-        skills.push({
-          id: entry.name,
-          name: frontmatter.name || entry.name,
-          description: frontmatter.description || '',
-          source,
-          enabled,
-          userInvocable:
-            frontmatter['user-invocable'] === undefined
-              ? true
-              : frontmatter['user-invocable'] !== 'false',
-          allowedTools: frontmatter['allowed-tools']
-            ? frontmatter['allowed-tools'].split(',').map((t) => t.trim())
-            : [],
-          argumentHint: frontmatter['argument-hint'] || null,
-          updatedAt: stats.mtime.toISOString(),
-          files: listFiles(skillDir),
-        });
-      } catch {
-        // Skip malformed skills
-      }
-    }
-  } catch {
-    // Skip if directory is not readable
-  }
-
-  return skills;
 }

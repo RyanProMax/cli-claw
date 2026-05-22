@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 
-import { DATA_DIR, GROUPS_DIR } from '../core/config.js';
+import { GROUPS_DIR } from '../core/config.js';
 import { resolveEffectiveWorkspaceCwd } from '../core/workspace/workspace-cwd.js';
 import { type RuntimeCommandEntrypoint } from '../core/runtime/command-registry.js';
 import { validateSkillPath } from './utils.js';
@@ -624,7 +624,6 @@ export async function executeDiscoveredSkillCommandResult(options: {
 export function resolveSkillCommandRoots(options: {
   workspaceGroup: RegisteredGroup;
   homeGroup?: RegisteredGroup | null;
-  userId?: string | null;
 }): string[] {
   const roots: string[] = [];
   const workspaceRoot =
@@ -634,11 +633,6 @@ export function resolveSkillCommandRoots(options: {
     ) ?? path.join(GROUPS_DIR, options.workspaceGroup.folder);
 
   roots.push(path.join(workspaceRoot, '.agents', 'skills'));
-
-  const normalizedUserId = options.userId?.trim();
-  if (normalizedUserId) {
-    roots.push(path.join(DATA_DIR, 'skills', normalizedUserId));
-  }
 
   return roots;
 }

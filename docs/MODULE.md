@@ -69,7 +69,7 @@
 │   │   └── routes/                  # HTTP API routes
 │   ├── skills/
 │   │   ├── command-dispatch.ts      # skill command 发现、冲突检查与 executor 执行
-│   │   └── utils.ts                 # skill 路径与元数据 helper
+│   │   └── utils.ts                 # skill 路径与 frontmatter helper
 │   └── mcp/
 │       └── utils.ts                 # 用户级 MCP Server 配置读取
 ├── tests/
@@ -78,7 +78,7 @@
 │   ├── contracts/                   # CLI/package/runtime/OpenAI 请求协议等外部契约
 │   └── scripts/                     # ops / stock 等脚本测试
 ├── web/
-│   └── src/                         # React frontend；含 Chat / Automations / Tasks / Workflows / Settings 等页面与 zustand stores
+│   └── src/                         # React frontend；含 Chat / Automations / Settings 等页面与 zustand stores
 ├── container/
 │   └── agent-runner/                # Agent runner package（历史路径，实际为本地 Agent 进程）
 ├── shared/                          # 前后端与 runner 共用纯函数/类型

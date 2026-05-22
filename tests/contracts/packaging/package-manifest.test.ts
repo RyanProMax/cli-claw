@@ -24,12 +24,12 @@ describe('npm package manifest', () => {
         'config',
         'shared/dist',
         'web/dist',
-        'container/skills',
         'container/agent-runner/dist',
         'container/agent-runner/prompts',
         'container/agent-runner/package.json',
       ]),
     );
+    expect(pkg.files).not.toContain('container/skills');
     expect(pkg.files).not.toContain('container/agent-runner/src');
     expect(pkg.files).not.toContain('container/agent-runner/tsconfig.json');
     expect(pkg.scripts?.start).toBe('bun src/cli.ts start');

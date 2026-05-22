@@ -67,8 +67,8 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 ## Repository Skills
 
 - 仓库内联 skill 统一放在 `.agents/skills/<skill-id>/SKILL.md`。
-- skill 命令发现优先级：`.agents/skills` > 用户级 cli-claw skills；不要新增 legacy workspace fallback 的文档或测试覆盖。
-- `.agents/skills` 用于随仓库协作协议一起版本化的轻量命令 skill；用户个人 skill 仍由 Web 技能管理写入用户级目录。
+- skill 命令只从当前 workspace 的 `.agents/skills` 发现；不要新增用户级 cli-claw skills、host sync 或 legacy fallback 的文档、测试或代码覆盖。
+- `.agents/skills` 用于随仓库协作协议一起版本化的轻量命令 skill；Web UI 不再提供用户 Skill 管理、同步、安装、启停或删除入口。
 - skill command 的 `/help` 展示格式固定为 `- /command [argumentHint]：description`，没有参数时省略参数占位。
 - `commands.json` 的 `description` 只写命令用途，不写参数、默认值或支持选项；参数和默认值只允许放在 `argumentHint`、`argument_hint` 或 `usage`。
 - `usage` 可以写完整命令，例如 `/kol [--days=30]`；`argumentHint` / `argument_hint` 只写命令后的参数占位，例如 `[--days=30]`。

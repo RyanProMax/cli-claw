@@ -69,7 +69,7 @@ Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实�
 - `/help` 输出
 - 本文档
 
-除内建命令外，当前工作区已启用的 skill 也可以通过 `commands.json` 声明自己的 slash command。内建命令优先；只有内建未命中时，才会继续尝试 skill command 分发。
+除内建命令外，当前工作区 `.agents/skills` 中启用的仓库级 skill 也可以通过 `commands.json` 声明自己的 slash command。内建命令优先；只有内建未命中时，才会继续尝试 skill command 分发。
 
 命令最终是否可用，取决于：
 
@@ -125,9 +125,10 @@ skill command 的执行结果有三类：
 
 ## Skill Command
 
-skill command 通过 skill 根目录下的 `commands.json` 声明。当前分发约定如下：
+skill command 通过仓库级 skill 根目录下的 `commands.json` 声明。当前分发约定如下：
 
-- 先搜索当前工作区 `.agents/skills/`，再搜索用户级同步 skill 目录；项目内 skill 可以覆盖用户级同名声明。
+- 只搜索当前 workspace 的 `.agents/skills/`；不读取 Web 用户 Skill、宿主 `~/.agents/skills`、`~/.cli-claw/skills` 或历史同步目录。
+- Web UI 不提供 Skill 管理、同步、安装、启停或删除入口；新增命令必须以仓库文件形式提交到 `.agents/skills/<skill-id>/`。
 - 可选字段 `argumentHint` / `argument_hint` / `usage` 用于 `/help` 展示参数占位；它只影响帮助文本，不改变 executor 收到的 `argsText` 和 `args`。`description` 只写命令用途，不写参数、默认值或支持选项。
 - 若多个 skill 在同一搜索优先级上声明了相同命令，命令不会静默二选一，而是直接返回冲突提示。
 - executor 通过 stdin 接收 JSON payload，并通过 stdout 返回 JSON 结果。

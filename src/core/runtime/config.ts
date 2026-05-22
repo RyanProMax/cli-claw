@@ -933,9 +933,6 @@ export interface SystemSettings {
   loginLockoutMinutes: number;
   maxConcurrentScripts: number;
   scriptTimeout: number;
-  // Skills auto-sync
-  skillAutoSyncEnabled: boolean;
-  skillAutoSyncIntervalMinutes: number;
   // Billing
   billingEnabled: boolean;
   billingMode: 'wallet_first';
@@ -953,8 +950,6 @@ const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   loginLockoutMinutes: 15,
   maxConcurrentScripts: 10,
   scriptTimeout: 60000,
-  skillAutoSyncEnabled: false,
-  skillAutoSyncIntervalMinutes: 10,
   billingEnabled: false,
   billingMode: 'wallet_first',
   billingMinStartBalanceUsd: 0.01,
@@ -1019,15 +1014,6 @@ function readSystemSettingsFromFile(): SystemSettings | null {
       typeof raw.scriptTimeout === 'number' && raw.scriptTimeout > 0
         ? raw.scriptTimeout
         : DEFAULT_SYSTEM_SETTINGS.scriptTimeout,
-    skillAutoSyncEnabled:
-      typeof raw.skillAutoSyncEnabled === 'boolean'
-        ? raw.skillAutoSyncEnabled
-        : DEFAULT_SYSTEM_SETTINGS.skillAutoSyncEnabled,
-    skillAutoSyncIntervalMinutes:
-      typeof raw.skillAutoSyncIntervalMinutes === 'number' &&
-      raw.skillAutoSyncIntervalMinutes >= 1
-        ? raw.skillAutoSyncIntervalMinutes
-        : DEFAULT_SYSTEM_SETTINGS.skillAutoSyncIntervalMinutes,
     billingEnabled:
       typeof raw.billingEnabled === 'boolean'
         ? raw.billingEnabled
@@ -1082,13 +1068,6 @@ function buildEnvFallbackSettings(): SystemSettings {
     scriptTimeout: parseIntEnv(
       process.env.SCRIPT_TIMEOUT,
       DEFAULT_SYSTEM_SETTINGS.scriptTimeout,
-    ),
-    skillAutoSyncEnabled:
-      process.env.SKILL_AUTO_SYNC_ENABLED === 'true' ||
-      DEFAULT_SYSTEM_SETTINGS.skillAutoSyncEnabled,
-    skillAutoSyncIntervalMinutes: parseIntEnv(
-      process.env.SKILL_AUTO_SYNC_INTERVAL_MINUTES,
-      DEFAULT_SYSTEM_SETTINGS.skillAutoSyncIntervalMinutes,
     ),
     billingEnabled:
       process.env.BILLING_ENABLED === 'true' ||
@@ -1171,10 +1150,6 @@ export function saveSystemSettings(
   if (merged.maxConcurrentScripts > 50) merged.maxConcurrentScripts = 50;
   if (merged.scriptTimeout < 5000) merged.scriptTimeout = 5000; // min 5s
   if (merged.scriptTimeout > 600000) merged.scriptTimeout = 600000; // max 10 min
-  if (merged.skillAutoSyncIntervalMinutes < 1)
-    merged.skillAutoSyncIntervalMinutes = 1;
-  if (merged.skillAutoSyncIntervalMinutes > 1440)
-    merged.skillAutoSyncIntervalMinutes = 1440; // max 24h
   merged.billingMode = 'wallet_first';
   if (merged.billingMinStartBalanceUsd < 0)
     merged.billingMinStartBalanceUsd =

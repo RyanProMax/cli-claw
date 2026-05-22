@@ -1,25 +1,10 @@
 /**
- * Workspace-level Skills and MCP Servers store.
+ * Workspace-level MCP Servers store.
  * Manages project-level runtime configs under the workspace config directory.
  */
 import { create } from 'zustand';
 import { api } from '../api/client';
 import { extractErrorMessage } from '../utils/error';
-
-// --- Skills ---
-
-export interface WorkspaceSkill {
-  id: string;
-  name: string;
-  description: string;
-  source: string;
-  enabled: boolean;
-  userInvocable: boolean;
-  allowedTools: string[];
-  argumentHint: string | null;
-  updatedAt: string;
-  files: Array<{ name: string; type: 'file' | 'directory'; size: number }>;
-}
 
 // --- MCP Servers ---
 
@@ -39,17 +24,6 @@ export interface WorkspaceMcpServer {
 // --- Store ---
 
 interface WorkspaceConfigState {
-  // Skills
-  skills: WorkspaceSkill[];
-  skillsLoading: boolean;
-  skillsError: string | null;
-  skillsInstalling: boolean;
-
-  loadWorkspaceSkills: (jid: string) => Promise<void>;
-  installWorkspaceSkill: (jid: string, pkg: string) => Promise<void>;
-  toggleWorkspaceSkill: (jid: string, id: string, enabled: boolean) => Promise<void>;
-  deleteWorkspaceSkill: (jid: string, id: string) => Promise<void>;
-
   // MCP Servers
   mcpServers: WorkspaceMcpServer[];
   mcpLoading: boolean;
@@ -76,54 +50,6 @@ function groupBase(jid: string): string {
 }
 
 export const useWorkspaceConfigStore = create<WorkspaceConfigState>((set, get) => ({
-  // --- Skills state ---
-  skills: [],
-  skillsLoading: false,
-  skillsError: null,
-  skillsInstalling: false,
-
-  loadWorkspaceSkills: async (jid) => {
-    set({ skills: [], skillsLoading: true, skillsError: null });
-    try {
-      const data = await api.get<{ skills: WorkspaceSkill[] }>(`${groupBase(jid)}/skills`);
-      set({ skills: data.skills, skillsLoading: false, skillsError: null });
-    } catch (err) {
-      set({ skillsLoading: false, skillsError: extractErrorMessage(err) });
-    }
-  },
-
-  installWorkspaceSkill: async (jid, pkg) => {
-    set({ skillsInstalling: true, skillsError: null });
-    try {
-      await api.post(`${groupBase(jid)}/skills/install`, { package: pkg }, 60_000);
-      await get().loadWorkspaceSkills(jid);
-    } catch (err: any) {
-      set({ skillsError: err?.message || '安装失败' });
-      throw err;
-    } finally {
-      set({ skillsInstalling: false });
-    }
-  },
-
-  toggleWorkspaceSkill: async (jid, id, enabled) => {
-    try {
-      await api.patch(`${groupBase(jid)}/skills/${encodeURIComponent(id)}`, { enabled });
-      await get().loadWorkspaceSkills(jid);
-    } catch (err) {
-      set({ skillsError: extractErrorMessage(err) });
-    }
-  },
-
-  deleteWorkspaceSkill: async (jid, id) => {
-    try {
-      await api.delete(`${groupBase(jid)}/skills/${encodeURIComponent(id)}`);
-      await get().loadWorkspaceSkills(jid);
-    } catch (err) {
-      set({ skillsError: extractErrorMessage(err) });
-      throw err;
-    }
-  },
-
   // --- MCP Servers state ---
   mcpServers: [],
   mcpLoading: false,

@@ -2,4 +2,6 @@
 
 Place repository-inline skills here as `.agents/skills/<skill-id>/SKILL.md`.
 
-These skills are discovered before user-level skills in the cli-claw data directory.
+Repository skills are the only Cli Claw command extension entrypoint. Add a
+`commands.json` next to `SKILL.md` to expose executable slash commands for the
+current workspace.

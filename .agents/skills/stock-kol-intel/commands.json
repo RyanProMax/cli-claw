@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "commands": {
+    "kol": {
+      "description": "拉取默认股票 KOL 白名单并生成飞书移动端友好的情报报告",
+      "argumentHint": "[--days=30]",
+      "entrypoints": ["im", "web"],
+      "executor": {
+        "command": "python3",
+        "args": ["commands/dispatch.py"]
+      }
+    }
+  }
+}

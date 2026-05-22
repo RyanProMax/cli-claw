@@ -8,14 +8,13 @@ import { FilePanel } from './FilePanel';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { PromptDialog } from '@/components/common/PromptDialog';
-import { ArrowLeft, FolderOpen, Link, ListTree, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Puzzle, Server, Sun, Users, X } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Link, ListTree, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Server, Sun, Users, X } from 'lucide-react';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
 import { useTheme } from '../../hooks/useTheme';
 import { cn } from '@/lib/utils';
 import { wsManager } from '../../api/ws';
 import { api } from '../../api/client';
 import { GroupMembersPanel } from './GroupMembersPanel';
-import { WorkspaceSkillsPanel } from './WorkspaceSkillsPanel';
 import { WorkspaceMcpPanel } from './WorkspaceMcpPanel';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentTabBar } from './AgentTabBar';
@@ -27,7 +26,6 @@ const MAIN_BINDING = '__main__' as const;
 
 const SIDEBAR_TABS = [
   { id: 'files' as const, icon: FolderOpen, label: '文件管理' },
-  { id: 'skills' as const, icon: Puzzle, label: '工作区 Skills' },
   { id: 'mcp' as const, icon: Server, label: '工作区 MCP' },
   { id: 'members' as const, icon: Users, label: '成员' },
 ];
@@ -37,7 +35,7 @@ const POLL_INTERVAL_MS = 2000;
 // Stable empty references to avoid infinite re-render loops in Zustand selectors
 const EMPTY_AGENTS: import('../../types').AgentInfo[] = [];
 
-type SidebarTab = 'files' | 'skills' | 'mcp' | 'members';
+type SidebarTab = 'files' | 'mcp' | 'members';
 
 interface ChatViewProps {
   groupJid: string;
@@ -100,14 +98,11 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
 
   const currentUser = useAuthStore(s => s.user);
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const isCodexWorkspace = group?.agent_type === 'openai' || !group?.agent_type;
-
   // Sidebar: members tab visibility
   const isHome = !!group?.is_home;
   const showMembersTab = (!!group?.is_shared || group?.member_role === 'owner') && !isHome;
   const visibleTabs = SIDEBAR_TABS.filter((t) => {
     if (t.id === 'members') return showMembersTab;
-    if (isCodexWorkspace && t.id === 'skills') return false;
     return true;
   });
 
@@ -115,15 +110,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   useEffect(() => {
     if (sidebarTab === 'members' && !showMembersTab) setSidebarTab('files');
   }, [sidebarTab, showMembersTab]);
-
-  useEffect(() => {
-    if (isCodexWorkspace && sidebarTab === 'skills') {
-      setSidebarTab('files');
-    }
-    if (isCodexWorkspace && mobilePanel === 'skills') {
-      setMobilePanel('files');
-    }
-  }, [isCodexWorkspace, mobilePanel, sidebarTab]);
 
   // Fetch IM connection status for home groups
   const isOwnHome =
@@ -529,8 +515,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           <div className="flex-1 overflow-hidden min-h-0">
             {sidebarTab === 'files' ? (
               <FilePanel groupJid={groupJid} />
-            ) : sidebarTab === 'skills' ? (
-              <WorkspaceSkillsPanel groupJid={groupJid} />
             ) : sidebarTab === 'mcp' ? (
               <WorkspaceMcpPanel groupJid={groupJid} />
             ) : (
@@ -548,21 +532,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           </SheetHeader>
           <div className="flex-1 overflow-hidden h-[calc(80dvh-56px)]">
             <FilePanel
-              groupJid={groupJid}
-              onClose={() => setMobilePanel(null)}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Mobile: skills sheet */}
-      <Sheet open={mobilePanel === 'skills'} onOpenChange={(v) => !v && setMobilePanel(null)}>
-        <SheetContent side="bottom" className="h-[80dvh] p-0">
-          <SheetHeader className="px-4 pt-4 pb-2">
-            <SheetTitle>工作区 Skills</SheetTitle>
-          </SheetHeader>
-          <div className="flex-1 overflow-hidden h-[calc(80dvh-56px)]">
-            <WorkspaceSkillsPanel
               groupJid={groupJid}
               onClose={() => setMobilePanel(null)}
             />
@@ -610,14 +579,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
             >
               工作区文件
             </button>
-            {!isCodexWorkspace && (
-              <button
-                onClick={() => { setMobileActionsOpen(false); setMobilePanel('skills'); }}
-                className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
-              >
-                工作区 Skills
-              </button>
-            )}
             <button
               onClick={() => { setMobileActionsOpen(false); setMobilePanel('mcp'); }}
               className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"

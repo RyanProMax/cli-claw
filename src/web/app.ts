@@ -37,7 +37,6 @@ import workflowRoutes from './routes/workflows.js';
 import adminRoutes from './routes/admin.js';
 import fileRoutes from './routes/files.js';
 import monitorRoutes from './routes/monitor.js';
-import skillsRoutes from './routes/skills.js';
 import browseRoutes from './routes/browse.js';
 import agentRoutes from './routes/agents.js';
 import mcpServersRoutes from './routes/mcp-servers.js';
@@ -162,7 +161,6 @@ app.route('/api/groups', fileRoutes); // File routes also under /api/groups
 app.route('/api/config', configRoutes);
 app.route('/api/tasks', tasksRoutes);
 app.route('/api/workflows', workflowRoutes);
-app.route('/api/skills', skillsRoutes);
 app.route('/api/admin', adminRoutes);
 app.route('/api/browse', browseRoutes);
 app.route('/api/mcp-servers', mcpServersRoutes);
@@ -338,7 +336,6 @@ async function handleWebSlashCommand(options: {
     const skillResult = await maybeHandleWebSkillCommand({
       displayChatJid,
       slashCandidate,
-      userId: options.userId,
       target,
     });
     if (skillResult?.kind === 'assistant_prompt') {
@@ -481,7 +478,7 @@ async function handleWebSlashCommand(options: {
         parsed.name === 'help' && target
           ? appendSkillCommandHelp(
               runtimeResult.reply,
-              await discoverSkillCommandsForWebTarget(target, options.userId),
+              await discoverSkillCommandsForWebTarget(target),
             )
           : runtimeResult.reply;
       persistReply(replyText);
@@ -496,21 +493,8 @@ async function handleWebSlashCommand(options: {
   return { handled: true, messageId, timestamp };
 }
 
-function resolveSkillCommandUserId(
-  target: ResolvedRuntimeWorkspaceTarget,
-  fallbackUserId: string,
-): string | null {
-  return (
-    target.workspaceGroup.created_by ??
-    target.sourceGroup.created_by ??
-    fallbackUserId ??
-    null
-  );
-}
-
 async function discoverSkillCommandsForWebTarget(
   target: ResolvedRuntimeWorkspaceTarget,
-  fallbackUserId: string,
 ): Promise<SkillCommandDiscoveryResult> {
   return discoverSkillCommands({
     entrypoint: 'web',
@@ -519,7 +503,6 @@ async function discoverSkillCommandsForWebTarget(
       homeGroup: target.runtimeOwnerGroup.is_home
         ? target.runtimeOwnerGroup
         : null,
-      userId: resolveSkillCommandUserId(target, fallbackUserId),
     }),
   });
 }
@@ -549,15 +532,11 @@ function appendSkillCommandHelp(
 async function maybeHandleWebSkillCommand(options: {
   displayChatJid: string;
   slashCandidate: NonNullable<ReturnType<typeof parseSlashCommandCandidate>>;
-  userId: string;
   target: ResolvedRuntimeWorkspaceTarget | null;
 }): Promise<SkillCommandExecutionResult | null> {
   if (!options.target) return null;
 
-  const discovered = await discoverSkillCommandsForWebTarget(
-    options.target,
-    options.userId,
-  );
+  const discovered = await discoverSkillCommandsForWebTarget(options.target);
   const normalizedName = options.slashCandidate.rawName.trim().toLowerCase();
   const conflictMessage =
     discovered.errors.find((message) =>

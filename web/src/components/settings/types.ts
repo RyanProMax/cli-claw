@@ -23,8 +23,6 @@ export interface SystemSettings {
   loginLockoutMinutes: number;
   maxConcurrentScripts: number;
   scriptTimeout: number;
-  skillAutoSyncEnabled: boolean;
-  skillAutoSyncIntervalMinutes: number;
   billingEnabled: boolean;
   billingMode: 'wallet_first';
   billingMinStartBalanceUsd: number;
@@ -40,7 +38,6 @@ export type SettingsTab =
   | 'my-channels'
   | 'security'
   | 'groups'
-  | 'skills'
   | 'mcp-servers'
   | 'agent-definitions'
   | 'users'
