@@ -191,7 +191,7 @@ IM 入口本身不是长期对话身份；它会路由到某个 workspace 的主
 
 ## Web 入口说明
 
-Web 导航包含 `工作流` 看板页，用于只读查看当天 workflow run、step 进度、定时 workflow task、任务日志和当前运行中状态；它复用 workflow / scheduler 审计表，不触发重跑或状态变更。
+Web 导航包含 `工作流` 看板页，用于查看当天 workflow run、step 进度、定时 workflow task、任务日志和当前运行中状态；它复用 workflow / scheduler 审计表，不触发重跑。看板可编辑 / 删除 `execution_type='workflow'` 的定时任务：编辑会更新 `scheduled_tasks` 中的 workflow id、prompt、调度和值状态；删除只移除后续调度任务，不强制中断已经启动的 workflow run，既有 run/step 审计继续保留。
 
 Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命令：
 

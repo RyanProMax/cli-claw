@@ -245,8 +245,13 @@ tasksRoutes.delete('/:id', authMiddleware, (c) => {
     return c.json({ error: '只有管理员可以删除脚本类型任务' }, 403);
   }
 
-  // Prevent deleting a running task
-  if (getRunningTaskIds().includes(id)) {
+  // Agent/script tasks own live runtime or local process state; keep the old
+  // guard there. Workflow tasks can be removed from future scheduling while the
+  // already-created workflow run remains auditable and finishes independently.
+  if (
+    getRunningTaskIds().includes(id) &&
+    existing.execution_type !== 'workflow'
+  ) {
     return c.json({ error: '任务正在运行中，请先等待完成或停止任务' }, 409);
   }
 

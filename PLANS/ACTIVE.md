@@ -13,13 +13,15 @@ Roadmap 中已有 `P2 RM-2026-05-17-01 Workflow Console And Retry Audit`，本�
 - 基于现有 Web UI 设计并落地一个工作流可视化看板。
 - 展示当前正在运行的 workflow run，并突出 scheduled workflow / 定时任务。
 - 体系化展示当天所有运行情况，包括成功、失败、运行中、排队、耗时、来源任务、下次运行和 step 进度。
-- 不改变 workflow 执行语义、调度语义或权限边界；本轮以只读观测为主。
+- 优化真实页面反馈：区分 running / queued，压缩定时 workflow 表格长文本占位，修正 step 明细空字段展示，并在看板内支持定时 workflow task 编辑 / 删除。
+- 不改变 workflow 执行语义、调度语义或权限边界；本轮以观测为主，只允许对定时 workflow task 做编辑 / 删除。
 
 ## 非目标
 
 - 本轮不实现失败节点重跑、retry attempt 手工操作或 checkpoint 回滚。
 - 本轮不重构 workflow engine / scheduler。
 - 本轮不新增长期运行时状态表；优先复用 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 和 `task_run_logs`。
+- 本轮不实现强制中断已经启动的 workflow run；删除定时 workflow task 只移除未来调度与任务入口，既有 run 审计继续保留。
 
 ## Milestones
 
@@ -147,6 +149,46 @@ Risks / Notes / Handoff:
 - Web 新增 `/workflows` 路由与导航项 `工作流`；页面每 10 秒刷新一次，支持日期选择和手动刷新。
 - 页面展示 summary cards、running run cards、scheduled workflow table、可展开 run / step 明细，并兼容 workflow 类型 scheduled task 的现有任务详情展示。
 
+### Milestone 3.5：看板交互与信息密度优化
+
+Objective:
+
+- 响应真实页面反馈，优化运行态分组、定时 workflow 表格换行、step 明细空值语义，以及定时 workflow task 的编辑 / 删除入口。
+
+Allowed scope:
+
+- `PLANS/ACTIVE.md`
+- `src/web/routes/tasks.ts`
+- `tests/integration/routes/**`
+- `web/src/pages/WorkflowsPage.tsx`
+- `web/src/stores/workflows.ts`
+- 必要的 owner docs
+
+Validation:
+
+- 覆盖 running workflow task 可删除、running agent/script task 仍受保护的路由测试。
+- 运行相关测试、前端 typecheck / build。
+- 使用浏览器验证 `/workflows` 桌面与窄屏布局；若当前浏览器控制工具不可用，则以 Web build、类型检查和 API/路由测试兜底，并在 handoff 中记录未做截图级验证。
+
+Status:
+
+- done
+
+Validation status:
+
+- passed
+
+Review status:
+
+- passed
+
+Risks / Notes / Handoff:
+
+- `queued` 表示 workflow run 已创建但尚未进入执行中，不能混在“正在运行”里造成误解。
+- 看板删除定时 workflow task 不强杀已启动 run；当前 run 会继续在审计列表中展示。
+- 已完成优化：运行中与排队 run 分区展示；排队卡片解释 queued 含义；定时 workflow 表格首列固定宽度并允许副标题换行；step 明细空值改为“进行中 / 未开始 / 未记录耗时”等语义文案；定时 workflow 支持编辑 / 删除。
+- 本轮未重复截图级浏览器验证：Browser Node REPL 控制面不可用。已通过 `npm --prefix web run build`、`bun tsc --noEmit`、相关路由测试与完整 `./scripts/validate.sh` 兜底。
+
 ### Milestone 4：验证、review、文档与提交
 
 Objective:
@@ -183,8 +225,8 @@ Review status:
 Risks / Notes / Handoff:
 
 - 若改动影响正在运行服务，提交后按 `docs/COMMAND.md` 走安全重启路径，不直接 kill 服务。
-- 验证已通过：`npm test -- tests/unit/agent/workflow/context.test.ts tests/integration/routes/workflows-dashboard.test.ts tests/unit/web/workflow-dashboard.test.ts`、`npm run typecheck`、`npm --prefix web run build`、`git diff --check`、`./scripts/review.sh`、`./scripts/validate.sh`。
-- 页面检查已补充：`bun src/cli.ts restart` 安全重启后，使用内置浏览器访问 `http://127.0.0.1:3000/workflows`，桌面视图确认 `工作流看板` / `正在运行` / `定时工作流` / `今日运行记录` / `刷新` 均渲染且无错误横幅；390px 窄屏确认核心区块渲染且页面级 `scrollWidth === innerWidth`。
+- 首版验证曾通过：`npm test -- tests/unit/agent/workflow/context.test.ts tests/integration/routes/workflows-dashboard.test.ts tests/unit/web/workflow-dashboard.test.ts`、`npm run typecheck`、`npm --prefix web run build`、`git diff --check`、`./scripts/review.sh`、`./scripts/validate.sh`；收到优化反馈后需要重新验证。
+- 本轮追加验证已通过：`npm test -- tests/integration/routes/tasks-delete-workflow.test.ts tests/integration/routes/workflows-dashboard.test.ts tests/unit/web/workflow-dashboard.test.ts tests/unit/agent/workflow/context.test.ts`、`bun tsc --noEmit`（web）、`npm run typecheck`、`npm --prefix web run build`、`git diff --check`、`./scripts/review.sh`、`./scripts/validate.sh`。
 - Review gate 结果：scope / objective / pattern-fit / test / hygiene / docs / contract checks 均通过；未发现阻塞项。
 
 ## Handoff
@@ -210,8 +252,10 @@ Changed files:
 - `src/web/routes/workflows.ts`
 - `src/web/workflow-dashboard.ts`
 - `tests/integration/routes/workflows-dashboard.test.ts`
+- `tests/integration/routes/tasks-delete-workflow.test.ts`
 - `tests/unit/agent/workflow/context.test.ts`
 - `tests/unit/web/workflow-dashboard.test.ts`
+- `src/web/routes/tasks.ts`
 - `web/src/App.tsx`
 - `web/src/components/layout/nav-items.ts`
 - `web/src/components/tasks/TaskCard.tsx`
@@ -230,4 +274,4 @@ Suspected cause:
 
 Next step:
 
-- 本轮实现、验证、review 与服务安全重启均已完成；下一步提交改动并向用户交付。后续若继续 Roadmap，可扩展 checkpoint 查看、失败节点重跑和 retry attempt 细节。
+- 本轮优化实现、验证与 review 均已完成；下一步提交改动并安全重启服务。后续若继续 Roadmap，可扩展 checkpoint 查看、失败节点重跑和 retry attempt 细节。

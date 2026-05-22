@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Activity,
   AlertCircle,
@@ -9,10 +9,14 @@ import {
   CircleDashed,
   Clock4,
   ListChecks,
+  Loader2,
+  Pencil,
   PlayCircle,
   RefreshCw,
   TimerReset,
+  Trash2,
   Workflow as WorkflowIcon,
+  X,
   XCircle,
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -22,8 +26,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { formatInterval } from '@/utils/task-utils';
+import { api } from '../api/client';
 import {
   useWorkflowsStore,
   type WorkflowDashboardRun,
@@ -32,6 +45,8 @@ import {
   type WorkflowRunStatus,
   type WorkflowStepStatus,
 } from '../stores/workflows';
+import { extractErrorMessage } from '../utils/error';
+import { showToast } from '../utils/toast';
 
 function localDateValue(date = new Date()): string {
   const offsetMs = date.getTimezoneOffset() * 60_000;
@@ -63,6 +78,21 @@ function formatDuration(ms: number | null | undefined): string {
   const hours = Math.floor(minutes / 60);
   const remMinutes = minutes % 60;
   return remMinutes ? `${hours}h${remMinutes}min` : `${hours}h`;
+}
+
+function formatStepDuration(step: WorkflowDashboardRunStep): string {
+  if (step.durationMs != null) return formatDuration(step.durationMs);
+  if (step.status === 'running') return '进行中';
+  if (step.status === 'pending') return '等待开始';
+  if (step.status === 'skipped') return '已跳过';
+  return '未记录耗时';
+}
+
+function formatStepStart(step: WorkflowDashboardRunStep): string {
+  if (step.startedAt) return formatDateTime(step.startedAt);
+  if (step.status === 'pending') return '未开始';
+  if (step.status === 'skipped') return '未执行';
+  return '无开始时间';
 }
 
 function scheduleLabel(task: WorkflowDashboardScheduledTask): string {
@@ -136,6 +166,41 @@ function taskStatusLabel(
   }
 }
 
+type WorkflowTaskPatch = {
+  prompt: string;
+  execution_type: 'workflow';
+  script_command: string;
+  schedule_type: WorkflowDashboardScheduledTask['scheduleType'];
+  schedule_value: string;
+  status: 'active' | 'paused';
+};
+
+type WorkflowTaskFormState = {
+  prompt: string;
+  workflowId: string;
+  scheduleType: WorkflowDashboardScheduledTask['scheduleType'];
+  scheduleValue: string;
+  status: 'active' | 'paused';
+};
+
+type DeletableWorkflowTask = {
+  id: string;
+  prompt: string;
+  running?: boolean;
+};
+
+function taskFormState(
+  task: WorkflowDashboardScheduledTask,
+): WorkflowTaskFormState {
+  return {
+    prompt: task.prompt,
+    workflowId: task.workflowId,
+    scheduleType: task.scheduleType,
+    scheduleValue: task.scheduleValue,
+    status: task.status === 'paused' ? 'paused' : 'active',
+  };
+}
+
 function StatCard({
   title,
   value,
@@ -199,7 +264,17 @@ function StepSummary({ run }: { run: WorkflowDashboardRun }) {
   );
 }
 
-function RunningRunCard({ run }: { run: WorkflowDashboardRun }) {
+function RunningRunCard({
+  run,
+  onDeleteTask,
+  deletingTaskId,
+}: {
+  run: WorkflowDashboardRun;
+  onDeleteTask?: (task: DeletableWorkflowTask) => void;
+  deletingTaskId?: string | null;
+}) {
+  const sourceTask = run.sourceTask;
+  const deleting = !!sourceTask && deletingTaskId === sourceTask.id;
   return (
     <Card size="sm" className="rounded-lg">
       <CardContent className="space-y-3">
@@ -212,8 +287,37 @@ function RunningRunCard({ run }: { run: WorkflowDashboardRun }) {
               {run.sourceTask?.prompt || run.prompt}
             </div>
           </div>
-          <RunStatusBadge status={run.status} />
+          <div className="flex items-center gap-2">
+            <RunStatusBadge status={run.status} />
+            {sourceTask && onDeleteTask && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() =>
+                  onDeleteTask({
+                    id: sourceTask.id,
+                    prompt: sourceTask.prompt,
+                    running: true,
+                  })
+                }
+                disabled={deleting}
+                title="删除定时 workflow 任务"
+                aria-label="删除定时 workflow 任务"
+              >
+                {deleting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Trash2 className="size-4" />
+                )}
+              </Button>
+            )}
+          </div>
         </div>
+        {run.status === 'queued' && (
+          <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            已创建 run，正在等待 workflow 调度器接手；还没有进入实际执行。
+          </div>
+        )}
         <StepSummary run={run} />
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
@@ -234,24 +338,35 @@ function RunningRunCard({ run }: { run: WorkflowDashboardRun }) {
   );
 }
 
-function ScheduledTaskRow({ task }: { task: WorkflowDashboardScheduledTask }) {
+function ScheduledTaskRow({
+  task,
+  onEdit,
+  onDelete,
+  busyTaskId,
+}: {
+  task: WorkflowDashboardScheduledTask;
+  onEdit: (task: WorkflowDashboardScheduledTask) => void;
+  onDelete: (task: WorkflowDashboardScheduledTask) => void;
+  busyTaskId: string | null;
+}) {
+  const busy = busyTaskId === task.id;
   return (
     <tr className="border-b border-border last:border-b-0">
       <td className="px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-start gap-2">
           <span
             className={cn(
-              'size-2 rounded-full',
+              'mt-1.5 size-2 shrink-0 rounded-full',
               task.running
                 ? 'bg-primary animate-pulse'
                 : 'bg-muted-foreground/40',
             )}
           />
           <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-foreground">
+            <div className="break-all text-sm font-medium leading-5 text-foreground">
               {task.workflowId}
             </div>
-            <div className="truncate text-xs text-muted-foreground">
+            <div className="mt-1 line-clamp-2 whitespace-normal break-words text-xs leading-5 text-muted-foreground">
               {task.prompt}
             </div>
           </div>
@@ -277,6 +392,34 @@ function ScheduledTaskRow({ task }: { task: WorkflowDashboardScheduledTask }) {
       <td className="px-4 py-3 text-sm text-muted-foreground">
         {formatDateTime(task.todayLastLogAt)}
       </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onEdit(task)}
+            disabled={busy}
+            title="编辑定时 workflow"
+            aria-label="编辑定时 workflow"
+          >
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onDelete(task)}
+            disabled={busy}
+            title="删除定时 workflow"
+            aria-label="删除定时 workflow"
+          >
+            {busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+          </Button>
+        </div>
+      </td>
     </tr>
   );
 }
@@ -295,7 +438,7 @@ function RunSteps({ steps }: { steps: WorkflowDashboardRunStep[] }) {
         {steps.map((step) => (
           <div
             key={step.id}
-            className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border px-3 py-2 text-xs last:border-b-0"
+            className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-border px-3 py-2 text-xs last:border-b-0"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -314,11 +457,13 @@ function RunSteps({ steps }: { steps: WorkflowDashboardRunStep[] }) {
                 {step.error ? ` · ${step.error}` : ''}
               </div>
             </div>
-            <div className="whitespace-nowrap text-muted-foreground">
-              {formatDuration(step.durationMs)}
-            </div>
-            <div className="whitespace-nowrap text-muted-foreground">
-              {formatDateTime(step.startedAt)}
+            <div className="text-right text-muted-foreground">
+              <div className="whitespace-nowrap text-foreground">
+                {formatStepDuration(step)}
+              </div>
+              <div className="mt-0.5 whitespace-nowrap">
+                {formatStepStart(step)}
+              </div>
             </div>
           </div>
         ))}
@@ -378,10 +523,211 @@ function RunRow({
   );
 }
 
+function EditWorkflowTaskDialog({
+  task,
+  saving,
+  onCancel,
+  onSave,
+}: {
+  task: WorkflowDashboardScheduledTask;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (id: string, patch: WorkflowTaskPatch) => Promise<void>;
+}) {
+  const [form, setForm] = useState<WorkflowTaskFormState>(() =>
+    taskFormState(task),
+  );
+
+  useEffect(() => {
+    setForm(taskFormState(task));
+  }, [task]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const workflowId = form.workflowId.trim();
+    const prompt = form.prompt.trim();
+    const scheduleValue = form.scheduleValue.trim();
+    if (!workflowId || !scheduleValue) {
+      showToast('保存失败', 'Workflow ID 和调度值不能为空');
+      return;
+    }
+    let normalizedScheduleValue = scheduleValue;
+    if (form.scheduleType === 'once') {
+      const onceDate = new Date(scheduleValue);
+      if (Number.isNaN(onceDate.getTime())) {
+        showToast('保存失败', '单次执行时间必须是有效时间');
+        return;
+      }
+      normalizedScheduleValue = onceDate.toISOString();
+    }
+    await onSave(task.id, {
+      prompt,
+      execution_type: 'workflow',
+      script_command: workflowId,
+      schedule_type: form.scheduleType,
+      schedule_value: normalizedScheduleValue,
+      status: form.status,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-xl overflow-hidden rounded-lg bg-card shadow-xl ring-1 ring-border"
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              编辑定时 workflow
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              修改的是调度任务；不会改写 workflow 定义文件。
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onCancel}
+            disabled={saving}
+            aria-label="关闭"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Workflow ID
+            </label>
+            <Input
+              value={form.workflowId}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  workflowId: event.target.value,
+                }))
+              }
+              placeholder="hkipo"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Prompt
+            </label>
+            <Textarea
+              value={form.prompt}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  prompt: event.target.value,
+                }))
+              }
+              className="min-h-24"
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                调度类型
+              </label>
+              <Select
+                value={form.scheduleType}
+                onValueChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    scheduleType:
+                      value as WorkflowDashboardScheduledTask['scheduleType'],
+                  }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cron">Cron</SelectItem>
+                  <SelectItem value="interval">Interval</SelectItem>
+                  <SelectItem value="once">Once</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                调度值
+              </label>
+              <Input
+                value={form.scheduleValue}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    scheduleValue: event.target.value,
+                  }))
+                }
+                placeholder={
+                  form.scheduleType === 'interval'
+                    ? '毫秒，例如 1800000'
+                    : form.scheduleType === 'cron'
+                      ? 'Cron 表达式'
+                      : 'ISO 时间'
+                }
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              状态
+            </label>
+            <Select
+              value={form.status}
+              onValueChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  status: value as 'active' | 'paused',
+                }))
+              }
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">活跃</SelectItem>
+                <SelectItem value="paused">暂停</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={saving}
+          >
+            取消
+          </Button>
+          <Button type="submit" disabled={saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            保存
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export function WorkflowsPage() {
   const { dashboard, loading, error, loadDashboard } = useWorkflowsStore();
   const [selectedDate, setSelectedDate] = useState(localDateValue());
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [editingTask, setEditingTask] =
+    useState<WorkflowDashboardScheduledTask | null>(null);
+  const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     loadDashboard(selectedDate);
@@ -395,6 +741,51 @@ export function WorkflowsPage() {
     if (!dashboard) return '当天 workflow 运行、定时任务和 step 进度';
     return `${dashboard.date} · ${formatDateTime(dashboard.generatedAt)} 刷新`;
   }, [dashboard]);
+
+  const runningRuns = useMemo(
+    () =>
+      dashboard?.runningRuns.filter((run) => run.status === 'running') ?? [],
+    [dashboard],
+  );
+  const queuedRuns = useMemo(
+    () => dashboard?.runningRuns.filter((run) => run.status === 'queued') ?? [],
+    [dashboard],
+  );
+
+  const handleDeleteWorkflowTask = async (task: DeletableWorkflowTask) => {
+    const runningNotice = task.running
+      ? '该任务当前有执行中的 run；删除只会移除后续调度，已经启动的运行记录会继续保留。'
+      : '删除后不会再按该计划触发新的 workflow。';
+    if (!confirm(`确定删除这个定时 workflow 吗？\n\n${runningNotice}`)) return;
+    setBusyTaskId(task.id);
+    try {
+      await api.delete(`/api/tasks/${task.id}`);
+      showToast('已删除定时 workflow', '已移除后续调度，既有运行审计保留');
+      if (editingTask?.id === task.id) setEditingTask(null);
+      await loadDashboard(selectedDate);
+    } catch (err) {
+      showToast('删除失败', extractErrorMessage(err));
+    } finally {
+      setBusyTaskId(null);
+    }
+  };
+
+  const handleSaveWorkflowTask = async (
+    id: string,
+    patch: WorkflowTaskPatch,
+  ) => {
+    setBusyTaskId(id);
+    try {
+      await api.patch(`/api/tasks/${id}`, patch);
+      showToast('保存成功', '定时 workflow 已更新');
+      setEditingTask(null);
+      await loadDashboard(selectedDate);
+    } catch (err) {
+      showToast('保存失败', extractErrorMessage(err));
+    } finally {
+      setBusyTaskId(null);
+    }
+  };
 
   return (
     <div className="min-h-full bg-background p-4 lg:p-8">
@@ -448,10 +839,8 @@ export function WorkflowsPage() {
               />
               <StatCard
                 title="正在运行"
-                value={
-                  dashboard.summary.runningRuns + dashboard.summary.queuedRuns
-                }
-                hint={`${dashboard.summary.runningScheduledTasks} 个定时任务执行中`}
+                value={dashboard.summary.runningRuns}
+                hint={`${dashboard.summary.queuedRuns} 个排队 · ${dashboard.summary.runningScheduledTasks} 个定时任务执行中`}
                 icon={PlayCircle}
               />
               <StatCard
@@ -480,10 +869,37 @@ export function WorkflowsPage() {
                   当前没有运行中的工作流
                 </div>
               ) : (
-                <div className="grid gap-3 lg:grid-cols-2">
-                  {dashboard.runningRuns.map((run) => (
-                    <RunningRunCard key={run.id} run={run} />
-                  ))}
+                <div className="space-y-4">
+                  {runningRuns.length > 0 && (
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {runningRuns.map((run) => (
+                        <RunningRunCard
+                          key={run.id}
+                          run={run}
+                          onDeleteTask={handleDeleteWorkflowTask}
+                          deletingTaskId={busyTaskId}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {queuedRuns.length > 0 && (
+                    <div>
+                      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                        <CircleDashed className="size-3.5" />
+                        排队中：run 已创建，等待调度器进入执行
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        {queuedRuns.map((run) => (
+                          <RunningRunCard
+                            key={run.id}
+                            run={run}
+                            onDeleteTask={handleDeleteWorkflowTask}
+                            deletingTaskId={busyTaskId}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </section>
@@ -501,7 +917,16 @@ export function WorkflowsPage() {
                     暂无定时 workflow 任务
                   </div>
                 ) : (
-                  <table className="min-w-full text-left">
+                  <table className="min-w-[960px] table-fixed text-left">
+                    <colgroup>
+                      <col className="w-[32%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[16%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[7%]" />
+                    </colgroup>
                     <thead>
                       <tr className="border-b border-border text-xs text-muted-foreground">
                         <th className="px-4 py-2 font-medium">Workflow</th>
@@ -510,11 +935,20 @@ export function WorkflowsPage() {
                         <th className="px-4 py-2 font-medium">状态</th>
                         <th className="px-4 py-2 font-medium">今日</th>
                         <th className="px-4 py-2 font-medium">最近日志</th>
+                        <th className="px-4 py-2 text-right font-medium">
+                          操作
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {dashboard.scheduledTasks.map((task) => (
-                        <ScheduledTaskRow key={task.id} task={task} />
+                        <ScheduledTaskRow
+                          key={task.id}
+                          task={task}
+                          onEdit={setEditingTask}
+                          onDelete={handleDeleteWorkflowTask}
+                          busyTaskId={busyTaskId}
+                        />
                       ))}
                     </tbody>
                   </table>
@@ -563,6 +997,14 @@ export function WorkflowsPage() {
           </div>
         )}
       </div>
+      {editingTask && (
+        <EditWorkflowTaskDialog
+          task={editingTask}
+          saving={busyTaskId === editingTask.id}
+          onCancel={() => setEditingTask(null)}
+          onSave={handleSaveWorkflowTask}
+        />
+      )}
     </div>
   );
 }
