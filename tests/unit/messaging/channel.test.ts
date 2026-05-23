@@ -26,10 +26,7 @@ const hoisted = vi.hoisted(() => {
       getLastMessageId: vi.fn(() => undefined),
       isConnected: vi.fn(() => true),
     },
-    telegramInner: makeInner(),
-    qqInner: makeInner(),
     wechatInner: makeInner(),
-    dingtalkInner: makeInner(),
   };
 });
 
@@ -37,27 +34,12 @@ vi.mock('../../../src/messaging/providers/feishu/index.ts', () => ({
   createFeishuConnection: vi.fn(() => hoisted.feishuInner),
 }));
 
-vi.mock('../../../src/messaging/providers/telegram.ts', () => ({
-  createTelegramConnection: vi.fn(() => hoisted.telegramInner),
-}));
-
-vi.mock('../../../src/messaging/providers/qq.ts', () => ({
-  createQQConnection: vi.fn(() => hoisted.qqInner),
-}));
-
 vi.mock('../../../src/messaging/providers/wechat/index.ts', () => ({
   createWeChatConnection: vi.fn(() => hoisted.wechatInner),
 }));
 
-vi.mock('../../../src/messaging/providers/dingtalk.ts', () => ({
-  createDingTalkConnection: vi.fn(() => hoisted.dingtalkInner),
-}));
-
 import {
   createFeishuChannel,
-  createDingTalkChannel,
-  createQQChannel,
-  createTelegramChannel,
   createWeChatChannel,
 } from '../../../src/messaging/channel.ts';
 
@@ -89,14 +71,8 @@ describe('IM channel footer consumption', () => {
     hoisted.feishuInner.connect.mockResolvedValue(true);
     hoisted.feishuInner.sendMessage.mockReset();
     hoisted.feishuInner.sendMessage.mockResolvedValue(undefined);
-    hoisted.telegramInner.connect.mockClear();
-    hoisted.telegramInner.sendMessage.mockClear();
-    hoisted.qqInner.connect.mockClear();
-    hoisted.qqInner.sendMessage.mockClear();
     hoisted.wechatInner.connect.mockClear();
     hoisted.wechatInner.sendMessage.mockClear();
-    hoisted.dingtalkInner.connect.mockClear();
-    hoisted.dingtalkInner.sendMessage.mockClear();
   });
 
   test('feishu forwards runtime card update callbacks to the connection adapter', async () => {
@@ -162,31 +138,6 @@ describe('IM channel footer consumption', () => {
     );
   });
 
-  test('telegram appends footer before delegating to the connection', async () => {
-    const channel = createTelegramChannel({ botToken: 'token' });
-    await channel.connect(connectOpts as any);
-
-    await channel.sendMessage('123', 'Hello world', undefined, messageMeta);
-
-    expect(hoisted.telegramInner.sendMessage).toHaveBeenCalledWith(
-      '123',
-      expectedText,
-      undefined,
-    );
-  });
-
-  test('qq appends footer before delegating to the connection', async () => {
-    const channel = createQQChannel({ appId: 'app', appSecret: 'secret' });
-    await channel.connect(connectOpts as any);
-
-    await channel.sendMessage('group:123', 'Hello world', undefined, messageMeta);
-
-    expect(hoisted.qqInner.sendMessage).toHaveBeenCalledWith(
-      'group:123',
-      expectedText,
-    );
-  });
-
   test('wechat appends footer before delegating to the connection', async () => {
     const channel = createWeChatChannel({
       botToken: 'token',
@@ -198,21 +149,6 @@ describe('IM channel footer consumption', () => {
 
     expect(hoisted.wechatInner.sendMessage).toHaveBeenCalledWith(
       'alice',
-      expectedText,
-    );
-  });
-
-  test('dingtalk appends footer before delegating to the connection', async () => {
-    const channel = createDingTalkChannel({
-      clientId: 'client',
-      clientSecret: 'secret',
-    });
-    await channel.connect(connectOpts as any);
-
-    await channel.sendMessage('group:123', 'Hello world', undefined, messageMeta);
-
-    expect(hoisted.dingtalkInner.sendMessage).toHaveBeenCalledWith(
-      'group:123',
       expectedText,
     );
   });

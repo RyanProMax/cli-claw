@@ -3,14 +3,12 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { ScheduledTask } from '../../../../src/domain/types.ts';
 
 const {
-  getUserByIdMock,
   getTaskByIdMock,
   logTaskRunStartMock,
   runtimeUsageMock,
   updateTaskAfterRunMock,
   updateTaskRunLogMock,
 } = vi.hoisted(() => ({
-  getUserByIdMock: vi.fn(),
   getTaskByIdMock: vi.fn(),
   logTaskRunStartMock: vi.fn(() => 1001),
   runtimeUsageMock: vi.fn(),
@@ -18,36 +16,19 @@ const {
   updateTaskRunLogMock: vi.fn(),
 }));
 
-vi.mock('../../../../src/agent/runner/container-runner.js', () => ({
-  runAgentProcess: vi.fn(),
-  writeTasksSnapshot: vi.fn(),
-}));
-
-vi.mock('../../../../src/agent/script-runner.js', () => ({
-  hasScriptCapacity: () => true,
-  runScript: vi.fn(),
-}));
-
 vi.mock('../../../../src/core/runtime/usage.js', () => ({
   getRuntimeUsageSnapshot: runtimeUsageMock,
 }));
 
 vi.mock('../../../../src/storage/db.js', () => ({
-  addGroupMember: vi.fn(),
   cleanupOldTaskRunLogs: vi.fn(),
   cleanupStaleRunningLogs: vi.fn(),
-  deleteGroupData: vi.fn(),
-  ensureChatExists: vi.fn(),
   getAllTasks: vi.fn(() => []),
   getDueTasks: vi.fn(() => []),
   getTaskById: getTaskByIdMock,
-  getUserById: getUserByIdMock,
   logTaskRunStart: logTaskRunStartMock,
-  setRegisteredGroup: vi.fn(),
-  updateChatName: vi.fn(),
   updateTaskAfterRun: updateTaskAfterRunMock,
   updateTaskRunLog: updateTaskRunLogMock,
-  updateTaskWorkspace: vi.fn(),
 }));
 
 import {
@@ -86,7 +67,6 @@ describe('scheduled workflow task helpers', () => {
       primaryRemainingPct: 80,
       secondaryRemainingPct: 80,
     });
-    getUserByIdMock.mockReturnValue(null);
   });
 
   test('combines workflow id and prompt into workflow command args', () => {
@@ -131,7 +111,6 @@ describe('scheduled workflow task helpers', () => {
         }),
         getSessions: () => ({}),
         queue: {} as never,
-        onProcess: vi.fn(),
         sendMessage,
         runWorkflowCommand,
         assistantName: 'cli-claw',
@@ -142,7 +121,6 @@ describe('scheduled workflow task helpers', () => {
     expect(runWorkflowCommand).toHaveBeenCalledWith(
       'web:main',
       'stock-strategy-loop Review recent stock strategy results.',
-      undefined,
       {
         source: 'scheduled_task',
         scheduledTaskId: 'stock-strategy-loop-review',
@@ -191,7 +169,6 @@ describe('scheduled workflow task helpers', () => {
         }),
         getSessions: () => ({}),
         queue: {} as never,
-        onProcess: vi.fn(),
         sendMessage,
         runWorkflowCommand,
         assistantName: 'cli-claw',
@@ -236,7 +213,6 @@ describe('scheduled workflow task helpers', () => {
         }),
         getSessions: () => ({}),
         queue: {} as never,
-        onProcess: vi.fn(),
         sendMessage: vi.fn(),
         runWorkflowCommand,
         assistantName: 'cli-claw',

@@ -210,7 +210,7 @@ export interface CloseHandlerContext {
     prompt: string;
     sessionId?: string;
     isHome?: boolean;
-    isAdminHome?: boolean;
+    isMainWorkspace?: boolean;
     chatJid?: string;
     groupFolder?: string;
     agentType?: string;
@@ -314,7 +314,7 @@ export function writeRunLog(
     `Timestamp: ${new Date().toISOString()}`,
     `Group: ${ctx.groupName}`,
     `Is Home: ${ctx.input.isHome ? 'yes' : 'no'}`,
-    `Is Admin Home: ${ctx.input.isAdminHome ? 'yes' : 'no'}`,
+    `Is Main Workspace: ${ctx.input.isMainWorkspace ? 'yes' : 'no'}`,
     `Duration: ${duration}ms`,
     `Exit Code: ${code}`,
     `Stdout Truncated: ${ctx.stdoutState.stdoutTruncated}`,

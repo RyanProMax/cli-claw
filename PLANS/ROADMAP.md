@@ -20,7 +20,7 @@
 
 - Status: `monitoring`
 - Source: 2026-05-20 user request to replace the old stock strategy self-analysis / self-iteration timer chain with a Cli Claw workflow loop.
-- Summary: 旧股票定时链路已冻结并移除：`launchd` 的 `com.ryan.stock-analysis-task-chain` 已 disabled；`stock-loop-progress-notifier` scheduled task 已于 2026-05-22 删除，删除前确认该任务共有 7690 条运行日志、54 条非空进展、0 条错误，最后有效进展停在 2026-05-20 晚间旧 task-chain 日终链路：每日复盘已生成、策略分析待审核 1 / 需迭代 1、KOL 扫描仍是 `agent_required`、小时摘要为任务 4 / 模拟下单 0 / 风险 0，安全边界仍为 paper_only / readonly。2026-05-23 精简项目时删除旧脚本文件与本机 scheduled task 记录：`stock-watch-feishu-20260427-0208` 最后一次 run 为 2026-05-20T15:23:59.524Z，保留 3394 条 task_run_logs；`maintenance-loop-heartbeat` 最后一次 run 为 2026-05-23T02:54:06.274Z，保留 2244 条 task_run_logs。新闭环改成阶段化调度：探索期 `stock-strategy-discovery-loop` 每 30 分钟触发内置 `stock-strategy-discovery-loop`，只读运行 alpha scan / offline research loop 并审阅候选；成熟或候选复盘期 `stock-strategy-loop-review` 每 6 小时触发 `stock-strategy-loop`，收集 task-chain / summary / handoff output、分析 paper/live ledger 与 HK/US alpha daily report / backtest summary，最后由 readonly role 输出下一轮迭代计划。scheduled agent / workflow 启动前会检查 OpenAI 5h / 7d usage，任一窗口剩余额低于 30% 时延后到 reset time 或保守重试。
+- Summary: 旧股票定时链路已冻结并移除：`launchd` 的 `com.ryan.stock-analysis-task-chain` 已 disabled；`stock-loop-progress-notifier` scheduled task 已于 2026-05-22 删除，删除前确认该任务共有 7690 条运行日志、54 条非空进展、0 条错误，最后有效进展停在 2026-05-20 晚间旧 task-chain 日终链路：每日复盘已生成、策略分析待审核 1 / 需迭代 1、KOL 扫描仍是 `agent_required`、小时摘要为任务 4 / 模拟下单 0 / 风险 0，安全边界仍为 paper_only / readonly。2026-05-23 精简项目时删除旧非 workflow 自动化入口与本机旧定时记录：`stock-watch-feishu-20260427-0208` 最后一次 run 为 2026-05-20T15:23:59.524Z，保留 3394 条 task_run_logs；`maintenance-loop-heartbeat` 最后一次 run 为 2026-05-23T02:54:06.274Z，保留 2244 条 task_run_logs。新闭环改成阶段化调度：探索期 `stock-strategy-discovery-loop` 每 30 分钟触发内置 `stock-strategy-discovery-loop`，只读运行 alpha scan / offline research loop 并审阅候选；成熟或候选复盘期 `stock-strategy-loop-review` 每 6 小时触发 `stock-strategy-loop`，收集 task-chain / summary / handoff output、分析 paper/live ledger 与 HK/US alpha daily report / backtest summary，最后由 readonly role 输出下一轮迭代计划。scheduled workflow 启动前会检查 OpenAI 5h / 7d usage，任一窗口剩余额低于 30% 时延后到 reset time 或保守重试。
 - Durable contract:
   - scheduled workflow task 和 stock strategy loop 用户/运维入口见 `docs/COMMAND.md`。
   - workflow local task、usage guard 与 stock strategy artifact 边界见 `docs/RUNTIME.md`。
@@ -85,7 +85,7 @@
   - Workflow 配置与 runner 边界见 `docs/RUNTIME.md`。
   - `/workflow` 用户入口见 `docs/COMMAND.md`。
 - Next action:
-  - 2026-05-22 已落地 Web `工作流` 看板 v1，并已将侧边栏 `任务` / `工作流` 整合为 `自动化` 一级入口：`/automations?tab=plans` 管理 scheduled task 计划，`/automations?tab=runs` 查看当前运行，`/automations?tab=workflows` 聚合 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 和 `task_run_logs` 展示 workflow 审计；普通用户按 workspace 权限过滤，admin 可查看全部。看板同时支持编辑 / 删除定时 workflow task，但不修改 workflow 定义、不强制中断已启动 run。
+  - 2026-05-22 已落地 Web `工作流` 看板 v1，并已将侧边栏 `任务` / `工作流` 整合为 `自动化` 一级入口：`/automations?tab=plans` 管理 workflow schedule 计划，`/automations?tab=runs` 查看当前运行，`/automations?tab=workflows` 聚合 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 和 `task_run_logs` 展示 workflow 审计；单实例 session 登录后可查看全部工作区运行。看板同时支持编辑 / 删除定时 workflow task，但不修改 workflow 定义、不强制中断已启动 run。
   - 为 `workflow_run_steps` 补真实 retry attempt 递增，避免 LangGraph retry 覆盖同一 node attempt。
   - 在 `/workflow` 触发时记录 `triggerMessageId`，便于控制台从 run 回溯到触发消息。
   - 后续控制台增强可继续补 checkpoint 查看、失败节点重跑入口和 retry attempt 细节；v1 看板不改变调度或 checkpoint 状态。
@@ -155,23 +155,6 @@
   - Strip Feishu mention prefixes using Feishu mention metadata rather than display-text regex.
   - Add regression tests for `@Name With Space /status`, slash command with images/files, group mention gating, and managed command phrases.
   - Send concise visible reasons for mention policy, missing binding, unknown command, or authorization skips when safe.
-
-### P1 RM-2026-05-16-01 Stock KOL Agent Handoff For Strategy Iteration
-
-- Status: `in_progress`
-- Source: 2026-05-16 user feedback that scans are not useful before a strategy/self-iteration chain is actually running
-- Summary: `stock-analysis-api` task-chain can now pause `strategy_iteration` when `kol_scan` returns `agent_required`, but Cli Claw still needs an operator-safe handoff that executes the `stock-kol-intel` assistant prompt and writes a final KOL report back to the task-chain evidence stream.
-- Durable contract:
-  - Task-chain scheduling semantics live in `/Users/ryan/projects/stock-analysis-api/docs/specs/task-chain-worker.md`.
-  - Cli Claw presentation and Agent execution boundaries should stay aligned with `docs/RUNTIME.md`.
-- Recent progress:
-  - 2026-05-16: Added `scripts/stock-handoff-agent-bridge.mjs`, which creates deterministic `execution_type=agent`, `schedule_type=once` tasks from stock P1b handoffs without pre-claiming them; the scheduled agent claims the exact handoff id at runtime before complete/fail. The bridge supports stock SQLite input and exported JSON fixtures, and is covered for deterministic task creation plus idempotency.
-  - 2026-05-16: Ran the bridge against the real stock task-chain DB and Cli Claw DB; it returned `created=0`, `skipped_existing=0`, `ignored=0` because the stock handoff queue is currently empty.
-  - 2026-05-16: Generated a real `kol_scan` handoff probe and bridged it into Cli Claw task `stock-handoff-7a966070-7522-4eb1-90c4-a41682bf3fa1`. Scheduler execution exposed that Codex login failures can surface as final text (`Not logged in · Please run /login`), so `runTask()` now classifies that runtime text as a task error, finalizes the scheduled task row with the error, and keeps the task in `runningTaskIds` until the agent process exits.
-  - 2026-05-16: Live retry after restart confirmed the stock handoff scheduled task now records `status=error`, completes the once task row, and does not rerun on the next scheduler cycle. The stock handoff remains `pending` because the scheduled task workspace still receives Codex login failure text before it can claim the handoff.
-- Next action:
-  - Fix scheduled-task workspace Codex login/readiness, then retry or requeue the pending stock handoff and verify the scheduled agent writes a final KOL report back through `handoff complete`.
-  - Add execution-log sweep / retry handling for scheduled agent tasks that fail before calling stock `handoff fail`.
 
 ### P2 RM-2026-04-25-07 Codex Runtime Health And Model Guardrails
 

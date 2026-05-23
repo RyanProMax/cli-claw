@@ -10,7 +10,7 @@ export interface OpenAiToolContext {
   chatJid: string;
   groupFolder: string;
   isHome: boolean;
-  isAdminHome: boolean;
+  isMainWorkspace: boolean;
   isScheduledTask?: boolean;
   workspaceIpc: string;
   workspaceGroup: string;
@@ -96,7 +96,6 @@ function filterAllowedTools(tools: Tool[], allowedTools?: string[]): Tool[] {
 export function createOpenAiAgentTools(ctx: OpenAiToolContext): Tool[] {
   const messagesDir = path.join(ctx.workspaceIpc, 'messages');
   const tasksDir = path.join(ctx.workspaceIpc, 'tasks');
-  const hasCrossGroupAccess = ctx.isAdminHome;
 
   const tools: Tool[] = [
     tool({
@@ -189,27 +188,16 @@ export function createOpenAiAgentTools(ctx: OpenAiToolContext): Tool[] {
     tool({
       name: 'schedule_task',
       description:
-        'Schedule a recurring or one-time task. Agent tasks run isolated without conversation history. Script tasks are admin-only.',
+        'Schedule a recurring or one-time workflow run.',
       parameters: z.object({
+        workflow_id: z.string().min(1),
         prompt: z.string().optional().default(''),
         schedule_type: z.enum(['cron', 'interval', 'once']),
         schedule_value: z.string(),
-        execution_type: z.enum(['agent', 'script']).default('agent'),
-        script_command: z.string().max(4096).optional(),
         target_group_jid: z.string().optional(),
       }),
       strict: true,
       execute: (args) => {
-        const execType = args.execution_type || 'agent';
-        if (execType === 'agent' && !args.prompt?.trim()) {
-          return 'Error: agent mode requires a prompt.';
-        }
-        if (execType === 'script' && !args.script_command?.trim()) {
-          return 'Error: script mode requires script_command.';
-        }
-        if (execType === 'script' && !ctx.isAdminHome) {
-          return 'Error: only admin home workspace can create script tasks.';
-        }
         if (args.schedule_type === 'cron') {
           try {
             CronExpressionParser.parse(args.schedule_value, {
@@ -226,31 +214,27 @@ export function createOpenAiAgentTools(ctx: OpenAiToolContext): Tool[] {
         } else if (Number.isNaN(new Date(args.schedule_value).getTime())) {
           return `Error: invalid timestamp "${args.schedule_value}".`;
         }
-        const targetJid =
-          hasCrossGroupAccess && args.target_group_jid
-            ? args.target_group_jid
-            : ctx.chatJid;
+        const targetJid = args.target_group_jid || ctx.chatJid;
         const data: Record<string, unknown> = {
           type: 'schedule_task',
           prompt: args.prompt || '',
           schedule_type: args.schedule_type,
           schedule_value: args.schedule_value,
           context_mode: 'isolated',
-          execution_type: execType,
+          execution_type: 'workflow',
+          script_command: args.workflow_id,
           targetJid,
           createdBy: ctx.groupFolder,
           timestamp: new Date().toISOString(),
         };
-        if (execType === 'script') data.script_command = args.script_command;
         const filename = writeIpcFile(tasksDir, data);
-        return `Task scheduled [${execType}] (${filename}): ${args.schedule_type} - ${args.schedule_value}`;
+        return `Workflow task scheduled (${filename}): ${args.workflow_id} - ${args.schedule_type} - ${args.schedule_value}`;
       },
     }),
 
     tool({
       name: 'list_tasks',
-      description:
-        'List scheduled tasks. Admin home sees all tasks; other groups see only their own.',
+      description: 'List scheduled workflow tasks for the current workspace.',
       parameters: z.object({}),
       strict: true,
       execute: async () => {
@@ -261,7 +245,6 @@ export function createOpenAiAgentTools(ctx: OpenAiToolContext): Tool[] {
             type: 'list_tasks',
             requestId,
             groupFolder: ctx.groupFolder,
-            isAdminHome: hasCrossGroupAccess,
             timestamp: new Date().toISOString(),
           },
           'list_tasks_result',
@@ -296,30 +279,6 @@ export function createOpenAiAgentTools(ctx: OpenAiToolContext): Tool[] {
       ctx,
     ),
 
-    tool({
-      name: 'register_group',
-      description:
-        'Register a new group so the agent can respond to messages there. Admin home only.',
-      parameters: z.object({
-        jid: z.string(),
-        name: z.string(),
-        folder: z.string(),
-      }),
-      strict: true,
-      execute: ({ jid, name, folder }) => {
-        if (!hasCrossGroupAccess) {
-          return 'Error: only the admin home workspace can register new groups.';
-        }
-        writeIpcFile(tasksDir, {
-          type: 'register_group',
-          jid,
-          name,
-          folder,
-          timestamp: new Date().toISOString(),
-        });
-        return `Group "${name}" registered.`;
-      },
-    }),
   ];
 
   return filterAllowedTools(tools, ctx.allowedTools);

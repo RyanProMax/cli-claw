@@ -3,7 +3,6 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Label } from '@/components/ui/label';
-import { useAuthStore } from '../../stores/auth';
 import { api } from '../../api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -72,7 +71,7 @@ const fields: FieldConfig[] = [
   {
     key: 'maxLoginAttempts',
     label: '登录失败锁定次数',
-    description: '连续失败该次数后锁定账户',
+    description: '连续失败该次数后锁定实例登录',
     unit: '次',
     toDisplay: (v) => v,
     toStored: (v) => v,
@@ -91,39 +90,13 @@ const fields: FieldConfig[] = [
     max: 1440,
     step: 1,
   },
-  {
-    key: 'maxConcurrentScripts',
-    label: '脚本任务最大并发数',
-    description: '同时运行的脚本任务数量上限',
-    unit: '个',
-    toDisplay: (v) => v,
-    toStored: (v) => v,
-    min: 1,
-    max: 50,
-    step: 1,
-  },
-  {
-    key: 'scriptTimeout',
-    label: '脚本执行超时',
-    description: '单个脚本任务的最长执行时间',
-    unit: '秒',
-    toDisplay: (v) => Math.round(v / 1000),
-    toStored: (v) => v * 1000,
-    min: 5,
-    max: 600,
-    step: 5,
-  },
 ];
 
 export function SystemSettingsSection() {
-  const { hasPermission } = useAuthStore();
-
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [displayValues, setDisplayValues] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  const canManage = hasPermission('manage_system_config');
 
   useEffect(() => {
     (async () => {
@@ -175,10 +148,6 @@ export function SystemSettingsSection() {
         <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
-  }
-
-  if (!canManage) {
-    return <div className="text-sm text-muted-foreground">需要系统配置权限才能修改系统参数。</div>;
   }
 
   if (!settings) return null;

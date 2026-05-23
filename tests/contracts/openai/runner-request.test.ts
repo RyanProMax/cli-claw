@@ -106,7 +106,7 @@ function buildRunnerDeps(tempRoot: string) {
         outputs.push(output);
       },
       log: () => {},
-      normalizeHomeFlags: () => ({ isHome: true, isAdminHome: true }),
+      normalizeHomeFlags: () => ({ isHome: true, isMainWorkspace: true }),
       cleanupStartupInterruptSentinel: () => {},
       clearInterruptRequested: () => {},
       shouldClose: () => false,

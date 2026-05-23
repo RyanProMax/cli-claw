@@ -20,7 +20,7 @@ export class FileTooLargeError extends Error {
  */
 export async function saveDownloadedFile(
   groupFolder: string,
-  channel: 'feishu' | 'telegram' | 'qq' | 'wechat' | 'dingtalk',
+  channel: 'feishu' | 'wechat',
   originalFilename: string,
   buffer: Buffer,
 ): Promise<string> {

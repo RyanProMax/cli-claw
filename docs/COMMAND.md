@@ -17,7 +17,7 @@ Cli Claw 的“命令”分成两层：
 
 | 命令               | 别名                                 | 作用                                                                                           |
 | ------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为 admin 主工作区默认执行目录                                 |
+| `cli-claw start`   | -                                    | 启动主服务，并把当前 shell 目录作为主工作区默认执行目录                                       |
 | `cli-claw restart` | -                                    | 读取当前服务保存的 restart 状态并请求一次安全自重启；适合从外部 shell 或 Web operator 环境触发 |
 | `cli-claw help`    | `cli-claw -h` / `cli-claw --help`    | 查看 launcher 帮助                                                                             |
 | `cli-claw version` | `cli-claw -v` / `cli-claw --version` | 输出已安装版本                                                                                 |
@@ -28,37 +28,19 @@ Cli Claw 的“命令”分成两层：
 - 长期运行的标准入口是安装到 PATH 上的 `cli-claw start` / `cli-claw restart`。
 - 源码仓库里的 `bun start` / `npm start` 只是开发便利入口；它们委托到 `bun src/cli.ts start`，仍先进入 launcher 层，再启动 backend。若本机 PATH 还找不到已安装的 `cli-claw`，在仓库目录可临时使用 `bun src/cli.ts start` / `bun src/cli.ts restart` 作为 repo-local fallback。不要再把 `bun src/index.ts` 当作推荐启动方式。
 - `bun src/index.ts` / `bun dist/index.js` 属于 direct backend 调试路径；服务可识别并在 `/self-status` 中标注为开发直启，不作为长期 supervisor 或安全重启的推荐入口。
-- `cli-claw start` 会先校验当前目录是否符合 workspace allowlist，再为缺失 `custom_cwd` 的 admin 主工作区物化默认值。
+- `cli-claw start` 会先校验当前目录是否符合 workspace allowlist，再为缺失 `custom_cwd` 的主工作区物化默认值。
 - `cli-claw restart` 不会在当前 shell 里直接 kill/拉起服务，也不会用调用方当前目录或 argv 推导新启动命令。它只读取当前 backend 持久化到 `~/.cli-claw/ops/current-backend.json` 的 authoritative restart state，写入 restart intent，再交给 watchdog 执行。若当前服务由 `launchd` 托管，watchdog 会改为 `launchctl kickstart -k ...` 保持 supervision。
 - `cli-claw restart` 只表示“安全重启请求已被受理”。最终是否完成，以 `~/.cli-claw/ops/restarts/*.json`、`/self-status` 或 IM 成功回执为准；若找不到 current backend state、保存的 PID 已不存在、launch spec 不安全、或 watchdog 缺失，launcher 会以非零状态失败，而不是尝试猜测启动方式。
 - 从 IM 让 agent 自己操作服务时，优先使用显式应用内命令 `/self-restart` 或受管重启短语。普通 IM-origin agent 工具调用即使命中了 `cli-claw restart` 这类 safe launcher 字面命令，也会被 restart guard 拦截；Web operator 环境和外部 shell 才适合直接调用 `cli-claw restart`。
 - 这些命令与下文的 `/help`、`/openai`、`/clear` 等应用内命令不是同一层协议。
 
-## 运维辅助脚本
+## Workflow 定时计划
 
-仓库内 `scripts/` 可以放一次性或定时运维辅助入口；这类脚本不属于 `cli-claw` launcher，也不属于 Web / IM 应用内命令。
+仓库内 `scripts/` 可以放一次性运维辅助入口；这类脚本不属于 `cli-claw` launcher，也不属于 Web / IM 应用内命令。Cli Claw 的定时自动化只保留 scheduled workflow task，不再提供其他执行类型或旧解析入口。
 
-当前股票 handoff bridge 使用：
+`scheduled_tasks.execution_type='workflow'` 时，`script_command` 保存 workflow id，`prompt` 保存 workflow prompt；scheduler 会复用 `/workflow <id> <prompt>` 的同一条执行路径，并写 workflow run/step 审计。股票策略发现期使用 `stock-strategy-discovery-loop`，默认每 30 分钟运行只读 alpha scan / offline research loop 并规划下一步验证；成熟或候选复盘期使用 `stock-strategy-loop`，默认每 6 小时审阅 task-chain 结果、分析实盘/模拟盘/回测价值并规划下一轮只读迭代。两者都不自动 approve、不 activate、不触发 broker。
 
-```bash
-node scripts/stock-handoff-agent-bridge.mjs \
-  --stock-task-db /Users/ryan/projects/stock-analysis-api/.cache/task_chain.sqlite \
-  --cli-claw-db ~/.cli-claw/db/messages.db
-```
-
-调试或回归复现时也可用导出的 JSON fixture 代替 stock SQLite：
-
-```bash
-node scripts/stock-handoff-agent-bridge.mjs \
-  --stock-handoffs-json /tmp/stock-handoffs.json \
-  --cli-claw-db ~/.cli-claw/db/messages.db
-```
-
-该脚本只做一件事：读取 `stock-analysis-api` P1b handoff queue 中的 pending item，并为缺失的 item 幂等创建 `execution_type=agent`、`schedule_type=once` 的 Cli Claw scheduled task。它不会预先 claim stock handoff，不会运行 agent，不会写 strategy registry，不会 approve / activate 策略，也不会调用 broker。scheduled agent 真正执行时必须先 claim 指定 handoff id，再用 owner / lease / hash 校验后的 `complete/fail` 回写 stock task-chain。
-
-股票策略自分析 / 自迭代闭环使用 scheduled workflow task，而不是直接使用分钟级 launchd tick 运行 Agent。`scheduled_tasks.execution_type='workflow'` 时，`script_command` 保存 workflow id，`prompt` 保存 workflow prompt；scheduler 会复用 `/workflow <id> <prompt>` 的同一条执行路径，并写 workflow run/step 审计。策略发现期使用 `stock-strategy-discovery-loop`，默认每 30 分钟运行只读 alpha scan / offline research loop 并规划下一步验证；成熟或候选复盘期使用 `stock-strategy-loop`，默认每 6 小时审阅 task-chain 结果、分析实盘/模拟盘/回测价值并规划下一轮只读迭代。两者都不自动 approve、不 activate、不触发 broker。
-
-scheduled agent / scheduled workflow 默认带 usage guard：OpenAI 5h 或 7d 剩余额低于 30% 时不启动 Agent，并把任务延后到 usage reset 后继续。阈值可用 `CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT` 覆盖；usage API 临时不可读时优先复用 90 分钟内最近一次成功 snapshot，仍不可读时按 `CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS` 做保守重试。usage guard 延期是 `Deferred` 状态，不等同于任务失败；workflow 自身返回 `❌ 工作流 ... 失败` 才会记为 task run error。
+scheduled workflow 默认带 usage guard：OpenAI 5h 或 7d 剩余额低于 30% 时不启动 workflow，并把任务延后到 usage reset 后继续。阈值可用 `CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT` 覆盖；usage API 临时不可读时优先复用 90 分钟内最近一次成功 snapshot，仍不可读时按 `CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS` 做保守重试。usage guard 延期是 `Deferred` 状态，不等同于任务失败；workflow 自身返回 `❌ 工作流 ... 失败` 才会记为 task run error。
 
 ## 应用内命令概览
 
@@ -116,7 +98,7 @@ skill command 的执行结果有三类：
 - 股票策略 workflow 投递到飞书时不会原样输出长 JSON。命令层会把 `stock-strategy-discovery-loop` / `stock-strategy-loop` 的最终结果压缩成四块短摘要：`🎯 阶段目标`、`📍 本轮完成`、`📈 策略效果`、`🧭 后续规划`；每个要点使用加粗标签和空行帮助扫读，并追加只读安全边界。planner 应优先输出 `change_summary` 和 `repeat_decision`，让连续无新增时的重复判断前置；完整结果仍保留在 `workflow_runs.result` 和 `workflow_run_steps.output` 供审计。若最终 planner 因 OpenAI 临时过载或 socket 断开降级，workflow 会输出基于已完成 artifact 的 `status=degraded` 只读计划，明确“不上线、不自动 approve、不自动 activate”，而不是只把 runtime 错误回投给飞书。
 - 当工作区未显式设置 `openai` 的模型、思考强度或速度时，`/status`、`/openai` 配置卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 OpenAI 环境变量 fallback，避免不同入口看到不同值。
 - `openai` 的模型选项使用内置 preset；若当前 effective model 不在 preset 中，配置卡仍会把它作为当前值展示，避免 `/status` 与 `/openai` 不一致。
-- 普通回复 footer 只保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。footer 不展示 5h / 7d 剩余额；OpenAI usage 只作为 scheduled agent / scheduled workflow 的启动保护使用。
+- 普通回复 footer 只保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。footer 不展示 5h / 7d 剩余额；OpenAI usage 只作为 scheduled workflow 的启动保护使用。
 - 普通回复不会读取 `PLANS/ACTIVE.md`、roadmap、历史摘要或旧 partial body 来补正文；任务进度只留在本地计划文件与显式命令输出中。
 - `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要，并分成 `Agent 命令`、`工作区命令`、`服务命令`、`技能命令` 等模块；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
 - skill command 若在 `commands.json` 声明 `argumentHint` / `usage`，`/help` 会把参数占位一起展示，例如 `/research <股票名称/代码>`、`/kol [--days=30]`。
@@ -147,7 +129,7 @@ skill command 通过仓库级 skill 根目录下的 `commands.json` 声明。当
 
 | 命令                            | 别名  | 作用                                                            |
 | ------------------------------- | ----- | --------------------------------------------------------------- |
-| `/list`                         | `/ls` | 查看当前用户可访问的工作区与对话列表                            |
+| `/list`                         | `/ls` | 查看当前实例可访问的工作区与对话列表                            |
 | `/status`                       | -     | 查看当前工作区、运行状态与当前 runtime 摘要                     |
 | `/self-status`                  | -     | 查看 cli-claw 服务版本、自检状态、restartability 与当前重启命令 |
 | `/self-check`                   | -     | 隔离启动候选服务做冷启动健康检查，不重启当前服务                |
@@ -177,7 +159,7 @@ IM 入口本身不是长期对话身份；它会路由到某个 workspace 的主
 
 常用切换方式：
 
-- `/list`：查看当前用户可访问的 workspace，以及每个 workspace 下可绑定的 conversation agent 短 ID。
+- `/list`：查看当前实例可访问的 workspace，以及每个 workspace 下可绑定的 conversation agent 短 ID。
 - `/status`：查看当前 IM chat 实际绑定到了哪里，以及当前 workspace/runtime/queue 状态。
 - `/bind <workspace>`：把当前 IM chat 切到该 workspace 的主对话。
 - `/bind <workspace>/<agent短ID>`：把当前 IM chat 切到该 workspace 下的 conversation agent。

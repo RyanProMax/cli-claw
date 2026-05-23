@@ -2,9 +2,7 @@ import { Hono } from 'hono';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Variables } from '../context.js';
-import { hasLocalWorkspacePermission } from '../context.js';
 import { authMiddleware } from '../middleware/auth.js';
-import type { AuthUser } from '../../domain/types.js';
 import { logger } from '../../core/logger.js';
 import {
   loadMountAllowlist,
@@ -69,11 +67,6 @@ function listSubdirectories(
 
 // GET /api/browse/directories?path=xxx
 browseRoutes.get('/directories', authMiddleware, (c) => {
-  const authUser = c.get('user') as AuthUser;
-  if (!hasLocalWorkspacePermission(authUser)) {
-    return c.json({ error: 'Insufficient permissions' }, 403);
-  }
-
   const requestedPath = c.req.query('path');
   const allowlist = loadMountAllowlist();
   const blockedPatterns = allowlist?.blockedPatterns ?? [];
@@ -178,11 +171,6 @@ browseRoutes.get('/directories', authMiddleware, (c) => {
 
 // POST /api/browse/directories — create a new folder
 browseRoutes.post('/directories', authMiddleware, async (c) => {
-  const authUser = c.get('user') as AuthUser;
-  if (!hasLocalWorkspacePermission(authUser)) {
-    return c.json({ error: 'Insufficient permissions' }, 403);
-  }
-
   const body = await c.req.json().catch(() => ({}));
   const { parentPath, name } = body;
 

@@ -15,8 +15,6 @@ import { SettingsCard as Section } from './SettingsCard';
 import type { AppearanceConfig } from '../../stores/auth';
 
 export function AppearanceSection() {
-  const { hasPermission } = useAuthStore();
-
   const [appName, setAppName] = useState('');
   const [aiName, setAiName] = useState('');
   const [aiAvatarEmoji, setAiAvatarEmoji] = useState('');
@@ -24,10 +22,7 @@ export function AppearanceSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const canManage = hasPermission('manage_system_config');
-
   useEffect(() => {
-    if (!canManage) { setLoading(false); return; }
     (async () => {
       setLoading(true);
       try {
@@ -42,7 +37,7 @@ export function AppearanceSection() {
         setLoading(false);
       }
     })();
-  }, [canManage]);
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -74,14 +69,10 @@ export function AppearanceSection() {
     );
   }
 
-  if (!canManage) {
-    return <div className="text-sm text-muted-foreground">需要系统配置权限才能修改全局外观设置。</div>;
-  }
-
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground bg-muted rounded-lg px-4 py-3">
-        全局默认值，对所有用户生效。用户可在「个人资料」中覆盖 AI 外观和主题偏好。
+        设置实例名称和 AI 默认外观。
       </p>
 
       {/* ── AI Default Appearance ── */}

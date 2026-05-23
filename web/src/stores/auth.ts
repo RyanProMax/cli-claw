@@ -1,26 +1,10 @@
 import { create } from 'zustand';
-import { api, apiFetch } from '../api/client';
+import { api } from '../api/client';
 
-export type Permission =
-  | 'manage_system_config'
-  | 'manage_group_env'
-  | 'manage_users'
-  | 'view_audit_log';
-
-export interface UserPublic {
+export interface InstanceProfile {
   id: string;
   username: string;
   display_name: string;
-  role: 'admin' | 'member';
-  status: 'active' | 'disabled' | 'deleted';
-  permissions: Permission[];
-  must_change_password: boolean;
-  disable_reason: string | null;
-  notes: string | null;
-  created_at: string;
-  last_login_at: string | null;
-  last_active_at: string | null;
-  deleted_at: string | null;
   avatar_emoji: string | null;
   avatar_color: string | null;
   avatar_url: string | null;
@@ -45,37 +29,53 @@ export interface SetupStatus {
 
 interface AuthState {
   authenticated: boolean;
-  user: UserPublic | null;
+  user: InstanceProfile | null;
   setupStatus: SetupStatus | null;
   appearance: AppearanceConfig | null;
-  initialized: boolean | null; // null = not checked yet
+  initialized: boolean | null;
   checking: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   checkStatus: () => Promise<void>;
-  setupAdmin: (username: string, password: string) => Promise<void>;
+  setupPassword: (password: string) => Promise<void>;
   changePassword: (
     currentPassword: string,
     newPassword: string,
   ) => Promise<void>;
-  updateProfile: (payload: {
-    username?: string;
-    display_name?: string;
-    avatar_emoji?: string | null;
-    avatar_color?: string | null;
-    avatar_url?: string | null;
-    ai_name?: string | null;
-    ai_avatar_emoji?: string | null;
-    ai_avatar_color?: string | null;
-    ai_avatar_url?: string | null;
-  }) => Promise<void>;
-  uploadAvatar: (file: File, target?: 'user' | 'ai') => Promise<string>;
   fetchAppearance: () => Promise<void>;
-  hasPermission: (permission: Permission) => boolean;
 }
 
 let checkAuthInFlight: Promise<void> | null = null;
+
+function buildInstanceProfile(): InstanceProfile {
+  return {
+    id: 'web',
+    username: 'instance',
+    display_name: '实例',
+    avatar_emoji: null,
+    avatar_color: null,
+    avatar_url: null,
+    ai_name: null,
+    ai_avatar_emoji: null,
+    ai_avatar_color: null,
+    ai_avatar_url: null,
+  };
+}
+
+function applyAuthPayload(
+  set: (partial: Partial<AuthState>) => void,
+  data: { setupStatus?: SetupStatus; appearance?: AppearanceConfig },
+): void {
+  set({
+    authenticated: true,
+    user: buildInstanceProfile(),
+    setupStatus: data.setupStatus ?? null,
+    appearance: data.appearance ?? null,
+    initialized: true,
+    checking: false,
+  });
+}
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   authenticated: false,
@@ -85,20 +85,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialized: null,
   checking: true,
 
-  login: async (username: string, password: string) => {
+  login: async (password: string) => {
     const data = await api.post<{
       success: boolean;
-      user: UserPublic;
       setupStatus?: SetupStatus;
       appearance?: AppearanceConfig;
-    }>('/api/auth/login', { username, password });
-    set({
-      authenticated: true,
-      user: data.user,
-      setupStatus: data.setupStatus ?? null,
-      appearance: data.appearance ?? null,
-      initialized: true,
-    });
+    }>('/api/auth/login', { password });
+    applyAuthPayload(set, data);
   },
 
   logout: async () => {
@@ -117,25 +110,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const data = await api.get<{ initialized: boolean }>('/api/auth/status');
       set({ initialized: data.initialized });
     } catch {
-      // If status endpoint fails, assume initialized (safe default)
       set({ initialized: true });
     }
   },
 
-  setupAdmin: async (username: string, password: string) => {
+  setupPassword: async (password: string) => {
     const data = await api.post<{
       success: boolean;
-      user: UserPublic;
       setupStatus?: SetupStatus;
       appearance?: AppearanceConfig;
-    }>('/api/auth/setup', { username, password });
-    set({
-      authenticated: true,
-      user: data.user,
-      setupStatus: data.setupStatus ?? null,
-      appearance: data.appearance ?? null,
-      initialized: true,
-    });
+    }>('/api/auth/setup', { password });
+    applyAuthPayload(set, data);
   },
 
   checkAuth: async () => {
@@ -146,38 +131,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const data = await api.get<{
-            user: UserPublic;
+            authenticated: boolean;
             setupStatus?: SetupStatus;
             appearance?: AppearanceConfig;
           }>('/api/auth/me');
-          set({
-            authenticated: true,
-            user: data.user,
-            setupStatus: data.setupStatus ?? null,
-            appearance: data.appearance ?? null,
-            initialized: true,
-            checking: false,
-          });
-          return;
+          if (data.authenticated) {
+            applyAuthPayload(set, data);
+            return;
+          }
         } catch (err) {
           const status =
             typeof err === 'object' && err !== null && 'status' in err
               ? Number((err as { status?: unknown }).status)
               : NaN;
           const retryable = status === 0 || status === 408;
-          if (!retryable || attempt === 2) {
-            // On auth failure, check if system is initialized
-            await get().checkStatus();
-            set({
-              authenticated: false,
-              user: null,
-              setupStatus: null,
-              checking: false,
-            });
-            return;
+          if (retryable && attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
           }
-          await new Promise((resolve) => setTimeout(resolve, 1200));
         }
+        await get().checkStatus();
+        set({
+          authenticated: false,
+          user: null,
+          setupStatus: null,
+          checking: false,
+        });
+        return;
       }
     })().finally(() => {
       checkAuthInFlight = null;
@@ -187,40 +167,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   changePassword: async (currentPassword: string, newPassword: string) => {
-    const data = await api.put<{ success: boolean; user: UserPublic }>(
-      '/api/auth/password',
-      {
-        current_password: currentPassword,
-        new_password: newPassword,
-      },
-    );
-    set({ user: data.user });
-  },
-
-  updateProfile: async (payload) => {
-    const data = await api.put<{ success: boolean; user: UserPublic }>(
-      '/api/auth/profile',
-      payload,
-    );
-    set({ user: data.user });
-  },
-
-  uploadAvatar: async (file: File, target: 'user' | 'ai' = 'ai') => {
-    const formData = new FormData();
-    formData.append('avatar', file);
-    const url =
-      target === 'user' ? '/api/auth/avatar?target=user' : '/api/auth/avatar';
-    const data = await apiFetch<{
-      success: boolean;
-      avatarUrl: string;
-      user: UserPublic;
-    }>(url, {
-      method: 'POST',
-      body: formData,
-      headers: {},
+    await api.put('/api/auth/password', {
+      current_password: currentPassword,
+      new_password: newPassword,
     });
-    set({ user: data.user });
-    return data.avatarUrl;
   },
 
   fetchAppearance: async () => {
@@ -230,14 +180,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       );
       set({ appearance: data });
     } catch {
-      // API not yet available, keep current state
+      // keep current appearance
     }
-  },
-
-  hasPermission: (permission: Permission): boolean => {
-    const user = get().user;
-    if (!user) return false;
-    if (user.role === 'admin') return true;
-    return user.permissions.includes(permission);
   },
 }));

@@ -1,15 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Plus, PanelLeftClose, LogOut, UserCog } from 'lucide-react';
+import { Plus, PanelLeftClose, LogOut } from 'lucide-react';
 import { useChatStore } from '../../stores/chat';
 import { useAuthStore } from '../../stores/auth';
 import { useGroupsStore } from '../../stores/groups';
 import { useClearWorkspace } from '../../hooks/useClearWorkspace';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/common';
-import { EmojiAvatar } from '../common/EmojiAvatar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ChatGroupItem } from '../chat/ChatGroupItem';
 import { CreateWorkspaceDialog } from '../chat/CreateWorkspaceDialog';
 import { RenameDialog } from '../chat/RenameDialog';
@@ -28,9 +26,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
   const navigate = useNavigate();
   const isChatRoute = location.pathname.startsWith('/chat');
   const showWorkspaceList = isChatRoute && !collapsed;
-
-  const user = useAuthStore((s) => s.user);
-  const userInitial = (user?.display_name || user?.username || '?')[0].toUpperCase();
 
   const navItems = useMemo(() => filterNavItems(), []);
 
@@ -62,17 +57,15 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
     return { mainGroup: main, otherGroups: others };
   }, [groups]);
 
-  const { pinnedGroups, mySections, collabSections } = useMemo(() => {
+  const { pinnedGroups, mySections } = useMemo(() => {
     const pinned: GroupEntry[] = [];
     const my: GroupEntry[] = [];
-    const collab: GroupEntry[] = [];
     otherGroups.forEach((g) => {
       if (g.pinned_at) pinned.push(g);
-      else if (g.is_shared && (g.member_count ?? 0) >= 2) collab.push(g);
       else my.push(g);
     });
     pinned.sort((a, b) => (a.pinned_at || '').localeCompare(b.pinned_at || ''));
-    return { pinnedGroups: pinned, mySections: groupByDate(my), collabSections: groupByDate(collab) };
+    return { pinnedGroups: pinned, mySections: groupByDate(my) };
   }, [otherGroups]);
 
   const handleGroupSelect = (jid: string, folder: string) => { selectGroup(jid); navigate(`/chat/${folder}`); };
@@ -98,7 +91,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
     } finally { setDeleteLoading(false); }
   };
 
-  const renderSections = (sections: DateSection[], showCollabBadge: boolean) =>
+  const renderSections = (sections: DateSection[]) =>
     sections.map((section) => (
       <div key={section.label} className="mb-1">
         <div className="px-2 pt-2 pb-1">
@@ -107,9 +100,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
         {section.items.map((g) => (
           <ChatGroupItem
             key={g.jid} jid={g.jid} name={g.name} folder={g.folder}
-            lastMessage={g.lastMessage}            isShared={showCollabBadge ? g.is_shared : undefined}
-            memberRole={showCollabBadge ? g.member_role : undefined}
-            memberCount={showCollabBadge ? g.member_count : undefined}
+            lastMessage={g.lastMessage}
             isActive={currentGroup === g.jid} isHome={false}
             isRunning={runnerStates[g.jid] === 'running'}
             editable={g.editable} deletable={g.deletable}
@@ -162,23 +153,18 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* User avatar popover */}
-        <Popover>
-          <PopoverTrigger asChild>
-            <button className="rounded-full hover:ring-2 hover:ring-brand-200 transition-all cursor-pointer mb-2">
-              <EmojiAvatar emoji={user?.avatar_emoji} color={user?.avatar_color} fallbackChar={userInitial} size="md" className="w-8 h-8" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={async () => { await useAuthStore.getState().logout(); navigate('/login'); }}
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors cursor-pointer mb-2"
+              aria-label="退出访问"
+            >
+              <LogOut className="w-5 h-5" />
             </button>
-          </PopoverTrigger>
-          <PopoverContent side="right" align="end" className="w-44 p-1">
-            <div className="px-3 py-2 text-xs font-medium text-muted-foreground truncate border-b border-border mb-1">{user?.display_name || user?.username}</div>
-            <button onClick={() => navigate('/settings?tab=profile')} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-accent text-foreground cursor-pointer">
-              <UserCog className="w-4 h-4" /> 个人设置
-            </button>
-            <button onClick={async () => { await useAuthStore.getState().logout(); navigate('/login'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-destructive/10 text-destructive cursor-pointer">
-              <LogOut className="w-4 h-4" /> 退出登录
-            </button>
-          </PopoverContent>
-        </Popover>
+          </TooltipTrigger>
+          <TooltipContent side="right">退出访问</TooltipContent>
+        </Tooltip>
       </nav>
 
       <div
@@ -233,7 +219,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
                         {pinnedGroups.map((g) => (
                           <ChatGroupItem
                             key={g.jid} jid={g.jid} name={g.name} folder={g.folder}
-                            lastMessage={g.lastMessage}                            isShared={g.is_shared} memberRole={g.member_role} memberCount={g.member_count}
+                            lastMessage={g.lastMessage}
                             isActive={currentGroup === g.jid} isHome={false} isPinned
                             isRunning={runnerStates[g.jid] === 'running'}
                             editable={g.editable} deletable={g.deletable}
@@ -247,7 +233,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
                       </div>
                     )}
 
-                    {mySections.length === 0 && collabSections.length === 0 && pinnedGroups.length === 0 && !mainGroup ? (
+                    {mySections.length === 0 && pinnedGroups.length === 0 && !mainGroup ? (
                       <div className="flex flex-col items-center justify-center h-32 px-4">
                         <p className="text-xs text-muted-foreground text-center">暂无工作区</p>
                       </div>
@@ -259,16 +245,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
                             <div className="px-2 pt-2 pb-1">
                               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">我的工作区</span>
                             </div>
-                            {renderSections(mySections, false)}
-                          </div>
-                        )}
-                        {collabSections.length > 0 && (
-                          <div>
-                            <div className="mt-1" />
-                            <div className="px-2 pt-2 pb-1">
-                              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">协作工作区</span>
-                            </div>
-                            {renderSections(collabSections, true)}
+                            {renderSections(mySections)}
                           </div>
                         )}
                       </>

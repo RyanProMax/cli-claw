@@ -4,7 +4,7 @@
 
 ## 概览
 
-Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔离、消息路由、队列和持久化；真正的 Agent 会话由本地 Agent 进程执行。当前物理包路径仍是 `container/agent-runner/`，但它只是 runner package 路径，不代表另一条执行边界。
+Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责实例访问、消息路由、队列和持久化；真正的 Agent 会话由本地 Agent 进程执行。当前物理包路径仍是 `container/agent-runner/`，但它只是 runner package 路径，不代表另一条执行边界。
 
 服务进程本身由外部 launcher `cli-claw start` 启动；源码仓库与同名 `cli-claw` 发布包复用同一个 launcher 入口，负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。源码仓库的 `bun start` / `npm start` 会委托到 `bun src/cli.ts start`，因此仍属于 launcher 入口；`bun src/index.ts` 只用于 direct backend 调试。
 
@@ -16,7 +16,7 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
 - `/self-status` 还会输出当前进程解析出的 self-restart launch spec：是否可安全自重启、launch source，以及 watchdog/launchd 将复用的精确启动命令。
 - `/self-check` 复用 backend 启动时捕获的 authoritative launch spec 启动候选 backend，并用临时 `WEB_PORT` 轮询候选服务的 `/api/health`；结果会展示实际候选命令，便于确认自检目标与当前服务启动入口一致。
 - 候选进程会使用隔离 `HOME`，因此数据目录落在临时 `~/.cli-claw`，不会写入生产 `~/.cli-claw`。
-- 候选进程会带上 `CLI_CLAW_SELF_CHECK=1`；backend 在该模式下启动 Web/API、DB 和队列基础能力，但跳过 CLI launch cwd 校验、workspace 默认 cwd 物化和 IM channel 连接，避免临时 HOME 的 allowlist 影响自检，也避免和线上飞书/微信/Telegram/QQ/钉钉连接抢占。
+- 候选进程会带上 `CLI_CLAW_SELF_CHECK=1`；backend 在该模式下启动 Web/API、DB 和队列基础能力，但跳过 CLI launch cwd 校验、workspace 默认 cwd 物化和 IM channel 连接，避免临时 HOME 的 allowlist 影响自检，也避免和线上飞书/微信连接抢占。
 - `/self-check` 只验证“当前 build 能否冷启动并健康”，不会停止当前服务，也不会切换端口或执行真实重启。
 - `/self-restart` 不在 backend 进程内重启自身；它写入 `~/.cli-claw/ops/restarts/*.json` intent，并启动独立 watchdog 进程。watchdog 先执行 shadow self-check；失败时不停止当前服务；通过后才停止旧 PID、按同一启动命令启动新进程，并轮询生产端口 `/api/health`。
 - `/self-restart` 使用一份在 backend 启动时捕获并校验过的 authoritative launch spec；若当前进程无法解析出安全的启动命令（例如 argv 缺失 entrypoint、只剩 `bun` 空参数、或明显不是 Cli Claw 入口），命令会直接拒绝受理，而不是写出一个注定重启失败的 intent。
@@ -45,8 +45,8 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责多用户隔
   - `model`
   - `reasoningEffort`
   - `speedTier`
-- admin 主工作区默认使用 `cli-claw start` 的启动目录作为 `customCwd`；其他工作区默认使用 `~/.cli-claw/groups/{folder}`，除非 admin 设置 `customCwd`。
-- `cli-claw start` 会先校验启动目录是否满足 workspace allowlist，再把该目录物化到缺失 `customCwd` 的 admin 主工作区。
+- 主工作区默认使用 `cli-claw start` 的启动目录作为 `customCwd`；其他工作区默认使用 `~/.cli-claw/groups/{folder}`，除非显式设置 `customCwd`。
+- `cli-claw start` 会先校验启动目录是否满足 workspace allowlist，再把该目录物化到缺失 `customCwd` 的主工作区。
 
 ## 缓存目录与清理
 
@@ -87,7 +87,7 @@ Cli Claw 的可重建下载物统一落在 `~/.cli-claw/cache/<namespace>`。这
 
 ## 工作区目录解析
 
-执行、文件 API、脚本任务和 agent 任务统一使用同一份 effective cwd contract：
+执行、文件 API、workflow local task 和 agent 运行统一使用同一份 effective cwd contract：
 
 1. 工作区自身显式设置的 `customCwd`
 2. 同 folder 的 sibling home workspace 的 `customCwd`
@@ -95,7 +95,7 @@ Cli Claw 的可重建下载物统一落在 `~/.cli-claw/cache/<namespace>`。这
 
 该 cwd 必须是绝对路径、已存在目录，并在配置了 mount allowlist 时落在允许根目录内。
 
-这个 contract 会被本地 Agent 进程、文件 API、脚本任务和 agent 任务共同使用。
+这个 contract 会被本地 Agent 进程、文件 API、workflow local task 和 conversation agent 共同使用。
 
 `customCwd` 只影响执行目录和文件访问根目录，不改变工作区 ownership，也不改变数据库或 session 在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
 
@@ -199,7 +199,7 @@ Workflow graph 支持 `local_task` 节点，但它不是 shell passthrough。wor
 
 scheduled task 支持 `execution_type='workflow'`：`script_command` 存 workflow id，`prompt` 存 workflow prompt，scheduler 到期后复用 `/workflow <id> <prompt>` 同一条 workflow command 路径。scheduled workflow 不创建独立 task workspace，也不把 prompt 注入源工作区主会话；它只创建 workflow run/context、执行 local task / role node，并把终态消息回投到 scheduled task 的目标会话。
 
-scheduled agent / scheduled workflow 在启动任何 Agent runtime 前会读取 OpenAI Codex usage snapshot。若 5h primary window 或 7d secondary window 剩余额低于 `CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT`（默认 30），scheduler 不启动 Agent，写 task run log 和 `last_result`，并把 `next_run` 延后到低额度 bucket 的 reset time；若 usage API 临时不可读，会优先复用 90 分钟内最近一次成功 snapshot，仍不可读时再按 `CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS`（默认 30 分钟）保守延后。usage guard 延期属于“未启动/已延期”，run log 记录 `Deferred: ...`，不作为任务失败；真实 workflow 命令返回 `❌ 工作流 ... 失败` 时才会落成 task run `error`。script task 不受该 guard 影响，除非后续显式升级为 workflow / agent task。
+scheduled workflow 在启动任何 Agent runtime 前会读取 OpenAI Codex usage snapshot。若 5h primary window 或 7d secondary window 剩余额低于 `CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT`（默认 30），scheduler 不启动 workflow，写 task run log 和 `last_result`，并把 `next_run` 延后到低额度 bucket 的 reset time；若 usage API 临时不可读，会优先复用 90 分钟内最近一次成功 snapshot，仍不可读时再按 `CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS`（默认 30 分钟）保守延后。usage guard 延期属于“未启动/已延期”，run log 记录 `Deferred: ...`，不作为任务失败；真实 workflow 命令返回 `❌ 工作流 ... 失败` 时才会落成 task run `error`。
 
 股票策略自迭代采用阶段化调度，而不是一个固定 6 小时循环。`stock-strategy-discovery-loop` 是探索期 workflow，默认 30 分钟一次：`stock.strategy.collect_results` 只读 stock-analysis-api task-chain SQLite，`stock.strategy.discovery_cycle` 默认扫描 `cn/hk/us`，调用 stock-analysis-api `alpha_scan.py` 和 `alpha_research_loop.py`，输出 summary-only 的候选、评估、回测与阻断原因；任一市场或底层 CLI 失败时返回 degraded 子 artifact，后续角色继续审阅数据缺口。`stock-strategy-loop` 是成熟/候选复盘 workflow，默认 6 小时一次：`stock.strategy.analyze_value` 生成 paper/live ledger 摘要与 HK/US alpha daily report / backtest summary。两类 workflow 都不能伪造实盘收益或策略价值；discovery 默认不写 registry，显式 `recordToRegistry=true` 也只允许记录候选/评估/proposal，不允许 approve / activate。股票策略最终 `plan_next_iteration` 若遇到可识别的 OpenAI 临时过载、socket 断开或 5xx，会基于已完成的 local task / review artifact 生成 `status=degraded` 的只读 fallback plan，保留重复判断、补证建议和人工复核要求，避免上游 evidence 已完成但整轮只向用户暴露 runtime 堆栈。
 

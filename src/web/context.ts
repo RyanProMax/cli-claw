@@ -1,25 +1,17 @@
 // Shared state and utilities for web server
 
 import { WebSocket } from 'ws';
-import { RegisteredGroup, UserRole } from '../domain/types.js';
-import { GroupQueue } from '../agent/queue/group-queue.js';
 import type {
-  AuthUser,
+  AccessSession,
   NewMessage,
   MessageCursor,
-  UserSessionWithUser,
+  RegisteredGroup,
 } from '../domain/types.js';
-import {
-  getJidsByFolder,
-  getRegisteredGroup,
-  getGroupMemberRole,
-  getSessionWithUser,
-} from '../storage/db.js';
+import { GroupQueue } from '../agent/queue/group-queue.js';
+import { getAccessSession } from '../storage/access.js';
 
 export interface WsClientInfo {
   sessionId: string;
-  userId: string;
-  role: UserRole;
 }
 
 export interface WebDeps {
@@ -37,29 +29,14 @@ export interface WebDeps {
     appSecret: string;
     enabled?: boolean;
   }) => Promise<boolean>;
-  reloadTelegramConnection?: (config: {
-    botToken: string;
-    enabled?: boolean;
-  }) => Promise<boolean>;
-  reloadUserIMConfig?: (
-    userId: string,
-    channel: 'feishu' | 'telegram' | 'qq' | 'wechat' | 'dingtalk',
-  ) => Promise<boolean>;
+  reloadUserIMConfig?: (channel: 'feishu' | 'wechat') => Promise<boolean>;
   isFeishuConnected?: () => boolean;
-  isTelegramConnected?: () => boolean;
-  isUserFeishuConnected?: (userId: string) => boolean;
-  isUserTelegramConnected?: (userId: string) => boolean;
-  isUserQQConnected?: (userId: string) => boolean;
-  isUserWeChatConnected?: (userId: string) => boolean;
-  isUserDingTalkConnected?: (userId: string) => boolean;
+  isWeChatConnected?: () => boolean;
   processAgentConversation?: (
     chatJid: string,
     agentId: string,
   ) => Promise<void>;
-  getFeishuChatInfo?: (
-    userId: string,
-    chatId: string,
-  ) => Promise<{
+  getFeishuChatInfo?: (chatId: string) => Promise<{
     avatar?: string;
     name?: string;
     user_count?: string;
@@ -93,7 +70,6 @@ export interface WebDeps {
   handleWorkflowCommand?: (
     chatJid: string,
     argsText: string,
-    userId?: string | null,
     initialInput?: Record<string, unknown>,
     lifecycle?: {
       background?: boolean;
@@ -103,7 +79,6 @@ export interface WebDeps {
 }
 
 export type Variables = {
-  user: AuthUser;
   sessionId: string;
 };
 
@@ -133,22 +108,19 @@ const lastActiveCleanupTimer = setInterval(
 );
 lastActiveCleanupTimer.unref?.();
 
-// Session data cache — 30s TTL, avoids DB query on every request
+// Session data cache - 30s TTL, avoids DB query on every request.
 const SESSION_CACHE_TTL_MS = 30 * 1000;
-const sessionCache = new Map<
-  string,
-  { data: UserSessionWithUser; expiry: number }
->();
+const sessionCache = new Map<string, { data: AccessSession; expiry: number }>();
 
-export function getCachedSessionWithUser(
+export function getCachedAccessSession(
   sessionId: string,
-): UserSessionWithUser | undefined {
+): AccessSession | undefined {
   const cached = sessionCache.get(sessionId);
   if (cached && cached.expiry > Date.now()) {
     return cached.data;
   }
   sessionCache.delete(sessionId);
-  const data = getSessionWithUser(sessionId);
+  const data = getAccessSession(sessionId);
   if (data) {
     sessionCache.set(sessionId, {
       data,
@@ -163,13 +135,9 @@ export function invalidateSessionCache(sessionId: string): void {
   lastActiveCache.delete(sessionId);
 }
 
-export function invalidateUserSessions(userId: string): void {
-  for (const [sid, entry] of sessionCache.entries()) {
-    if (entry.data.user_id === userId) {
-      sessionCache.delete(sid);
-      lastActiveCache.delete(sid);
-    }
-  }
+export function invalidateAllSessionCaches(): void {
+  sessionCache.clear();
+  lastActiveCache.clear();
 }
 
 const sessionCacheCleanupTimer = setInterval(
@@ -200,87 +168,20 @@ export function parseCookie(
   return cookies;
 }
 
-export function hasLocalWorkspacePermission(user: AuthUser): boolean {
-  return user.role === 'admin';
+export function canAccessGroup(): boolean {
+  return true;
 }
 
-/**
- * Check if a user can access (view messages, send messages to) a group.
- * All users (including admin) follow the same visibility rules:
- * - is_home groups → only the owner (created_by) can access
- * - IM groups (jid does not start with 'web:') → owner or group_members
- * - folder === 'main' → only the admin who owns it
- * - Web groups → created_by matches user.id, or user is in group_members
- */
-export function canAccessGroup(
-  user: { id: string; role: UserRole },
-  group: RegisteredGroup & { jid: string },
-): boolean {
-  if (group.is_home) return group.created_by === user.id;
-  // IM groups: check ownership if created_by is set.
-  // For legacy rows without created_by, resolve owner from sibling home group.
-  if (!group.jid.startsWith('web:')) {
-    if (group.created_by === user.id) return true;
-    // Check membership for IM groups sharing a non-home folder
-    if (getGroupMemberRole(group.folder, user.id) !== null) return true;
-    if (group.created_by) return false;
-    const siblingJids = getJidsByFolder(group.folder);
-    for (const jid of siblingJids) {
-      if (jid === group.jid) continue;
-      const sibling = getRegisteredGroup(jid);
-      if (sibling?.is_home && sibling.created_by) {
-        return sibling.created_by === user.id;
-      }
-    }
-    // Ownership cannot be resolved for this IM group → deny by default.
-    return false;
-  }
-  // folder === 'main': only accessible by the admin who owns it (via created_by or group_members)
-  if (group.folder === 'main') {
-    if (group.created_by === user.id) return true;
-    return getGroupMemberRole(group.folder, user.id) !== null;
-  }
-  if (group.created_by === user.id) return true;
-  // Check group_members table for shared workspaces
-  return getGroupMemberRole(group.folder, user.id) !== null;
+export function canModifyGroup(): boolean {
+  return true;
 }
 
-/**
- * Check if a user can modify (rename, reset) a group.
- * - Users can modify their own home group.
- * - Users can modify web groups they created.
- * - IM groups can be modified by their owner (created_by).
- */
-export function canModifyGroup(
-  user: { id: string; role: UserRole },
-  group: RegisteredGroup & { jid: string },
-): boolean {
-  if (group.is_home) return group.created_by === user.id;
-  if (!group.jid.startsWith('web:')) return group.created_by === user.id;
-  return group.created_by === user.id;
+export function canManageGroupMembers(): boolean {
+  return false;
 }
 
-/**
- * Check if a user can manage members (add/remove) of a group.
- * - Home groups cannot have members managed.
- * - Only the group creator (owner) can manage members.
- */
-export function canManageGroupMembers(
-  user: { id: string; role: UserRole },
-  group: RegisteredGroup & { jid: string },
-): boolean {
-  if (group.is_home) return false;
-  return group.created_by === user.id;
-}
-
-/**
- * Check if a user can delete a group.
- * - is_home groups cannot be deleted by anyone.
- */
 export function canDeleteGroup(
-  user: { id: string; role: UserRole },
-  group: RegisteredGroup & { jid: string },
+  _group?: RegisteredGroup & { jid: string },
 ): boolean {
-  if (group.is_home) return false;
-  return canModifyGroup(user, group);
+  return true;
 }

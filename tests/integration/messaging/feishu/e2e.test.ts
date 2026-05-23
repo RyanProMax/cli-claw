@@ -661,9 +661,8 @@ describe('Feishu in-process E2E harness', () => {
       },
     );
 
-    await imManager.connectUserFeishu(
-      userId,
-      { appId: 'app-id', appSecret: 'app-secret' },
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
       vi.fn(),
       {
         resolveManagedCommandText: (_chatJid, text) =>
@@ -828,9 +827,8 @@ describe('Feishu in-process E2E harness', () => {
     });
     db.ensureChatExists(chatJid);
 
-    await imManager.connectUserFeishu(
-      userId,
-      { appId: 'app-id', appSecret: 'app-secret' },
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
       vi.fn(),
       {
         resolveManagedCommandText: (_chatJid, text) =>
@@ -975,9 +973,8 @@ describe('Feishu in-process E2E harness', () => {
     });
     db.ensureChatExists(chatJid);
 
-    await imManager.connectUserFeishu(
-      userId,
-      { appId: 'app-id', appSecret: 'app-secret' },
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
       vi.fn(),
       {
         resolveManagedCommandText: (_chatJid, text) =>
@@ -1151,9 +1148,8 @@ describe('Feishu in-process E2E harness', () => {
     });
     db.ensureChatExists(chatJid);
 
-    await imManager.connectUserFeishu(
-      userId,
-      { appId: 'app-id', appSecret: 'app-secret' },
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
       vi.fn(),
       {
         resolveManagedCommandText: (_chatJid, text) =>
@@ -1288,9 +1284,8 @@ describe('Feishu in-process E2E harness', () => {
     });
     db.ensureChatExists(chatJid);
 
-    await imManager.connectUserFeishu(
-      userId,
-      { appId: 'app-id', appSecret: 'app-secret' },
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
       vi.fn(),
       {
         resolveManagedCommandText: (_chatJid, text) =>
@@ -1482,9 +1477,8 @@ describe('Feishu in-process E2E harness', () => {
       JSON.parse(db.getRouterState('last_committed_cursor') || '{}'),
     ).toEqual({ [chatJid]: previousCursor });
 
-    await imManager.connectUserFeishu(
-      userId,
-      { appId: 'app-id', appSecret: 'app-secret' },
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
       vi.fn(),
       {
         resolveManagedCommandText: (_chatJid, text) =>
@@ -1706,9 +1700,8 @@ describe('Feishu in-process E2E harness', () => {
     );
     loadRouterStateForTests();
 
-    await imManager.connectUserFeishu(
-      userId,
-      { appId: 'app-id', appSecret: 'app-secret' },
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
       vi.fn(),
       {
         resolveManagedCommandText: (_chatJid, text) =>

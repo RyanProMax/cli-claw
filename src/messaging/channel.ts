@@ -1,7 +1,7 @@
 /**
  * Unified IM Channel Interface
  *
- * Defines a standard interface for all IM integrations (Feishu, Telegram, etc.)
+ * Defines a standard interface for supported IM integrations.
  * and provides adapter factories that wrap existing connection implementations.
  */
 import {
@@ -10,25 +10,10 @@ import {
   type FeishuConnectionConfig,
 } from './providers/feishu/index.js';
 import {
-  createTelegramConnection,
-  type TelegramConnection,
-  type TelegramConnectionConfig,
-} from './providers/telegram.js';
-import {
-  createQQConnection,
-  type QQConnection,
-  type QQConnectionConfig,
-} from './providers/qq.js';
-import {
   createWeChatConnection,
   type WeChatConnection,
   type WeChatConnectionConfig,
 } from './providers/wechat/index.js';
-import {
-  createDingTalkConnection,
-  type DingTalkConnection,
-  type DingTalkConnectionConfig,
-} from './providers/dingtalk.js';
 import { logger } from '../core/logger.js';
 import {
   StreamingCardController,
@@ -155,7 +140,7 @@ function applyTextChannelFooter(
 
 // ─── Channel Registry ───────────────────────────────────────────
 
-/** Backward-compatible registry derived from the shared CHANNEL_PREFIXES. */
+/** Channel registry derived from the shared CHANNEL_PREFIXES. */
 export const CHANNEL_REGISTRY: Record<string, { prefix: string }> =
   Object.fromEntries(
     Object.entries(CHANNEL_PREFIXES).map(([type, prefix]) => [
@@ -170,6 +155,7 @@ export const CHANNEL_REGISTRY: Record<string, { prefix: string }> =
  */
 export function getChannelType(jid: string): string | null {
   for (const [type, prefix] of Object.entries(CHANNEL_PREFIXES)) {
+    if (type === 'web') continue;
     if (jid.startsWith(prefix)) return type;
   }
   return null;
@@ -319,202 +305,6 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
   return channel;
 }
 
-// ─── Telegram Adapter ───────────────────────────────────────────
-
-export function createTelegramChannel(
-  config: TelegramConnectionConfig,
-): IMChannel {
-  let inner: TelegramConnection | null = null;
-  // Telegram typing indicator expires after ~5s; resend every 4s while active.
-  let typingTimer: NodeJS.Timeout | null = null;
-
-  function clearTypingTimer(): void {
-    if (typingTimer) {
-      clearInterval(typingTimer);
-      typingTimer = null;
-    }
-  }
-
-  const channel: IMChannel = {
-    channelType: 'telegram',
-
-    async connect(opts: IMChannelConnectOpts): Promise<boolean> {
-      inner = createTelegramConnection(config);
-      try {
-        await inner.connect({
-          onReady: opts.onReady,
-          onNewChat: opts.onNewChat,
-          isChatAuthorized: opts.isChatAuthorized ?? (() => true),
-          onPairAttempt: opts.onPairAttempt,
-          onCommand: opts.onCommand,
-          ignoreMessagesBefore: opts.ignoreMessagesBefore,
-          resolveGroupFolder: opts.resolveGroupFolder,
-          resolveEffectiveChatJid: opts.resolveEffectiveChatJid,
-          onAgentMessage: opts.onAgentMessage,
-          onBotAddedToGroup: opts.onBotAddedToGroup,
-          onBotRemovedFromGroup: opts.onBotRemovedFromGroup,
-        });
-        return inner.isConnected();
-      } catch (err) {
-        logger.error({ err }, 'Telegram channel connect failed');
-        inner = null;
-        return false;
-      }
-    },
-
-    async disconnect(): Promise<void> {
-      clearTypingTimer();
-      if (inner) {
-        await inner.disconnect();
-        inner = null;
-      }
-    },
-
-    async sendMessage(
-      chatId: string,
-      text: string,
-      localImagePaths?: string[],
-      messageMeta?: OutboundMessageMeta,
-    ): Promise<void> {
-      if (!inner) {
-        logger.warn(
-          { chatId },
-          'Telegram channel not connected, skip sending message',
-        );
-        return;
-      }
-      await inner.sendMessage(
-        chatId,
-        applyTextChannelFooter(text, messageMeta),
-        localImagePaths,
-      );
-    },
-
-    async sendImage(
-      chatId: string,
-      imageBuffer: Buffer,
-      mimeType: string,
-      caption?: string,
-      fileName?: string,
-    ): Promise<void> {
-      if (!inner) {
-        logger.warn(
-          { chatId },
-          'Telegram channel not connected, skip sending image',
-        );
-        return;
-      }
-      await inner.sendImage(chatId, imageBuffer, mimeType, caption, fileName);
-    },
-
-    async sendFile(
-      chatId: string,
-      filePath: string,
-      fileName: string,
-    ): Promise<void> {
-      if (!inner) {
-        logger.warn(
-          { chatId },
-          'Telegram channel not connected, skip sending file',
-        );
-        return;
-      }
-      await inner.sendFile(chatId, filePath, fileName);
-    },
-
-    async setTyping(chatId: string, isTyping: boolean): Promise<void> {
-      // Always clear existing timer first
-      clearTypingTimer();
-      if (!isTyping || !inner) return;
-
-      const sendAction = async (): Promise<void> => {
-        if (!inner) return;
-        await inner.sendChatAction(chatId, 'typing');
-      };
-
-      // Send immediately, then repeat every 4s to keep indicator alive
-      void sendAction();
-      typingTimer = setInterval(() => {
-        void sendAction();
-      }, 4000);
-    },
-
-    isConnected(): boolean {
-      return inner?.isConnected() ?? false;
-    },
-  };
-
-  return channel;
-}
-
-// ─── QQ Adapter ─────────────────────────────────────────────────
-
-export function createQQChannel(config: QQConnectionConfig): IMChannel {
-  let inner: QQConnection | null = null;
-
-  const channel: IMChannel = {
-    channelType: 'qq',
-
-    async connect(opts: IMChannelConnectOpts): Promise<boolean> {
-      inner = createQQConnection(config);
-      try {
-        await inner.connect({
-          onReady: opts.onReady,
-          onNewChat: opts.onNewChat,
-          isChatAuthorized: opts.isChatAuthorized ?? (() => true),
-          onPairAttempt: opts.onPairAttempt,
-          onCommand: opts.onCommand,
-          ignoreMessagesBefore: opts.ignoreMessagesBefore,
-          resolveGroupFolder: opts.resolveGroupFolder,
-          resolveEffectiveChatJid: opts.resolveEffectiveChatJid,
-          onAgentMessage: opts.onAgentMessage,
-        });
-        return inner.isConnected();
-      } catch (err) {
-        logger.error({ err }, 'QQ channel connect failed');
-        inner = null;
-        return false;
-      }
-    },
-
-    async disconnect(): Promise<void> {
-      if (inner) {
-        await inner.disconnect();
-        inner = null;
-      }
-    },
-
-    async sendMessage(
-      chatId: string,
-      text: string,
-      _localImagePaths?: string[],
-      messageMeta?: OutboundMessageMeta,
-    ): Promise<void> {
-      if (!inner) {
-        logger.warn(
-          { chatId },
-          'QQ channel not connected, skip sending message',
-        );
-        return;
-      }
-      await inner.sendMessage(
-        chatId,
-        applyTextChannelFooter(text, messageMeta),
-      );
-    },
-
-    async setTyping(_chatId: string, _isTyping: boolean): Promise<void> {
-      // QQ Bot API v2 does not support typing indicators
-    },
-
-    isConnected(): boolean {
-      return inner?.isConnected() ?? false;
-    },
-  };
-
-  return channel;
-}
-
 // ─── WeChat Adapter ─────────────────────────────────────────────
 
 export function createWeChatChannel(config: WeChatConnectionConfig): IMChannel {
@@ -572,111 +362,6 @@ export function createWeChatChannel(config: WeChatConnectionConfig): IMChannel {
     async setTyping(chatId: string, isTyping: boolean): Promise<void> {
       if (!inner) return;
       await inner.sendTyping(chatId, isTyping);
-    },
-
-    isConnected(): boolean {
-      return inner?.isConnected() ?? false;
-    },
-  };
-
-  return channel;
-}
-
-// ─── DingTalk Adapter ────────────────────────────────────────────
-
-export function createDingTalkChannel(
-  config: DingTalkConnectionConfig,
-): IMChannel {
-  let inner: DingTalkConnection | null = null;
-
-  const channel: IMChannel = {
-    channelType: 'dingtalk',
-
-    async connect(opts: IMChannelConnectOpts): Promise<boolean> {
-      inner = createDingTalkConnection(config);
-      try {
-        await inner.connect({
-          onReady: opts.onReady,
-          onNewChat: opts.onNewChat,
-          isChatAuthorized: opts.isChatAuthorized ?? (() => true),
-          onPairAttempt: opts.onPairAttempt,
-          onCommand: opts.onCommand,
-          ignoreMessagesBefore: opts.ignoreMessagesBefore,
-          resolveGroupFolder: opts.resolveGroupFolder,
-          resolveEffectiveChatJid: opts.resolveEffectiveChatJid,
-          onAgentMessage: opts.onAgentMessage,
-          onBotAddedToGroup: opts.onBotAddedToGroup,
-          onBotRemovedFromGroup: opts.onBotRemovedFromGroup,
-          shouldProcessGroupMessage: opts.shouldProcessGroupMessage,
-        });
-        return inner.isConnected();
-      } catch (err) {
-        logger.error({ err }, 'DingTalk channel connect failed');
-        inner = null;
-        return false;
-      }
-    },
-
-    async disconnect(): Promise<void> {
-      if (inner) {
-        await inner.disconnect();
-        inner = null;
-      }
-    },
-
-    async sendMessage(
-      chatId: string,
-      text: string,
-      _localImagePaths?: string[],
-      messageMeta?: OutboundMessageMeta,
-    ): Promise<void> {
-      if (!inner) {
-        logger.warn(
-          { chatId },
-          'DingTalk channel not connected, skip sending message',
-        );
-        return;
-      }
-      await inner.sendMessage(
-        chatId,
-        applyTextChannelFooter(text, messageMeta),
-      );
-    },
-
-    async setTyping(_chatId: string, _isTyping: boolean): Promise<void> {
-      // DingTalk Stream SDK does not support typing indicators
-    },
-
-    async sendImage(
-      chatId: string,
-      imageBuffer: Buffer,
-      mimeType: string,
-      caption?: string,
-      fileName?: string,
-    ): Promise<void> {
-      if (!inner) {
-        logger.warn(
-          { chatId },
-          'DingTalk channel not connected, skip sending image',
-        );
-        return;
-      }
-      await inner.sendImage(chatId, imageBuffer, mimeType, caption, fileName);
-    },
-
-    async sendFile(
-      chatId: string,
-      filePath: string,
-      fileName: string,
-    ): Promise<void> {
-      if (!inner) {
-        logger.warn(
-          { chatId },
-          'DingTalk channel not connected, skip sending file',
-        );
-        return;
-      }
-      await inner.sendFile(chatId, filePath, fileName);
     },
 
     isConnected(): boolean {

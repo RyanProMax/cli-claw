@@ -6,15 +6,14 @@ Backend source is organized by product responsibility. New code should go into t
 
 - `index.ts` starts the backend service and wires the major modules together.
 - `cli.ts` is the published `cli-claw` command entrypoint.
-- `reset-admin.ts` is an operator utility entrypoint.
 - `self-restart-watchdog.ts` is the child process entrypoint used by managed restarts.
 
 ## Modules
 
 - `agent/`
-  - Agent execution, queueing, scheduled task execution, runner output parsing, local process dispatch, and script execution.
+  - Agent execution, queueing, workflow scheduled task execution, runner output parsing, and local process dispatch.
 - `core/`
-  - App primitives: config, auth, permissions, schemas, logging, self-check/restart, model settings, and workspace security helpers.
+  - App primitives: config, instance auth, schemas, logging, self-check/restart, model settings, and workspace security helpers.
 - `domain/`
   - Shared backend domain types. `types.ts` remains broad for now and should be split gradually by domain.
 - `messaging/`
@@ -24,7 +23,7 @@ Backend source is organized by product responsibility. New code should go into t
 - `skills/`
   - Skill discovery, validation, command dispatch, and skill utility functions.
 - `storage/`
-  - SQLite connection, schema, migrations, and persistence facade. `db.ts` is intentionally still a facade until repositories are split.
+  - SQLite connection, schema, migrations, and domain persistence entrypoints. Import through `access`, `messages`, `workspaces`, `workflows`, `scheduler`, `agents`, or `schema` instead of the underlying `db.ts` implementation.
 - `web/`
   - Hono app assembly, WebSocket state/context, auth middleware, and HTTP routes.
 

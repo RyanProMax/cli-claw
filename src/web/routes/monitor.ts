@@ -2,9 +2,8 @@ import { Hono } from 'hono';
 
 import type { Variables } from '../context.js';
 import { authMiddleware } from '../middleware/auth.js';
-import type { AuthUser } from '../../domain/types.js';
-import { canAccessGroup, getWebDeps } from '../context.js';
-import { getRegisteredGroup, getRouterState } from '../../storage/db.js';
+import { getWebDeps } from '../context.js';
+import { getRouterState } from '../../storage/messages.js';
 import { getSystemSettings } from '../../core/runtime/config.js';
 import { logger } from '../../core/logger.js';
 
@@ -53,38 +52,15 @@ monitorRoutes.get('/status', authMiddleware, async (c) => {
   const deps = getWebDeps();
   if (!deps) return c.json({ error: 'Server not initialized' }, 500);
 
-  const authUser = c.get('user') as AuthUser;
-  const isAdmin = authUser.role === 'admin';
   const queueStatus = deps.queue.getStatus();
 
-  const filteredGroups = isAdmin
-    ? queueStatus.groups
-    : queueStatus.groups.filter((g) => {
-        const group = getRegisteredGroup(g.jid);
-        if (!group) return false;
-        return canAccessGroup({ id: authUser.id, role: authUser.role }, group);
-      });
-
-  const activeProcesses = isAdmin
-    ? queueStatus.activeProcessCount
-    : filteredGroups.filter((g) => g.active).length;
-  const queueLength = isAdmin
-    ? queueStatus.waitingCount
-    : queueStatus.waitingGroupJids.filter((jid) => {
-        const group = getRegisteredGroup(jid);
-        if (!group) return false;
-        return canAccessGroup({ id: authUser.id, role: authUser.role }, group);
-      }).length;
-
   return c.json({
-    activeProcesses,
-    activeTotal: isAdmin ? queueStatus.activeCount : activeProcesses,
-    maxConcurrentProcesses: isAdmin
-      ? getSystemSettings().maxConcurrentProcesses
-      : undefined,
-    queueLength,
+    activeProcesses: queueStatus.activeProcessCount,
+    activeTotal: queueStatus.activeCount,
+    maxConcurrentProcesses: getSystemSettings().maxConcurrentProcesses,
+    queueLength: queueStatus.waitingCount,
     uptime: Math.floor(process.uptime()),
-    groups: filteredGroups,
+    groups: queueStatus.groups,
   });
 });
 

@@ -5,13 +5,12 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { ensureChatExists, storeMessageDirect } from './storage/messages.js';
 import {
   deletePrimaryRuntimeSessions,
   deleteSession,
-  getJidsByFolder,
-  storeMessageDirect,
-  ensureChatExists,
-} from './storage/db.js';
+} from './storage/agents.js';
+import { getJidsByFolder } from './storage/workspaces.js';
 import { DATA_DIR } from './core/config.js';
 import { logger } from './core/logger.js';
 import type { NewMessage, MessageCursor } from './domain/types.js';

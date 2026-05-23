@@ -2,7 +2,7 @@
  * Lightweight notification mechanism for IM messages.
  *
  * The message polling loop in index.ts sleeps for POLL_INTERVAL (2s) between
- * iterations.  When a Feishu / Telegram / QQ handler stores a new message it
+ * iterations. When an IM handler stores a new message it
  * calls `notifyNewImMessage()` which wakes the loop immediately so the message
  * is picked up without waiting for the remaining sleep time.
  *

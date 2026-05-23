@@ -13,10 +13,7 @@ import { useConnectedChannels } from '../../hooks/useConnectedChannels';
 
 const CHANNEL_LABELS: Record<string, string> = {
   feishu: '飞书',
-  telegram: 'Telegram',
-  qq: 'QQ',
   wechat: '微信',
-  dingtalk: '钉钉',
 };
 
 interface TaskDetailProps {
@@ -296,34 +293,27 @@ export function TaskDetail({ task }: TaskDetailProps) {
         )}
       </div>
 
-      {/* Script Command (script mode) */}
-      {task.execution_type === 'script' && (
-        <div>
-          <div className="text-xs text-muted-foreground mb-2">脚本命令</div>
-          {editing ? (
-            <textarea
-              value={editForm.script_command}
-              onChange={(e) =>
-                setEditForm({ ...editForm, script_command: e.target.value })
-              }
-              rows={3}
-              maxLength={4096}
-              className="w-full text-sm text-foreground bg-card px-3 py-2 rounded border border-border font-mono resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-          ) : (
-            task.script_command && (
-              <pre className="text-sm text-foreground bg-card px-3 py-2 rounded border border-border whitespace-pre-wrap font-mono">
-                {task.script_command}
-              </pre>
-            )
-          )}
-        </div>
-      )}
+      <div>
+        <div className="text-xs text-muted-foreground mb-2">Workflow ID</div>
+        {editing ? (
+          <input
+            value={editForm.script_command}
+            onChange={(e) =>
+              setEditForm({ ...editForm, script_command: e.target.value })
+            }
+            className="w-full text-sm text-foreground bg-card px-3 py-2 rounded border border-border font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        ) : (
+          <div className="text-sm text-foreground bg-card px-3 py-2 rounded border border-border font-mono">
+            {task.script_command || '-'}
+          </div>
+        )}
+      </div>
 
       {/* Full Prompt / Description */}
       <div>
         <div className="text-xs text-muted-foreground mb-2">
-          {task.execution_type === 'script' ? '任务描述' : '完整 Prompt'}
+          Prompt
         </div>
         {editing ? (
           <textarea
@@ -334,12 +324,12 @@ export function TaskDetail({ task }: TaskDetailProps) {
             rows={6}
             className="w-full text-sm text-foreground bg-card px-3 py-2 rounded border border-border resize-y min-h-[160px] max-h-[400px] overflow-y-auto focus:outline-none focus:ring-1 focus:ring-primary"
           />
+        ) : task.prompt ? (
+          <div className="text-sm text-foreground bg-card px-3 py-2 rounded border border-border whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+            {task.prompt}
+          </div>
         ) : (
-          task.prompt && (
-            <div className="text-sm text-foreground bg-card px-3 py-2 rounded border border-border whitespace-pre-wrap max-h-[300px] overflow-y-auto">
-              {task.prompt}
-            </div>
-          )
+          <div className="text-sm text-muted-foreground">-</div>
         )}
       </div>
 
@@ -347,13 +337,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <div className="text-xs text-muted-foreground mb-1">执行方式</div>
-          <div className="text-sm text-foreground">
-            {task.execution_type === 'script'
-              ? '脚本'
-              : task.execution_type === 'workflow'
-                ? 'Workflow'
-                : 'Agent'}
-          </div>
+          <div className="text-sm text-foreground">Workflow</div>
         </div>
 
         <div>

@@ -27,7 +27,7 @@ describe('createImNewWorkspaceGroup', () => {
 
     const result = createImNewWorkspaceGroup({
       name: 'Ops',
-      userId: 'admin-1',
+      userId: 'instance-1',
       launchCwd,
       allowlist: null,
     });
@@ -39,7 +39,7 @@ describe('createImNewWorkspaceGroup', () => {
         group: expect.objectContaining({
           name: 'Ops',
           customCwd: fs.realpathSync(launchCwd),
-          created_by: 'admin-1',
+          created_by: 'instance-1',
         }),
       }),
     );

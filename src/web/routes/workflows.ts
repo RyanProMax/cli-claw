@@ -1,16 +1,15 @@
 import { Hono } from 'hono';
 
 import { getRunningTaskIds } from '../../agent/scheduler/index.js';
-import type { AuthUser, RegisteredGroup } from '../../domain/types.js';
 import {
-  getAllRegisteredGroups,
   getAllTasks,
   getTaskRunLogsForTaskIdsInRange,
+} from '../../storage/scheduler.js';
+import {
   listWorkflowRunsForDashboard,
   listWorkflowRunStepsForRunIds,
-} from '../../storage/db.js';
+} from '../../storage/workflows.js';
 import { buildWorkflowDashboardData } from '../workflow-dashboard.js';
-import { canAccessGroup } from '../context.js';
 import { authMiddleware } from '../middleware/auth.js';
 import type { Variables } from '../context.js';
 
@@ -59,52 +58,21 @@ export function resolveWorkflowDashboardDayWindow(options: {
   };
 }
 
-function userCanSeeGroup(
-  user: AuthUser,
-  group: (RegisteredGroup & { jid: string }) | undefined,
-): group is RegisteredGroup & { jid: string } {
-  if (!group) return user.role === 'admin';
-  if (user.role === 'admin') return true;
-  return canAccessGroup({ id: user.id, role: user.role }, group);
-}
-
 workflowRoutes.get('/dashboard', authMiddleware, (c) => {
-  const authUser = c.get('user') as AuthUser;
-  const allGroups = getAllRegisteredGroups();
   const window = resolveWorkflowDashboardDayWindow({
     dateParam: c.req.query('date'),
     timezoneOffsetMinutes: c.req.query('tzOffsetMinutes'),
   });
-  const isAdmin = authUser.role === 'admin';
-  const visibleFolders = new Set(
-    Object.entries(allGroups)
-      .map(([jid, group]) => ({ ...group, jid }))
-      .filter((group) => userCanSeeGroup(authUser, group))
-      .map((group) => group.folder),
+  const scheduledTasks = getAllTasks().filter(
+    (task) => task.execution_type === 'workflow',
   );
-  const folderFilter = isAdmin ? undefined : [...visibleFolders].sort();
-
-  const scheduledTasks = getAllTasks().filter((task) =>
-    userCanSeeGroup(
-      authUser,
-      allGroups[task.chat_jid]
-        ? { ...allGroups[task.chat_jid], jid: task.chat_jid }
-        : undefined,
-    ),
-  );
-  const workflowTaskIds = scheduledTasks
-    .filter((task) => task.execution_type === 'workflow')
-    .map((task) => task.id);
+  const workflowTaskIds = scheduledTasks.map((task) => task.id);
   const rawRuns = listWorkflowRunsForDashboard({
-    folders: folderFilter,
     start: window.dayStart,
     end: window.dayEnd,
   });
-  const workflowRuns = isAdmin
-    ? rawRuns
-    : rawRuns.filter((run) => visibleFolders.has(run.folder));
   const workflowSteps = listWorkflowRunStepsForRunIds(
-    workflowRuns.map((run) => run.id),
+    rawRuns.map((run) => run.id),
   );
   const taskRunLogs = getTaskRunLogsForTaskIdsInRange(
     workflowTaskIds,
@@ -117,7 +85,7 @@ workflowRoutes.get('/dashboard', authMiddleware, (c) => {
     dayEnd: window.dayEnd,
     generatedAt: new Date().toISOString(),
     runningTaskIds: getRunningTaskIds(),
-    workflowRuns,
+    workflowRuns: rawRuns,
     workflowSteps,
     scheduledTasks,
     taskRunLogs,

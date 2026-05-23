@@ -1,12 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const hoisted = vi.hoisted(() => ({
-  getRegisteredGroup: vi.fn((jid: string) =>
-    jid === 'wechat:alice'
-      ? { created_by: 'user-1', folder: 'home' }
-      : null,
-  ),
-  getJidsByFolder: vi.fn(() => []),
+  getRegisteredGroup: vi.fn(),
+  getJidsByFolder: vi.fn(),
 }));
 
 vi.mock('../../../src/storage/db.js', () => ({
@@ -18,7 +14,7 @@ import { imManager } from '../../../src/messaging/manager.ts';
 
 describe('imManager messageMeta forwarding', () => {
   beforeEach(() => {
-    (imManager as any).connections = new Map();
+    (imManager as any).channels = new Map();
     hoisted.getRegisteredGroup.mockClear();
     hoisted.getJidsByFolder.mockClear();
   });
@@ -34,10 +30,7 @@ describe('imManager messageMeta forwarding', () => {
       isConnected: vi.fn(() => true),
     };
 
-    (imManager as any).connections.set('user-1', {
-      userId: 'user-1',
-      channels: new Map([['wechat', fakeChannel]]),
-    });
+    (imManager as any).channels.set('wechat', fakeChannel);
 
     const messageMeta = {
       turnId: 'turn-1',

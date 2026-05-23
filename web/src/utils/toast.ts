@@ -78,7 +78,7 @@ export function showToast(
 /**
  * Send a browser Notification when the page is in the background.
  * Only fires if permission was already granted — never prompts the user
- * from a passive event handler. Permission should be requested via a
+ * from a passive event handler. Browser notification access should be requested via a
  * user-initiated action (e.g. a settings toggle).
  */
 export function notifyIfHidden(title: string, body?: string): void {

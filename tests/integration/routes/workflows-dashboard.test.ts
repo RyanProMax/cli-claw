@@ -2,16 +2,6 @@ import { Hono } from 'hono';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  currentUser: {
-    id: 'member-1',
-    username: 'member',
-    role: 'member',
-    status: 'active',
-    display_name: 'Member',
-    permissions: [],
-    must_change_password: false,
-  },
-  canAccessGroup: vi.fn(),
   getAllRegisteredGroups: vi.fn(),
   getAllTasks: vi.fn(),
   listWorkflowRunsForDashboard: vi.fn(),
@@ -22,14 +12,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../src/web/middleware/auth.js', () => ({
   authMiddleware: async (c: any, next: any) => {
-    c.set('user', mocks.currentUser);
+    c.set('sessionId', 'session-1');
     await next();
   },
 }));
 
-vi.mock('../../../src/web/context.js', () => ({
-  canAccessGroup: mocks.canAccessGroup,
-}));
+vi.mock('../../../src/web/context.js', () => ({}));
 
 vi.mock('../../../src/storage/db.js', async () => {
   const actual = await vi.importActual<
@@ -49,6 +37,20 @@ vi.mock('../../../src/agent/scheduler/index.js', () => ({
   getRunningTaskIds: mocks.getRunningTaskIds,
 }));
 
+vi.mock('../../../src/storage/workspaces.js', () => ({
+  getAllRegisteredGroups: mocks.getAllRegisteredGroups,
+}));
+
+vi.mock('../../../src/storage/scheduler.js', () => ({
+  getAllTasks: mocks.getAllTasks,
+  getTaskRunLogsForTaskIdsInRange: mocks.getTaskRunLogsForTaskIdsInRange,
+}));
+
+vi.mock('../../../src/storage/workflows.js', () => ({
+  listWorkflowRunsForDashboard: mocks.listWorkflowRunsForDashboard,
+  listWorkflowRunStepsForRunIds: mocks.listWorkflowRunStepsForRunIds,
+}));
+
 import workflowRoutes from '../../../src/web/routes/workflows.js';
 
 function createApp() {
@@ -60,30 +62,18 @@ function createApp() {
 describe('workflow dashboard route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.currentUser = {
-      id: 'member-1',
-      username: 'member',
-      role: 'member',
-      status: 'active',
-      display_name: 'Member',
-      permissions: [],
-      must_change_password: false,
-    };
-    mocks.canAccessGroup.mockImplementation(
-      (_user: unknown, group: { folder: string }) => group.folder === 'main',
-    );
     mocks.getAllRegisteredGroups.mockReturnValue({
       'web:main': {
         name: 'Main',
         folder: 'main',
         added_at: '2026-05-21T00:00:00.000Z',
-        created_by: 'member-1',
+        created_by: null,
       },
       'web:private': {
         name: 'Private',
         folder: 'private',
         added_at: '2026-05-21T00:00:00.000Z',
-        created_by: 'other-user',
+        created_by: null,
       },
     });
     mocks.getAllTasks.mockReturnValue([
@@ -104,7 +94,7 @@ describe('workflow dashboard route', () => {
         last_result: 'ok',
         status: 'active',
         created_at: '2026-05-21T00:00:00.000Z',
-        created_by: 'member-1',
+        created_by: null,
         notify_channels: null,
       },
       {
@@ -124,7 +114,7 @@ describe('workflow dashboard route', () => {
         last_result: null,
         status: 'active',
         created_at: '2026-05-21T00:00:00.000Z',
-        created_by: 'other-user',
+        created_by: null,
         notify_channels: null,
       },
     ]);
@@ -183,7 +173,7 @@ describe('workflow dashboard route', () => {
     mocks.getRunningTaskIds.mockReturnValue(['task-main']);
   });
 
-  test('returns only workflow dashboard data visible to the authenticated user', async () => {
+  test('returns workflow dashboard data for the single instance', async () => {
     const app = createApp();
     const response = await app.request(
       '/api/workflows/dashboard?date=2026-05-22&tzOffsetMinutes=0',
@@ -192,42 +182,23 @@ describe('workflow dashboard route', () => {
 
     expect(response.status).toBe(200);
     expect(mocks.listWorkflowRunsForDashboard).toHaveBeenCalledWith({
-      folders: ['main'],
       start: '2026-05-22T00:00:00.000Z',
       end: '2026-05-23T00:00:00.000Z',
     });
     expect(body.summary).toMatchObject({
-      totalRuns: 1,
-      runningRuns: 1,
-      scheduledWorkflowTasks: 1,
+      totalRuns: 2,
+      runningRuns: 2,
+      scheduledWorkflowTasks: 2,
       runningScheduledTasks: 1,
     });
     expect(body.todayRuns.map((run: { id: string }) => run.id)).toEqual([
       'run-main',
+      'run-private',
     ]);
     expect(body.scheduledTasks.map((task: { id: string }) => task.id)).toEqual([
       'task-main',
+      'task-private',
     ]);
   });
 
-  test('allows admins to query all workflow folders without a folder filter', async () => {
-    mocks.currentUser = {
-      ...mocks.currentUser,
-      id: 'admin-1',
-      username: 'admin',
-      role: 'admin',
-      display_name: 'Admin',
-    };
-
-    const app = createApp();
-    await app.request(
-      '/api/workflows/dashboard?date=2026-05-22&tzOffsetMinutes=0',
-    );
-
-    expect(mocks.listWorkflowRunsForDashboard).toHaveBeenCalledWith({
-      folders: undefined,
-      start: '2026-05-22T00:00:00.000Z',
-      end: '2026-05-23T00:00:00.000Z',
-    });
-  });
 });

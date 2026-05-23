@@ -4,7 +4,7 @@ import path from 'path';
 
 import { DATA_DIR } from '../../core/config.js';
 import { killProcessTree } from '../runner/container-runner.js';
-import { getTaskById } from '../../storage/db.js';
+import { getTaskById } from '../../storage/scheduler.js';
 import { getSystemSettings } from '../../core/runtime/config.js';
 import { logger } from '../../core/logger.js';
 import type { MessageCursor } from '../../domain/types.js';
@@ -606,8 +606,8 @@ export class GroupQueue {
     // caller to enqueue a fresh message-processing run that will execute once
     // the task finishes.  See GitHub issue riba2534/happyclaw#151.
     //
-    // Exception: conversation agent tasks (virtual JIDs with #agent:) are
-    // user-message handlers started via enqueueTask.  They DO accept IPC
+    // Exception: conversation agent runs (virtual JIDs with #agent:) are
+    // user-message handlers started via enqueueTask. They DO accept IPC
     // messages — blocking them causes a deadlock where the agent waits for
     // IPC input that never arrives.
     if (state.activeRunnerIsTask && !groupJid.includes('#agent:')) {
@@ -825,7 +825,7 @@ export class GroupQueue {
    * query.interrupt(). The runner stays alive and accepts new messages.
    */
   interruptQuery(groupJid: string): boolean {
-    // Use resolveActiveState so sibling JIDs (feishu/telegram sharing the
+    // Use resolveActiveState so sibling JIDs (IM channels sharing the
     // same folder as a web group) are correctly resolved to the active runner.
     const state = this.resolveActiveState(groupJid);
     if (!state) return false;

@@ -22,10 +22,10 @@ export interface AgentProcessInput {
   model?: string | null;
   reasoningEffort?: string | null;
   speedTier?: string | null;
-  /** Whether this is the user's home workspace (admin or member). */
+  /** Whether this is a home workspace. */
   isHome?: boolean;
-  /** Whether this is the admin's home workspace (full privileges). */
-  isAdminHome?: boolean;
+  /** Whether this is the single-instance main workspace. */
+  isMainWorkspace?: boolean;
   isScheduledTask?: boolean;
   /** Run one model turn and exit instead of waiting for follow-up IPC input. */
   singleTurn?: boolean;

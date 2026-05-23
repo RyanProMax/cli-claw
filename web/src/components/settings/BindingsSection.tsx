@@ -10,7 +10,7 @@ import { BindingTargetDialog } from './BindingTargetDialog';
 import type { AvailableImGroup } from '../../types';
 import type { BindingTarget } from './hooks/useImBindings';
 
-type ChannelFilter = 'all' | 'feishu' | 'telegram' | 'qq' | 'wechat';
+type ChannelFilter = 'all' | 'feishu' | 'wechat';
 
 export function BindingsSection() {
   const { bindings, loading, targets, targetsLoading, reload, rebind, error: hookError, clearError: clearHookError } = useImBindings();
@@ -29,8 +29,6 @@ export function BindingsSection() {
     const types = new Set(bindings.map((b) => b.channel_type));
     const all: { key: ChannelFilter; label: string }[] = [{ key: 'all', label: '全部' }];
     if (types.has('feishu')) all.push({ key: 'feishu', label: '飞书' });
-    if (types.has('telegram')) all.push({ key: 'telegram', label: 'Telegram' });
-    if (types.has('qq')) all.push({ key: 'qq', label: 'QQ' });
     if (types.has('wechat')) all.push({ key: 'wechat', label: '微信' });
     return all;
   }, [bindings]);
@@ -128,7 +126,7 @@ export function BindingsSection() {
               IM 绑定管理
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              查看和管理所有 IM 渠道的消息路由。未绑定的渠道默认发送到你的主工作区。
+              查看和管理飞书、微信消息路由。未绑定的渠道默认发送到主工作区。
             </p>
           </div>
           <Button
@@ -192,7 +190,7 @@ export function BindingsSection() {
             <CardContent className="text-center">
             <MessageSquare className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
             <p className="text-sm text-muted-foreground">
-              暂无 IM 渠道。在飞书、Telegram、QQ 或微信中向 Bot 发送消息后，渠道会自动出现在这里。
+              暂无 IM 渠道。在飞书或微信中向 Bot 发送消息后，渠道会自动出现在这里。
             </p>
             </CardContent>
           </Card>

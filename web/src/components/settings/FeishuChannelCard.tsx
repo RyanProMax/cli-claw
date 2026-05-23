@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { api } from '../../api/client';
 import { getErrorMessage } from './types';
 
-interface UserFeishuConfig {
+interface FeishuConfig {
   appId: string;
   hasAppSecret: boolean;
   appSecretMasked: string | null;
@@ -19,7 +19,7 @@ interface UserFeishuConfig {
 }
 
 export function FeishuChannelCard() {
-  const [config, setConfig] = useState<UserFeishuConfig | null>(null);
+  const [config, setConfig] = useState<FeishuConfig | null>(null);
   const [appId, setAppId] = useState('');
   const [appSecret, setAppSecret] = useState('');
   const [loading, setLoading] = useState(true);
@@ -31,7 +31,7 @@ export function FeishuChannelCard() {
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get<UserFeishuConfig>('/api/config/user-im/feishu');
+      const data = await api.get<FeishuConfig>('/api/config/user-im/feishu');
       setConfig(data);
       setAppId(data.appId || '');
       setAppSecret('');
@@ -49,7 +49,7 @@ export function FeishuChannelCard() {
   const handleToggle = async (newEnabled: boolean) => {
     setToggling(true);
     try {
-      const data = await api.put<UserFeishuConfig>('/api/config/user-im/feishu', { enabled: newEnabled });
+      const data = await api.put<FeishuConfig>('/api/config/user-im/feishu', { enabled: newEnabled });
       setConfig(data);
       toast.success(`飞书渠道已${newEnabled ? '启用' : '停用'}`);
     } catch (err) {
@@ -84,7 +84,7 @@ export function FeishuChannelCard() {
       const payload: Record<string, string | boolean> = { enabled: true };
       if (id) payload.appId = id;
       if (secret) payload.appSecret = secret;
-      const data = await api.put<UserFeishuConfig>('/api/config/user-im/feishu', payload);
+      const data = await api.put<FeishuConfig>('/api/config/user-im/feishu', payload);
       setConfig(data);
       setAppSecret('');
       toast.success('飞书配置已保存');

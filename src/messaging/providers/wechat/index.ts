@@ -16,7 +16,7 @@ import {
   storeChatMetadata,
   storeMessageDirect,
   updateChatName,
-} from '../../../storage/db.js';
+} from '../../../storage/messages.js';
 import { notifyNewImMessage } from '../../notifier.js';
 import { broadcastNewMessage } from '../../../web/app.js';
 import { logger } from '../../../core/logger.js';

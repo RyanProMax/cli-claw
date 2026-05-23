@@ -1,20 +1,18 @@
 // Zod schemas and validation types for API requests
 
 import { z } from 'zod';
-import { ALL_PERMISSIONS } from './permissions.js';
-import type { Permission } from '../domain/types.js';
 import { MAX_GROUP_NAME_LEN } from '../web/context.js';
 
 export const TaskPatchSchema = z.object({
   prompt: z.string().optional(),
   schedule_type: z.enum(['cron', 'interval', 'once']).optional(),
   schedule_value: z.string().optional(),
-  execution_type: z.enum(['agent', 'script', 'workflow']).optional(),
+  execution_type: z.literal('workflow').optional(),
   script_command: z.string().max(4096).nullable().optional(),
   status: z.enum(['active', 'paused']).optional(),
   next_run: z.string().optional(),
   notify_channels: z
-    .array(z.enum(['feishu', 'telegram', 'qq', 'wechat', 'dingtalk']))
+    .array(z.enum(['feishu', 'wechat']))
     .nullable()
     .optional(),
 });
@@ -31,30 +29,15 @@ export const TaskCreateSchema = z
     prompt: z.string().optional().default(''),
     schedule_type: z.enum(['cron', 'interval', 'once']),
     schedule_value: z.string().min(1),
-    execution_type: z.enum(['agent', 'script', 'workflow']).optional(),
+    execution_type: z.literal('workflow').optional(),
     script_command: z.string().max(4096).optional(),
     notify_channels: z
-      .array(z.enum(['feishu', 'telegram', 'qq', 'wechat', 'dingtalk']))
+      .array(z.enum(['feishu', 'wechat']))
       .nullable()
       .optional(),
   })
   .superRefine((data, ctx) => {
-    const execType = data.execution_type || 'agent';
-    if (execType === 'agent' && !data.prompt?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['prompt'],
-        message: 'Agent 模式下 prompt 为必填项',
-      });
-    }
-    if (execType === 'script' && !data.script_command?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['script_command'],
-        message: '脚本模式下 script_command 为必填项',
-      });
-    }
-    if (execType === 'workflow' && !data.script_command?.trim()) {
+    if (!data.script_command?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['script_command'],
@@ -152,7 +135,6 @@ export const GroupPatchSchema = z.object({
 });
 
 export const LoginSchema = z.object({
-  username: z.string().min(1),
   password: z.string().min(1),
 });
 
@@ -163,8 +145,6 @@ export const SystemSettingsSchema = z.object({
   maxConcurrentProcesses: z.number().int().min(1).max(50).optional(),
   maxLoginAttempts: z.number().int().min(1).max(100).optional(),
   loginLockoutMinutes: z.number().int().min(1).max(1440).optional(),
-  maxConcurrentScripts: z.number().int().min(1).max(50).optional(),
-  scriptTimeout: z.number().int().min(5000).max(600000).optional(),
 });
 
 export const AppearanceConfigSchema = z.object({
@@ -179,107 +159,7 @@ export const ChangePasswordSchema = z.object({
   new_password: z.string().min(8).max(128),
 });
 
-export const ProfileUpdateSchema = z.object({
-  username: z.string().min(3).max(32).optional(),
-  display_name: z.string().max(64).optional(),
-  avatar_emoji: z.string().max(8).nullable().optional(),
-  avatar_color: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/)
-    .nullable()
-    .optional(),
-  avatar_url: z
-    .string()
-    .max(2048)
-    .refine((v) => v.startsWith('/api/auth/avatars/'), 'Invalid avatar URL')
-    .nullable()
-    .optional(),
-  ai_name: z.string().min(1).max(32).nullable().optional(),
-  ai_avatar_emoji: z.string().max(8).nullable().optional(),
-  ai_avatar_color: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/)
-    .nullable()
-    .optional(),
-  ai_avatar_url: z
-    .string()
-    .max(2048)
-    .refine((v) => v.startsWith('/api/auth/avatars/'), 'Invalid avatar URL')
-    .nullable()
-    .optional(),
-});
-
-export const PermissionValueSchema = z
-  .string()
-  .refine(
-    (value): value is Permission =>
-      (ALL_PERMISSIONS as string[]).includes(value),
-    {
-      message: 'Invalid permission',
-    },
-  );
-
-export const AdminCreateUserSchema = z.object({
-  username: z.string().min(3).max(32),
-  password: z.string().min(8).max(128),
-  display_name: z.string().max(64).optional(),
-  role: z.enum(['admin', 'member']).optional(),
-  permissions: z
-    .array(PermissionValueSchema)
-    .max(ALL_PERMISSIONS.length)
-    .optional(),
-  must_change_password: z.boolean().optional(),
-  notes: z.string().max(2000).optional(),
-});
-
-export const AdminPatchUserSchema = z.object({
-  role: z.enum(['admin', 'member']).optional(),
-  status: z.enum(['active', 'disabled', 'deleted']).optional(),
-  display_name: z.string().max(64).optional(),
-  password: z.string().min(8).max(128).optional(),
-  permissions: z
-    .array(PermissionValueSchema)
-    .max(ALL_PERMISSIONS.length)
-    .optional(),
-  disable_reason: z.string().max(256).nullable().optional(),
-  notes: z.string().max(2000).nullable().optional(),
-});
-
 export const FeishuConfigSchema = z
-  .object({
-    appId: z.string().max(2000).optional(),
-    appSecret: z.string().max(2000).optional(),
-    clearAppSecret: z.boolean().optional(),
-    enabled: z.boolean().optional(),
-  })
-  .refine(
-    (data) =>
-      typeof data.appId === 'string' ||
-      typeof data.appSecret === 'string' ||
-      data.clearAppSecret === true ||
-      typeof data.enabled === 'boolean',
-    { message: 'At least one config field must be provided' },
-  );
-
-export const TelegramConfigSchema = z
-  .object({
-    botToken: z.string().max(2000).optional(),
-    clearBotToken: z.boolean().optional(),
-    proxyUrl: z.string().max(2000).optional(),
-    clearProxyUrl: z.boolean().optional(),
-    enabled: z.boolean().optional(),
-  })
-  .refine(
-    (data) =>
-      typeof data.botToken === 'string' ||
-      data.clearBotToken === true ||
-      typeof data.proxyUrl === 'string' ||
-      data.clearProxyUrl === true ||
-      typeof data.enabled === 'boolean',
-    { message: 'At least one config field must be provided' },
-  );
-
-export const QQConfigSchema = z
   .object({
     appId: z.string().max(2000).optional(),
     appSecret: z.string().max(2000).optional(),
@@ -300,19 +180,3 @@ export const WeChatConfigSchema = z.object({
   clearBotToken: z.boolean().optional(),
   bypassProxy: z.boolean().optional(),
 });
-
-export const DingTalkConfigSchema = z
-  .object({
-    clientId: z.string().max(2000).optional(),
-    clientSecret: z.string().max(2000).optional(),
-    clearClientSecret: z.boolean().optional(),
-    enabled: z.boolean().optional(),
-  })
-  .refine(
-    (data) =>
-      typeof data.clientId === 'string' ||
-      typeof data.clientSecret === 'string' ||
-      data.clearClientSecret === true ||
-      typeof data.enabled === 'boolean',
-    { message: 'At least one config field must be provided' },
-  );

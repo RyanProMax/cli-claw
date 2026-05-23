@@ -2,16 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 
-import { useAuthStore } from '../stores/auth';
 import { SettingsNav } from '../components/settings/SettingsNav';
-import { ProfileSection } from '../components/settings/ProfileSection';
 import { SecuritySection } from '../components/settings/SecuritySection';
 import { AboutSection } from '../components/settings/AboutSection';
 import { AppearanceSection } from '../components/settings/AppearanceSection';
 import { SystemSettingsSection } from '../components/settings/SystemSettingsSection';
-import { UserChannelsSection } from '../components/settings/UserChannelsSection';
+import { InstanceChannelsSection } from '../components/settings/InstanceChannelsSection';
 import { GroupsPage } from './GroupsPage';
-import { UsersPage } from './UsersPage';
 import { BindingsSection } from '../components/settings/BindingsSection';
 import { Card, CardContent } from '@/components/ui/card';
 import type { SettingsTab } from '../components/settings/types';
@@ -19,52 +16,22 @@ import type { SettingsTab } from '../components/settings/types';
 const VALID_TABS: SettingsTab[] = [
   'appearance',
   'system',
-  'profile',
-  'my-channels',
+  'channels',
   'security',
   'groups',
-  'users',
   'about',
   'bindings',
 ];
-const SYSTEM_TABS: SettingsTab[] = ['appearance', 'system'];
-const FULLPAGE_TABS: SettingsTab[] = ['groups', 'users', 'bindings'];
+const FULLPAGE_TABS: SettingsTab[] = ['groups', 'bindings'];
 
 export function SettingsPage() {
-  const { user: currentUser } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const [navOpen, setNavOpen] = useState(false);
 
-  const hasSystemConfigPermission =
-    currentUser?.role === 'admin' ||
-    !!currentUser?.permissions.includes('manage_system_config');
-  const mustChangePassword = !!currentUser?.must_change_password;
-  const canManageSystemConfig =
-    hasSystemConfigPermission && !mustChangePassword;
-  const canManageUsers =
-    currentUser?.role === 'admin' ||
-    !!currentUser?.permissions.includes('manage_users') ||
-    !!currentUser?.permissions.includes('view_audit_log');
-
-  const defaultTab: SettingsTab = canManageSystemConfig ? 'system' : 'profile';
-
   const activeTab = useMemo((): SettingsTab => {
-    if (mustChangePassword) return 'profile';
     const raw = searchParams.get('tab') as SettingsTab | null;
-    if (raw && VALID_TABS.includes(raw)) {
-      if (SYSTEM_TABS.includes(raw) && !canManageSystemConfig)
-        return defaultTab;
-      if (raw === 'users' && !canManageUsers) return defaultTab;
-      return raw;
-    }
-    return defaultTab;
-  }, [
-    searchParams,
-    canManageSystemConfig,
-    canManageUsers,
-    mustChangePassword,
-    defaultTab,
-  ]);
+    return raw && VALID_TABS.includes(raw) ? raw : 'system';
+  }, [searchParams]);
 
   const handleTabChange = useCallback(
     (tab: SettingsTab) => {
@@ -74,24 +41,18 @@ export function SettingsPage() {
     [setSearchParams],
   );
 
-  // Mobile horizontal tab bar
-  const mobileTabs = useMemo(() => {
-    const tabs: { key: SettingsTab; label: string }[] = [];
-    tabs.push({ key: 'profile', label: '个人偏好' });
-    tabs.push({ key: 'my-channels', label: '消息通道' });
-    tabs.push({ key: 'security', label: '安全' });
-    if (canManageSystemConfig) {
-      tabs.push({ key: 'appearance', label: '全局外观' });
-      tabs.push({ key: 'system', label: '系统' });
-    }
-    tabs.push({ key: 'groups', label: '会话' });
-    tabs.push({ key: 'bindings', label: 'IM 绑定' });
-    if (canManageUsers) {
-      tabs.push({ key: 'users', label: '用户' });
-    }
-    tabs.push({ key: 'about', label: '关于' });
-    return tabs;
-  }, [canManageSystemConfig, canManageUsers]);
+  const mobileTabs = useMemo(
+    () => [
+      { key: 'appearance' as SettingsTab, label: '外观' },
+      { key: 'system' as SettingsTab, label: '系统' },
+      { key: 'channels' as SettingsTab, label: '消息通道' },
+      { key: 'security' as SettingsTab, label: '访问密码' },
+      { key: 'groups' as SettingsTab, label: '工作区' },
+      { key: 'bindings' as SettingsTab, label: 'IM 绑定' },
+      { key: 'about' as SettingsTab, label: '关于' },
+    ],
+    [],
+  );
 
   const tabBarRef = useRef<HTMLDivElement>(null);
 
@@ -99,30 +60,25 @@ export function SettingsPage() {
     const container = tabBarRef.current;
     if (!container) return;
     const activeEl = container.querySelector('[data-active="true"]');
-    if (activeEl) {
-      activeEl.scrollIntoView({
-        inline: 'center',
-        block: 'nearest',
-        behavior: 'smooth',
-      });
-    }
+    activeEl?.scrollIntoView({
+      inline: 'center',
+      block: 'nearest',
+      behavior: 'smooth',
+    });
   }, [activeTab]);
 
   const sectionTitle: Record<SettingsTab, string> = {
-    appearance: '全局外观',
+    appearance: '外观',
     system: '系统参数',
-    profile: '个人偏好',
-    'my-channels': '消息通道',
-    security: '安全与设备',
-    groups: '会话管理',
-    users: '用户管理',
+    channels: '消息通道',
+    security: '访问密码',
+    groups: '工作区',
     about: '关于',
     bindings: 'IM 绑定',
   };
 
   return (
     <div className="h-full bg-background flex flex-col lg:flex-row overflow-hidden">
-      {/* Mobile header */}
       <div className="lg:hidden sticky top-0 z-10 flex items-center bg-background border-b border-border px-4 h-12">
         <button
           onClick={() => setNavOpen(true)}
@@ -136,7 +92,6 @@ export function SettingsPage() {
         </span>
       </div>
 
-      {/* Mobile horizontal tab bar */}
       <div
         ref={tabBarRef}
         className="lg:hidden flex items-center gap-1 px-3 py-2 overflow-x-auto bg-background border-b border-border [touch-action:pan-x]"
@@ -144,19 +99,15 @@ export function SettingsPage() {
       >
         {mobileTabs.map((tab) => {
           const isActive = activeTab === tab.key;
-          const disabled = mustChangePassword && tab.key !== 'profile';
           return (
             <button
               key={tab.key}
               data-active={isActive}
-              onClick={() => !disabled && handleTabChange(tab.key)}
-              disabled={disabled}
+              onClick={() => handleTabChange(tab.key)}
               className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
                 isActive
                   ? 'bg-primary text-white'
-                  : disabled
-                    ? 'text-muted-foreground/50'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
               {tab.label}
@@ -168,9 +119,6 @@ export function SettingsPage() {
       <SettingsNav
         activeTab={activeTab}
         onTabChange={handleTabChange}
-        canManageSystemConfig={canManageSystemConfig}
-        canManageUsers={!!canManageUsers}
-        mustChangePassword={mustChangePassword}
         open={navOpen}
         onOpenChange={setNavOpen}
       />
@@ -179,7 +127,6 @@ export function SettingsPage() {
         {FULLPAGE_TABS.includes(activeTab) ? (
           <>
             {activeTab === 'groups' && <GroupsPage />}
-            {activeTab === 'users' && <UsersPage />}
             {activeTab === 'bindings' && <BindingsSection />}
           </>
         ) : (
@@ -191,18 +138,11 @@ export function SettingsPage() {
                 </h1>
               </div>
 
-              {mustChangePassword && (
-                <div className="bg-warning-bg border border-warning/20 rounded-xl px-4 py-3 text-sm text-warning">
-                  检测到首次登录或管理员重置密码，请先完成"修改密码"，其余关键操作会被暂时限制。
-                </div>
-              )}
-
               <Card>
                 <CardContent>
                   {activeTab === 'appearance' && <AppearanceSection />}
                   {activeTab === 'system' && <SystemSettingsSection />}
-                  {activeTab === 'profile' && <ProfileSection />}
-                  {activeTab === 'my-channels' && <UserChannelsSection />}
+                  {activeTab === 'channels' && <InstanceChannelsSection />}
                   {activeTab === 'security' && <SecuritySection />}
                   {activeTab === 'about' && <AboutSection />}
                 </CardContent>

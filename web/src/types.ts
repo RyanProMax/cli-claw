@@ -7,12 +7,9 @@ export interface GroupInfo {
   folder: string;
   added_at: string;
   agent_type?: GroupRuntimeAgentType;
-  kind?: 'home' | 'main' | 'feishu' | 'web';
+  kind?: 'home' | 'main' | 'feishu' | 'wechat' | 'web';
   is_home?: boolean;
   is_my_home?: boolean;
-  is_shared?: boolean;
-  member_role?: 'owner' | 'member';
-  member_count?: number;
   editable?: boolean;
   deletable?: boolean;
   lastMessage?: string;
@@ -47,16 +44,6 @@ export interface AvailableImGroup {
   bound_workspace_name: string | null;
   reply_policy?: 'source_only' | 'mirror';
   avatar?: string;
-  member_count?: number;
   channel_type: string;
   activation_mode?: 'auto' | 'always' | 'when_mentioned' | 'disabled';
-}
-
-export interface GroupMember {
-  user_id: string;
-  role: 'owner' | 'member';
-  added_at: string;
-  added_by?: string;
-  username: string;
-  display_name: string;
 }

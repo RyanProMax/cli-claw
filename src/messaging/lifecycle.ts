@@ -2,7 +2,7 @@ import { getChannelFromJid } from './channel-prefixes.js';
 import {
   getMessagesSince,
   recordImMessageLifecycleEvent,
-} from '../storage/db.js';
+} from '../storage/messages.js';
 import type { StreamEvent } from '../presentation/stream-event.types.js';
 import type {
   ImMessageLifecycleStage,

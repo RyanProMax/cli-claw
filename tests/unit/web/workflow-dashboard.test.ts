@@ -147,7 +147,7 @@ function input(
         last_result: 'workflow started',
         status: 'active',
         created_at: '2026-05-21T00:00:00.000Z',
-        created_by: 'admin-1',
+        created_by: 'instance-1',
         notify_channels: null,
       },
       {
@@ -167,7 +167,7 @@ function input(
         last_result: null,
         status: 'active',
         created_at: '2026-05-21T00:00:00.000Z',
-        created_by: 'admin-1',
+        created_by: 'instance-1',
         notify_channels: null,
       },
     ],

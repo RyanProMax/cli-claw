@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Plus, UserCog, LogOut } from 'lucide-react';
+import { Plus, Settings, LogOut } from 'lucide-react';
 import { useChatStore } from '../stores/chat';
 import { useAuthStore } from '../stores/auth';
 import { useGroupsStore } from '../stores/groups';
@@ -8,8 +8,6 @@ import { ChatView } from '../components/chat/ChatView';
 import { ChatGroupItem } from '../components/chat/ChatGroupItem';
 import { ConfirmDialog } from '../components/common';
 import { CreateWorkspaceDialog } from '../components/chat/CreateWorkspaceDialog';
-import { EmojiAvatar } from '../components/common/EmojiAvatar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { useClearWorkspace } from '../hooks/useClearWorkspace';
 import { type GroupEntry, compareByLastActivity, groupByDate } from '../utils/group-utils';
@@ -20,9 +18,7 @@ export function ChatPage() {
   const { groups, currentGroup, selectGroup, loadGroups } = useChatStore();
   const { clearState, clearLoading, openClear, closeClear, handleClearConfirm } = useClearWorkspace();
   const [createOpen, setCreateOpen] = useState(false);
-  const user = useAuthStore((s) => s.user);
   const appearance = useAuthStore((s) => s.appearance);
-  const userInitial = (user?.display_name || user?.username || '?')[0].toUpperCase();
 
   const routeGroupJid = useMemo(() => {
     if (!groupFolder) return null;
@@ -41,7 +37,7 @@ export function ChatPage() {
   const hasGroups = Object.keys(groups).length > 0;
 
   // Build categorized group lists for mobile view (mirrors UnifiedSidebar)
-  const { mainGroup, pinnedGroups, mySections, collabSections } = useMemo(() => {
+  const { mainGroup, pinnedGroups, mySections } = useMemo(() => {
     let main: GroupEntry | null = null;
     const others: GroupEntry[] = [];
     for (const [jid, info] of Object.entries(groups)) {
@@ -52,16 +48,14 @@ export function ChatPage() {
     others.sort(compareByLastActivity);
     const pinned: GroupEntry[] = [];
     const my: GroupEntry[] = [];
-    const collab: GroupEntry[] = [];
     others.forEach((g) => {
       if (g.pinned_at) pinned.push(g);
-      else if (g.is_shared && (g.member_count ?? 0) >= 2) collab.push(g);
       else my.push(g);
     });
     pinned.sort((a, b) => (a.pinned_at || '').localeCompare(b.pinned_at || ''));
-    return { mainGroup: main, pinnedGroups: pinned, mySections: groupByDate(my), collabSections: groupByDate(collab) };
+    return { mainGroup: main, pinnedGroups: pinned, mySections: groupByDate(my) };
   }, [groups]);
-  const hasAnyGroup = mainGroup || pinnedGroups.length > 0 || mySections.length > 0 || collabSections.length > 0;
+  const hasAnyGroup = mainGroup || pinnedGroups.length > 0 || mySections.length > 0;
 
   // Sync URL param to store selection. No auto-redirect to the home workspace —
   // users land on the welcome screen and choose a workspace manually.
@@ -112,22 +106,20 @@ export function ChatPage() {
             >
               <Plus className="w-5 h-5" />
             </button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="rounded-full hover:ring-2 hover:ring-brand-200 transition-all cursor-pointer" aria-label="用户菜单">
-                  <EmojiAvatar emoji={user?.avatar_emoji} color={user?.avatar_color} fallbackChar={userInitial} size="md" className="w-8 h-8" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="bottom" align="end" className="w-44 p-1">
-                <div className="px-3 py-2 text-xs font-medium text-muted-foreground truncate border-b border-border mb-1">{user?.display_name || user?.username}</div>
-                <button onClick={() => navigate('/settings?tab=profile')} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-accent text-foreground cursor-pointer">
-                  <UserCog className="w-4 h-4" /> 个人设置
-                </button>
-                <button onClick={async () => { await useAuthStore.getState().logout(); navigate('/login'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-destructive/10 text-destructive cursor-pointer">
-                  <LogOut className="w-4 h-4" /> 退出登录
-                </button>
-              </PopoverContent>
-            </Popover>
+            <button
+              onClick={() => navigate('/settings?tab=security')}
+              className="w-9 h-9 rounded-lg flex items-center justify-center hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              aria-label="实例设置"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+            <button
+              onClick={async () => { await useAuthStore.getState().logout(); navigate('/login'); }}
+              className="w-9 h-9 rounded-lg flex items-center justify-center hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+              aria-label="退出访问"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
           {hasAnyGroup ? (
             <div className="px-2 pb-nav-safe">
@@ -181,33 +173,6 @@ export function ChatPage() {
                         <ChatGroupItem
                           key={g.jid} jid={g.jid} name={g.name} folder={g.folder}
                           lastMessage={g.lastMessage}
-                          isActive={currentGroup === g.jid} isHome={false}
-                          isRunning={runnerStates[g.jid] === 'running'}
-                          editable={g.editable}
-                          onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
-                          onClearHistory={openClear}
-                        />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* 协作工作区 */}
-              {collabSections.length > 0 && (
-                <div className="mb-1">
-                  <div className="px-2 pt-2 pb-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">协作工作区</span>
-                  </div>
-                  {collabSections.map((section) => (
-                    <div key={section.label} className="mb-1">
-                      <div className="px-2 pt-1 pb-1">
-                        <span className="text-[10px] text-muted-foreground/70 tracking-wide">{section.label}</span>
-                      </div>
-                      {section.items.map((g) => (
-                        <ChatGroupItem
-                          key={g.jid} jid={g.jid} name={g.name} folder={g.folder}
-                          lastMessage={g.lastMessage}
-                          isShared={g.is_shared} memberRole={g.member_role} memberCount={g.member_count}
                           isActive={currentGroup === g.jid} isHome={false}
                           isRunning={runnerStates[g.jid] === 'running'}
                           editable={g.editable}

@@ -106,9 +106,9 @@ function generateTurnId(): string {
 
 function normalizeHomeFlags(input: AgentProcessInput): {
   isHome: boolean;
-  isAdminHome: boolean;
+  isMainWorkspace: boolean;
 } {
-  return { isHome: !!input.isHome, isAdminHome: !!input.isAdminHome };
+  return { isHome: !!input.isHome, isMainWorkspace: !!input.isMainWorkspace };
 }
 
 function shouldClose(): boolean {

@@ -1,7 +1,7 @@
 {
   "name": "cli-claw",
   "version": "0.0.6",
-  "description": "Self-hosted multi-user AI agent platform powered by CLI runtimes.",
+  "description": "Single-instance self-hosted AI agent platform powered by CLI runtimes.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -25,7 +25,6 @@
     "prepack": "npm run build",
     "release:check": "bash ./scripts/release-check.sh",
     "start": "bun src/cli.ts start",
-    "reset:admin": "tsx src/reset-admin.ts",
     "typecheck": "npm run build:shared && npm run typecheck:backend",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
@@ -43,8 +42,6 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.8.1",
     "cron-parser": "^5.5.0",
-    "dingtalk-stream": "2.1.6-beta.1",
-    "grammy": "^1.40.0",
     "hono": "^4.11.9",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
@@ -83,7 +80,6 @@
     "self-hosted",
     "feishu",
     "lark",
-    "telegram",
     "chatbot"
   ]
 }

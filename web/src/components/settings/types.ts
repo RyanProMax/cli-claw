@@ -21,18 +21,14 @@ export interface SystemSettings {
   maxConcurrentProcesses: number;
   maxLoginAttempts: number;
   loginLockoutMinutes: number;
-  maxConcurrentScripts: number;
-  scriptTimeout: number;
 }
 
 export type SettingsTab =
   | 'appearance'
   | 'system'
-  | 'profile'
-  | 'my-channels'
+  | 'channels'
   | 'security'
   | 'groups'
-  | 'users'
   | 'about'
   | 'bindings';
 

@@ -1,58 +1,53 @@
-import { ChildProcess } from 'child_process';
-import crypto from 'node:crypto';
 import { CronExpressionParser } from 'cron-parser';
-import fs from 'fs';
-import path from 'path';
 
-import {
-  DATA_DIR,
-  GROUPS_DIR,
-  SCHEDULER_POLL_INTERVAL,
-  TIMEZONE,
-} from '../../core/config.js';
-import {
-  getOpenAiRuntimeDefaults,
-  getSystemSettings,
-} from '../../core/runtime/config.js';
+import { SCHEDULER_POLL_INTERVAL, TIMEZONE } from '../../core/config.js';
 import { getRuntimeUsageSnapshot } from '../../core/runtime/usage.js';
+import { getOpenAiRuntimeDefaults } from '../../core/runtime/config.js';
+import { resolveEffectiveRuntimeIdentity } from '../../core/runtime/group-runtime.js';
+import { logger } from '../../core/logger.js';
 import {
-  AgentProcessOutput,
-  runAgentProcess,
-  writeTasksSnapshot,
-} from '../runner/container-runner.js';
-import {
-  addGroupMember,
-  getAllTasks,
   cleanupOldTaskRunLogs,
   cleanupStaleRunningLogs,
-  deleteGroupData,
-  ensureChatExists,
+  getAllTasks,
   getDueTasks,
   getTaskById,
   logTaskRunStart,
-  updateTaskRunLog,
-  setRegisteredGroup,
-  updateChatName,
   updateTaskAfterRun,
-  updateTaskWorkspace,
-} from '../../storage/db.js';
-import { GroupQueue } from '../queue/group-queue.js';
-import { resolveEffectiveWorkspaceCwd } from '../../core/workspace/workspace-cwd.js';
-import { logger } from '../../core/logger.js';
-import { resolveTaskOwner } from '../task-utils.js';
-import { resolveEffectiveRuntimeIdentity } from '../../core/runtime/group-runtime.js';
-import { removeFlowArtifacts } from '../../core/workspace/file-manager.js';
-import { hasScriptCapacity, runScript } from '../script-runner.js';
-import type { StreamEvent } from '../../presentation/stream-event.types.js';
-import { RegisteredGroup, ScheduledTask } from '../../domain/types.js';
-import { formatUserFacingRuntimeError } from '../runner/output-parser.js';
+  updateTaskRunLog,
+} from '../../storage/scheduler.js';
+import type { GroupQueue } from '../queue/group-queue.js';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
+import type { RegisteredGroup, ScheduledTask } from '../../domain/types.js';
+import type { StreamEvent } from '../../presentation/stream-event.types.js';
 import { evaluateScheduledTaskUsageGuard } from './usage-guard.js';
 
-/**
- * Resolve the actual group JID to send a task to.
- * Falls back from the task's stored chat_jid to any group matching the same folder.
- */
+export interface SchedulerDependencies {
+  registeredGroups: () => Record<string, RegisteredGroup>;
+  getSessions: () => Record<string, string>;
+  queue: GroupQueue;
+  sendMessage: (
+    jid: string,
+    text: string,
+    options?: { source?: string },
+  ) => Promise<string | undefined | void>;
+  runWorkflowCommand?: (
+    chatJid: string,
+    rawArgs: string,
+    initialInput?: Record<string, unknown>,
+  ) => Promise<string>;
+  broadcastStreamEvent?: (chatJid: string, event: StreamEvent) => void;
+  onWorkspaceCreated?: (jid: string, folder: string, name: string) => void;
+  assistantName: string;
+}
+
+const runningTaskIds = new Set<string>();
+const DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT = 30;
+const DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS = 30 * 60 * 1000;
+
+export function getRunningTaskIds(): string[] {
+  return [...runningTaskIds];
+}
+
 function resolveTargetGroupJid(
   task: ScheduledTask,
   groups: Record<string, RegisteredGroup>,
@@ -61,8 +56,9 @@ function resolveTargetGroupJid(
   if (directTarget && directTarget.folder === task.group_folder) {
     return task.chat_jid;
   }
+
   const sameFolder = Object.entries(groups).filter(
-    ([, g]) => g.folder === task.group_folder,
+    ([, group]) => group.folder === task.group_folder,
   );
   const preferred =
     sameFolder.find(([jid]) => jid.startsWith('web:')) || sameFolder[0];
@@ -96,161 +92,15 @@ function findHomeSiblingGroup(
   );
 }
 
-function ensureTaskWorkspace(
-  task: ScheduledTask,
-  deps: SchedulerDependencies,
-): { jid: string; folder: string } {
-  // If workspace already exists and is registered, reuse it
-  if (task.workspace_jid && task.workspace_folder) {
-    const groups = deps.registeredGroups();
-    if (groups[task.workspace_jid]) {
-      return { jid: task.workspace_jid, folder: task.workspace_folder };
-    }
-    // Workspace was deleted externally — clean up orphaned filesystem directory before recreating
-    const oldDir = path.join(GROUPS_DIR, task.workspace_folder);
-    try {
-      fs.rmSync(oldDir, { recursive: true, force: true });
-    } catch {
-      /* ignore if already gone */
-    }
-  }
-
-  const jid = `web:${crypto.randomUUID()}`;
-  // Strip existing 'task-' prefix from IPC-originated IDs to avoid 'task-task-...'
-  const idBase = task.id.startsWith('task-') ? task.id.slice(5) : task.id;
-  const folder = `task-${idBase.slice(0, 12)}`;
-  // 从 prompt 提取简短名称（取第一行前 12 个字符）
-  const firstLine = task.prompt.split('\n')[0].trim();
-  const shortName = firstLine.slice(0, 12).trim() || task.id.slice(0, 6);
-  const name = shortName;
-
-  const sourceGroup = Object.values(deps.registeredGroups()).find(
-    (g) => g.folder === task.group_folder,
-  );
-  const ownerId = resolveTaskOwner(task, sourceGroup);
-  const sourceHomeGroup = findHomeSiblingGroup(
-    sourceGroup,
-    deps.registeredGroups(),
-  );
-  const sourceRuntimeGroup = sourceHomeGroup || sourceGroup;
-  const sourceWorkspaceCwd = sourceGroup
-    ? resolveEffectiveWorkspaceCwd(sourceGroup, sourceHomeGroup)
-    : undefined;
-
-  const group: RegisteredGroup = {
-    name,
-    folder,
-    added_at: new Date().toISOString(),
-    customCwd: sourceWorkspaceCwd,
-    created_by: ownerId,
-    agentType: sourceRuntimeGroup?.agentType,
-    model: sourceRuntimeGroup?.model,
-    reasoningEffort: sourceRuntimeGroup?.reasoningEffort,
-    speedTier: sourceRuntimeGroup?.speedTier,
-  };
-
-  setRegisteredGroup(jid, group);
-  ensureChatExists(jid);
-  updateChatName(jid, name);
-  if (ownerId) {
-    addGroupMember(folder, ownerId, 'owner', ownerId);
-  }
-  deps.registeredGroups()[jid] = group;
-
-  // Create filesystem directory
-  const groupDir = path.join(GROUPS_DIR, folder);
-  fs.mkdirSync(groupDir, { recursive: true });
-
-  // Persist workspace info back to the task record
-  updateTaskWorkspace(task.id, jid, folder);
-  // Also update the in-memory task object
-  task.workspace_jid = jid;
-  task.workspace_folder = folder;
-
-  logger.info(
-    { taskId: task.id, folder, jid, ownerId },
-    'Created task workspace',
-  );
-
-  // Notify frontend via WebSocket so sidebar refreshes (scoped to task owner)
-  deps.onWorkspaceCreated?.(jid, folder, name, ownerId);
-
-  return { jid, folder };
-}
-
-export interface SchedulerDependencies {
-  registeredGroups: () => Record<string, RegisteredGroup>;
-  getSessions: () => Record<string, string>;
-  queue: GroupQueue;
-  onProcess: (
-    groupJid: string,
-    proc: ChildProcess,
-    processName: string | null,
-    groupFolder: string,
-    displayName?: string,
-    taskRunId?: string,
-  ) => void;
-  sendMessage: (
-    jid: string,
-    text: string,
-    options?: { source?: string },
-  ) => Promise<string | undefined | void>;
-  runWorkflowCommand?: (
-    chatJid: string,
-    rawArgs: string,
-    triggerUserId?: string | null,
-    initialInput?: Record<string, unknown>,
-  ) => Promise<string>;
-  broadcastStreamEvent?: (chatJid: string, event: StreamEvent) => void;
-  onWorkspaceCreated?: (
-    jid: string,
-    folder: string,
-    name: string,
-    userId?: string,
-  ) => void;
-  assistantName: string;
-}
-
-export interface RunTaskOptions {
-  /** Unique ID for isolated task IPC namespace (tasks-run/{taskRunId}/) */
-  taskRunId?: string;
-  /** Manual trigger — don't update next_run, skip isTaskStillActive check */
-  manualRun?: boolean;
-}
-
-const runningTaskIds = new Set<string>();
-const DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT = 30;
-const DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS = 30 * 60 * 1000;
-
-export function getRunningTaskIds(): string[] {
-  return [...runningTaskIds];
-}
-
-function classifyAgentTaskOutputError(
-  output: AgentProcessOutput,
-): string | null {
-  if (output.status === 'error') {
-    return output.error || output.result || 'Unknown error';
-  }
-  if (output.finalizationReason === 'error') {
-    return output.error || output.result || 'Agent runtime error';
-  }
-
-  const result = output.result?.trim();
-  if (!result) return null;
-  if (/^not logged in\s*[·.-]?\s*please run \/login$/i.test(result)) {
-    return formatUserFacingRuntimeError(result) || result;
-  }
-  return null;
-}
-
 function computeNextRun(task: ScheduledTask): string | null {
   if (task.schedule_type === 'cron') {
     const interval = CronExpressionParser.parse(task.schedule_value, {
       tz: TIMEZONE,
     });
     return interval.next().toISOString();
-  } else if (task.schedule_type === 'interval') {
+  }
+
+  if (task.schedule_type === 'interval') {
     const ms = Number(task.schedule_value);
     if (!Number.isFinite(ms) || ms <= 0) return null;
     const anchor = task.next_run
@@ -261,7 +111,7 @@ function computeNextRun(task: ScheduledTask): string | null {
     const periods = elapsed > 0 ? Math.ceil(elapsed / ms) : 1;
     return new Date(anchor + periods * ms).toISOString();
   }
-  // 'once' tasks have no next run
+
   return null;
 }
 
@@ -309,6 +159,7 @@ async function deferScheduledTaskIfUsageLow(
       openAiSpeedTier: openAiDefaults.speedTier,
     },
   );
+
   let snapshot;
   try {
     snapshot = await getRuntimeUsageSnapshot(runtimeIdentity);
@@ -320,6 +171,7 @@ async function deferScheduledTaskIfUsageLow(
       reason: serializeErrorForOutput(err),
     };
   }
+
   const decision = evaluateScheduledTaskUsageGuard(snapshot, {
     nowMs: Date.now(),
     minRemainingPct: positiveNumberFromEnv(
@@ -335,7 +187,7 @@ async function deferScheduledTaskIfUsageLow(
   if (decision.allowed) return false;
 
   const reason =
-    decision.reason ?? 'OpenAI usage guard deferred scheduled task';
+    decision.reason ?? 'OpenAI usage guard deferred scheduled workflow';
   logger.info(
     {
       taskId: task.id,
@@ -343,7 +195,7 @@ async function deferScheduledTaskIfUsageLow(
       lowBuckets: decision.lowBuckets,
       reason,
     },
-    'Scheduled task deferred by usage guard',
+    'Scheduled workflow deferred by usage guard',
   );
   updateTaskRunLog(runLogId, {
     duration_ms: Date.now() - startTime,
@@ -366,433 +218,16 @@ function extractWorkflowCommandFailure(result: string | null): string | null {
   return (match[1] ?? '').trim() || 'Workflow command failed';
 }
 
-/**
- * Re-check DB before running — task may have been cancelled/paused while queued.
- * Returns true if the task is still active and should proceed.
- */
-function isTaskStillActive(taskId: string, label?: string): boolean {
+function isTaskStillActive(taskId: string): boolean {
   const currentTask = getTaskById(taskId);
   if (!currentTask || currentTask.status !== 'active') {
     logger.info(
       { taskId },
-      `Skipping ${label ?? 'task'}: deleted or no longer active since enqueue`,
+      'Skipping workflow task: deleted or no longer active since enqueue',
     );
     return false;
   }
   return true;
-}
-
-export async function runTask(
-  staleTask: ScheduledTask,
-  deps: SchedulerDependencies,
-  options?: RunTaskOptions,
-): Promise<void> {
-  if (!options?.manualRun && !isTaskStillActive(staleTask.id, 'task')) return;
-
-  // Refresh task from DB to avoid stale closure data
-  const task = getTaskById(staleTask.id);
-  if (!task) return;
-
-  runningTaskIds.add(task.id);
-  const startTime = Date.now();
-  const runLogId = logTaskRunStart(task.id);
-
-  let deferredByUsageGuard = false;
-  try {
-    deferredByUsageGuard = await deferScheduledTaskIfUsageLow(
-      task,
-      deps,
-      runLogId,
-      startTime,
-    );
-    if (deferredByUsageGuard) {
-      return;
-    }
-  } finally {
-    if (deferredByUsageGuard) {
-      runningTaskIds.delete(task.id);
-    }
-  }
-
-  // Ensure task has a dedicated workspace (Agent tasks only)
-  const workspace = ensureTaskWorkspace(task, deps);
-  const workspaceGroups = deps.registeredGroups();
-  const workspaceGroup = workspaceGroups[workspace.jid];
-
-  if (!workspaceGroup) {
-    logger.error(
-      { taskId: task.id, workspaceJid: workspace.jid },
-      'Workspace group not found after creation',
-    );
-    updateTaskRunLog(runLogId, {
-      duration_ms: Date.now() - startTime,
-      status: 'error',
-      result: null,
-      error: `Workspace group not found: ${workspace.jid}`,
-    });
-    runningTaskIds.delete(task.id);
-    return;
-  }
-
-  const effectiveJid = options?.taskRunId
-    ? `${workspace.jid}#task:${options.taskRunId}`
-    : workspace.jid;
-
-  const groupDir = path.join(GROUPS_DIR, workspace.folder);
-  fs.mkdirSync(groupDir, { recursive: true });
-
-  logger.info(
-    { taskId: task.id, group: workspace.folder },
-    'Running scheduled task',
-  );
-
-  const sourceWorkspaceGroup = resolveTaskSourceGroup(task, workspaceGroups);
-  const sourceRuntimeGroup =
-    (sourceWorkspaceGroup &&
-      findHomeSiblingGroup(sourceWorkspaceGroup, workspaceGroups)) ||
-    sourceWorkspaceGroup;
-  const taskRuntimeGroup: RegisteredGroup = {
-    ...workspaceGroup,
-    agentType: workspaceGroup.agentType ?? sourceRuntimeGroup?.agentType,
-    model: workspaceGroup.model ?? sourceRuntimeGroup?.model,
-    reasoningEffort:
-      workspaceGroup.reasoningEffort ?? sourceRuntimeGroup?.reasoningEffort,
-    speedTier: workspaceGroup.speedTier ?? sourceRuntimeGroup?.speedTier,
-  };
-  const sourceWorkspaceCwd = sourceWorkspaceGroup
-    ? resolveEffectiveWorkspaceCwd(
-        sourceWorkspaceGroup,
-        findHomeSiblingGroup(sourceWorkspaceGroup, workspaceGroups),
-      )
-    : undefined;
-
-  // Update tasks snapshot for the runner to read (filtered by group)
-  const isHome = false; // Task workspaces are never home
-  const isAdminHome = false;
-  const tasks = getAllTasks();
-  writeTasksSnapshot(
-    workspace.folder,
-    isAdminHome,
-    tasks.map((t) => ({
-      id: t.id,
-      groupFolder: t.group_folder,
-      prompt: t.prompt,
-      schedule_type: t.schedule_type,
-      schedule_value: t.schedule_value,
-      status: t.status,
-      next_run: t.next_run,
-    })),
-  );
-
-  let result: string | null = null;
-  let error: string | null = null;
-  // Track the time of last meaningful output from the agent.
-  // duration_ms should measure actual work time, not include idle wait.
-  let lastOutputTime = startTime;
-  let runLogFinalized = false;
-  let taskAfterRunFinalized = false;
-
-  const finalizeTaskAfterRun = () => {
-    if (taskAfterRunFinalized) return;
-    taskAfterRunFinalized = true;
-    const nextRun = options?.manualRun ? task.next_run : computeNextRun(task);
-    const resultSummary = error
-      ? `Error: ${error}`
-      : result
-        ? result.slice(0, 200)
-        : 'Completed';
-    updateTaskAfterRun(task.id, nextRun, resultSummary);
-  };
-
-  const finalizeRunLog = () => {
-    if (runLogFinalized) return;
-    runLogFinalized = true;
-    const durationMs = lastOutputTime - startTime;
-    updateTaskRunLog(runLogId, {
-      duration_ms: durationMs,
-      status: error ? 'error' : 'success',
-      result,
-      error,
-    });
-    // Send _close sentinel so the idle agent process exits promptly,
-    // freeing the queue slot for the next run.
-    if (idleTimer) clearTimeout(idleTimer);
-    deps.queue.closeStdin(effectiveJid);
-    finalizeTaskAfterRun();
-  };
-
-  // Use persistent session for task workspace
-  const sessions = deps.getSessions();
-  const sessionId = sessions[workspace.folder];
-
-  // Idle timer: writes _close sentinel after idleTimeout of no output,
-  // so the runner exits instead of hanging at waitForIpcMessage forever.
-  let idleTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const resetIdleTimer = () => {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      logger.debug(
-        { taskId: task.id },
-        'Scheduled task idle timeout, closing runner stdin',
-      );
-      deps.queue.closeStdin(effectiveJid);
-    }, getSystemSettings().idleTimeout);
-  };
-
-  try {
-    const openAiDefaults = getOpenAiRuntimeDefaults();
-    const effectiveRuntimeIdentity = resolveEffectiveRuntimeIdentity(
-      taskRuntimeGroup,
-      {
-        openAiModel: openAiDefaults.model,
-        openAiReasoningEffort: openAiDefaults.reasoningEffort,
-        openAiSpeedTier: openAiDefaults.speedTier,
-      },
-    );
-
-    const output = await runAgentProcess(
-      taskRuntimeGroup,
-      {
-        prompt: task.prompt,
-        sessionId,
-        groupFolder: workspace.folder,
-        chatJid: workspace.jid,
-        agentType: taskRuntimeGroup.agentType || 'openai',
-        model: effectiveRuntimeIdentity.model ?? null,
-        reasoningEffort: effectiveRuntimeIdentity.reasoningEffort ?? null,
-        speedTier: effectiveRuntimeIdentity.speedTier ?? null,
-        isHome,
-        isAdminHome,
-        isScheduledTask: true,
-        taskRunId: options?.taskRunId,
-      },
-      (proc, identifier) =>
-        deps.onProcess(
-          effectiveJid,
-          proc,
-          null,
-          workspace.folder,
-          identifier,
-          options?.taskRunId,
-        ),
-      async (streamedOutput: AgentProcessOutput) => {
-        // Broadcast stream events to WebSocket clients viewing the task workspace
-        if (streamedOutput.status === 'stream' && streamedOutput.streamEvent) {
-          deps.broadcastStreamEvent?.(
-            workspace.jid,
-            streamedOutput.streamEvent,
-          );
-        }
-        if (streamedOutput.result) {
-          result = streamedOutput.result;
-          lastOutputTime = Date.now();
-          resetIdleTimer();
-        }
-        const streamedError = classifyAgentTaskOutputError(streamedOutput);
-        if (streamedError) {
-          error = streamedError;
-          lastOutputTime = Date.now();
-        }
-        // Finalize run log on first non-stream output (success/error/closed).
-        // Don't wait for the process to exit — idle timeout can be very long.
-        if (streamedOutput.status !== 'stream') {
-          finalizeRunLog();
-        }
-      },
-      sourceWorkspaceCwd ? { executionCwd: sourceWorkspaceCwd } : undefined,
-    );
-
-    if (idleTimer) clearTimeout(idleTimer);
-
-    const outputError = classifyAgentTaskOutputError(output);
-    if (outputError) {
-      if (output.result) result = output.result;
-      error = outputError;
-      lastOutputTime = Date.now();
-    } else if (output.result) {
-      // Messages are sent via MCP tool (IPC), result text is just logged
-      result = output.result;
-      lastOutputTime = Date.now();
-    }
-
-    // Finalize if not already done by onOutput callback
-    finalizeRunLog();
-
-    logger.info(
-      { taskId: task.id, durationMs: lastOutputTime - startTime },
-      'Task completed',
-    );
-  } catch (err) {
-    if (idleTimer) clearTimeout(idleTimer);
-    error = serializeErrorForOutput(err);
-    lastOutputTime = Date.now();
-    logger.error({ taskId: task.id, error }, 'Task failed');
-  } finally {
-    runningTaskIds.delete(task.id);
-    // Clean up isolated task IPC directory
-    if (options?.taskRunId) {
-      const taskRunDir = path.join(
-        DATA_DIR,
-        'ipc',
-        workspace.folder,
-        'tasks-run',
-        options.taskRunId,
-      );
-      try {
-        fs.rmSync(taskRunDir, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
-    }
-
-    // Safety net: finalize run log if not already done by onOutput callback
-    finalizeRunLog();
-  }
-
-  finalizeTaskAfterRun();
-
-  // Auto-cleanup once-task workspace after completion
-  if (
-    task.schedule_type === 'once' &&
-    !options?.manualRun &&
-    task.workspace_jid &&
-    task.workspace_folder
-  ) {
-    setTimeout(() => {
-      try {
-        const groups = deps.registeredGroups();
-        if (groups[task.workspace_jid!]) {
-          deleteGroupData(task.workspace_jid!, task.workspace_folder!);
-          delete groups[task.workspace_jid!];
-          removeFlowArtifacts(task.workspace_folder!);
-          logger.info(
-            { taskId: task.id, folder: task.workspace_folder },
-            'Cleaned up once-task workspace',
-          );
-        }
-      } catch (err) {
-        logger.error(
-          { taskId: task.id, err },
-          'Failed to cleanup once-task workspace',
-        );
-      }
-    }, 60_000);
-  }
-}
-
-export async function runScriptTask(
-  staleTask: ScheduledTask,
-  deps: SchedulerDependencies,
-  groupJid: string,
-  manualRun = false,
-): Promise<void> {
-  if (!manualRun && !isTaskStillActive(staleTask.id, 'script task')) return;
-
-  // Refresh task from DB to avoid stale closure data
-  const task = getTaskById(staleTask.id);
-  if (!task) return;
-
-  runningTaskIds.add(task.id);
-  const startTime = Date.now();
-  const runLogId = logTaskRunStart(task.id);
-
-  logger.info(
-    { taskId: task.id, group: task.group_folder, executionType: 'script' },
-    'Running script task',
-  );
-
-  const sourceWorkspaceGroup = resolveTaskSourceGroup(
-    task,
-    deps.registeredGroups(),
-  );
-  const sourceWorkspaceCwd = sourceWorkspaceGroup
-    ? resolveEffectiveWorkspaceCwd(
-        sourceWorkspaceGroup,
-        findHomeSiblingGroup(sourceWorkspaceGroup, deps.registeredGroups()),
-      )
-    : undefined;
-
-  const groupDir = path.join(GROUPS_DIR, task.group_folder);
-  fs.mkdirSync(groupDir, { recursive: true });
-
-  if (!task.script_command) {
-    logger.error(
-      { taskId: task.id },
-      'Script task has no script_command, skipping',
-    );
-    updateTaskRunLog(runLogId, {
-      duration_ms: Date.now() - startTime,
-      status: 'error',
-      result: null,
-      error: 'script_command is empty',
-    });
-    runningTaskIds.delete(task.id);
-    return;
-  }
-
-  let result: string | null = null;
-  let error: string | null = null;
-
-  try {
-    const scriptResult = await runScript(
-      task.script_command,
-      task.group_folder,
-      sourceWorkspaceCwd,
-    );
-
-    if (scriptResult.timedOut) {
-      error = `脚本执行超时 (${Math.round(scriptResult.durationMs / 1000)}s)`;
-    } else if (scriptResult.exitCode !== 0) {
-      error = scriptResult.stderr.trim() || `退出码: ${scriptResult.exitCode}`;
-      result = scriptResult.stdout.trim() || null;
-    } else {
-      result = scriptResult.stdout.trim() || null;
-    }
-
-    // Send result to user (skip if no output and no error)
-    if (error || result) {
-      const text = error
-        ? `[脚本] 执行失败: ${error}${result ? `\n输出:\n${result.slice(0, 500)}` : ''}`
-        : `[脚本] ${result!.slice(0, 1000)}`;
-
-      await deps.sendMessage(groupJid, `${deps.assistantName}: ${text}`, {
-        source: 'scheduled_task',
-      });
-    }
-
-    logger.info(
-      {
-        taskId: task.id,
-        durationMs: Date.now() - startTime,
-        exitCode: scriptResult.exitCode,
-      },
-      'Script task completed',
-    );
-  } catch (err) {
-    error = serializeErrorForOutput(err);
-    logger.error({ taskId: task.id, error }, 'Script task failed');
-  } finally {
-    runningTaskIds.delete(task.id);
-  }
-
-  const durationMs = Date.now() - startTime;
-
-  updateTaskRunLog(runLogId, {
-    duration_ms: durationMs,
-    status: error ? 'error' : 'success',
-    result,
-    error,
-  });
-
-  // manualRun: preserve original next_run schedule
-  const nextRun = manualRun ? task.next_run : computeNextRun(task);
-  const resultSummary = error
-    ? `Error: ${error}`
-    : result
-      ? result.slice(0, 200)
-      : 'Completed';
-  updateTaskAfterRun(task.id, nextRun, resultSummary);
 }
 
 export async function runWorkflowTask(
@@ -801,10 +236,17 @@ export async function runWorkflowTask(
   groupJid: string,
   manualRun = false,
 ): Promise<void> {
-  if (!manualRun && !isTaskStillActive(staleTask.id, 'workflow task')) return;
+  if (!manualRun && !isTaskStillActive(staleTask.id)) return;
 
   const task = getTaskById(staleTask.id);
   if (!task) return;
+  if (task.execution_type !== 'workflow') {
+    logger.warn(
+      { taskId: task.id, executionType: task.execution_type },
+      'Skipping non-workflow scheduled task',
+    );
+    return;
+  }
 
   runningTaskIds.add(task.id);
   const startTime = Date.now();
@@ -821,9 +263,7 @@ export async function runWorkflowTask(
       runLogId,
       startTime,
     );
-    if (deferredByUsageGuard) {
-      return;
-    }
+    if (deferredByUsageGuard) return;
 
     const workflowArgs = resolveWorkflowTaskArgs(task);
     if (!workflowArgs) {
@@ -836,25 +276,18 @@ export async function runWorkflowTask(
     }
 
     logger.info(
-      { taskId: task.id, group: task.group_folder, executionType: 'workflow' },
+      { taskId: task.id, group: task.group_folder },
       'Running workflow task',
     );
 
-    result = await deps.runWorkflowCommand(
-      groupJid,
-      workflowArgs,
-      task.created_by,
-      {
-        source: 'scheduled_task',
-        scheduledTaskId: task.id,
-        scheduleType: task.schedule_type,
-        scheduleValue: task.schedule_value,
-      },
-    );
+    result = await deps.runWorkflowCommand(groupJid, workflowArgs, {
+      source: 'scheduled_task',
+      scheduledTaskId: task.id,
+      scheduleType: task.schedule_type,
+      scheduleValue: task.schedule_value,
+    });
     const workflowFailure = extractWorkflowCommandFailure(result);
-    if (workflowFailure) {
-      error = workflowFailure;
-    }
+    if (workflowFailure) error = workflowFailure;
 
     if (result) {
       await deps.sendMessage(
@@ -873,25 +306,26 @@ export async function runWorkflowTask(
     logger.error({ taskId: task.id, error }, 'Workflow task failed');
   } finally {
     runningTaskIds.delete(task.id);
-    if (deferredByUsageGuard) return;
-    updateTaskRunLog(runLogId, {
-      duration_ms: Date.now() - startTime,
-      status: error ? 'error' : 'success',
-      result,
-      error,
-    });
-    const nextRun = manualRun ? task.next_run : computeNextRun(task);
-    const resultSummary = error
-      ? `Error: ${error}`
-      : result
-        ? result.slice(0, 200)
-        : 'Completed';
-    updateTaskAfterRun(task.id, nextRun, resultSummary);
+    if (!deferredByUsageGuard) {
+      updateTaskRunLog(runLogId, {
+        duration_ms: Date.now() - startTime,
+        status: error ? 'error' : 'success',
+        result,
+        error,
+      });
+      const nextRun = manualRun ? task.next_run : computeNextRun(task);
+      const resultSummary = error
+        ? `Error: ${error}`
+        : result
+          ? result.slice(0, 200)
+          : 'Completed';
+      updateTaskAfterRun(task.id, nextRun, resultSummary);
+    }
   }
 }
 
 let schedulerRunning = false;
-const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let lastCleanupTime = 0;
 
 export function startSchedulerLoop(deps: SchedulerDependencies): void {
@@ -901,55 +335,20 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   }
   schedulerRunning = true;
 
-  // Clean up stale state from previous process crash
   runningTaskIds.clear();
   try {
     const cleaned = cleanupStaleRunningLogs();
     if (cleaned > 0) {
-      logger.info(
-        { cleaned },
-        'Cleaned up stale running task logs from previous session',
-      );
+      logger.info({ cleaned }, 'Cleaned up stale running task logs');
     }
   } catch (err) {
     logger.error({ err }, 'Failed to cleanup stale running task logs');
   }
 
-  // Clean up orphaned workspaces from completed once-tasks
-  // (covers the case where process restarted before setTimeout cleanup fired)
-  try {
-    const allTasks = getAllTasks();
-    const groups = deps.registeredGroups();
-    let cleaned = 0;
-    for (const t of allTasks) {
-      if (
-        t.schedule_type === 'once' &&
-        t.status === 'completed' &&
-        t.workspace_jid &&
-        t.workspace_folder &&
-        groups[t.workspace_jid]
-      ) {
-        deleteGroupData(t.workspace_jid, t.workspace_folder);
-        delete groups[t.workspace_jid];
-        removeFlowArtifacts(t.workspace_folder);
-        cleaned++;
-      }
-    }
-    if (cleaned > 0) {
-      logger.info(
-        { cleaned },
-        'Cleaned up orphaned once-task workspaces from previous session',
-      );
-    }
-  } catch (err) {
-    logger.error({ err }, 'Failed to cleanup orphaned once-task workspaces');
-  }
-
-  logger.info('Scheduler loop started');
+  logger.info('Workflow scheduler loop started');
 
   const loop = async () => {
     try {
-      // Periodic cleanup of old task run logs (every 24h)
       const now = Date.now();
       if (now - lastCleanupTime >= CLEANUP_INTERVAL_MS) {
         lastCleanupTime = now;
@@ -963,67 +362,42 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
         }
       }
 
-      const dueTasks = getDueTasks();
+      const dueTasks = getDueTasks().filter(
+        (task) => task.execution_type === 'workflow',
+      );
       if (dueTasks.length > 0) {
-        logger.info({ count: dueTasks.length }, 'Found due tasks');
+        logger.info({ count: dueTasks.length }, 'Found due workflow tasks');
       }
 
       for (const task of dueTasks) {
-        // Re-check task status in case it was paused/cancelled
         const currentTask = getTaskById(task.id);
-        if (!currentTask || currentTask.status !== 'active') {
+        if (
+          !currentTask ||
+          currentTask.status !== 'active' ||
+          currentTask.execution_type !== 'workflow' ||
+          runningTaskIds.has(currentTask.id)
+        ) {
           continue;
         }
 
-        if (runningTaskIds.has(currentTask.id)) {
-          continue;
-        }
-
-        const groups = deps.registeredGroups();
-        const targetGroupJid = resolveTargetGroupJid(currentTask, groups);
-
+        const targetGroupJid = resolveTargetGroupJid(
+          currentTask,
+          deps.registeredGroups(),
+        );
         if (!targetGroupJid) {
           logger.error(
             { taskId: currentTask.id, groupFolder: currentTask.group_folder },
-            'Target group not registered, skipping scheduled task',
+            'Target group not registered, skipping workflow task',
           );
           continue;
         }
 
-        if (currentTask.execution_type === 'script') {
-          if (!hasScriptCapacity()) {
-            logger.debug(
-              { taskId: currentTask.id },
-              'Script concurrency limit reached, skipping',
-            );
-            continue;
-          }
-          // Script tasks run directly, not through GroupQueue
-          runScriptTask(currentTask, deps, targetGroupJid).catch((err) => {
-            logger.error(
-              { taskId: currentTask.id, err },
-              'Unhandled error in runScriptTask',
-            );
-          });
-        } else if (currentTask.execution_type === 'workflow') {
-          runWorkflowTask(currentTask, deps, targetGroupJid).catch((err) => {
-            logger.error(
-              { taskId: currentTask.id, err },
-              'Unhandled error in runWorkflowTask',
-            );
-          });
-        } else {
-          // Agent tasks always run in isolated task workspaces. Prompts are not
-          // injected into the source workspace conversation.
-          const taskQueueJid = currentTask.workspace_jid
-            ? `${currentTask.workspace_jid}#task:${currentTask.id}`
-            : `${targetGroupJid}#task:${currentTask.id}`;
-          deps.queue.enqueueTask(taskQueueJid, currentTask.id, () =>
-            runTask(currentTask, deps, {
-              taskRunId: currentTask.id,
-            }),
+        runWorkflowTask(currentTask, deps, targetGroupJid).catch((err) => {
+          logger.error(
+            { taskId: currentTask.id, err },
+            'Unhandled error in runWorkflowTask',
           );
-        }
+        });
       }
     } catch (err) {
       logger.error({ err }, 'Error in scheduler loop');
@@ -1035,47 +409,32 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   loop();
 }
 
-/**
- * Manually trigger a task to run now (fire-and-forget).
- * Does not change next_run — the task continues its normal schedule.
- */
 export function triggerTaskNow(
   taskId: string,
   deps: SchedulerDependencies,
 ): { success: boolean; error?: string } {
   const task = getTaskById(taskId);
   if (!task) return { success: false, error: 'Task not found' };
-  if (task.status === 'completed')
+  if (task.execution_type !== 'workflow') {
+    return { success: false, error: 'Only workflow tasks can be run' };
+  }
+  if (task.status === 'completed') {
     return { success: false, error: 'Task already completed' };
-  if (task.status === 'paused')
+  }
+  if (task.status === 'paused') {
     return { success: false, error: '任务已暂停，请先恢复后再运行' };
-  if (runningTaskIds.has(taskId))
+  }
+  if (runningTaskIds.has(taskId)) {
     return { success: false, error: 'Task is already running' };
-
-  const groups = deps.registeredGroups();
-  const targetGroupJid = resolveTargetGroupJid(task, groups);
-  if (!targetGroupJid)
-    return { success: false, error: 'Target group not registered' };
-
-  if (task.execution_type === 'script') {
-    if (!hasScriptCapacity())
-      return { success: false, error: 'Script concurrency limit reached' };
-    runScriptTask(task, deps, targetGroupJid, true).catch((err) =>
-      logger.error({ taskId, err }, 'Manual script task failed'),
-    );
-  } else if (task.execution_type === 'workflow') {
-    runWorkflowTask(task, deps, targetGroupJid, true).catch((err) =>
-      logger.error({ taskId, err }, 'Manual workflow task failed'),
-    );
-  } else {
-    const opts: RunTaskOptions = { manualRun: true, taskRunId: task.id };
-    const taskQueueJid = task.workspace_jid
-      ? `${task.workspace_jid}#task:${task.id}`
-      : `${targetGroupJid}#task:${task.id}`;
-    deps.queue.enqueueTask(taskQueueJid, task.id, () =>
-      runTask(task, deps, opts),
-    );
   }
 
+  const targetGroupJid = resolveTargetGroupJid(task, deps.registeredGroups());
+  if (!targetGroupJid) {
+    return { success: false, error: 'Target group not registered' };
+  }
+
+  runWorkflowTask(task, deps, targetGroupJid, true).catch((err) =>
+    logger.error({ taskId, err }, 'Manual workflow task failed'),
+  );
   return { success: true };
 }

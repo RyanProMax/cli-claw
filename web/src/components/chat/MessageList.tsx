@@ -45,7 +45,7 @@ const quickPrompts = [
 export function MessageList({ messages, loading, hasMore, onLoadMore, scrollTrigger, groupJid, isWaiting, onInterrupt, agentId, onSend }: MessageListProps) {
   const { mode: displayMode } = useDisplayMode();
   const thinkingCache = useChatStore(s => s.thinkingCache ?? {});
-  const isShared = useChatStore(s => !!s.groups[groupJid ?? '']?.is_shared);
+  const isShared = false;
   // Spawn agents: selector returns stable reference (the agents array itself),
   // then useMemo filters for spawn kind. Direct .filter() in selector causes
   // infinite re-render because Zustand sees a new array reference every time.

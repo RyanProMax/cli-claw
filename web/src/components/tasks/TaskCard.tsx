@@ -53,7 +53,7 @@ export function TaskCard({
       case 'active':
         return '活跃';
       case 'parsing':
-        return 'AI 解析中...';
+        return '准备中...';
       case 'paused':
         return '已暂停';
       case 'completed':
@@ -100,22 +100,15 @@ export function TaskCard({
           <div className="flex-1 min-w-0 mr-4">
             {/* Title — derived from prompt first line, same as workspace name */}
             <p className="text-foreground font-semibold text-sm mb-1">
-              {(task.prompt || '').split('\n')[0].trim().slice(0, 30).trim() ||
+              {(task.prompt || task.script_command || '').split('\n')[0].trim().slice(0, 30).trim() ||
                 task.id.slice(0, 8)}
             </p>
 
             {/* Badges */}
             <div className="flex flex-wrap items-center gap-1.5 mb-2">
-              {task.execution_type === 'script' && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300">
-                  脚本
-                </span>
-              )}
-              {task.execution_type === 'workflow' && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-primary">
-                  Workflow
-                </span>
-              )}
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-primary">
+                Workflow
+              </span>
               <span className="text-xs text-muted-foreground">
                 {task.schedule_type === 'cron' && task.schedule_value}
                 {task.schedule_type === 'interval' &&

@@ -17,8 +17,7 @@ import {
   lastActiveCache,
   LAST_ACTIVE_DEBOUNCE_MS,
   parseCookie,
-  canAccessGroup,
-  getCachedSessionWithUser,
+  getCachedAccessSession,
   invalidateSessionCache,
 } from './context.js';
 
@@ -34,25 +33,23 @@ import groupRoutes from './routes/groups.js';
 import configRoutes, { injectConfigDeps } from './routes/config.js';
 import tasksRoutes from './routes/tasks.js';
 import workflowRoutes from './routes/workflows.js';
-import adminRoutes from './routes/admin.js';
 import fileRoutes from './routes/files.js';
 import monitorRoutes from './routes/monitor.js';
 import browseRoutes from './routes/browse.js';
 import agentRoutes from './routes/agents.js';
 
 // Database and types (only for handleWebUserMessage and broadcast)
+import { ensureChatExists, storeMessageDirect } from '../storage/messages.js';
 import {
-  ensureChatExists,
   getRegisteredGroup,
   getJidsByFolder,
-  storeMessageDirect,
   setRegisteredGroup,
-  deleteUserSession,
-  updateSessionLastActive,
-  getGroupMembers,
-  getAgent,
-  isGroupShared,
-} from '../storage/db.js';
+} from '../storage/workspaces.js';
+import {
+  deleteAccessSession,
+  updateAccessSessionLastActive,
+} from '../storage/access.js';
+import { getAgent } from '../storage/agents.js';
 import { isSessionExpired } from '../core/auth.js';
 import type {
   NewMessage,
@@ -60,9 +57,7 @@ import type {
   RuntimeIdentity,
   WsMessageOut,
   WsMessageIn,
-  AuthUser,
   StreamEvent,
-  UserRole,
 } from '../domain/types.js';
 import {
   WEB_PORT,
@@ -150,7 +145,6 @@ app.route('/api/groups', fileRoutes); // File routes also under /api/groups
 app.route('/api/config', configRoutes);
 app.route('/api/tasks', tasksRoutes);
 app.route('/api/workflows', workflowRoutes);
-app.route('/api/admin', adminRoutes);
 app.route('/api/browse', browseRoutes);
 app.route('/api/groups', agentRoutes); // Agent routes under /api/groups/:jid/agents
 app.route('/api', monitorRoutes);
@@ -171,16 +165,12 @@ app.post('/api/messages', authMiddleware, async (c) => {
   const { chatJid, content, attachments } = validation.data;
   const group = getRegisteredGroup(chatJid);
   if (!group) return c.json({ error: 'Group not found' }, 404);
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup(authUser, group)) {
-    return c.json({ error: 'Access denied' }, 403);
-  }
   const result = await handleWebUserMessage(
     chatJid,
     content.trim(),
     attachments,
-    authUser.id,
-    authUser.display_name || authUser.username,
+    'web',
+    'Web',
   );
   if (!result.ok) return c.json({ error: result.error }, result.status);
   return c.json({
@@ -339,7 +329,6 @@ async function handleWebSlashCommand(options: {
             await deps.handleWorkflowCommand(
               displayChatJid,
               workflowArgs,
-              options.userId,
               {
                 command: slashCandidate.rawName.trim().toLowerCase(),
                 argsText: slashCandidate.argsText,
@@ -391,7 +380,6 @@ async function handleWebSlashCommand(options: {
           await deps.handleWorkflowCommand(
             displayChatJid,
             parsed.argsText,
-            options.userId,
             undefined,
             workflowLifecycle,
           ),
@@ -571,7 +559,7 @@ async function handleWebUserMessage(
 
   let group = deps.getRegisteredGroups()[chatJid];
   if (!group) {
-    // Group may exist in DB but not in memory cache (created via setup or admin user management after loadState)
+    // Group may exist in DB but not in memory cache after loadState.
     const dbGroup = getRegisteredGroup(chatJid);
     if (!dbGroup) return { ok: false, status: 404, error: 'Group not found' };
     group = dbGroup;
@@ -653,8 +641,7 @@ async function handleWebUserMessage(
     attachments: attachmentsStr,
     source_kind: sourceKind ?? null,
   };
-  const shared = !group.is_home && isGroupShared(group.folder);
-  const formatted = deps.formatMessages([messageForAgent], shared);
+  const formatted = deps.formatMessages([messageForAgent], false);
 
   // IPC-inject the message into the running agent process.  For home groups,
   // the reply route is dynamically updated via activeRouteUpdaters so we no
@@ -898,7 +885,7 @@ function setupWebSocket(server: any): WebSocketServer {
       return;
     }
 
-    const session = getCachedSessionWithUser(token);
+    const session = getCachedAccessSession(token);
     if (!session) {
       invalidateSessionCache(token);
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
@@ -906,13 +893,8 @@ function setupWebSocket(server: any): WebSocketServer {
       return;
     }
     if (isSessionExpired(session.expires_at)) {
-      deleteUserSession(token);
+      deleteAccessSession(token);
       invalidateSessionCache(token);
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-      socket.destroy();
-      return;
-    }
-    if (session.status !== 'active') {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
@@ -927,18 +909,12 @@ function setupWebSocket(server: any): WebSocketServer {
   wss.on('connection', (ws, request: any) => {
     const sessionId = request?.__cliClawSessionId as string | undefined;
     logger.info('WebSocket client connected');
-    const connSession = sessionId
-      ? getCachedSessionWithUser(sessionId)
-      : undefined;
     wsClients.set(ws, {
       sessionId: sessionId || '',
-      userId: connSession?.user_id || '',
-      role: (connSession?.role || 'member') as UserRole,
     });
 
-    // Push streaming snapshots for active groups this user can access
-    if (connSession && streamingSnapshots.size > 0) {
-      const userId = connSession.user_id;
+    // Push streaming snapshots for active groups.
+    if (sessionId && streamingSnapshots.size > 0) {
       for (const [jid, snap] of streamingSnapshots) {
         // Skip stale snapshots (> 30 min)
         // Extended from 5 min to 30 min to support long-running sub-agents.
@@ -956,10 +932,6 @@ function setupWebSocket(server: any): WebSocketServer {
         ) {
           continue;
         }
-        // Strip #agent: suffix for ACL lookup (virtual JIDs not in registered_groups)
-        const baseJid = jid.includes('#agent:') ? jid.split('#agent:')[0] : jid;
-        const allowed = getGroupAllowedUserIds(baseJid);
-        if (allowed === null || !allowed.has(userId)) continue;
         try {
           ws.send(
             JSON.stringify({
@@ -988,14 +960,11 @@ function setupWebSocket(server: any): WebSocketServer {
     // This prevents a race where a late-arriving new_message clears
     // waiting=false after snapshot restore, blocking all subsequent
     // stream events. The runner_state event resets waiting=true.
-    if (connSession && deps) {
-      const userId = connSession.user_id;
+    if (sessionId && deps) {
       const queueStatus = deps.queue.getStatus();
       for (const g of queueStatus.groups) {
         if (!g.active) continue;
         const jid = normalizeHomeJid(g.jid);
-        const allowed = getGroupAllowedUserIds(g.jid);
-        if (allowed === null || !allowed.has(userId)) continue;
         try {
           ws.send(
             JSON.stringify({
@@ -1019,14 +988,10 @@ function setupWebSocket(server: any): WebSocketServer {
           return;
         }
 
-        const session = getCachedSessionWithUser(sessionId);
-        if (
-          !session ||
-          isSessionExpired(session.expires_at) ||
-          session.status !== 'active'
-        ) {
+        const session = getCachedAccessSession(sessionId);
+        if (!session || isSessionExpired(session.expires_at)) {
           if (session && isSessionExpired(session.expires_at)) {
-            deleteUserSession(sessionId);
+            deleteAccessSession(sessionId);
           }
           invalidateSessionCache(sessionId);
           ws.close(1008, 'Unauthorized');
@@ -1038,7 +1003,7 @@ function setupWebSocket(server: any): WebSocketServer {
         if (now - lastUpdate > LAST_ACTIVE_DEBOUNCE_MS) {
           lastActiveCache.set(sessionId, now);
           try {
-            updateSessionLastActive(sessionId);
+            updateAccessSessionLastActive(sessionId);
           } catch {
             /* best effort */
           }
@@ -1071,30 +1036,12 @@ function setupWebSocket(server: any): WebSocketServer {
           const { chatJid, content, attachments } = wsValidation.data;
           const agentId = (msg as { agentId?: string }).agentId;
 
-          // 群组访问权限检查
-          const targetGroup = getRegisteredGroup(chatJid);
-          if (targetGroup) {
-            if (
-              !canAccessGroup(
-                { id: session.user_id, role: session.role },
-                targetGroup,
-              )
-            ) {
-              sendWsError('无权访问该群组', chatJid);
-              logger.warn(
-                { chatJid, userId: session.user_id },
-                'WebSocket send_message blocked: access denied',
-              );
-              return;
-            }
-          }
-
           const commandResult = await handleWebSlashCommand({
             chatJid,
             content,
             attachments,
-            userId: session.user_id,
-            displayName: session.display_name || session.username,
+            userId: 'web',
+            displayName: 'Web',
             agentId,
           });
           if (commandResult.handled) {
@@ -1107,8 +1054,8 @@ function setupWebSocket(server: any): WebSocketServer {
               chatJid,
               agentId,
               content.trim(),
-              session.user_id,
-              session.display_name || session.username,
+              'web',
+              'Web',
               attachments,
             );
             return;
@@ -1118,8 +1065,8 @@ function setupWebSocket(server: any): WebSocketServer {
             chatJid,
             content.trim(),
             attachments,
-            session.user_id,
-            session.display_name || session.username,
+            'web',
+            'Web',
           );
           if (!result.ok) {
             logger.warn(
@@ -1150,25 +1097,9 @@ function setupWebSocket(server: any): WebSocketServer {
 // --- Broadcast Functions ---
 
 /**
- * Broadcast to all connected WebSocket clients.
- * If adminOnly is true, only send to clients whose session belongs to an admin user.
- * If ownerUserId is provided, only send to that user and admins (for group isolation).
+ * Broadcast a WebSocket message to authenticated instance sessions.
  */
-/**
- * Broadcast a WebSocket message with access control filtering.
- *
- * @param msg - The message to broadcast
- * @param adminOnly - If true, only admin users receive the message
- * @param allowedUserIds - Group access filtering:
- *   - undefined: no user-level filtering (e.g. system-wide admin broadcasts)
- *   - null: ownership unresolvable → default-deny, only admin can see
- *   - Set<string>: only these users + admin can see
- */
-function safeBroadcast(
-  msg: WsMessageOut,
-  adminOnly = false,
-  allowedUserIds?: Set<string> | null,
-): void {
+function safeBroadcast(msg: WsMessageOut): void {
   const data = JSON.stringify(msg);
   for (const [client, clientInfo] of wsClients) {
     if (client.readyState !== WebSocket.OPEN) {
@@ -1186,12 +1117,12 @@ function safeBroadcast(
       continue;
     }
 
-    const session = getCachedSessionWithUser(clientInfo.sessionId);
+    const session = getCachedAccessSession(clientInfo.sessionId);
     const expired = !!session && isSessionExpired(session.expires_at);
-    const invalid = !session || expired || session.status !== 'active';
+    const invalid = !session || expired;
     if (invalid) {
       if (expired) {
-        deleteUserSession(clientInfo.sessionId);
+        deleteAccessSession(clientInfo.sessionId);
       }
       invalidateSessionCache(clientInfo.sessionId);
       wsClients.delete(client);
@@ -1203,18 +1134,6 @@ function safeBroadcast(
       continue;
     }
 
-    if (adminOnly && session.role !== 'admin') {
-      continue;
-    }
-
-    // Group isolation: only allowed users (owner + shared members) can see this group's events
-    // allowedUserIds === null means ownership unresolvable → default-deny (admin-only)
-    if (allowedUserIds !== undefined) {
-      if (allowedUserIds === null || !allowedUserIds.has(session.user_id)) {
-        continue;
-      }
-    }
-
     try {
       client.send(data);
     } catch {
@@ -1223,92 +1142,13 @@ function safeBroadcast(
   }
 }
 
-/**
- * Get the set of user IDs allowed to receive broadcasts for a group.
- * Includes the owner and all shared members. Admin is NOT automatically included
- * — they must be the owner or a shared member to receive broadcasts.
- *
- * Returns:
- * - Set<string>: allowed user IDs (owner + shared members)
- * - null: ownership unresolvable → default-deny (admin-only)
- */
-const allowedUserIdsCache = new Map<
-  string,
-  { ids: Set<string> | null; expiry: number }
->();
-const ALLOWED_CACHE_TTL = 10_000; // 10 seconds
-
-function getGroupAllowedUserIds(chatJid: string): Set<string> | null {
-  const now = Date.now();
-  const cached = allowedUserIdsCache.get(chatJid);
-  if (cached && cached.expiry > now) return cached.ids;
-
-  const result = computeGroupAllowedUserIds(chatJid);
-  allowedUserIdsCache.set(chatJid, {
-    ids: result,
-    expiry: now + ALLOWED_CACHE_TTL,
-  });
-  return result;
-}
-
-/** Invalidate the allowed-user cache for a group and all sibling JIDs sharing the same folder. */
 export function invalidateAllowedUserCache(chatJid: string): void {
-  allowedUserIdsCache.delete(chatJid);
-  // Also clear cache for sibling JIDs sharing the same folder,
-  // since membership is per-folder, not per-JID.
-  const group = getRegisteredGroup(chatJid);
-  if (group) {
-    const siblingJids = getJidsByFolder(group.folder);
-    for (const jid of siblingJids) {
-      allowedUserIdsCache.delete(jid);
-    }
-  }
-}
-
-function computeGroupAllowedUserIds(chatJid: string): Set<string> | null {
-  const group = getRegisteredGroup(chatJid);
-  if (!group) return null; // Unknown group → deny by default
-
-  const allowed = new Set<string>();
-
-  // Add owner
-  let ownerId: string | null = group.created_by ?? null;
-
-  // Legacy fallback: IM group without created_by, resolve by sibling home group.
-  if (!ownerId && !chatJid.startsWith('web:')) {
-    const siblingJids = getJidsByFolder(group.folder);
-    for (const siblingJid of siblingJids) {
-      if (!siblingJid.startsWith('web:')) continue;
-      const siblingGroup = getRegisteredGroup(siblingJid);
-      if (siblingGroup?.is_home && siblingGroup.created_by) {
-        ownerId = siblingGroup.created_by;
-        break;
-      }
-    }
-  }
-
-  if (!ownerId) {
-    if (group.is_home) return null;
-    if (group.folder === 'main') return null;
-    return null; // Unresolvable → deny by default
-  }
-
-  allowed.add(ownerId);
-
-  // For non-home groups, include shared members
-  if (!group.is_home) {
-    const members = getGroupMembers(group.folder);
-    for (const m of members) {
-      allowed.add(m.user_id);
-    }
-  }
-
-  return allowed;
+  void chatJid;
 }
 
 /**
  * Normalize chatJid for WebSocket broadcasts.
- * IM groups (Feishu/Telegram) that share a folder with an is_home group are mapped
+ * IM groups that share a folder with an is_home group are mapped
  * to that home group's web JID so the frontend can match all home-session events.
  */
 function normalizeHomeJid(chatJid: string): string {
@@ -1329,12 +1169,7 @@ function normalizeHomeJid(chatJid: string): string {
 export function broadcastToWebClients(chatJid: string, text: string): void {
   const timestamp = new Date().toISOString();
   const jid = normalizeHomeJid(chatJid);
-  const allowedUserIds = getGroupAllowedUserIds(chatJid);
-  safeBroadcast(
-    { type: 'agent_reply', chatJid: jid, text, timestamp },
-    false,
-    allowedUserIds,
-  );
+  safeBroadcast({ type: 'agent_reply', chatJid: jid, text, timestamp });
 }
 
 export function broadcastNewMessage(
@@ -1352,7 +1187,6 @@ export function broadcastNewMessage(
     if (!effectiveAgentId) effectiveAgentId = parts[1];
   }
   const jid = normalizeHomeJid(baseChatJid);
-  const allowedUserIds = getGroupAllowedUserIds(baseChatJid);
   const wsMsg: WsMessageOut = {
     type: 'new_message',
     chatJid: jid,
@@ -1360,17 +1194,12 @@ export function broadcastNewMessage(
     ...(effectiveAgentId ? { agentId: effectiveAgentId } : {}),
     ...(source ? { source } : {}),
   };
-  safeBroadcast(wsMsg, false, allowedUserIds);
+  safeBroadcast(wsMsg);
 }
 
 export function broadcastTyping(chatJid: string, isTyping: boolean): void {
   const jid = normalizeHomeJid(chatJid);
-  const allowedUserIds = getGroupAllowedUserIds(chatJid);
-  safeBroadcast(
-    { type: 'typing', chatJid: jid, isTyping },
-    false,
-    allowedUserIds,
-  );
+  safeBroadcast({ type: 'typing', chatJid: jid, isTyping });
 }
 
 // ─── Streaming Snapshot Accumulation ─────────────────────────────────
@@ -1654,11 +1483,10 @@ export function broadcastStreamEvent(
   agentId?: string,
 ): void {
   const jid = normalizeHomeJid(chatJid);
-  const allowedUserIds = getGroupAllowedUserIds(chatJid);
   const msg: WsMessageOut = agentId
     ? { type: 'stream_event', chatJid: jid, event, agentId }
     : { type: 'stream_event', chatJid: jid, event };
-  safeBroadcast(msg, false, allowedUserIds);
+  safeBroadcast(msg);
 
   // Accumulate snapshot for both main and agent streams.
   // Agent streams use virtual JID format (jid#agent:agentId) as the key.
@@ -1670,14 +1498,8 @@ export function broadcastGroupCreated(
   jid: string,
   folder: string,
   name: string,
-  userId?: string,
 ): void {
-  const allowedUserIds = userId ? new Set([userId]) : undefined;
-  safeBroadcast(
-    { type: 'group_created', jid, folder, name },
-    false,
-    allowedUserIds,
-  );
+  safeBroadcast({ type: 'group_created', jid, folder, name });
 }
 
 export function broadcastAgentStatus(
@@ -1690,7 +1512,6 @@ export function broadcastAgentStatus(
   kind?: import('../domain/types.js').AgentKind,
 ): void {
   const jid = normalizeHomeJid(chatJid);
-  const allowedUserIds = getGroupAllowedUserIds(chatJid);
   // Resolve kind from DB if not provided
   const resolvedKind = kind || getAgent(agentId)?.kind;
   const msg: WsMessageOut = {
@@ -1703,7 +1524,7 @@ export function broadcastAgentStatus(
     prompt,
     resultSummary,
   };
-  safeBroadcast(msg, false, allowedUserIds);
+  safeBroadcast(msg);
 }
 
 export function broadcastRunnerState(
@@ -1711,13 +1532,12 @@ export function broadcastRunnerState(
   state: 'idle' | 'running',
 ): void {
   const jid = normalizeHomeJid(chatJid);
-  const allowedUserIds = getGroupAllowedUserIds(chatJid);
   const msg: WsMessageOut = {
     type: 'runner_state',
     chatJid: jid,
     state,
   };
-  safeBroadcast(msg, false, allowedUserIds);
+  safeBroadcast(msg);
 
   // Clear streaming snapshots when runner goes idle (main + all agent snapshots)
   if (state === 'idle') {
@@ -1740,17 +1560,12 @@ function broadcastStatus(): void {
   if (!deps) return;
 
   const queueStatus = deps.queue.getStatus();
-  // Broadcast aggregate system metrics only to admin users.
-  // Non-admin users get per-user filtered metrics via REST /api/status.
-  safeBroadcast(
-    {
-      type: 'status_update',
-      activeProcesses: queueStatus.activeProcessCount,
-      activeTotal: queueStatus.activeCount,
-      queueLength: queueStatus.waitingCount,
-    },
-    /* adminOnly */ true,
-  );
+  safeBroadcast({
+    type: 'status_update',
+    activeProcesses: queueStatus.activeProcessCount,
+    activeTotal: queueStatus.activeCount,
+    queueLength: queueStatus.waitingCount,
+  });
 }
 
 // --- Server Startup ---

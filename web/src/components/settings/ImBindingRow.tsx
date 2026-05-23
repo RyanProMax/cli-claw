@@ -1,4 +1,4 @@
-import { Loader2, MessageSquare, Users, ArrowRightLeft, Unlink } from 'lucide-react';
+import { Loader2, MessageSquare, ArrowRightLeft, Unlink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AvailableImGroup } from '../../types';
 import { ChannelBadge } from './channel-meta';
@@ -51,12 +51,6 @@ export function ImBindingRow({ group, isActioning, onRebind, onUnbind }: ImBindi
           <ChannelBadge channelType={group.channel_type} />
         </div>
         <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-          {group.member_count != null && (
-            <span className="flex items-center gap-0.5">
-              <Users className="w-3 h-3" />
-              {group.member_count}
-            </span>
-          )}
           <span className={hasBound ? 'text-primary dark:text-brand-400' : 'text-muted-foreground'}>
             → {bindingLabel()}
           </span>

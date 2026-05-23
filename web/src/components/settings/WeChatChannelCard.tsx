@@ -8,7 +8,7 @@ import { api } from '../../api/client';
 import { getErrorMessage } from './types';
 import { WeChatQRDialog } from './WeChatQRDialog';
 
-interface UserWeChatConfig {
+interface WeChatConfig {
   ilinkBotId: string;
   hasBotToken: boolean;
   botTokenMasked: string | null;
@@ -19,7 +19,7 @@ interface UserWeChatConfig {
 }
 
 export function WeChatChannelCard() {
-  const [config, setConfig] = useState<UserWeChatConfig | null>(null);
+  const [config, setConfig] = useState<WeChatConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
   const [togglingProxy, setTogglingProxy] = useState(false);
@@ -31,7 +31,7 @@ export function WeChatChannelCard() {
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get<UserWeChatConfig>('/api/config/user-im/wechat');
+      const data = await api.get<WeChatConfig>('/api/config/user-im/wechat');
       setConfig(data);
     } catch {
       setConfig(null);
@@ -47,7 +47,7 @@ export function WeChatChannelCard() {
   const handleToggle = async (newEnabled: boolean) => {
     setToggling(true);
     try {
-      const data = await api.put<UserWeChatConfig>('/api/config/user-im/wechat', { enabled: newEnabled });
+      const data = await api.put<WeChatConfig>('/api/config/user-im/wechat', { enabled: newEnabled });
       setConfig(data);
       toast.success(`微信渠道已${newEnabled ? '启用' : '停用'}`);
     } catch (err) {
@@ -60,7 +60,7 @@ export function WeChatChannelCard() {
   const handleBypassProxyToggle = async (newBypass: boolean) => {
     setTogglingProxy(true);
     try {
-      const data = await api.put<UserWeChatConfig>('/api/config/user-im/wechat', { bypassProxy: newBypass });
+      const data = await api.put<WeChatConfig>('/api/config/user-im/wechat', { bypassProxy: newBypass });
       setConfig(data);
       toast.success(newBypass ? '已切换为直连模式（绕过代理）' : '已切换为代理模式');
     } catch (err) {

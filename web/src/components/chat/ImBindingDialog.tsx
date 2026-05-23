@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Loader2, Link2, Unlink, MessageSquare, Users, ArrowRightLeft } from 'lucide-react';
+import { Loader2, Link2, Unlink, MessageSquare, ArrowRightLeft } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -225,7 +225,7 @@ export function ImBindingDialog({ open, groupJid, agentId, agent, onClose }: ImB
 
           {!loading && imGroups.length === 0 && (
             <div className="text-center py-8 text-muted-foreground text-sm">
-              暂无群聊可绑定。请先在飞书/Telegram 群中向 Bot 发送消息，群聊会自动出现在此列表中。
+              暂无群聊可绑定。请先在飞书或微信中向 Bot 发送消息，群聊会自动出现在此列表中。
               <br />
               <span className="text-xs opacity-70">私聊不支持绑定到子对话。</span>
             </div>
@@ -272,12 +272,6 @@ export function ImBindingDialog({ open, groupJid, agentId, agent, onClose }: ImB
                     <div className="text-sm font-medium truncate">{group.name}</div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <ChannelBadge channelType={group.channel_type} />
-                      {group.member_count != null && (
-                        <span className="flex items-center gap-0.5">
-                          <Users className="w-3 h-3" />
-                          {group.member_count}
-                        </span>
-                      )}
                       {boundToOther && (
                         <span className="text-amber-500 truncate">
                           已绑定{group.bound_agent_id ? ' Agent' : ''}

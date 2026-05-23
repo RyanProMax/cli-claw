@@ -5,19 +5,25 @@ const mocks = vi.hoisted(() => ({
   getRegisteredGroup: vi.fn(),
   getAllRegisteredGroups: vi.fn(),
   getAllChats: vi.fn(),
+  deleteMessage: vi.fn(),
+  deleteGroupData: vi.fn(),
+  deletePrimaryRuntimeSessions: vi.fn(),
+  ensureChatExists: vi.fn(),
+  getAgent: vi.fn(),
+  getGroupsByTargetAgent: vi.fn(),
+  getMessage: vi.fn(),
+  getMessagesAfter: vi.fn(),
+  getMessagesAfterMulti: vi.fn(),
+  getMessagesPage: vi.fn(),
   getMessagesPageMulti: vi.fn(),
-  getGroupMembers: vi.fn(),
-  addGroupMember: vi.fn(),
-  getUserPinnedGroups: vi.fn(),
+  storeMessageDirect: vi.fn(),
   setRegisteredGroup: vi.fn(),
   updateChatName: vi.fn(),
   getJidsByFolder: vi.fn(),
   listAgentsByJid: vi.fn(),
   deleteSession: vi.fn(),
   getWebDeps: vi.fn(),
-  canAccessGroup: vi.fn(),
   canModifyGroup: vi.fn(),
-  hasLocalWorkspacePermission: vi.fn(),
   stopGroup: vi.fn(),
   isRuntimeBuildStale: vi.fn(),
   getRuntimeBuildStatus: vi.fn(),
@@ -32,7 +38,6 @@ const mocks = vi.hoisted(() => ({
   resolveEffectiveWorkspaceCwd: vi.fn(),
   clearSessionJsonlFiles: vi.fn(),
   canDeleteGroup: vi.fn(),
-  canManageGroupMembers: vi.fn(),
   getOpenAiRuntimeDefaults: vi.fn(),
   getAvailableRuntimeModelOptions: vi.fn(),
   getAvailableRuntimeModelPresets: vi.fn(),
@@ -41,15 +46,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../src/web/middleware/auth.js', () => ({
   authMiddleware: async (c: any, next: any) => {
-    c.set('user', {
-      id: 'admin-1',
-      username: 'admin',
-      role: 'admin',
-      status: 'active',
-      display_name: 'Admin',
-      permissions: ['manage_system_config'],
-      must_change_password: false,
-    });
     c.set('sessionId', 'session-1');
     await next();
   },
@@ -76,10 +72,18 @@ vi.mock('../../../src/storage/db.js', async () => {
     getRegisteredGroup: mocks.getRegisteredGroup,
     getAllRegisteredGroups: mocks.getAllRegisteredGroups,
     getAllChats: mocks.getAllChats,
+    deleteMessage: mocks.deleteMessage,
+    deleteGroupData: mocks.deleteGroupData,
+    deletePrimaryRuntimeSessions: mocks.deletePrimaryRuntimeSessions,
+    ensureChatExists: mocks.ensureChatExists,
+    getAgent: mocks.getAgent,
+    getGroupsByTargetAgent: mocks.getGroupsByTargetAgent,
+    getMessage: mocks.getMessage,
+    getMessagesAfter: mocks.getMessagesAfter,
+    getMessagesAfterMulti: mocks.getMessagesAfterMulti,
+    getMessagesPage: mocks.getMessagesPage,
     getMessagesPageMulti: mocks.getMessagesPageMulti,
-    getGroupMembers: mocks.getGroupMembers,
-    addGroupMember: mocks.addGroupMember,
-    getUserPinnedGroups: mocks.getUserPinnedGroups,
+    storeMessageDirect: mocks.storeMessageDirect,
     setRegisteredGroup: mocks.setRegisteredGroup,
     updateChatName: mocks.updateChatName,
     getJidsByFolder: mocks.getJidsByFolder,
@@ -88,13 +92,38 @@ vi.mock('../../../src/storage/db.js', async () => {
   };
 });
 
+vi.mock('../../../src/storage/messages.js', () => ({
+  deleteMessage: mocks.deleteMessage,
+  ensureChatExists: mocks.ensureChatExists,
+  getAllChats: mocks.getAllChats,
+  getMessage: mocks.getMessage,
+  getMessagesAfter: mocks.getMessagesAfter,
+  getMessagesAfterMulti: mocks.getMessagesAfterMulti,
+  getMessagesPage: mocks.getMessagesPage,
+  getMessagesPageMulti: mocks.getMessagesPageMulti,
+  storeMessageDirect: mocks.storeMessageDirect,
+  updateChatName: mocks.updateChatName,
+}));
+
+vi.mock('../../../src/storage/workspaces.js', () => ({
+  deleteGroupData: mocks.deleteGroupData,
+  getAllRegisteredGroups: mocks.getAllRegisteredGroups,
+  getGroupsByTargetAgent: mocks.getGroupsByTargetAgent,
+  getJidsByFolder: mocks.getJidsByFolder,
+  getRegisteredGroup: mocks.getRegisteredGroup,
+  setRegisteredGroup: mocks.setRegisteredGroup,
+}));
+
+vi.mock('../../../src/storage/agents.js', () => ({
+  deletePrimaryRuntimeSessions: mocks.deletePrimaryRuntimeSessions,
+  getAgent: mocks.getAgent,
+  listAgentsByJid: mocks.listAgentsByJid,
+}));
+
 vi.mock('../../../src/web/context.js', () => ({
   getWebDeps: mocks.getWebDeps,
-  canAccessGroup: mocks.canAccessGroup,
   canModifyGroup: mocks.canModifyGroup,
   canDeleteGroup: mocks.canDeleteGroup,
-  canManageGroupMembers: mocks.canManageGroupMembers,
-  hasLocalWorkspacePermission: mocks.hasLocalWorkspacePermission,
   MAX_GROUP_NAME_LEN: 40,
 }));
 
@@ -172,7 +201,7 @@ describe('group runtime stale-build guard', () => {
         name: 'Main',
         folder: 'main',
         added_at: '2026-04-04T10:00:00.000Z',
-        created_by: 'admin-1',
+        created_by: null,
         is_home: true,
         agentType: 'openai',
       },
@@ -187,14 +216,15 @@ describe('group runtime stale-build guard', () => {
     });
     mocks.getAllRegisteredGroups.mockImplementation(() => registeredGroups);
     mocks.getAllChats.mockReturnValue([]);
+    mocks.getMessagesPage.mockReturnValue({ messages: [], hasMore: false });
+    mocks.getMessagesAfter.mockReturnValue([]);
+    mocks.getMessagesAfterMulti.mockReturnValue([]);
     mocks.getMessagesPageMulti.mockReturnValue([]);
-    mocks.getGroupMembers.mockReturnValue([]);
-    mocks.getUserPinnedGroups.mockReturnValue({});
+    mocks.getGroupsByTargetAgent.mockReturnValue([]);
+    mocks.getAgent.mockReturnValue(undefined);
     mocks.getJidsByFolder.mockReturnValue(['web:main']);
     mocks.listAgentsByJid.mockReturnValue([]);
-    mocks.canAccessGroup.mockReturnValue(true);
     mocks.canModifyGroup.mockReturnValue(true);
-    mocks.hasLocalWorkspacePermission.mockReturnValue(true);
     mocks.stopGroup.mockResolvedValue(undefined);
     mocks.resetWorkspaceAgentSessionState.mockImplementation(
       async (deps: any, jid: string, group: any) => {
@@ -315,13 +345,13 @@ describe('group runtime stale-build guard', () => {
     expect(mocks.stopGroup).not.toHaveBeenCalled();
   });
 
-  test('includes shared admin web:main home workspace with its actual runtime in group list', async () => {
+  test('includes shared web:main home workspace with its actual runtime in group list', async () => {
     registeredGroups = {
       'web:main': {
         name: 'Main',
         folder: 'main',
         added_at: '2026-04-04T10:00:00.000Z',
-        created_by: 'admin-2',
+        created_by: null,
         is_home: true,
         agentType: 'openai',
       },
@@ -329,7 +359,7 @@ describe('group runtime stale-build guard', () => {
         name: 'Ops Room',
         folder: 'main',
         added_at: '2026-04-04T10:05:00.000Z',
-        created_by: 'admin-2',
+        created_by: null,
         is_home: false,
       },
     };
@@ -437,7 +467,7 @@ describe('group runtime stale-build guard', () => {
     );
   });
 
-  test('materializes the launch cwd when creating a workspace without custom_cwd', async () => {
+  test('creates a workspace without a custom cwd', async () => {
     const app = createApp();
 
     const res = await app.request('/api/groups', {
@@ -453,7 +483,7 @@ describe('group runtime stale-build guard', () => {
       expect.objectContaining({
         success: true,
         group: expect.objectContaining({
-          custom_cwd: '/launch/cwd',
+          name: 'Ops',
         }),
       }),
     );
@@ -463,11 +493,10 @@ describe('group runtime stale-build guard', () => {
     expect(Object.values(payload.groups).every((g) => !('execution_mode' in g))).toBe(
       true,
     );
-    expect(mocks.materializeWorkspaceDefaultCwd).toHaveBeenCalled();
     expect(mocks.setRegisteredGroup).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        customCwd: '/launch/cwd',
+        name: 'Ops',
       }),
     );
   });

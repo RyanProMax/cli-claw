@@ -6,7 +6,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { useAuthStore } from '../../stores/auth';
 
 export interface ChatGroupItemProps {
   jid: string;
@@ -14,9 +13,6 @@ export interface ChatGroupItemProps {
   folder: string;
   lastMessage?: string;
 
-  isShared?: boolean;
-  memberRole?: 'owner' | 'member';
-  memberCount?: number;
   isActive: boolean;
   isHome: boolean;
   isPinned?: boolean;
@@ -35,9 +31,6 @@ export function ChatGroupItem({
   name,
   folder,
   lastMessage,
-  isShared,
-  memberRole,
-  memberCount,
   isActive,
   isHome,
   isPinned,
@@ -50,10 +43,8 @@ export function ChatGroupItem({
   onDelete,
   onTogglePin,
 }: ChatGroupItemProps) {
-  const currentUser = useAuthStore((s) => s.user);
   const defaultHomeName = '我的工作区';
-  // Use actual name if it's been renamed, otherwise fall back to default
-  const isDefaultName = !name || name === 'Main' || name === `${currentUser?.username} Home`;
+  const isDefaultName = !name || name === 'Main';
   const displayName = isHome && isDefaultName ? defaultHomeName : name;
   const truncatedMsg =
     lastMessage && lastMessage.length > 40
@@ -95,16 +86,6 @@ export function ChatGroupItem({
             <span className="relative flex h-2 w-2 flex-shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-            </span>
-          )}
-          {isShared && memberRole === 'owner' && (memberCount ?? 0) >= 2 && (
-            <span className="flex-shrink-0 whitespace-nowrap inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
-              Owner
-            </span>
-          )}
-          {isShared && memberRole !== 'owner' && (memberCount ?? 0) >= 2 && (
-            <span className="flex-shrink-0 whitespace-nowrap inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">
-              {memberCount}人协作
             </span>
           )}
         </div>

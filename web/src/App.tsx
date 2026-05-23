@@ -8,8 +8,6 @@ import {
 import { lazy, Suspense } from 'react';
 import { LoginPage } from './pages/LoginPage';
 import { SetupPage } from './pages/SetupPage';
-import { SetupChannelsPage } from './pages/SetupChannelsPage';
-import { UsersPage } from './pages/UsersPage';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { AppLayout } from './components/layout/AppLayout';
 import { APP_BASE, shouldUseHashRouter } from './utils/url';
@@ -37,14 +35,6 @@ export function App() {
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/setup" element={<SetupPage />} />
-        <Route
-          path="/setup/channels"
-          element={
-            <AuthGuard>
-              <SetupChannelsPage />
-            </AuthGuard>
-          }
-        />
 
         {/* Protected Routes with Layout */}
         <Route
@@ -80,16 +70,6 @@ export function App() {
               <Suspense fallback={null}>
                 <SettingsPage />
               </Suspense>
-            }
-          />
-          <Route
-            path="/users"
-            element={
-              <AuthGuard
-                requiredAnyPermissions={['manage_users', 'view_audit_log']}
-              >
-                <UsersPage />
-              </AuthGuard>
             }
           />
         </Route>

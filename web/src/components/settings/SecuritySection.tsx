@@ -1,39 +1,44 @@
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useAuthStore } from '../../stores/auth';
 import { Button } from '@/components/ui/button';
-import { api } from '../../api/client';
-import type { SessionInfo } from './types';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { getErrorMessage } from './types';
 
 export function SecuritySection() {
-  const { logout } = useAuthStore();
-  const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { logout, changePassword } = useAuthStore();
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const loadSessions = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api.get<{ sessions: SessionInfo[] }>('/api/auth/sessions');
-      setSessions(data.sessions);
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
+  const handleChangePassword = async () => {
+    if (!currentPwd || !newPwd) {
+      toast.error('请填写当前密码和新密码');
+      return;
     }
-  }, []);
-
-  useEffect(() => { loadSessions(); }, [loadSessions]);
-
-  const handleRevoke = async (id: string) => {
+    if (newPwd.length < 8) {
+      toast.error('新密码至少 8 位');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      toast.error('两次输入的新密码不一致');
+      return;
+    }
+    setSaving(true);
     try {
-      await api.delete(`/api/auth/sessions/${id}`);
-      toast.success('会话已撤销');
-      loadSessions();
+      await changePassword(currentPwd, newPwd);
+      setCurrentPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+      toast.success('访问密码已修改');
     } catch (err) {
-      toast.error(getErrorMessage(err, '操作失败'));
+      toast.error(getErrorMessage(err, '修改访问密码失败'));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -43,53 +48,51 @@ export function SecuritySection() {
 
   return (
     <div className="space-y-6">
-      {/* Sessions */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-foreground">登录设备</h3>
-          <Button variant="outline" onClick={loadSessions} disabled={loading}>
-            <RefreshCw className="w-4 h-4" />
-            刷新
+        <h3 className="text-base font-semibold text-foreground mb-4">
+          修改访问密码
+        </h3>
+        <div className="space-y-3">
+          <div>
+            <Label className="mb-1">当前密码</Label>
+            <Input
+              type="password"
+              value={currentPwd}
+              onChange={(e) => setCurrentPwd(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="mb-1">新密码</Label>
+            <Input
+              type="password"
+              value={newPwd}
+              onChange={(e) => setNewPwd(e.target.value)}
+              placeholder="至少 8 位"
+            />
+          </div>
+          <div>
+            <Label className="mb-1">确认新密码</Label>
+            <Input
+              type="password"
+              value={confirmPwd}
+              onChange={(e) => setConfirmPwd(e.target.value)}
+            />
+          </div>
+          <Button onClick={handleChangePassword} disabled={saving}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            保存新密码
           </Button>
-        </div>
-        <div className="divide-y divide-border">
-          {sessions.length === 0 ? (
-            <div className="py-4 text-sm text-muted-foreground text-center">暂无会话</div>
-          ) : (
-            sessions.map((s) => (
-              <div key={s.id} className="flex items-center justify-between py-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-foreground truncate max-w-xs">{s.user_agent?.split(' ').slice(0, 3).join(' ') || '未知设备'}</span>
-                    {s.is_current && <span className="text-xs px-1.5 py-0.5 bg-success-bg text-success rounded">当前</span>}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    IP: {s.ip_address || '未知'} · 最后活跃: {new Date(s.last_active_at).toLocaleString('zh-CN')}
-                  </div>
-                </div>
-                {!s.is_current && (
-                  <button
-                    onClick={() => handleRevoke(s.id)}
-                    className="p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-error cursor-pointer"
-                    title="撤销会话"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            ))
-          )}
         </div>
       </div>
 
-      {/* Divider */}
       <div className="border-t border-border" />
 
-      {/* Logout */}
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-medium text-foreground">退出登录</div>
-          <div className="text-xs text-muted-foreground mt-0.5">退出当前账户，返回登录页面</div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            退出当前浏览器会话，返回登录页面
+          </div>
         </div>
         <button
           onClick={handleLogout}

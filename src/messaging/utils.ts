@@ -1,5 +1,5 @@
 /**
- * Shared IM utilities extracted from qq.ts / dingtalk.ts / wechat.ts
+ * Shared IM utilities for retained IM providers.
  * to eliminate code duplication.
  *
  */

@@ -17,7 +17,7 @@
 因此它需要两个信息：
 
 - 目标会话：`FEISHU_LIVE_CHAT_ID`，通常是 `oc_...` 形式的 chat id。
-- App 凭据：`appId/appSecret`，来源可以是 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`、runtime 级飞书配置，或 `FEISHU_LIVE_USER_ID` 指向的用户级 IM 配置。
+- App 凭据：`appId/appSecret`，来源可以是 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 或实例级飞书配置。
 
 会话 ID 不能替代 App 凭据。会话 ID 只说明发到哪里；发送和读取消息必须由飞书 App 授权。
 
@@ -33,9 +33,7 @@ sqlite3 ~/.cli-claw/db/messages.db \
 如果查到 `feishu:oc_...`：
 
 - `FEISHU_LIVE_CHAT_ID` 使用去掉 `feishu:` 前缀后的 `oc_...`。
-- `FEISHU_LIVE_USER_ID` 优先使用同一行的 `created_by`。
-- 用户级飞书配置路径是 `~/.cli-claw/config/user-im/<userId>/feishu.json`。
-- runtime 级飞书配置路径是 `~/.cli-claw/config/feishu-provider.json`。
+- 飞书配置路径是 `~/.cli-claw/config/feishu-provider.json`。
 
 只允许检查是否存在、是否 enabled、是否有 encrypted secret、以及 appId 的短前缀。不要在日志、总结或测试输出里打印 `appSecret` 或解密后的 secret。
 
@@ -43,7 +41,6 @@ sqlite3 ~/.cli-claw/db/messages.db \
 
 ```bash
 FEISHU_LIVE_E2E=1 \
-FEISHU_LIVE_USER_ID=<created_by> \
 FEISHU_LIVE_CHAT_ID=<oc_chat_id> \
 npm test -- tests/live/feishu/message-smoke.test.ts
 ```

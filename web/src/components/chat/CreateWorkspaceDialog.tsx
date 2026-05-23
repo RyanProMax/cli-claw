@@ -36,7 +36,7 @@ export function CreateWorkspaceDialog({
   const [customCwd, setCustomCwd] = useState('');
 
   const createFlow = useChatStore((s) => s.createFlow);
-  const canSetCustomCwd = useAuthStore((s) => s.user?.role === 'admin');
+  const canSetCustomCwd = useAuthStore((s) => s.authenticated);
 
   const reset = () => {
     setName('');

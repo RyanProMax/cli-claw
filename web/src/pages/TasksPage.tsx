@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useTasksStore } from '../stores/tasks';
-import { useAuthStore } from '../stores/auth';
 import { useGroupsStore } from '../stores/groups';
 import { TaskCard } from '../components/tasks/TaskCard';
 import { CreateTaskForm } from '../components/tasks/CreateTaskForm';
@@ -22,9 +21,7 @@ export function TasksPage({ embedded = false }: { embedded?: boolean }) {
     deleteTask,
     runTaskNow,
   } = useTasksStore();
-  const { user } = useAuthStore();
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     loadTasks();
@@ -39,19 +36,17 @@ export function TasksPage({ embedded = false }: { embedded?: boolean }) {
   }, [hasParsing, loadTasks]);
 
   const handleCreateTask = async (data: {
+    workflowId: string;
     prompt: string;
     scheduleType: 'cron' | 'interval' | 'once';
     scheduleValue: string;
-    executionType: 'agent' | 'script';
-    scriptCommand: string;
     notifyChannels: string[] | null;
   }) => {
     await createTask(
       data.prompt,
       data.scheduleType,
       data.scheduleValue,
-      data.executionType,
-      data.scriptCommand,
+      data.workflowId,
       data.notifyChannels,
     );
     setShowCreateForm(false);
@@ -204,7 +199,6 @@ export function TasksPage({ embedded = false }: { embedded?: boolean }) {
             setShowCreateForm(false);
             loadTasks();
           }}
-          isAdmin={isAdmin}
         />
       )}
     </div>

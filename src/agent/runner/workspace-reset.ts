@@ -5,9 +5,9 @@ import { DATA_DIR } from '../../core/config.js';
 import {
   deletePrimaryRuntimeSessions,
   deleteSession,
-  getJidsByFolder,
   listAgentsByJid,
-} from '../../storage/db.js';
+} from '../../storage/agents.js';
+import { getJidsByFolder } from '../../storage/workspaces.js';
 import type { RegisteredGroup } from '../../domain/types.js';
 
 export function clearSessionJsonlFiles(folder: string, agentId?: string): void {

@@ -9,7 +9,7 @@ import {
   updateWorkflowRunStatus as updateStoredWorkflowRunStatus,
   upsertWorkflowContext,
   upsertWorkflowRunStep,
-} from '../../storage/db.js';
+} from '../../storage/workflows.js';
 import type {
   WorkflowContext,
   WorkflowRun,

@@ -23,32 +23,6 @@
   unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
-/* Alibaba PuHuiTi 3.0 — Chinese text fallback */
-@font-face {
-  font-family: 'Alibaba PuHuiTi 3';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/AlibabaPuHuiTi-3-55-Regular.woff2') format('woff2');
-  unicode-range: U+4E00-9FFF, U+3400-4DBF, U+3000-303F, U+FF00-FFEF, U+2E80-2EFF, U+3100-312F, U+FE30-FE4F, U+F900-FAFF, U+2F800-2FA1F;
-}
-@font-face {
-  font-family: 'Alibaba PuHuiTi 3';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/AlibabaPuHuiTi-3-65-Medium.woff2') format('woff2');
-  unicode-range: U+4E00-9FFF, U+3400-4DBF, U+3000-303F, U+FF00-FFEF, U+2E80-2EFF, U+3100-312F, U+FE30-FE4F, U+F900-FAFF, U+2F800-2FA1F;
-}
-@font-face {
-  font-family: 'Alibaba PuHuiTi 3';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/AlibabaPuHuiTi-3-75-SemiBold.woff2') format('woff2');
-  unicode-range: U+4E00-9FFF, U+3400-4DBF, U+3000-303F, U+FF00-FFEF, U+2E80-2EFF, U+3100-312F, U+FE30-FE4F, U+F900-FAFF, U+2F800-2FA1F;
-}
-
 /* =====================================================
    Tailwind CSS 4 Theme — shadcn/ui CSS variable mapping
    Maps semantic CSS variables → Tailwind utility classes
@@ -113,8 +87,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: 'DM Sans', 'Alibaba PuHuiTi 3', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-serif: 'DM Sans', 'Alibaba PuHuiTi 3', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'DM Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);

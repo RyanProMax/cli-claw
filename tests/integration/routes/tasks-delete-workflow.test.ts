@@ -2,16 +2,6 @@ import { Hono } from 'hono';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  currentUser: {
-    id: 'member-1',
-    username: 'member',
-    role: 'member',
-    status: 'active',
-    display_name: 'Member',
-    permissions: [],
-    must_change_password: false,
-  },
-  canAccessGroup: vi.fn(),
   getTaskById: vi.fn(),
   getRegisteredGroup: vi.fn(),
   getRunningTaskIds: vi.fn(),
@@ -20,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../src/web/middleware/auth.js', () => ({
   authMiddleware: async (c: any, next: any) => {
-    c.set('user', mocks.currentUser);
+    c.set('sessionId', 'session-1');
     await next();
   },
 }));
@@ -31,7 +21,6 @@ vi.mock('../../../src/web/context.js', async () => {
   >('../../../src/web/context.js');
   return {
     ...actual,
-    canAccessGroup: mocks.canAccessGroup,
     getWebDeps: vi.fn(),
   };
 });
@@ -54,6 +43,15 @@ vi.mock('../../../src/storage/db.js', async () => {
 
 vi.mock('../../../src/core/workspace/file-manager.js', () => ({
   removeFlowArtifacts: vi.fn(),
+}));
+
+vi.mock('../../../src/storage/scheduler.js', () => ({
+  getTaskById: mocks.getTaskById,
+  deleteTask: mocks.deleteTask,
+}));
+
+vi.mock('../../../src/storage/workspaces.js', () => ({
+  getRegisteredGroup: mocks.getRegisteredGroup,
 }));
 
 import tasksRoutes from '../../../src/web/routes/tasks.js';
@@ -80,7 +78,7 @@ function scheduledTask(overrides: Record<string, unknown> = {}) {
     last_result: null,
     status: 'active',
     created_at: '2026-05-21T00:00:00.000Z',
-    created_by: 'member-1',
+    created_by: null,
     notify_channels: null,
     workspace_jid: null,
     workspace_folder: null,
@@ -91,13 +89,12 @@ function scheduledTask(overrides: Record<string, unknown> = {}) {
 describe('task delete route for running workflow tasks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.canAccessGroup.mockReturnValue(true);
     mocks.getRegisteredGroup.mockReturnValue({
       jid: 'web:main',
       name: 'Main',
       folder: 'main',
       added_at: '2026-05-21T00:00:00.000Z',
-      created_by: 'member-1',
+      created_by: null,
     });
     mocks.getRunningTaskIds.mockReturnValue(['task-1']);
   });
@@ -114,22 +111,4 @@ describe('task delete route for running workflow tasks', () => {
     expect(mocks.deleteTask).toHaveBeenCalledWith('task-1');
   });
 
-  test('keeps running non-workflow tasks protected from deletion', async () => {
-    mocks.getTaskById.mockReturnValue(
-      scheduledTask({
-        execution_type: 'agent',
-        script_command: null,
-      }),
-    );
-
-    const response = await createApp().request('/api/tasks/task-1', {
-      method: 'DELETE',
-    });
-
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
-      error: '任务正在运行中，请先等待完成或停止任务',
-    });
-    expect(mocks.deleteTask).not.toHaveBeenCalled();
-  });
 });

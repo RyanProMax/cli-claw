@@ -119,7 +119,6 @@ describe('web skill command filtering', () => {
     expect(handleWorkflowCommand).toHaveBeenCalledWith(
       chatJid,
       'research 分析英伟达',
-      'user-1',
       undefined,
       expect.objectContaining({ background: true }),
     );
@@ -233,7 +232,6 @@ describe('web skill command filtering', () => {
     expect(handleWorkflowCommand).toHaveBeenCalledWith(
       chatJid,
       'hkipo 港股 IPO 打新分析',
-      'user-1',
       {
         command: 'hkipo',
         argsText: '--all',
@@ -329,7 +327,6 @@ describe('web skill command filtering', () => {
       async (
         _chatJid: string,
         _argsText: string,
-        _userId?: string | null,
         _initialInput?: Record<string, unknown>,
         lifecycle?: {
           background?: boolean;
@@ -369,7 +366,6 @@ describe('web skill command filtering', () => {
     expect(handleWorkflowCommand).toHaveBeenCalledWith(
       chatJid,
       'hkipo 港股 IPO 打新分析',
-      'user-1',
       {
         command: 'hkipo',
         argsText: '--all',

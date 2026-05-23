@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import type { Variables } from '../context.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { hasLocalWorkspacePermission, canAccessGroup } from '../context.js';
-import type { AuthUser } from '../../domain/types.js';
 import type { RegisteredGroup } from '../../domain/types.js';
-import { getJidsByFolder, getRegisteredGroup } from '../../storage/db.js';
+import {
+  getJidsByFolder,
+  getRegisteredGroup,
+} from '../../storage/workspaces.js';
 import { resolveEffectiveWorkspaceCwd } from '../../core/workspace/workspace-cwd.js';
 import { logger } from '../../core/logger.js';
 import {
@@ -246,11 +247,6 @@ fileRoutes.get('/:jid/files', authMiddleware, (c) => {
   if (!group) {
     return c.json({ error: 'Group not found' }, 404);
   }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
   try {
     const result = listFiles(
       group.folder,
@@ -270,11 +266,6 @@ fileRoutes.post('/:jid/files', authMiddleware, async (c) => {
 
   const group = getRegisteredGroup(jid);
   if (!group) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
   try {
@@ -350,19 +341,6 @@ fileRoutes.post('/:jid/files/open-directory', authMiddleware, async (c) => {
   if (!group) {
     return c.json({ error: 'Group not found' }, 404);
   }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-  // 打开本地目录属于本机文件系统操作，限制为管理员。
-  if (!hasLocalWorkspacePermission(authUser)) {
-    return c.json(
-      { error: 'Insufficient permissions to open local directory' },
-      403,
-    );
-  }
-
   try {
     const body = await c.req.json().catch(() => ({}));
     const targetPath = typeof body.path === 'string' ? body.path : '';
@@ -409,11 +387,6 @@ fileRoutes.get('/:jid/files/download/:path', authMiddleware, (c) => {
 
   const group = getRegisteredGroup(jid);
   if (!group) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
   try {
@@ -505,11 +478,6 @@ fileRoutes.get('/:jid/files/preview/:path', authMiddleware, (c) => {
   if (!group) {
     return c.json({ error: 'Group not found' }, 404);
   }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
   try {
     // 解码 base64url 路径
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
@@ -571,11 +539,6 @@ fileRoutes.get('/:jid/files/content/:path', authMiddleware, (c) => {
   if (!group) {
     return c.json({ error: 'Group not found' }, 404);
   }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
   try {
     const rootOverride = getRequiredFileRootOverride(group);
     const relativePath = Buffer.from(encodedPath, 'base64url').toString(
@@ -625,11 +588,6 @@ fileRoutes.put('/:jid/files/content/:path', authMiddleware, async (c) => {
 
   const group = getRegisteredGroup(jid);
   if (!group) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
   try {
@@ -696,11 +654,6 @@ fileRoutes.delete('/:jid/files/:path', authMiddleware, (c) => {
   if (!group) {
     return c.json({ error: 'Group not found' }, 404);
   }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
   try {
     const rootOverride = getRequiredFileRootOverride(group);
     // 解码 base64url 路径
@@ -735,11 +688,6 @@ fileRoutes.post('/:jid/directories', authMiddleware, async (c) => {
 
   const group = getRegisteredGroup(jid);
   if (!group) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
     return c.json({ error: 'Group not found' }, 404);
   }
   try {

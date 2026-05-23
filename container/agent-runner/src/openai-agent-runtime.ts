@@ -55,7 +55,7 @@ export interface OpenAiAgentRuntimeDeps {
   log: (message: string) => void;
   normalizeHomeFlags: (input: AgentProcessInput) => {
     isHome: boolean;
-    isAdminHome: boolean;
+    isMainWorkspace: boolean;
   };
   cleanupStartupInterruptSentinel: () => void;
   clearInterruptRequested: () => void;
@@ -337,7 +337,7 @@ export async function runOpenAiAgentLoop(
   }
   deps.cleanupStartupInterruptSentinel();
 
-  const { isHome, isAdminHome } = deps.normalizeHomeFlags(agentInput);
+  const { isHome, isMainWorkspace } = deps.normalizeHomeFlags(agentInput);
   const model = agentInput.model || OPENAI_MODEL;
   const effectiveAllowedTools = agentInput.role
     ? agentInput.role.allowedTools
@@ -351,7 +351,7 @@ export async function runOpenAiAgentLoop(
       chatJid: agentInput.chatJid,
       groupFolder: agentInput.groupFolder,
       isHome,
-      isAdminHome,
+      isMainWorkspace,
       isScheduledTask: agentInput.isScheduledTask || false,
       workspaceIpc: deps.workspaceIpc,
       workspaceGroup: deps.workspaceGroup,

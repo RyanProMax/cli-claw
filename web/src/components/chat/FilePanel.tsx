@@ -499,7 +499,7 @@ export function FilePanel({ groupJid, onClose }: FilePanelProps) {
   const [mdViewFile, setMdViewFile] = useState<FileEntry | null>(null);
 
   const isStreaming = useChatStore((s) => !!s.streaming[groupJid]);
-  const canOpenLocalFolder = useAuthStore((s) => s.user?.role === 'admin');
+  const canOpenLocalFolder = useAuthStore((s) => s.authenticated);
   const prevStreamingRef = useRef(false);
 
   const fileList = files[groupJid] || [];

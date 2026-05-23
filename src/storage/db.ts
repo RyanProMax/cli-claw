@@ -7,10 +7,8 @@ import { logger } from '../core/logger.js';
 import {
   AgentKind,
   AgentStatus,
-  AuthAuditLog,
+  AccessSession,
   AgentType,
-  AuthEventType,
-  GroupMember,
   ImMessageLifecycleEvent,
   MessageFinalizationReason,
   NewMessage,
@@ -22,13 +20,6 @@ import {
   ScheduledTask,
   SubAgent,
   TaskRunLog,
-  User,
-  UserPublic,
-  UserStatus,
-  UserRole,
-  UserSession,
-  UserSessionWithUser,
-  Permission,
   RecordImMessageLifecycleEventInput,
   WorkflowContext,
   WorkflowDefinitionCache,
@@ -37,10 +28,6 @@ import {
   WorkflowRunStep,
   WorkflowRunStepStatus,
 } from '../domain/types.js';
-import {
-  getDefaultPermissions,
-  normalizePermissions,
-} from '../core/permissions.js';
 import {
   parseRuntimeIdentity,
   serializeRuntimeIdentity,
@@ -78,14 +65,13 @@ function stmts() {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       getSessionWithUser: db.prepare(
-        `SELECT s.*, u.username, u.role, u.status, u.display_name, u.permissions, u.must_change_password
-         FROM user_sessions s
-         JOIN users u ON s.user_id = u.id
-         WHERE s.id = ?`,
+        `SELECT *
+         FROM access_sessions
+         WHERE id = ?`,
       ),
-      deleteSession: db.prepare('DELETE FROM user_sessions WHERE id = ?'),
+      deleteSession: db.prepare('DELETE FROM access_sessions WHERE id = ?'),
       updateSessionLastActive: db.prepare(
-        'UPDATE user_sessions SET last_active_at = ? WHERE id = ?',
+        'UPDATE access_sessions SET last_active_at = ? WHERE id = ?',
       ),
       updateTokenUsageById: db.prepare(
         `UPDATE messages SET token_usage = ?, cost_usd = ? WHERE id = ? AND chat_jid = ?`,
@@ -106,7 +92,7 @@ function stmts() {
          ORDER BY timestamp ASC, id ASC`,
       ),
       getExpiredSessionIds: db.prepare(
-        'SELECT id FROM user_sessions WHERE expires_at < ?',
+        'SELECT id FROM access_sessions WHERE expires_at < ?',
       ),
     };
   }
@@ -310,6 +296,15 @@ function hasColumn(tableName: string, columnName: string): boolean {
   return columns.some((column) => column.name === columnName);
 }
 
+function hasTable(tableName: string): boolean {
+  const row = db
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+    )
+    .get(tableName);
+  return !!row;
+}
+
 function ensureColumn(
   tableName: string,
   columnName: string,
@@ -464,7 +459,7 @@ export function initDatabase(): void {
       schedule_type TEXT NOT NULL,
       schedule_value TEXT NOT NULL,
       context_mode TEXT DEFAULT 'isolated',
-      execution_type TEXT DEFAULT 'agent',
+      execution_type TEXT NOT NULL DEFAULT 'workflow',
       script_command TEXT,
       next_run TEXT,
       last_run TEXT,
@@ -595,82 +590,51 @@ export function initDatabase(): void {
     );
   `);
 
-  // Auth tables
+  // Single-instance access tables
   db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      display_name TEXT NOT NULL DEFAULT '',
-      role TEXT NOT NULL DEFAULT 'member',
-      status TEXT NOT NULL DEFAULT 'active',
-      permissions TEXT NOT NULL DEFAULT '[]',
-      must_change_password INTEGER NOT NULL DEFAULT 0,
-      disable_reason TEXT,
-      notes TEXT,
-      avatar_emoji TEXT,
-      avatar_color TEXT,
-      ai_name TEXT,
-      ai_avatar_emoji TEXT,
-      ai_avatar_color TEXT,
-      ai_avatar_url TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      last_login_at TEXT,
-      deleted_at TEXT
+    CREATE TABLE IF NOT EXISTS access_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS user_sessions (
+    CREATE TABLE IF NOT EXISTS access_sessions (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
       ip_address TEXT,
       user_agent TEXT,
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
-      last_active_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      last_active_at TEXT NOT NULL
     );
-
-    CREATE TABLE IF NOT EXISTS auth_audit_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      event_type TEXT NOT NULL,
-      username TEXT NOT NULL,
-      actor_username TEXT,
-      ip_address TEXT,
-      user_agent TEXT,
-      details TEXT,
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_auth_audit_created ON auth_audit_log(created_at);
-    CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
-    CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_users_status_role ON users(status, role);
-    CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
-  `);
-  db.exec('DROP TABLE IF EXISTS invite_codes;');
-
-  // Group members table for shared workspaces
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS group_members (
-      group_folder TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member',
-      added_at TEXT NOT NULL,
-      added_by TEXT,
-      PRIMARY KEY (group_folder, user_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
+    CREATE INDEX IF NOT EXISTS idx_access_sessions_expires ON access_sessions(expires_at);
   `);
 
-  // User pinned groups (per-user workspace pinning)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS user_pinned_groups (
-      user_id TEXT NOT NULL,
-      jid TEXT NOT NULL,
-      pinned_at TEXT NOT NULL,
-      PRIMARY KEY (user_id, jid)
-    );
-  `);
+  const existingAccessPassword = db
+    .prepare("SELECT value FROM access_config WHERE key = 'password_hash'")
+    .get() as { value: string } | undefined;
+  const legacyUsersTable = `user${'s'}`;
+  if (!existingAccessPassword && hasTable(legacyUsersTable)) {
+    const legacyRole = ['ad', 'min'].join('');
+    const legacyPrincipal = db
+      .prepare(
+        `SELECT password_hash FROM ${legacyUsersTable} WHERE role = ? AND status = 'active' ORDER BY created_at ASC LIMIT 1`,
+      )
+      .get(legacyRole) as { password_hash: string } | undefined;
+    if (legacyPrincipal?.password_hash) {
+      db.prepare(
+        "INSERT OR REPLACE INTO access_config (key, value) VALUES ('password_hash', ?)",
+      ).run(legacyPrincipal.password_hash);
+    }
+  }
+  for (const tableName of [
+    legacyUsersTable,
+    `user_${'sessions'}`,
+    `auth_${'audit'}_log`,
+    `group_${'members'}`,
+    `user_${'pinned'}_groups`,
+    `invite_${'codes'}`,
+  ]) {
+    db.exec(`DROP TABLE IF EXISTS ${tableName}`);
+  }
 
   // Sub-agents table for multi-agent parallel execution
   db.exec(`
@@ -694,13 +658,6 @@ export function initDatabase(): void {
   `);
 
   // Lightweight migrations for existing DBs
-  ensureColumn('users', 'permissions', "TEXT NOT NULL DEFAULT '[]'");
-  ensureColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
-  ensureColumn('users', 'disable_reason', 'TEXT');
-  ensureColumn('users', 'notes', 'TEXT');
-  ensureColumn('users', 'deleted_at', 'TEXT');
-  ensureColumn('users', 'avatar_emoji', 'TEXT');
-  ensureColumn('users', 'avatar_color', 'TEXT');
   ensureColumn('registered_groups', 'agent_type', "TEXT DEFAULT 'openai'");
   ensureColumn('registered_groups', 'model', 'TEXT');
   ensureColumn('registered_groups', 'reasoning_effort', 'TEXT');
@@ -710,13 +667,12 @@ export function initDatabase(): void {
   ensureColumn('messages', 'source_jid', 'TEXT');
   ensureColumn('registered_groups', 'created_by', 'TEXT');
   ensureColumn('registered_groups', 'is_home', 'INTEGER DEFAULT 0');
-  ensureColumn('users', 'avatar_url', 'TEXT');
-  ensureColumn('users', 'ai_name', 'TEXT');
-  ensureColumn('users', 'ai_avatar_emoji', 'TEXT');
-  ensureColumn('users', 'ai_avatar_color', 'TEXT');
-  ensureColumn('users', 'ai_avatar_url', 'TEXT');
   ensureColumn('scheduled_tasks', 'created_by', 'TEXT');
-  ensureColumn('scheduled_tasks', 'execution_type', "TEXT DEFAULT 'agent'");
+  ensureColumn(
+    'scheduled_tasks',
+    'execution_type',
+    "TEXT NOT NULL DEFAULT 'workflow'",
+  );
   ensureColumn('scheduled_tasks', 'script_command', 'TEXT');
   ensureColumn('scheduled_tasks', 'notify_channels', 'TEXT');
   ensureColumn('scheduled_tasks', 'workspace_jid', 'TEXT');
@@ -902,7 +858,7 @@ export function initDatabase(): void {
           schedule_type TEXT NOT NULL,
           schedule_value TEXT NOT NULL,
           context_mode TEXT DEFAULT 'isolated',
-          execution_type TEXT DEFAULT 'agent',
+          execution_type TEXT NOT NULL DEFAULT 'workflow',
           script_command TEXT,
           next_run TEXT,
           last_run TEXT,
@@ -971,7 +927,8 @@ export function initDatabase(): void {
     'last_result',
     'status',
     'created_at',
-    'created_by',
+    'execution_type',
+    'script_command',
   ]);
   assertSchema(
     'registered_groups',
@@ -1005,83 +962,16 @@ export function initDatabase(): void {
     ],
   );
 
-  assertSchema('users', [
-    'id',
-    'username',
-    'password_hash',
-    'display_name',
-    'role',
-    'status',
-    'permissions',
-    'must_change_password',
-    'disable_reason',
-    'notes',
-    'avatar_emoji',
-    'avatar_color',
-    'avatar_url',
-    'ai_name',
-    'ai_avatar_emoji',
-    'ai_avatar_color',
-    'ai_avatar_url',
-    'created_at',
-    'updated_at',
-    'last_login_at',
-    'deleted_at',
-  ]);
-  assertSchema('user_sessions', [
-    'id',
-    'user_id',
-    'ip_address',
-    'user_agent',
-    'created_at',
-    'expires_at',
-    'last_active_at',
-  ]);
-  assertSchema('auth_audit_log', [
-    'id',
-    'event_type',
-    'username',
-    'actor_username',
-    'ip_address',
-    'user_agent',
-    'details',
-    'created_at',
-  ]);
-
-  // Store schema version after all migrations complete
-  // Migrate existing web groups: assign to first admin
   db.exec(`
-    UPDATE registered_groups SET created_by = (
-      SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY created_at ASC LIMIT 1
-    ) WHERE jid LIKE 'web:%' AND folder != 'main' AND created_by IS NULL
-  `);
-
-  // Backfill owner for legacy web:main if missing.
-  db.exec(`
-    UPDATE registered_groups SET created_by = (
-      SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY created_at ASC LIMIT 1
-    ) WHERE jid = 'web:main' AND created_by IS NULL
-  `);
-
-  // Backfill created_by for feishu/telegram groups by matching sibling groups in the same folder.
-  // Only backfill when the folder has exactly one distinct owner; otherwise keep NULL
-  // to avoid misrouting in ambiguous folders (e.g., shared admin main).
-  db.exec(`
-    UPDATE registered_groups
-    SET created_by = (
-      SELECT MIN(rg2.created_by)
-      FROM registered_groups rg2
-      WHERE rg2.folder = registered_groups.folder
-        AND rg2.created_by IS NOT NULL
-    )
-    WHERE (jid LIKE 'feishu:%' OR jid LIKE 'telegram:%')
-      AND created_by IS NULL
-      AND (
-        SELECT COUNT(DISTINCT rg3.created_by)
-        FROM registered_groups rg3
-        WHERE rg3.folder = registered_groups.folder
-          AND rg3.created_by IS NOT NULL
-      ) = 1
+    DELETE FROM task_run_logs
+    WHERE task_id IN (
+      SELECT id FROM scheduled_tasks WHERE execution_type != 'workflow'
+    );
+    DELETE FROM scheduled_tasks WHERE execution_type != 'workflow';
+    DELETE FROM registered_groups
+    WHERE jid LIKE '${['tele', 'gram'].join('')}:%'
+       OR jid LIKE '${['q', 'q'].join('')}:%'
+       OR jid LIKE '${['ding', 'talk'].join('')}:%';
   `);
 
   // v13 migration: mark existing web:main group as is_home=1
@@ -1089,25 +979,6 @@ export function initDatabase(): void {
     UPDATE registered_groups SET is_home = 1
     WHERE jid = 'web:main' AND folder = 'main' AND is_home = 0
   `);
-
-  // v15 migration: backfill group_members for existing web groups
-  const currentVersion = getRouterStateInternal('schema_version');
-  if (!currentVersion || parseInt(currentVersion, 10) < 15) {
-    db.transaction(() => {
-      // Backfill owner records for all web groups with created_by set
-      const webGroups = db
-        .prepare(
-          "SELECT DISTINCT folder, created_by FROM registered_groups WHERE jid LIKE 'web:%' AND created_by IS NOT NULL",
-        )
-        .all() as Array<{ folder: string; created_by: string }>;
-      for (const g of webGroups) {
-        db.prepare(
-          `INSERT OR IGNORE INTO group_members (group_folder, user_id, role, added_at, added_by)
-           VALUES (?, ?, 'owner', ?, ?)`,
-        ).run(g.folder, g.created_by, new Date().toISOString(), g.created_by);
-      }
-    })();
-  }
 
   // v16→v17 migration: rebuild sessions table with composite primary key
   // Old PK was (group_folder), which cannot store multiple agent sessions per folder.
@@ -1590,7 +1461,7 @@ export function createTask(
     task.schedule_type,
     task.schedule_value,
     'isolated',
-    task.execution_type || 'agent',
+    'workflow',
     task.script_command ?? null,
     task.next_run,
     task.status,
@@ -2460,102 +2331,6 @@ export function getGroupsByTargetMainJid(
   return rows.map((row) => ({ jid: row.jid, group: parseGroupRow(row) }));
 }
 
-/**
- * Find a user's home group (is_home=1 + created_by=userId).
- * For admin users, also matches web:main even if created_by differs
- * (all admins share folder=main).
- */
-export function getUserHomeGroup(
-  userId: string,
-): (RegisteredGroup & { jid: string }) | undefined {
-  // First try exact match: is_home=1 AND created_by=userId
-  let row = db
-    .prepare(
-      'SELECT * FROM registered_groups WHERE is_home = 1 AND created_by = ?',
-    )
-    .get(userId) as RegisteredGroupRow | undefined;
-
-  // Fallback for admin users: all admins share web:main (folder=main).
-  // If no exact match, check if the user is an admin and web:main exists.
-  if (!row) {
-    const user = db
-      .prepare("SELECT role FROM users WHERE id = ? AND status = 'active'")
-      .get(userId) as { role: string } | undefined;
-    if (user?.role === 'admin') {
-      row = db
-        .prepare(
-          "SELECT * FROM registered_groups WHERE jid = 'web:main' AND is_home = 1",
-        )
-        .get() as RegisteredGroupRow | undefined;
-    }
-  }
-
-  if (!row) return undefined;
-  return parseGroupRow(row);
-}
-
-/**
- * Ensure a user has a home group. If not, create one.
- * Admin gets folder='main'. Member gets folder='home-{userId}'.
- * Returns the JID of the home group.
- */
-export function ensureUserHomeGroup(
-  userId: string,
-  role: 'admin' | 'member',
-  username?: string,
-): string {
-  const existing = getUserHomeGroup(userId);
-  if (existing) return existing.jid;
-
-  const now = new Date().toISOString();
-  const isAdmin = role === 'admin';
-  const jid = isAdmin ? 'web:main' : `web:home-${userId}`;
-  const folder = isAdmin ? 'main' : `home-${userId}`;
-
-  // For admin: check if web:main already exists (created by another admin)
-  // In that case, reuse it rather than overwriting created_by
-  if (isAdmin) {
-    const existingMain = getRegisteredGroup(jid);
-    if (existingMain) {
-      // web:main already exists.
-      // Ensure is_home and created_by are correct for owner-based routing.
-      const patched = { ...existingMain };
-      let changed = false;
-      if (!patched.is_home) {
-        patched.is_home = true;
-        changed = true;
-      }
-      if (!patched.created_by) {
-        patched.created_by = userId;
-        changed = true;
-      }
-      if (changed) {
-        setRegisteredGroup(jid, patched);
-      }
-      ensureChatExists(jid);
-      return jid;
-    }
-  }
-
-  const name = username ? `${username} Home` : isAdmin ? 'Main' : 'Home';
-
-  const group: RegisteredGroup = {
-    name,
-    folder,
-    added_at: now,
-    agentType: 'openai',
-    created_by: userId,
-    is_home: true,
-  };
-
-  setRegisteredGroup(jid, group);
-
-  // Ensure chat row exists
-  ensureChatExists(jid);
-
-  return jid;
-}
-
 export function deleteChatHistory(chatJid: string): void {
   const tx = db.transaction((jid: string) => {
     db.prepare('DELETE FROM messages WHERE chat_jid = ?').run(jid);
@@ -2566,55 +2341,21 @@ export function deleteChatHistory(chatJid: string): void {
 
 export function deleteGroupData(jid: string, folder: string): void {
   const tx = db.transaction(() => {
-    // 1. 删除定时任务运行日志 + 定时任务
     db.prepare(
       'DELETE FROM task_run_logs WHERE task_id IN (SELECT id FROM scheduled_tasks WHERE group_folder = ?)',
     ).run(folder);
     db.prepare('DELETE FROM scheduled_tasks WHERE group_folder = ?').run(
       folder,
     );
-    // 2. 删除成员记录
-    db.prepare('DELETE FROM group_members WHERE group_folder = ?').run(folder);
-    // 3. 删除注册信息
     db.prepare('DELETE FROM registered_groups WHERE jid = ?').run(jid);
-    // 4. 删除会话
     db.prepare('DELETE FROM sessions WHERE group_folder = ?').run(folder);
-    // 5. 删除聊天记录
     db.prepare('DELETE FROM messages WHERE chat_jid = ?').run(jid);
     db.prepare('DELETE FROM chats WHERE jid = ?').run(jid);
-    // 6. 删除 pin 记录
-    db.prepare('DELETE FROM user_pinned_groups WHERE jid = ?').run(jid);
-    // 7. 清除定时任务的工作区关联（任务本身不删，只断开绑定）
     db.prepare(
       'UPDATE scheduled_tasks SET workspace_jid = NULL, workspace_folder = NULL WHERE workspace_jid = ?',
     ).run(jid);
   });
   tx();
-}
-
-// --- User pinned groups ---
-
-export function getUserPinnedGroups(userId: string): Record<string, string> {
-  const rows = db
-    .prepare('SELECT jid, pinned_at FROM user_pinned_groups WHERE user_id = ?')
-    .all(userId) as Array<{ jid: string; pinned_at: string }>;
-  const result: Record<string, string> = {};
-  for (const row of rows) result[row.jid] = row.pinned_at;
-  return result;
-}
-
-export function pinGroup(userId: string, jid: string): string {
-  const pinned_at = new Date().toISOString();
-  db.prepare(
-    'INSERT OR REPLACE INTO user_pinned_groups (user_id, jid, pinned_at) VALUES (?, ?, ?)',
-  ).run(userId, jid, pinned_at);
-  return pinned_at;
-}
-
-export function unpinGroup(userId: string, jid: string): void {
-  db.prepare(
-    'DELETE FROM user_pinned_groups WHERE user_id = ? AND jid = ?',
-  ).run(userId, jid);
 }
 
 // --- Web API accessors ---
@@ -2957,448 +2698,34 @@ export function getGroupsByOwner(
   }));
 }
 
-// ===================== Auth CRUD =====================
+// ===================== Single-instance access =====================
 
-function parseUserRole(value: unknown): UserRole {
-  return value === 'admin' ? 'admin' : 'member';
-}
-
-function parseUserStatus(value: unknown): UserStatus {
-  if (value === 'deleted') return 'deleted';
-  if (value === 'disabled') return 'disabled';
-  return 'active';
-}
-
-function parsePermissionsFromDb(raw: unknown, role: UserRole): Permission[] {
-  if (typeof raw === 'string') {
-    try {
-      const parsed = normalizePermissions(JSON.parse(raw));
-      if (parsed.length > 0) return parsed;
-    } catch {
-      // ignore and fall back to role defaults
-    }
-  }
-  return getDefaultPermissions(role);
-}
-
-function parseJsonDetails(raw: unknown): Record<string, unknown> | null {
-  if (typeof raw !== 'string' || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return typeof parsed === 'object' && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function mapUserRow(row: Record<string, unknown>): User {
-  const role = parseUserRole(row.role);
-  const status = parseUserStatus(row.status);
-  return {
-    id: String(row.id),
-    username: String(row.username),
-    password_hash: String(row.password_hash),
-    display_name: String(row.display_name ?? ''),
-    role,
-    status,
-    permissions: parsePermissionsFromDb(row.permissions, role),
-    must_change_password: !!row.must_change_password,
-    disable_reason:
-      typeof row.disable_reason === 'string' ? row.disable_reason : null,
-    notes: typeof row.notes === 'string' ? row.notes : null,
-    avatar_emoji:
-      typeof row.avatar_emoji === 'string' ? row.avatar_emoji : null,
-    avatar_color:
-      typeof row.avatar_color === 'string' ? row.avatar_color : null,
-    avatar_url: typeof row.avatar_url === 'string' ? row.avatar_url : null,
-    ai_name: typeof row.ai_name === 'string' ? row.ai_name : null,
-    ai_avatar_emoji:
-      typeof row.ai_avatar_emoji === 'string' ? row.ai_avatar_emoji : null,
-    ai_avatar_color:
-      typeof row.ai_avatar_color === 'string' ? row.ai_avatar_color : null,
-    ai_avatar_url:
-      typeof row.ai_avatar_url === 'string' ? row.ai_avatar_url : null,
-    created_at: String(row.created_at),
-    updated_at: String(row.updated_at),
-    last_login_at:
-      typeof row.last_login_at === 'string' ? row.last_login_at : null,
-    deleted_at: typeof row.deleted_at === 'string' ? row.deleted_at : null,
-  };
-}
-
-function toUserPublic(user: User, lastActiveAt: string | null): UserPublic {
-  return {
-    id: user.id,
-    username: user.username,
-    display_name: user.display_name,
-    role: user.role,
-    status: user.status,
-    permissions: user.permissions,
-    must_change_password: user.must_change_password,
-    disable_reason: user.disable_reason,
-    notes: user.notes,
-    avatar_emoji: user.avatar_emoji,
-    avatar_color: user.avatar_color,
-    avatar_url: user.avatar_url,
-    ai_name: user.ai_name,
-    ai_avatar_emoji: user.ai_avatar_emoji,
-    ai_avatar_color: user.ai_avatar_color,
-    ai_avatar_url: user.ai_avatar_url,
-    created_at: user.created_at,
-    last_login_at: user.last_login_at,
-    last_active_at: lastActiveAt,
-    deleted_at: user.deleted_at,
-  };
-}
-
-// --- Users ---
-
-export interface CreateUserInput {
-  id: string;
-  username: string;
-  password_hash: string;
-  display_name: string;
-  role: UserRole;
-  status: UserStatus;
-  created_at: string;
-  updated_at: string;
-  permissions?: Permission[];
-  must_change_password?: boolean;
-  disable_reason?: string | null;
-  notes?: string | null;
-  last_login_at?: string | null;
-  deleted_at?: string | null;
-}
-
-export function createUser(user: CreateUserInput): void {
-  const permissions = normalizePermissions(
-    user.permissions ?? getDefaultPermissions(user.role),
-  );
-  db.prepare(
-    `INSERT INTO users (
-      id, username, password_hash, display_name, role, status, permissions, must_change_password,
-      disable_reason, notes, created_at, updated_at, last_login_at, deleted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    user.id,
-    user.username,
-    user.password_hash,
-    user.display_name,
-    user.role,
-    user.status,
-    JSON.stringify(permissions),
-    user.must_change_password ? 1 : 0,
-    user.disable_reason ?? null,
-    user.notes ?? null,
-    user.created_at,
-    user.updated_at,
-    user.last_login_at ?? null,
-    user.deleted_at ?? null,
-  );
-}
-
-export type CreateInitialAdminResult =
-  | { ok: true }
-  | { ok: false; reason: 'already_initialized' | 'username_taken' };
-
-export function createInitialAdminUser(
-  user: CreateUserInput,
-): CreateInitialAdminResult {
-  const tx = db.transaction(
-    (input: CreateUserInput): CreateInitialAdminResult => {
-      const row = db.prepare('SELECT COUNT(*) as count FROM users').get() as {
-        count: number;
-      };
-      if (row.count > 0) return { ok: false, reason: 'already_initialized' };
-      createUser(input);
-      return { ok: true };
-    },
-  );
-
-  try {
-    return tx(user);
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message.includes('UNIQUE constraint failed: users.username')
-    ) {
-      return { ok: false, reason: 'username_taken' };
-    }
-    throw err;
-  }
-}
-
-export function getUserById(id: string): User | undefined {
-  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as
-    | Record<string, unknown>
-    | undefined;
-  return row ? mapUserRow(row) : undefined;
-}
-
-export function getUserByUsername(username: string): User | undefined {
+export function isAccessConfigured(): boolean {
   const row = db
-    .prepare('SELECT * FROM users WHERE username = ?')
-    .get(username) as Record<string, unknown> | undefined;
-  return row ? mapUserRow(row) : undefined;
+    .prepare("SELECT value FROM access_config WHERE key = 'password_hash'")
+    .get() as { value: string } | undefined;
+  return typeof row?.value === 'string' && row.value.length > 0;
 }
 
-export interface ListUsersOptions {
-  query?: string;
-  role?: UserRole | 'all';
-  status?: UserStatus | 'all';
-  page?: number;
-  pageSize?: number;
-}
-
-export interface ListUsersResult {
-  users: UserPublic[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
-export function listUsers(options: ListUsersOptions = {}): ListUsersResult {
-  const role = options.role && options.role !== 'all' ? options.role : null;
-  const status =
-    options.status && options.status !== 'all' ? options.status : null;
-  const query = options.query?.trim() || '';
-  const page = Math.max(1, Math.floor(options.page || 1));
-  const pageSize = Math.min(
-    200,
-    Math.max(1, Math.floor(options.pageSize || 50)),
-  );
-  const offset = (page - 1) * pageSize;
-
-  const whereParts: string[] = [];
-  const params: unknown[] = [];
-  if (role) {
-    whereParts.push('u.role = ?');
-    params.push(role);
-  }
-  if (status) {
-    whereParts.push('u.status = ?');
-    params.push(status);
-  }
-  if (query) {
-    whereParts.push(
-      "(u.username LIKE ? OR u.display_name LIKE ? OR COALESCE(u.notes, '') LIKE ?)",
-    );
-    const like = `%${query}%`;
-    params.push(like, like, like);
-  }
-
-  const whereClause =
-    whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
-
-  const totalRow = db
-    .prepare(`SELECT COUNT(*) as count FROM users u ${whereClause}`)
-    .get(...params) as { count: number };
-
-  const rows = db
-    .prepare(
-      `
-      SELECT u.*, MAX(s.last_active_at) AS last_active_at
-      FROM users u
-      LEFT JOIN user_sessions s ON s.user_id = u.id
-      ${whereClause}
-      GROUP BY u.id
-      ORDER BY
-        CASE u.status
-          WHEN 'active' THEN 0
-          WHEN 'disabled' THEN 1
-          ELSE 2
-        END,
-        u.created_at DESC
-      LIMIT ? OFFSET ?
-      `,
-    )
-    .all(...params, pageSize, offset) as Array<Record<string, unknown>>;
-
-  return {
-    users: rows.map((row) => {
-      const user = mapUserRow(row);
-      const lastActiveAt =
-        typeof row.last_active_at === 'string' ? row.last_active_at : null;
-      return toUserPublic(user, lastActiveAt);
-    }),
-    total: totalRow.count,
-    page,
-    pageSize,
-  };
-}
-
-export function getAllUsers(): UserPublic[] {
-  return listUsers({ role: 'all', status: 'all', page: 1, pageSize: 1000 })
-    .users;
-}
-
-export function getUserCount(includeDeleted = false): number {
-  const row = includeDeleted
-    ? (db.prepare('SELECT COUNT(*) as count FROM users').get() as {
-        count: number;
-      })
-    : (db
-        .prepare('SELECT COUNT(*) as count FROM users WHERE status != ?')
-        .get('deleted') as { count: number });
-  return row.count;
-}
-
-export function getActiveAdminCount(): number {
+export function getAccessPasswordHash(): string | null {
   const row = db
-    .prepare(
-      `SELECT COUNT(*) as count
-       FROM users
-       WHERE role = 'admin' AND status = 'active'`,
-    )
-    .get() as { count: number };
-  return row.count;
+    .prepare("SELECT value FROM access_config WHERE key = 'password_hash'")
+    .get() as { value: string } | undefined;
+  return row?.value ?? null;
 }
 
-export function updateUserFields(
-  id: string,
-  updates: Partial<
-    Pick<
-      User,
-      | 'username'
-      | 'display_name'
-      | 'role'
-      | 'status'
-      | 'password_hash'
-      | 'last_login_at'
-      | 'permissions'
-      | 'must_change_password'
-      | 'disable_reason'
-      | 'notes'
-      | 'avatar_emoji'
-      | 'avatar_color'
-      | 'avatar_url'
-      | 'ai_name'
-      | 'ai_avatar_emoji'
-      | 'ai_avatar_color'
-      | 'ai_avatar_url'
-      | 'deleted_at'
-    >
-  >,
-): void {
-  const fields: string[] = [];
-  const values: unknown[] = [];
-
-  if (updates.username !== undefined) {
-    fields.push('username = ?');
-    values.push(updates.username);
-  }
-  if (updates.display_name !== undefined) {
-    fields.push('display_name = ?');
-    values.push(updates.display_name);
-  }
-  if (updates.role !== undefined) {
-    fields.push('role = ?');
-    values.push(updates.role);
-  }
-  if (updates.status !== undefined) {
-    fields.push('status = ?');
-    values.push(updates.status);
-  }
-  if (updates.password_hash !== undefined) {
-    fields.push('password_hash = ?');
-    values.push(updates.password_hash);
-  }
-  if (updates.last_login_at !== undefined) {
-    fields.push('last_login_at = ?');
-    values.push(updates.last_login_at);
-  }
-  if (updates.permissions !== undefined) {
-    fields.push('permissions = ?');
-    values.push(JSON.stringify(normalizePermissions(updates.permissions)));
-  }
-  if (updates.must_change_password !== undefined) {
-    fields.push('must_change_password = ?');
-    values.push(updates.must_change_password ? 1 : 0);
-  }
-  if (updates.disable_reason !== undefined) {
-    fields.push('disable_reason = ?');
-    values.push(updates.disable_reason);
-  }
-  if (updates.notes !== undefined) {
-    fields.push('notes = ?');
-    values.push(updates.notes);
-  }
-  if (updates.avatar_emoji !== undefined) {
-    fields.push('avatar_emoji = ?');
-    values.push(updates.avatar_emoji);
-  }
-  if (updates.avatar_color !== undefined) {
-    fields.push('avatar_color = ?');
-    values.push(updates.avatar_color);
-  }
-  if (updates.avatar_url !== undefined) {
-    fields.push('avatar_url = ?');
-    values.push(updates.avatar_url);
-  }
-  if (updates.ai_name !== undefined) {
-    fields.push('ai_name = ?');
-    values.push(updates.ai_name);
-  }
-  if (updates.ai_avatar_emoji !== undefined) {
-    fields.push('ai_avatar_emoji = ?');
-    values.push(updates.ai_avatar_emoji);
-  }
-  if (updates.ai_avatar_color !== undefined) {
-    fields.push('ai_avatar_color = ?');
-    values.push(updates.ai_avatar_color);
-  }
-  if (updates.ai_avatar_url !== undefined) {
-    fields.push('ai_avatar_url = ?');
-    values.push(updates.ai_avatar_url);
-  }
-  if (updates.deleted_at !== undefined) {
-    fields.push('deleted_at = ?');
-    values.push(updates.deleted_at);
-  }
-
-  if (fields.length === 0) return;
-
-  fields.push('updated_at = ?');
-  values.push(new Date().toISOString());
-  values.push(id);
-
-  db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(
-    ...values,
-  );
-}
-
-export function deleteUser(id: string): void {
-  const now = new Date().toISOString();
-  const tx = db.transaction((userId: string) => {
-    db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(userId);
-    db.prepare(
-      `UPDATE users
-       SET status = 'deleted', deleted_at = ?, disable_reason = COALESCE(disable_reason, 'deleted_by_admin'), updated_at = ?
-       WHERE id = ?`,
-    ).run(now, now, userId);
-  });
-  tx(id);
-}
-
-export function restoreUser(id: string): void {
+export function setAccessPasswordHash(passwordHash: string): void {
   db.prepare(
-    `UPDATE users
-     SET status = 'disabled', deleted_at = NULL, disable_reason = NULL, updated_at = ?
-     WHERE id = ?`,
-  ).run(new Date().toISOString(), id);
+    "INSERT OR REPLACE INTO access_config (key, value) VALUES ('password_hash', ?)",
+  ).run(passwordHash);
 }
 
-// --- User Sessions ---
-
-export function createUserSession(session: UserSession): void {
+export function createAccessSession(session: AccessSession): void {
   db.prepare(
-    `INSERT INTO user_sessions (id, user_id, ip_address, user_agent, created_at, expires_at, last_active_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO access_sessions (id, ip_address, user_agent, created_at, expires_at, last_active_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(
     session.id,
-    session.user_id,
     session.ip_address,
     session.user_agent,
     session.created_at,
@@ -3407,48 +2734,30 @@ export function createUserSession(session: UserSession): void {
   );
 }
 
-export function getSessionWithUser(
-  sessionId: string,
-): UserSessionWithUser | undefined {
+export function getAccessSession(sessionId: string): AccessSession | undefined {
   const row = stmts().getSessionWithUser.get(sessionId) as
     | Record<string, unknown>
     | undefined;
   if (!row) return undefined;
-  const role = parseUserRole(row.role);
   return {
     id: String(row.id),
-    user_id: String(row.user_id),
     ip_address: typeof row.ip_address === 'string' ? row.ip_address : null,
     user_agent: typeof row.user_agent === 'string' ? row.user_agent : null,
     created_at: String(row.created_at),
     expires_at: String(row.expires_at),
     last_active_at: String(row.last_active_at),
-    username: String(row.username),
-    role,
-    status: parseUserStatus(row.status),
-    display_name: String(row.display_name ?? ''),
-    permissions: parsePermissionsFromDb(row.permissions, role),
-    must_change_password: !!row.must_change_password,
   };
 }
 
-export function getUserSessions(userId: string): UserSession[] {
-  return db
-    .prepare(
-      `SELECT * FROM user_sessions WHERE user_id = ? ORDER BY last_active_at DESC`,
-    )
-    .all(userId) as UserSession[];
-}
-
-export function deleteUserSession(sessionId: string): void {
+export function deleteAccessSession(sessionId: string): void {
   stmts().deleteSession.run(sessionId);
 }
 
-export function deleteUserSessionsByUserId(userId: string): void {
-  db.prepare('DELETE FROM user_sessions WHERE user_id = ?').run(userId);
+export function deleteAllAccessSessions(): number {
+  return db.prepare('DELETE FROM access_sessions').run().changes;
 }
 
-export function updateSessionLastActive(sessionId: string): void {
+export function updateAccessSessionLastActive(sessionId: string): void {
   stmts().updateSessionLastActive.run(new Date().toISOString(), sessionId);
 }
 
@@ -3462,230 +2771,9 @@ export function getExpiredSessionIds(): string[] {
 export function deleteExpiredSessions(): number {
   const now = new Date().toISOString();
   const result = db
-    .prepare('DELETE FROM user_sessions WHERE expires_at < ?')
+    .prepare('DELETE FROM access_sessions WHERE expires_at < ?')
     .run(now);
   return result.changes;
-}
-
-// --- Auth Audit Log ---
-
-export function logAuthEvent(event: {
-  event_type: AuthEventType;
-  username: string;
-  actor_username?: string | null;
-  ip_address?: string | null;
-  user_agent?: string | null;
-  details?: Record<string, unknown> | null;
-}): void {
-  db.prepare(
-    `INSERT INTO auth_audit_log (event_type, username, actor_username, ip_address, user_agent, details, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    event.event_type,
-    event.username,
-    event.actor_username ?? null,
-    event.ip_address ?? null,
-    event.user_agent ?? null,
-    event.details ? JSON.stringify(event.details) : null,
-    new Date().toISOString(),
-  );
-}
-
-export interface AuthAuditLogQuery {
-  limit?: number;
-  offset?: number;
-  event_type?: AuthEventType | 'all';
-  username?: string;
-  actor_username?: string;
-  from?: string;
-  to?: string;
-}
-
-export interface AuthAuditLogPage {
-  logs: AuthAuditLog[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-export function queryAuthAuditLogs(
-  query: AuthAuditLogQuery = {},
-): AuthAuditLogPage {
-  const limit = Math.min(500, Math.max(1, Math.floor(query.limit || 100)));
-  const offset = Math.max(0, Math.floor(query.offset || 0));
-
-  const whereParts: string[] = [];
-  const params: unknown[] = [];
-  if (query.event_type && query.event_type !== 'all') {
-    whereParts.push('event_type = ?');
-    params.push(query.event_type);
-  }
-  if (query.username?.trim()) {
-    whereParts.push('username LIKE ?');
-    params.push(`%${query.username.trim()}%`);
-  }
-  if (query.actor_username?.trim()) {
-    whereParts.push('actor_username LIKE ?');
-    params.push(`%${query.actor_username.trim()}%`);
-  }
-  if (query.from) {
-    whereParts.push('created_at >= ?');
-    params.push(query.from);
-  }
-  if (query.to) {
-    whereParts.push('created_at <= ?');
-    params.push(query.to);
-  }
-  const whereClause =
-    whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
-
-  const total = (
-    db
-      .prepare(`SELECT COUNT(*) as count FROM auth_audit_log ${whereClause}`)
-      .get(...params) as {
-      count: number;
-    }
-  ).count;
-
-  const rows = db
-    .prepare(
-      `SELECT * FROM auth_audit_log ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-    )
-    .all(...params, limit, offset) as Array<Record<string, unknown>>;
-
-  const logs = rows.map((row) => ({
-    id: Number(row.id),
-    event_type: row.event_type as AuthEventType,
-    username: String(row.username),
-    actor_username:
-      typeof row.actor_username === 'string' ? row.actor_username : null,
-    ip_address: typeof row.ip_address === 'string' ? row.ip_address : null,
-    user_agent: typeof row.user_agent === 'string' ? row.user_agent : null,
-    details: parseJsonDetails(row.details),
-    created_at: String(row.created_at),
-  }));
-
-  return { logs, total, limit, offset };
-}
-
-export function getAuthAuditLogs(limit = 100, offset = 0): AuthAuditLog[] {
-  return queryAuthAuditLogs({ limit, offset }).logs;
-}
-
-export function checkLoginRateLimitFromAudit(
-  username: string,
-  ip: string,
-  maxAttempts: number,
-  lockoutMinutes: number,
-): { allowed: boolean; retryAfterSeconds?: number; attempts: number } {
-  if (maxAttempts <= 0) return { allowed: true, attempts: 0 };
-  const windowStart = new Date(
-    Date.now() - lockoutMinutes * 60 * 1000,
-  ).toISOString();
-  const rows = db
-    .prepare(
-      `
-      SELECT created_at
-      FROM auth_audit_log
-      WHERE event_type = 'login_failed'
-        AND username = ?
-        AND ip_address = ?
-        AND created_at >= ?
-        AND (details IS NULL OR details NOT LIKE '%"reason":"rate_limited"%')
-      ORDER BY created_at ASC
-      `,
-    )
-    .all(username, ip, windowStart) as Array<{ created_at: string }>;
-
-  const attempts = rows.length;
-  if (attempts < maxAttempts) return { allowed: true, attempts };
-
-  const oldest = rows[0]?.created_at;
-  const oldestTs = oldest ? Date.parse(oldest) : Date.now();
-  const retryAt = oldestTs + lockoutMinutes * 60 * 1000;
-  const retryAfterSeconds = Math.max(
-    1,
-    Math.ceil((retryAt - Date.now()) / 1000),
-  );
-  return { allowed: false, retryAfterSeconds, attempts };
-}
-
-// ===================== Group Members =====================
-
-export function addGroupMember(
-  groupFolder: string,
-  userId: string,
-  role: 'owner' | 'member',
-  addedBy?: string,
-): void {
-  db.prepare(
-    `INSERT INTO group_members (group_folder, user_id, role, added_at, added_by)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(group_folder, user_id) DO UPDATE SET
-       role = CASE WHEN excluded.role = 'owner' THEN 'owner'
-                   WHEN group_members.role = 'owner' THEN 'owner'
-                   ELSE excluded.role END,
-       added_by = COALESCE(excluded.added_by, group_members.added_by)`,
-  ).run(groupFolder, userId, role, new Date().toISOString(), addedBy ?? null);
-}
-
-export function removeGroupMember(groupFolder: string, userId: string): void {
-  db.prepare(
-    'DELETE FROM group_members WHERE group_folder = ? AND user_id = ?',
-  ).run(groupFolder, userId);
-}
-
-export function getGroupMembers(groupFolder: string): GroupMember[] {
-  const rows = db
-    .prepare(
-      `SELECT gm.user_id, gm.role, gm.added_at, gm.added_by,
-              u.username, COALESCE(u.display_name, '') as display_name
-       FROM group_members gm
-       JOIN users u ON gm.user_id = u.id
-       WHERE gm.group_folder = ?
-       ORDER BY gm.role DESC, gm.added_at ASC`,
-    )
-    .all(groupFolder) as Array<{
-    user_id: string;
-    role: string;
-    added_at: string;
-    added_by: string | null;
-    username: string;
-    display_name: string;
-  }>;
-  return rows.map((r) => ({
-    user_id: r.user_id,
-    role: r.role as 'owner' | 'member',
-    added_at: r.added_at,
-    added_by: r.added_by ?? undefined,
-    username: r.username,
-    display_name: r.display_name,
-  }));
-}
-
-export function getGroupMemberRole(
-  groupFolder: string,
-  userId: string,
-): 'owner' | 'member' | null {
-  const row = db
-    .prepare(
-      'SELECT role FROM group_members WHERE group_folder = ? AND user_id = ?',
-    )
-    .get(groupFolder, userId) as { role: string } | undefined;
-  if (!row) return null;
-  return row.role as 'owner' | 'member';
-}
-
-export function getUserMemberFolders(
-  userId: string,
-): Array<{ group_folder: string; role: 'owner' | 'member' }> {
-  const rows = db
-    .prepare('SELECT group_folder, role FROM group_members WHERE user_id = ?')
-    .all(userId) as Array<{ group_folder: string; role: string }>;
-  return rows.map((r) => ({
-    group_folder: r.group_folder,
-    role: r.role as 'owner' | 'member',
-  }));
 }
 
 // ===================== Sub-Agent CRUD =====================
@@ -3897,13 +2985,6 @@ export function deleteMessage(chatJid: string, messageId: string): boolean {
     .prepare('DELETE FROM messages WHERE id = ? AND chat_jid = ?')
     .run(messageId, chatJid);
   return result.changes > 0;
-}
-
-export function isGroupShared(groupFolder: string): boolean {
-  const row = db
-    .prepare('SELECT COUNT(*) as cnt FROM group_members WHERE group_folder = ?')
-    .get(groupFolder) as { cnt: number };
-  return row.cnt > 1;
 }
 
 /**

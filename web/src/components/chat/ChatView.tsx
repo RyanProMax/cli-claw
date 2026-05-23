@@ -1,20 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../stores/chat';
-import { useAuthStore } from '../../stores/auth';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { FilePanel } from './FilePanel';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { PromptDialog } from '@/components/common/PromptDialog';
-import { ArrowLeft, FolderOpen, Link, ListTree, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Sun, Users, X } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Link, ListTree, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Sun, X } from 'lucide-react';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
 import { useTheme } from '../../hooks/useTheme';
 import { cn } from '@/lib/utils';
 import { wsManager } from '../../api/ws';
 import { api } from '../../api/client';
-import { GroupMembersPanel } from './GroupMembersPanel';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentTabBar } from './AgentTabBar';
 import { ImBindingDialog } from './ImBindingDialog';
@@ -25,7 +23,6 @@ const MAIN_BINDING = '__main__' as const;
 
 const SIDEBAR_TABS = [
   { id: 'files' as const, icon: FolderOpen, label: '文件管理' },
-  { id: 'members' as const, icon: Users, label: '成员' },
 ];
 
 const POLL_INTERVAL_MS = 2000;
@@ -33,7 +30,7 @@ const POLL_INTERVAL_MS = 2000;
 // Stable empty references to avoid infinite re-render loops in Zustand selectors
 const EMPTY_AGENTS: import('../../types').AgentInfo[] = [];
 
-type SidebarTab = 'files' | 'members';
+type SidebarTab = 'files';
 
 interface ChatViewProps {
   groupJid: string;
@@ -55,7 +52,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   const [bindingAgentId, setBindingAgentId] = useState<string | null>(null);
   const [showNewConversation, setShowNewConversation] = useState(false);
   const [renameTarget, setRenameTarget] = useState<{ agentId: string; name: string } | null>(null);
-  const [imStatus, setImStatus] = useState<{ feishu: boolean; telegram: boolean } | null>(null);
+  const [imStatus, setImStatus] = useState<{ feishu: boolean; wechat: boolean } | null>(null);
   const [imBannerDismissed, setImBannerDismissed] = useState(() =>
     localStorage.getItem('im-banner-dismissed') === '1',
   );
@@ -94,33 +91,15 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   const agentWaiting = useChatStore(s => s.agentWaiting);
   const agentHasMore = useChatStore(s => s.agentHasMore);
 
-  const currentUser = useAuthStore(s => s.user);
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // Sidebar: members tab visibility
   const isHome = !!group?.is_home;
-  const showMembersTab = (!!group?.is_shared || group?.member_role === 'owner') && !isHome;
-  const visibleTabs = SIDEBAR_TABS.filter((t) => {
-    if (t.id === 'members') return showMembersTab;
-    return true;
-  });
-
-  // Fallback: if current tab is hidden, reset to files
-  useEffect(() => {
-    if (sidebarTab === 'members' && !showMembersTab) setSidebarTab('files');
-  }, [sidebarTab, showMembersTab]);
-
-  // Fetch IM connection status for home groups
-  const isOwnHome =
-    isHome &&
-    (
-      (!!group?.created_by && group.created_by === currentUser?.id) ||
-      (currentUser?.role === 'admin' && group?.folder === 'main')
-    );
+  const visibleTabs = SIDEBAR_TABS;
+  const isOwnHome = isHome;
   useEffect(() => {
     if (!isOwnHome) { setImStatus(null); return; }
     let active = true;
     const fetchStatus = () => {
-      api.get<{ feishu: boolean; telegram: boolean }>('/api/config/user-im/status')
+      api.get<{ feishu: boolean; wechat: boolean }>('/api/config/user-im/status')
         .then((data) => { if (active) setImStatus(data); })
         .catch(() => {});
     };
@@ -309,16 +288,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           <h2 className="font-semibold text-foreground text-[15px] truncate">{group.name}</h2>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span>{isWaiting ? '正在思考...' : group.is_home ? '主 Agent' : 'Agent'}</span>
-            {!isWaiting && group.is_shared && (
-              <>
-                <span className="text-muted-foreground/40">·</span>
-                <span className="inline-flex items-center gap-0.5">
-                  <Users className="w-3 h-3" />
-                  {group.member_count ?? 0} 人协作
-                </span>
-              </>
-            )}
-            {isOwnHome && imStatus && (imStatus.feishu || imStatus.telegram) && (
+            {isOwnHome && imStatus && (imStatus.feishu || imStatus.wechat) && (
               <>
                 <span className="text-muted-foreground/40">·</span>
                 {imStatus.feishu && (
@@ -327,10 +297,10 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                     飞书
                   </span>
                 )}
-                {imStatus.telegram && (
+                {imStatus.wechat && (
                   <span className="inline-flex items-center gap-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    Telegram
+                    微信
                   </span>
                 )}
               </>
@@ -378,12 +348,12 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
       </div>
 
       {/* IM channel setup banner for home workspace without IM */}
-      {isOwnHome && imStatus && !imStatus.feishu && !imStatus.telegram && !imBannerDismissed && (
+      {isOwnHome && imStatus && !imStatus.feishu && !imStatus.wechat && !imBannerDismissed && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
           <Link className="w-4 h-4 flex-shrink-0" />
-          <span className="flex-1 min-w-0">未配置 IM 渠道，飞书 / Telegram 消息无法与主工作区互通</span>
+          <span className="flex-1 min-w-0">未配置 IM 渠道，飞书 / 微信消息无法与主工作区互通</span>
           <button
-            onClick={() => navigate('/setup/channels')}
+            onClick={() => navigate('/settings?tab=channels')}
             className="flex-shrink-0 px-3 py-1 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors cursor-pointer"
           >
             去配置
@@ -511,11 +481,7 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
 
           {/* Tab content */}
           <div className="flex-1 overflow-hidden min-h-0">
-            {sidebarTab === 'files' ? (
-              <FilePanel groupJid={groupJid} />
-            ) : (
-              <GroupMembersPanel groupJid={groupJid} />
-            )}
+            <FilePanel groupJid={groupJid} />
           </div>
         </div>
       </div>
@@ -535,18 +501,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         </SheetContent>
       </Sheet>
 
-      {/* Mobile: members sheet */}
-      <Sheet open={mobilePanel === 'members'} onOpenChange={(v) => !v && setMobilePanel(null)}>
-        <SheetContent side="bottom" className="h-[80dvh] p-0">
-          <SheetHeader className="px-4 pt-4 pb-2">
-            <SheetTitle>成员管理</SheetTitle>
-          </SheetHeader>
-          <div className="flex-1 overflow-hidden h-[calc(80dvh-56px)]">
-            <GroupMembersPanel groupJid={groupJid} />
-          </div>
-        </SheetContent>
-      </Sheet>
-
       {/* Mobile: Action Sheet */}
       <Sheet open={mobileActionsOpen} onOpenChange={(v) => !v && setMobileActionsOpen(false)}>
         <SheetContent side="bottom" className="pb-[env(safe-area-inset-bottom)]">
@@ -560,14 +514,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
             >
               工作区文件
             </button>
-            {showMembersTab && (
-              <button
-                onClick={() => { setMobileActionsOpen(false); setMobilePanel('members'); }}
-                className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
-              >
-                成员管理
-              </button>
-            )}
           </div>
         </SheetContent>
       </Sheet>

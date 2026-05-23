@@ -124,11 +124,7 @@ vi.mock('../../../src/messaging/manager.js', () => ({
     getConnectedChannelTypes: vi.fn(() => []),
     isFeishuConnected: vi.fn(() => false),
     isAnyFeishuConnected: vi.fn(() => false),
-    isAnyTelegramConnected: vi.fn(() => false),
-    isTelegramConnected: vi.fn(() => false),
-    isQQConnected: vi.fn(() => false),
     isWeChatConnected: vi.fn(() => false),
-    isDingTalkConnected: vi.fn(() => false),
   },
 }));
 
@@ -1072,7 +1068,7 @@ describe('restart recovery cursor handling', () => {
     ).toBe(false);
     expect(
       isRecoverableRestartPendingMessage({
-        sender: 'admin',
+        sender: 'operator',
         source_kind: 'user_command',
       }),
     ).toBe(false);
@@ -1101,7 +1097,7 @@ describe('restart recovery cursor handling', () => {
     const pending = [
       {
         id: 'cmd-1',
-        sender: 'admin',
+        sender: 'operator',
         source_kind: 'user_command' as const,
       },
       {
@@ -1875,7 +1871,7 @@ describe('restart recovery cursor handling', () => {
     ]);
   });
 
-  test('selects Feishu startup backfill chats from the user workspace even when the Feishu row owner is missing or stale', async () => {
+  test('selects all Feishu startup backfill chats for the single instance', async () => {
     const { selectFeishuStartupBackfillChatIds } = await loadIndexModule();
     const groups = {
       'web:main': {
@@ -1907,18 +1903,13 @@ describe('restart recovery cursor handling', () => {
         added_at: '2026-04-25T00:00:00.000Z',
         created_by: 'deleted-user',
       },
-      'telegram:main': {
-        name: 'Telegram Main',
-        folder: 'main',
-        added_at: '2026-04-25T00:00:00.000Z',
-        created_by: 'user-1',
-      },
     };
 
-    expect(selectFeishuStartupBackfillChatIds('user-1', groups)).toEqual([
+    expect(selectFeishuStartupBackfillChatIds(groups)).toEqual([
       'owned-chat',
       'ownerless-chat',
       'stale-owner-chat',
+      'other-workspace-chat',
     ]);
   });
 

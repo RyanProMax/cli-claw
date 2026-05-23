@@ -41,22 +41,13 @@ export interface RegisteredGroup {
   reasoningEffort?: string | null;
   speedTier?: string | null;
   customCwd?: string; // 工作区执行目录（绝对路径）
-  created_by?: string;
-  is_home?: boolean; // 用户主工作区标记
+  created_by?: string | null;
+  is_home?: boolean; // 主工作区标记
   target_agent_id?: string; // IM 消息路由到指定 conversation agent
   target_main_jid?: string; // IM 消息路由到指定工作区的主对话（web:{folder}）
   reply_policy?: 'source_only' | 'mirror'; // IM 绑定的回复策略
   require_mention?: boolean; // 群聊是否需要 @机器人 才响应（默认 false）
   activation_mode?: 'auto' | 'always' | 'when_mentioned' | 'disabled'; // 消息门控模式（默认 'auto'，兼容 require_mention）
-}
-
-export interface GroupMember {
-  user_id: string;
-  role: 'owner' | 'member';
-  added_at: string;
-  added_by?: string;
-  username: string;
-  display_name: string;
 }
 
 export interface NewMessage {
@@ -159,7 +150,7 @@ export interface ScheduledTask {
   schedule_type: 'cron' | 'interval' | 'once';
   schedule_value: string;
   context_mode: 'isolated';
-  execution_type: 'agent' | 'script' | 'workflow';
+  execution_type: 'workflow';
   script_command: string | null;
   workspace_jid?: string | null;
   workspace_folder?: string | null;
@@ -168,8 +159,17 @@ export interface ScheduledTask {
   last_result: string | null;
   status: 'active' | 'paused' | 'completed' | 'parsing';
   created_at: string;
-  created_by?: string;
+  created_by?: string | null;
   notify_channels?: string[] | null;
+}
+
+export interface AccessSession {
+  id: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  expires_at: string;
+  last_active_at: string;
 }
 
 export interface TaskRunLog {
@@ -250,126 +250,6 @@ export interface WorkflowRunStep {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
-}
-
-// --- Auth types ---
-
-export type UserRole = 'admin' | 'member';
-export type UserStatus = 'active' | 'disabled' | 'deleted';
-
-export interface AuthUser {
-  id: string;
-  username: string;
-  role: UserRole;
-  status: 'active' | 'disabled' | 'deleted';
-  display_name: string;
-  permissions: Permission[];
-  must_change_password: boolean;
-}
-
-export type Permission =
-  | 'manage_system_config'
-  | 'manage_group_env'
-  | 'manage_users'
-  | 'view_audit_log';
-
-export type PermissionTemplateKey =
-  | 'admin_full'
-  | 'member_basic'
-  | 'ops_manager'
-  | 'user_admin';
-
-export interface User {
-  id: string;
-  username: string;
-  password_hash: string;
-  display_name: string;
-  role: UserRole;
-  status: UserStatus;
-  permissions: Permission[];
-  must_change_password: boolean;
-  disable_reason: string | null;
-  notes: string | null;
-  avatar_emoji: string | null;
-  avatar_color: string | null;
-  avatar_url: string | null;
-  ai_name: string | null;
-  ai_avatar_emoji: string | null;
-  ai_avatar_color: string | null;
-  ai_avatar_url: string | null;
-  created_at: string;
-  updated_at: string;
-  last_login_at: string | null;
-  deleted_at: string | null;
-}
-
-export interface UserPublic {
-  id: string;
-  username: string;
-  display_name: string;
-  role: UserRole;
-  status: UserStatus;
-  permissions: Permission[];
-  must_change_password: boolean;
-  disable_reason: string | null;
-  notes: string | null;
-  avatar_emoji: string | null;
-  avatar_color: string | null;
-  avatar_url: string | null;
-  ai_name: string | null;
-  ai_avatar_emoji: string | null;
-  ai_avatar_color: string | null;
-  ai_avatar_url: string | null;
-  created_at: string;
-  last_login_at: string | null;
-  last_active_at: string | null;
-  deleted_at: string | null;
-}
-
-export interface UserSession {
-  id: string;
-  user_id: string;
-  ip_address: string | null;
-  user_agent: string | null;
-  created_at: string;
-  expires_at: string;
-  last_active_at: string;
-}
-
-export interface UserSessionWithUser extends UserSession {
-  username: string;
-  role: UserRole;
-  status: UserStatus;
-  display_name: string;
-  permissions: Permission[];
-  must_change_password: boolean;
-}
-
-export type AuthEventType =
-  | 'login_success'
-  | 'login_failed'
-  | 'logout'
-  | 'password_changed'
-  | 'profile_updated'
-  | 'user_created'
-  | 'user_disabled'
-  | 'user_enabled'
-  | 'user_deleted'
-  | 'user_restored'
-  | 'user_updated'
-  | 'role_changed'
-  | 'session_revoked'
-  | 'recovery_reset';
-
-export interface AuthAuditLog {
-  id: number;
-  event_type: AuthEventType;
-  username: string;
-  actor_username: string | null;
-  ip_address: string | null;
-  user_agent: string | null;
-  details: Record<string, unknown> | null;
-  created_at: string;
 }
 
 // --- Sub-Agent types ---

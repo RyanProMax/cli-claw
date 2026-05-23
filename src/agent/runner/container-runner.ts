@@ -73,7 +73,7 @@ export interface AgentProcessInput {
   turnId?: string;
   messageCursor?: MessageCursor;
   isHome?: boolean;
-  isAdminHome?: boolean;
+  isMainWorkspace?: boolean;
   isScheduledTask?: boolean;
   /** Isolated task run ID — determines IPC namespace (tasks-run/{taskRunId}/) */
   taskRunId?: string;
@@ -120,7 +120,7 @@ export interface AgentProcessOutput {
 
 export function writeTasksSnapshot(
   groupFolder: string,
-  isAdminHome: boolean,
+  isMainWorkspace: boolean,
   tasks: Array<{
     id: string;
     groupFolder: string;
@@ -134,7 +134,7 @@ export function writeTasksSnapshot(
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  const filteredTasks = isAdminHome
+  const filteredTasks = isMainWorkspace
     ? tasks
     : tasks.filter((t) => t.groupFolder === groupFolder);
 
@@ -156,14 +156,14 @@ export interface AvailableGroup {
 
 export function writeGroupsSnapshot(
   groupFolder: string,
-  isAdminHome: boolean,
+  isMainWorkspace: boolean,
   groups: AvailableGroup[],
   registeredJids: Set<string>,
 ): void {
   const groupIpcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(groupIpcDir, { recursive: true });
 
-  const visibleGroups = isAdminHome ? groups : [];
+  const visibleGroups = isMainWorkspace ? groups : [];
 
   const groupsFile = path.join(groupIpcDir, 'available_groups.json');
   try {
@@ -421,7 +421,7 @@ export async function runAgentProcess(
         agentId: input.agentId || null,
         workingDir: groupDir,
         isHome: input.isHome ?? false,
-        isAdminHome: input.isAdminHome ?? false,
+        isMainWorkspace: input.isMainWorkspace ?? false,
         ...runtimeBuildLogFields,
       },
       'Spawning agent process',

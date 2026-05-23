@@ -1,10 +1,8 @@
 /** IM channel type → JID prefix mapping. Shared between main server and agent-runner. */
 export const CHANNEL_PREFIXES: Record<string, string> = {
+  web: 'web:',
   feishu: 'feishu:',
-  telegram: 'telegram:',
-  qq: 'qq:',
   wechat: 'wechat:',
-  dingtalk: 'dingtalk:',
 };
 
 /** Determine the channel type from a JID string. Returns 'web' for unrecognized prefixes. */

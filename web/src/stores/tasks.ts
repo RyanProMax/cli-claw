@@ -10,7 +10,7 @@ export interface ScheduledTask {
   schedule_type: 'cron' | 'interval' | 'once';
   schedule_value: string;
   context_mode: 'isolated';
-  execution_type?: 'agent' | 'script' | 'workflow';
+  execution_type: 'workflow';
   script_command?: string | null;
   next_run: string | null;
   last_run?: string | null;
@@ -43,8 +43,7 @@ interface TasksState {
     prompt: string,
     scheduleType: 'cron' | 'interval' | 'once',
     scheduleValue: string,
-    executionType?: 'agent' | 'script',
-    scriptCommand?: string,
+    workflowId: string,
     notifyChannels?: string[] | null,
   ) => Promise<void>;
   updateTaskStatus: (id: string, status: 'active' | 'paused') => Promise<void>;
@@ -92,8 +91,7 @@ export const useTasksStore = create<TasksState>((set, get) => ({
     prompt: string,
     scheduleType: 'cron' | 'interval' | 'once',
     scheduleValue: string,
-    executionType?: 'agent' | 'script',
-    scriptCommand?: string,
+    workflowId: string,
     notifyChannels?: string[] | null,
   ) => {
     try {
@@ -104,15 +102,13 @@ export const useTasksStore = create<TasksState>((set, get) => ({
 
       const body: Record<string, unknown> = {
         prompt: prompt.trim(),
+        group_folder: 'main',
+        chat_jid: 'web:main',
         schedule_type: scheduleType,
         schedule_value: normalizedScheduleValue,
+        execution_type: 'workflow',
+        script_command: workflowId.trim(),
       };
-      if (executionType) {
-        body.execution_type = executionType;
-      }
-      if (scriptCommand) {
-        body.script_command = scriptCommand;
-      }
       if (notifyChannels !== undefined) {
         body.notify_channels = notifyChannels;
       }
