@@ -34,6 +34,7 @@ import type { RegisteredGroup } from '../../domain/types.js';
 import { logger } from '../../core/logger.js';
 
 const configRoutes = new Hono<{ Variables: Variables }>();
+const DEFAULT_MAIN_JID = 'web:main';
 const WECHAT_API_BASE = 'https://ilinkai.weixin.qq.com';
 const WECHAT_QR_BOT_TYPE = '3';
 
@@ -484,7 +485,7 @@ configRoutes.put('/user-im/bindings/:imJid', authMiddleware, async (c) => {
     if (!targetGroup) {
       return c.json({ error: 'Target workspace not found' }, 404);
     }
-    if (targetGroup.is_home) {
+    if (targetMainJid === DEFAULT_MAIN_JID) {
       return c.json(
         { error: 'Home workspace main conversation uses default IM routing' },
         400,

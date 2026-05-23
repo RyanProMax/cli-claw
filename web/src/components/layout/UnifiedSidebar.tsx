@@ -14,7 +14,7 @@ import { RenameDialog } from '../chat/RenameDialog';
 import { SkeletonCardList } from '@/components/common/Skeletons';
 import { cn } from '@/lib/utils';
 import { filterNavItems } from './nav-items';
-import { type GroupEntry, type DateSection, groupByDate, compareByLastActivity } from '../../utils/group-utils';
+import { type GroupEntry, type DateSection, groupByDate, compareByLastActivity, isWorkspaceListGroup } from '../../utils/group-utils';
 
 interface UnifiedSidebarProps {
   collapsed: boolean;
@@ -49,6 +49,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
     let main: GroupEntry | null = null;
     const others: GroupEntry[] = [];
     for (const [jid, info] of Object.entries(groups)) {
+      if (!isWorkspaceListGroup(jid, info)) continue;
       const entry = { jid, ...info };
       if (info.is_my_home) main = entry;
       else others.push(entry);

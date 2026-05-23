@@ -133,6 +133,10 @@ function groupKind(jid: string): 'home' | 'main' | 'feishu' | 'wechat' | 'web' {
   return 'web';
 }
 
+function isWorkspaceListEntry(jid: string): boolean {
+  return jid.startsWith('web:');
+}
+
 function buildGroupsPayload(): Record<string, any> {
   ensureMainGroup();
   const groups = getAllRegisteredGroups();
@@ -140,6 +144,8 @@ function buildGroupsPayload(): Record<string, any> {
   const result: Record<string, any> = {};
 
   for (const [jid, group] of Object.entries(groups)) {
+    if (!isWorkspaceListEntry(jid)) continue;
+    const isDefaultHome = jid === DEFAULT_MAIN_JID;
     const chat = chats.get(jid);
     result[jid] = {
       name: group.name,
@@ -147,10 +153,10 @@ function buildGroupsPayload(): Record<string, any> {
       added_at: group.added_at,
       agent_type: group.agentType ?? 'openai',
       kind: groupKind(jid),
-      is_home: group.is_home || undefined,
-      is_my_home: group.is_home || undefined,
+      is_home: isDefaultHome || undefined,
+      is_my_home: isDefaultHome || undefined,
       editable: true,
-      deletable: !group.is_home,
+      deletable: !isDefaultHome,
       lastMessage: null,
       lastMessageTime: chat?.last_message_time || group.added_at,
       model: group.model ?? null,
@@ -351,7 +357,7 @@ groupRoutes.delete('/:jid', authMiddleware, async (c) => {
   const jid = decodeURIComponent(c.req.param('jid'));
   const group = getRegisteredGroup(jid);
   if (!group) return c.json({ error: 'Group not found' }, 404);
-  if (group.is_home)
+  if (jid === DEFAULT_MAIN_JID)
     return c.json({ error: 'Home workspace cannot be deleted' }, 400);
 
   const deps = getWebDeps();

@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../components/common';
 import { CreateWorkspaceDialog } from '../components/chat/CreateWorkspaceDialog';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { useClearWorkspace } from '../hooks/useClearWorkspace';
-import { type GroupEntry, compareByLastActivity, groupByDate } from '../utils/group-utils';
+import { type GroupEntry, compareByLastActivity, groupByDate, isWorkspaceListGroup } from '../utils/group-utils';
 
 export function ChatPage() {
   const { groupFolder } = useParams<{ groupFolder?: string }>();
@@ -22,17 +22,26 @@ export function ChatPage() {
 
   const routeGroupJid = useMemo(() => {
     if (!groupFolder) return null;
+    if (
+      currentGroup &&
+      groups[currentGroup]?.folder === groupFolder &&
+      isWorkspaceListGroup(currentGroup, groups[currentGroup])
+    ) {
+      return currentGroup;
+    }
     const entry =
       Object.entries(groups).find(
         ([jid, info]) =>
-          info.folder === groupFolder && jid.startsWith('web:') && !!info.is_home,
+          info.folder === groupFolder &&
+          isWorkspaceListGroup(jid, info) &&
+          !!info.is_home,
       ) ||
       Object.entries(groups).find(
-        ([jid, info]) => info.folder === groupFolder && jid.startsWith('web:'),
-      ) ||
-      Object.entries(groups).find(([_, info]) => info.folder === groupFolder);
+        ([jid, info]) =>
+          info.folder === groupFolder && isWorkspaceListGroup(jid, info),
+      );
     return entry?.[0] || null;
-  }, [groupFolder, groups]);
+  }, [currentGroup, groupFolder, groups]);
   const runnerStates = useGroupsStore((s) => s.runnerStates);
   const hasGroups = Object.keys(groups).length > 0;
 
@@ -41,6 +50,7 @@ export function ChatPage() {
     let main: GroupEntry | null = null;
     const others: GroupEntry[] = [];
     for (const [jid, info] of Object.entries(groups)) {
+      if (!isWorkspaceListGroup(jid, info)) continue;
       const entry = { jid, ...info };
       if (info.is_my_home) main = entry;
       else others.push(entry);

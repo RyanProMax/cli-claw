@@ -106,3 +106,36 @@ Validation:
 Review:
 
 - `passed`。按 `RUNBOOKS/Review.md` 检查 scope、目标覆盖、模式契合、验证证据与回归风险；无 blocking finding。
+
+## Follow-up：工作区/会话边界与会话列表选择修复
+
+Status: `done`
+
+Issue:
+
+- 需要重新评估单实例后“工作区”和“会话”的职责边界，尤其 workflow task 应落在独立会话还是独立工作区。
+- 会话列表中的“飞书私聊”无法点击。
+- 盯盘任务下方出现 `o9cq80wYiFvJ_f1PWS7aGSJ_nO2Y` 会话，点击后跳回主工作区，怀疑是 IM JID / 工作区 JID / 会话路由映射不一致。
+
+Scope:
+
+- 先沿前端会话列表、工作区 API、IM binding 和 DB 数据定位根因。
+- 修复会话列表选择行为与显示归类，不扩大到 workflow schema 重构。
+- 给出工作区/会话/工作流归属的产品方案；如涉及长期结构调整，再写入 roadmap。
+
+Validation:
+
+- `passed`：`npm test -- tests/integration/routes/groups.test.ts tests/integration/routes/config-status.test.ts`。
+- `passed`：`npm run typecheck:backend`。
+- `passed`：`npm --prefix web run build`。
+- `passed`：`./scripts/validate.sh`。
+- `passed`：`./scripts/review.sh`。
+
+Review:
+
+- `passed`。按 `RUNBOOKS/Review.md` 做语义 review：Web 工作区列表只暴露 `web:` 工作区，IM 注册项继续作为绑定来源由 `/im-groups` 提供；旧 `is_home` 标记不再影响默认主工作区识别，只有 `web:main` 享有不可删除和默认路由语义；路由解析不再回退到同 folder 的 IM JID。
+
+Decision:
+
+- 保留“工作区”概念，用于 cwd、文件边界、仓库级 `.agents`、模型配置和默认主对话；“会话”用于同一工作区内的对话/runtime 边界。
+- Workflow task 挂在工作区下执行，但使用独立 workflow context / runtime session；只有 cwd、`.agents` 配置或文件边界确实不同，才创建独立工作区。

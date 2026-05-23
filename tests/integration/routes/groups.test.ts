@@ -345,7 +345,7 @@ describe('group runtime stale-build guard', () => {
     expect(mocks.stopGroup).not.toHaveBeenCalled();
   });
 
-  test('includes shared web:main home workspace with its actual runtime in group list', async () => {
+  test('includes shared web:main home workspace but hides IM channel registrations from group list', async () => {
     registeredGroups = {
       'web:main': {
         name: 'Main',
@@ -361,6 +361,22 @@ describe('group runtime stale-build guard', () => {
         added_at: '2026-04-04T10:05:00.000Z',
         created_by: null,
         is_home: false,
+      },
+      'wechat:agent-chat@im.wechat': {
+        name: 'agent-chat',
+        folder: 'main',
+        added_at: '2026-04-04T10:06:00.000Z',
+        created_by: null,
+        is_home: false,
+        target_agent_id: 'agent-1234',
+      },
+      'web:legacy-home': {
+        name: 'Legacy Home',
+        folder: 'legacy',
+        added_at: '2026-04-04T10:07:00.000Z',
+        created_by: null,
+        is_home: true,
+        agentType: 'openai',
       },
     };
     mocks.getRegisteredGroup.mockImplementation(
@@ -386,6 +402,16 @@ describe('group runtime stale-build guard', () => {
         is_my_home: true,
       }),
     );
+    expect(payload.groups).not.toHaveProperty('feishu:ops-room');
+    expect(payload.groups).not.toHaveProperty('wechat:agent-chat@im.wechat');
+    expect(payload.groups['web:legacy-home']).toEqual(
+      expect.objectContaining({
+        kind: 'web',
+        deletable: true,
+      }),
+    );
+    expect(payload.groups['web:legacy-home']).not.toHaveProperty('is_home');
+    expect(payload.groups['web:legacy-home']).not.toHaveProperty('is_my_home');
     expect(payload.groups['web:main']).not.toHaveProperty('execution_mode');
   });
 

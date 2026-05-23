@@ -3,6 +3,11 @@ import type { GroupInfo } from '../types';
 export type GroupEntry = GroupInfo & { jid: string };
 export type DateSection = { label: string; items: GroupEntry[] };
 
+/** Workspaces are selectable Web surfaces; IM channel registrations stay hidden. */
+export function isWorkspaceListGroup(jid: string, group: GroupInfo): boolean {
+  return jid.startsWith('web:') && group.kind !== 'feishu' && group.kind !== 'wechat';
+}
+
 /** Sort comparator: newest activity first. */
 export function compareByLastActivity(a: GroupEntry, b: GroupEntry): number {
   return new Date(b.lastMessageTime || b.added_at).getTime() - new Date(a.lastMessageTime || a.added_at).getTime();
