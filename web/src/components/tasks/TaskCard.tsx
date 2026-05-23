@@ -13,6 +13,7 @@ import { ScheduledTask } from '../../stores/tasks';
 import { TaskDetail } from './TaskDetail';
 import { showToast } from '../../utils/toast';
 import { formatInterval } from '../../utils/task-utils';
+import { toWorkspaceChatPath } from '../../utils/workspace-routing';
 
 interface TaskCardProps {
   task: ScheduledTask;
@@ -32,6 +33,11 @@ export function TaskCard({
   const [expanded, setExpanded] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
   const navigate = useNavigate();
+  const workspacePath = task.workspace_jid
+    ? toWorkspaceChatPath(task.workspace_jid)
+    : task.workspace_folder
+      ? `/chat/${encodeURIComponent(task.workspace_folder)}`
+      : null;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -132,11 +138,11 @@ export function TaskCard({
           {/* Action Buttons */}
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Open Workspace */}
-            {task.workspace_folder && (
+            {workspacePath && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigate(`/chat/${task.workspace_folder}`);
+                  navigate(workspacePath);
                 }}
                 className="p-2 text-muted-foreground hover:text-primary hover:bg-brand-50 rounded-lg transition-colors cursor-pointer"
                 title="打开工作区"

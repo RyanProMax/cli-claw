@@ -11,9 +11,10 @@ import { CreateWorkspaceDialog } from '../components/chat/CreateWorkspaceDialog'
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { useClearWorkspace } from '../hooks/useClearWorkspace';
 import { type GroupEntry, compareByLastActivity, groupByDate, isWorkspaceListGroup } from '../utils/group-utils';
+import { resolveWorkspaceRouteParam, toWorkspaceChatPath } from '../utils/workspace-routing';
 
 export function ChatPage() {
-  const { groupFolder } = useParams<{ groupFolder?: string }>();
+  const { workspaceRef } = useParams<{ workspaceRef?: string }>();
   const navigate = useNavigate();
   const { groups, currentGroup, selectGroup, loadGroups } = useChatStore();
   const { clearState, clearLoading, openClear, closeClear, handleClearConfirm } = useClearWorkspace();
@@ -21,27 +22,8 @@ export function ChatPage() {
   const appearance = useAuthStore((s) => s.appearance);
 
   const routeGroupJid = useMemo(() => {
-    if (!groupFolder) return null;
-    if (
-      currentGroup &&
-      groups[currentGroup]?.folder === groupFolder &&
-      isWorkspaceListGroup(currentGroup, groups[currentGroup])
-    ) {
-      return currentGroup;
-    }
-    const entry =
-      Object.entries(groups).find(
-        ([jid, info]) =>
-          info.folder === groupFolder &&
-          isWorkspaceListGroup(jid, info) &&
-          !!info.is_home,
-      ) ||
-      Object.entries(groups).find(
-        ([jid, info]) =>
-          info.folder === groupFolder && isWorkspaceListGroup(jid, info),
-      );
-    return entry?.[0] || null;
-  }, [currentGroup, groupFolder, groups]);
+    return resolveWorkspaceRouteParam(workspaceRef, groups);
+  }, [workspaceRef, groups]);
   const runnerStates = useGroupsStore((s) => s.runnerStates);
   const hasGroups = Object.keys(groups).length > 0;
 
@@ -70,7 +52,7 @@ export function ChatPage() {
   // Sync URL param to store selection. No auto-redirect to the home workspace —
   // users land on the welcome screen and choose a workspace manually.
   useEffect(() => {
-    if (!groupFolder) return;
+    if (!workspaceRef) return;
     if (routeGroupJid && currentGroup !== routeGroupJid) {
       selectGroup(routeGroupJid);
       return;
@@ -79,19 +61,17 @@ export function ChatPage() {
       // Group not found — may be newly created (task workspace). Retry once after refresh.
       loadGroups().then(() => {
         const freshGroups = useChatStore.getState().groups;
-        const found = Object.entries(freshGroups).find(
-          ([jid, info]) => info.folder === groupFolder && jid.startsWith('web:'),
-        );
+        const found = resolveWorkspaceRouteParam(workspaceRef, freshGroups);
         if (found) {
-          selectGroup(found[0]);
+          selectGroup(found);
         } else {
           navigate('/chat', { replace: true });
         }
       });
     }
-  }, [groupFolder, routeGroupJid, hasGroups, currentGroup, selectGroup, navigate, loadGroups]);
+  }, [workspaceRef, routeGroupJid, hasGroups, currentGroup, selectGroup, navigate, loadGroups]);
 
-  const activeGroupJid = groupFolder ? routeGroupJid : currentGroup;
+  const activeGroupJid = workspaceRef ? routeGroupJid : currentGroup;
   const chatViewRef = useRef<HTMLDivElement>(null);
 
   const handleBackToList = () => {
@@ -103,7 +83,7 @@ export function ChatPage() {
   return (
     <div className="h-full flex bg-muted/30">
       {/* Mobile workspace list when no group selected */}
-      {!groupFolder && (
+      {!workspaceRef && (
         <div className="block lg:hidden w-full overflow-y-auto">
           {/* Mobile header: horizontal logo + actions */}
           <div className="flex items-center gap-3 px-4 pt-5 pb-3">
@@ -144,7 +124,7 @@ export function ChatPage() {
                     lastMessage={mainGroup.lastMessage}
                     isActive={currentGroup === mainGroup.jid} isHome
                     isRunning={runnerStates[mainGroup.jid] === 'running'} editable
-                    onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
+                    onSelect={(jid) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); }}
                     onClearHistory={openClear}
                   />
                 </div>
@@ -162,7 +142,7 @@ export function ChatPage() {
                       isActive={currentGroup === g.jid} isHome={false} isPinned
                       isRunning={runnerStates[g.jid] === 'running'}
                       editable={g.editable}
-                      onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
+                      onSelect={(jid) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); }}
                       onClearHistory={openClear}
                     />
                   ))}
@@ -186,7 +166,7 @@ export function ChatPage() {
                           isActive={currentGroup === g.jid} isHome={false}
                           isRunning={runnerStates[g.jid] === 'running'}
                           editable={g.editable}
-                          onSelect={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
+                          onSelect={(jid) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); }}
                           onClearHistory={openClear}
                         />
                       ))}
@@ -206,7 +186,7 @@ export function ChatPage() {
 
       {/* Chat View - Desktop: visible when active group exists, Mobile: only in detail route */}
       {activeGroupJid ? (
-        <div ref={chatViewRef} className={`${groupFolder ? 'flex-1 min-w-0 h-full overflow-hidden lg:pt-4' : 'hidden lg:block flex-1 min-w-0 h-full overflow-hidden lg:pt-4'}`}>
+        <div ref={chatViewRef} className={`${workspaceRef ? 'flex-1 min-w-0 h-full overflow-hidden lg:pt-4' : 'hidden lg:block flex-1 min-w-0 h-full overflow-hidden lg:pt-4'}`}>
           <ChatView
             groupJid={activeGroupJid}
             onBack={handleBackToList}
@@ -242,7 +222,7 @@ export function ChatPage() {
       <CreateWorkspaceDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        onCreated={(jid, folder) => { selectGroup(jid); navigate(`/chat/${folder}`); }}
+        onCreated={(jid) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); }}
       />
     </div>
   );

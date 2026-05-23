@@ -52,7 +52,7 @@ Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workf
 
 - `registered_groups` 是工作区入口注册表；`jid` 是 Web / IM 对外入口，`folder` 是平台存储和默认主会话的目录键。
 - 多个入口可以共享同一个 `folder`。它们是否共享上下文，不看 channel 类型，而看是否最终路由到同一个 conversation identity。
-- Web 工作区列表只展示 `web:` 工作区，且只有 `web:main` 是默认主工作区。飞书 / 微信注册项只是 IM 入口和绑定记录，不作为可点击工作区行展示；同 folder 的 IM 消息会聚合到目标 Web 工作区或 conversation agent 的时间线。
+- Web 工作区列表只展示 `web:` 工作区，且只有 `web:main` 是默认主工作区。Web 路由必须用 `web:*` JID 作为唯一标识；旧的 folder URL 只在唯一匹配时兼容，folder 不唯一时不得猜测目标工作区。飞书 / 微信注册项只是 IM 入口和绑定记录，不作为可点击工作区行展示；同 folder 的 IM 消息会聚合到目标 Web 工作区或 conversation agent 的时间线。
 - Workspace 主对话使用 `(folder, 空 agentId)`；Web 创建的 conversation agent 使用 `(folder, agentId)`，消息落到虚拟 JID `{workspaceJid}#agent:{agentId}`。
 - 工作区负责项目边界：执行目录、文件访问、仓库级 `.agents` 配置、模型配置和默认主会话。会话负责对话边界：主对话、conversation agent、workflow context 或一次定时 workflow 的触发回填。
 - Workflow run 不应该为了隔离上下文而创建新工作区；它应挂在发起工作区下，使用独立 workflow context / runtime session 执行，并把结果回填到目标会话。只有需要不同 cwd、不同 `.agents` 配置或不同文件边界时，才创建独立工作区。

@@ -139,3 +139,38 @@ Decision:
 
 - 保留“工作区”概念，用于 cwd、文件边界、仓库级 `.agents`、模型配置和默认主对话；“会话”用于同一工作区内的对话/runtime 边界。
 - Workflow task 挂在工作区下执行，但使用独立 workflow context / runtime session；只有 cwd、`.agents` 配置或文件边界确实不同，才创建独立工作区。
+
+## Follow-up：HK IPO 工作区重复与路由串台修复
+
+Status: `done`
+
+Issue:
+
+- Web 会话/工作区列表出现 3 个同名 `HK IPO Workspace`。
+- 点击这些工作区时会跳到错误会话或串台。
+
+Root cause evidence:
+
+- 本机 `registered_groups` 中存在 `web:hkipo`、`web:hkipo-ack`、`web:hkipo-ack-ecc32ec9-9fe8-46f8-b83d-3ca5d0138de6` 三条同名 Web 工作区。
+- 其中 `web:hkipo-ack` 与 `web:hkipo-ack-ecc32ec9-9fe8-46f8-b83d-3ca5d0138de6` 共享 `folder=hkipo-ack`。
+- 前端路由仍使用 `/chat/:folder`，而实际选择态用 `jid`；当多个 JID 共享 folder 时，URL 无法唯一表达目标工作区，导致 route resolve 保留或选中错误 JID。
+
+Scope:
+
+- 将 Web 工作区路由改为以 JID 为唯一标识，避免同 folder 或同名工作区串台。
+- 保持后端 API 仍按 JID 操作，不在本轮删除历史数据或合并消息。
+- 必要时保留旧 folder URL 的兼容跳转到唯一匹配项；若 folder 不唯一，进入安全默认页。
+
+Validation:
+
+- `passed`：新增 `tests/unit/web/workspace-routing.test.ts`，先复现缺少 JID 路由 helper 的失败，再验证同 folder 双 JID 不再被 folder URL 猜测。
+- `passed`：`npm test -- tests/unit/web/workspace-routing.test.ts`。
+- `passed`：`npm --prefix web run build`。
+- `passed`：`./scripts/validate.sh`。
+- `passed`：`./scripts/review.sh`。
+- `passed`：`bun src/cli.ts restart` 后 `/api/health` 返回 healthy。
+- `passed`：浏览器冒烟点击 HK IPO 列表项，前三个同名按钮分别进入 `/chat/web%3Ahkipo-ack-ecc32ec9-9fe8-46f8-b83d-3ca5d0138de6`、`/chat/web%3Ahkipo`、`/chat/web%3Ahkipo-ack`，未再跳到同一个 folder 路由；访问旧 `/chat/hkipo-ack` 会回到安全列表页而不是猜测目标。
+
+Review:
+
+- `passed`。按 `RUNBOOKS/Review.md` 做语义 review：修复点集中在 Web 路由解析和跳转入口，后端 JID API、消息存储、IM 绑定和历史工作区数据均未改动；历史重复 HK IPO 工作区不自动删除，避免误删旧消息。

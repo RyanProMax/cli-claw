@@ -15,6 +15,7 @@ import { SkeletonCardList } from '@/components/common/Skeletons';
 import { cn } from '@/lib/utils';
 import { filterNavItems } from './nav-items';
 import { type GroupEntry, type DateSection, groupByDate, compareByLastActivity, isWorkspaceListGroup } from '../../utils/group-utils';
+import { toWorkspaceChatPath } from '../../utils/workspace-routing';
 
 interface UnifiedSidebarProps {
   collapsed: boolean;
@@ -69,8 +70,8 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
     return { pinnedGroups: pinned, mySections: groupByDate(my) };
   }, [otherGroups]);
 
-  const handleGroupSelect = (jid: string, folder: string) => { selectGroup(jid); navigate(`/chat/${folder}`); };
-  const handleCreated = (jid: string, folder: string) => { selectGroup(jid); navigate(`/chat/${folder}`); };
+  const handleGroupSelect = (jid: string) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); };
+  const handleCreated = (jid: string) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); };
 
   const handleDeleteConfirm = async () => {
     setDeleteLoading(true);
@@ -78,8 +79,7 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
       await deleteFlow(deleteState.jid);
       setDeleteState({ open: false, jid: '', name: '' });
       const nextJid = useChatStore.getState().currentGroup;
-      const nextFolder = nextJid ? useChatStore.getState().groups[nextJid]?.folder : null;
-      navigate(nextFolder ? `/chat/${nextFolder}` : '/chat');
+      navigate(nextJid ? toWorkspaceChatPath(nextJid) : '/chat');
     } catch (err: unknown) {
       const typed = err as { boundAgents?: Array<{ agentName: string; imGroups: Array<{ name: string }> }> };
       if (typed.boundAgents) {

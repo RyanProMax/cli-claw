@@ -45,7 +45,7 @@ export function App() {
           }
         >
           <Route
-            path="/chat/:groupFolder?"
+            path="/chat/:workspaceRef?"
             element={
               <Suspense fallback={null}>
                 <ChatPage />

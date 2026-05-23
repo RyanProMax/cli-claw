@@ -10,6 +10,7 @@ import {
   toggleNotifyChannel,
 } from '../../utils/task-utils';
 import { useConnectedChannels } from '../../hooks/useConnectedChannels';
+import { toWorkspaceChatPath } from '../../utils/workspace-routing';
 
 const CHANNEL_LABELS: Record<string, string> = {
   feishu: '飞书',
@@ -67,6 +68,11 @@ function formatDuration(ms: number): string {
 
 export function TaskDetail({ task }: TaskDetailProps) {
   const { updateTask, loadLogs, logs } = useTasksStore();
+  const workspacePath = task.workspace_jid
+    ? toWorkspaceChatPath(task.workspace_jid)
+    : task.workspace_folder
+      ? `/chat/${encodeURIComponent(task.workspace_folder)}`
+      : null;
 
   const connectedChannels = useConnectedChannels();
   const taskLogs = logs[task.id] || [];
@@ -439,11 +445,11 @@ export function TaskDetail({ task }: TaskDetailProps) {
           </div>
         )}
 
-        {task.workspace_folder && (
+        {workspacePath && task.workspace_folder && (
           <div>
             <div className="text-xs text-muted-foreground mb-1">任务工作区</div>
             <Link
-              to={`/chat/${task.workspace_folder}`}
+              to={workspacePath}
               className="text-sm text-primary hover:underline"
             >
               {task.workspace_folder}
