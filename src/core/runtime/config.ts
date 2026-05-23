@@ -10,6 +10,7 @@ const MAX_FIELD_LENGTH = 2000;
 const CONFIG_DIR = path.join(DATA_DIR, 'config');
 const CONFIG_KEY_FILE = path.join(CONFIG_DIR, 'secrets.key');
 const FEISHU_CONFIG_FILE = path.join(CONFIG_DIR, 'feishu-provider.json');
+const USER_IM_CONFIG_DIR = path.join(CONFIG_DIR, 'user-im');
 export interface FeishuProviderConfig {
   appId: string;
   appSecret: string;
@@ -136,9 +137,9 @@ function decryptChannelSecret<T>(secrets: EncryptedSecrets): T {
   return JSON.parse(decrypted) as T;
 }
 
-function readStoredFeishuConfig(): FeishuProviderConfig | null {
-  if (!fs.existsSync(FEISHU_CONFIG_FILE)) return null;
-  const content = fs.readFileSync(FEISHU_CONFIG_FILE, 'utf-8');
+function readFeishuConfigFile(filePath: string): FeishuProviderConfig | null {
+  if (!fs.existsSync(filePath)) return null;
+  const content = fs.readFileSync(filePath, 'utf-8');
   const parsed = JSON.parse(content) as Record<string, unknown>;
   if (parsed.version !== 1) return null;
 
@@ -150,6 +151,83 @@ function readStoredFeishuConfig(): FeishuProviderConfig | null {
     enabled: stored.enabled,
     updatedAt: stored.updatedAt || null,
   };
+}
+
+function getConfigFileTimestamp(filePath: string): number {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as {
+      updatedAt?: unknown;
+    };
+    if (typeof parsed.updatedAt === 'string') {
+      const value = Date.parse(parsed.updatedAt);
+      if (Number.isFinite(value)) return value;
+    }
+  } catch {
+    // fall back to mtime below
+  }
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function findUserScopedChannelConfig(fileName: string): string | null {
+  try {
+    return (
+      fs
+        .readdirSync(USER_IM_CONFIG_DIR, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(USER_IM_CONFIG_DIR, entry.name, fileName))
+        .filter((filePath) => fs.existsSync(filePath))
+        .sort(
+          (left, right) =>
+            getConfigFileTimestamp(right) - getConfigFileTimestamp(left),
+        )[0] ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function removePromotedUserScopedConfig(filePath: string): void {
+  try {
+    fs.rmSync(filePath, { force: true });
+    const parent = path.dirname(filePath);
+    if (fs.existsSync(parent) && fs.readdirSync(parent).length === 0) {
+      fs.rmdirSync(parent);
+    }
+    if (
+      fs.existsSync(USER_IM_CONFIG_DIR) &&
+      fs.readdirSync(USER_IM_CONFIG_DIR).length === 0
+    ) {
+      fs.rmdirSync(USER_IM_CONFIG_DIR);
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Failed to remove promoted user-scoped IM config');
+  }
+}
+
+function promoteUserScopedFeishuConfig(): FeishuProviderConfig | null {
+  if (fs.existsSync(FEISHU_CONFIG_FILE)) return null;
+  const sourcePath = findUserScopedChannelConfig('feishu.json');
+  if (!sourcePath) return null;
+
+  try {
+    const config = readFeishuConfigFile(sourcePath);
+    if (!config || (!config.appId && !config.appSecret)) return null;
+    const saved = saveFeishuProviderConfig({
+      appId: config.appId,
+      appSecret: config.appSecret,
+      enabled: config.enabled ?? true,
+    });
+    removePromotedUserScopedConfig(sourcePath);
+    logger.info('Promoted user-scoped Feishu config to instance config');
+    return saved;
+  } catch (err) {
+    logger.warn({ err }, 'Failed to promote user-scoped Feishu config');
+    return null;
+  }
 }
 
 function defaultsFeishuFromEnv(): FeishuProviderConfig {
@@ -169,7 +247,9 @@ export function getFeishuProviderConfigWithSource(): {
   source: FeishuConfigSource;
 } {
   try {
-    const stored = readStoredFeishuConfig();
+    const stored =
+      readFeishuConfigFile(FEISHU_CONFIG_FILE) ??
+      promoteUserScopedFeishuConfig();
     if (stored) return { config: stored, source: 'runtime' };
   } catch (err) {
     logger.warn(
@@ -338,9 +418,7 @@ export function saveAppearanceConfig(
 
 const WECHAT_CONFIG_FILE = path.join(CONFIG_DIR, 'wechat-provider.json');
 const LEGACY_WECHAT_CONFIG_FILE = path.join(
-  DATA_DIR,
-  'config',
-  'user-im',
+  USER_IM_CONFIG_DIR,
   'instance',
   'wechat.json',
 );
@@ -400,8 +478,35 @@ function readWeChatConfigFile(filePath: string): WeChatProviderConfig | null {
 export function getWeChatProviderConfig(): WeChatProviderConfig | null {
   return (
     readWeChatConfigFile(WECHAT_CONFIG_FILE) ??
+    promoteUserScopedWeChatConfig() ??
     readWeChatConfigFile(LEGACY_WECHAT_CONFIG_FILE)
   );
+}
+
+function promoteUserScopedWeChatConfig(): WeChatProviderConfig | null {
+  if (fs.existsSync(WECHAT_CONFIG_FILE)) return null;
+  const sourcePath = findUserScopedChannelConfig('wechat.json');
+  if (!sourcePath) return null;
+
+  try {
+    const config = readWeChatConfigFile(sourcePath);
+    if (!config || (!config.botToken && !config.ilinkBotId)) return null;
+    const saved = saveWeChatProviderConfig({
+      botToken: config.botToken,
+      ilinkBotId: config.ilinkBotId,
+      baseUrl: config.baseUrl,
+      cdnBaseUrl: config.cdnBaseUrl,
+      getUpdatesBuf: config.getUpdatesBuf,
+      bypassProxy: config.bypassProxy ?? true,
+      enabled: config.enabled ?? true,
+    });
+    removePromotedUserScopedConfig(sourcePath);
+    logger.info('Promoted user-scoped WeChat config to instance config');
+    return saved;
+  } catch (err) {
+    logger.warn({ err }, 'Failed to promote user-scoped WeChat config');
+    return null;
+  }
 }
 
 export function saveWeChatProviderConfig(

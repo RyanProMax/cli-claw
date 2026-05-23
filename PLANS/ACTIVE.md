@@ -76,4 +76,33 @@ Changed areas:
 
 Next step:
 
-- 提交本轮改动。
+- 本轮主精简已提交；继续处理实例级 IM 配置继承 follow-up。
+
+## Follow-up：实例级 IM 配置继承修复
+
+Status: `done`
+
+Issue:
+
+- 单实例重构后只读取 `config/feishu-provider.json` 与 `config/wechat-provider.json`。
+- 既有机器仍保留旧 `config/user-im/<旧用户ID>/feishu.json` / `wechat.json`，导致主工作区误提示“未配置 IM 渠道”。
+- Web 横幅使用 live connection 状态表达“是否配置”，连接未启动时也会误报未配置。
+
+Fix:
+
+- 读取实例级 provider 失败时，自动提升最新的旧 user-scoped 飞书/微信配置到实例级 provider 文件，并清理已提升的旧文件。
+- `/api/config/user-im/status` 改为返回“已配置且启用”的状态，不再用 live connection 状态代替配置状态。
+- 增加单元测试与路由集成测试覆盖继承和状态判断。
+
+Validation:
+
+- `npm test -- tests/unit/core/runtime/config.test.ts tests/integration/routes/config-status.test.ts` 通过。
+- `npm run typecheck:backend` 通过。
+- `./scripts/validate.sh` 通过。
+- `./scripts/review.sh` 通过 diff hygiene 与 `src/**/*.ts` format check。
+- 本机配置已提升为实例级 `feishu-provider.json` / `wechat-provider.json`，旧 `user-im` 配置文件已清理。
+- `bun src/cli.ts restart` 安全重启通过，`/api/health` 返回 healthy。
+
+Review:
+
+- `passed`。按 `RUNBOOKS/Review.md` 检查 scope、目标覆盖、模式契合、验证证据与回归风险；无 blocking finding。

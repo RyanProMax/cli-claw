@@ -73,6 +73,23 @@ function publicWeChatConfig() {
   };
 }
 
+function isFeishuProviderConfigured(): boolean {
+  const { config, source } = getFeishuProviderConfigWithSource();
+  const publicConfig = toPublicFeishuProviderConfig(config, source);
+  return (
+    publicConfig.enabled &&
+    Boolean(publicConfig.appId) &&
+    publicConfig.hasAppSecret
+  );
+}
+
+function isWeChatProviderConfigured(): boolean {
+  const config = getWeChatProviderConfig();
+  return Boolean(
+    config && config.enabled !== false && config.ilinkBotId && config.botToken,
+  );
+}
+
 function applyBindingUpdate(imJid: string, updated: RegisteredGroup): void {
   setRegisteredGroup(imJid, updated);
   const webDeps = getWebDeps();
@@ -185,8 +202,8 @@ configRoutes.put('/system', authMiddleware, async (c) => {
 
 configRoutes.get('/user-im/status', authMiddleware, (c) => {
   return c.json({
-    feishu: deps?.isFeishuConnected?.() ?? false,
-    wechat: deps?.isWeChatConnected?.() ?? false,
+    feishu: isFeishuProviderConfigured(),
+    wechat: isWeChatProviderConfigured(),
   });
 });
 
