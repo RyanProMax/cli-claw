@@ -33,7 +33,6 @@ const mocks = vi.hoisted(() => ({
   clearSessionJsonlFiles: vi.fn(),
   canDeleteGroup: vi.fn(),
   canManageGroupMembers: vi.fn(),
-  checkGroupLimit: vi.fn(),
   getOpenAiRuntimeDefaults: vi.fn(),
   getAvailableRuntimeModelOptions: vi.fn(),
   getAvailableRuntimeModelPresets: vi.fn(),
@@ -66,10 +65,6 @@ vi.mock('../../../src/core/app-root.js', () => ({
     ['/repo/root', ...segments].join('/'),
   resolvePackageDependency: (specifier: string) =>
     `/repo/root/node_modules/${specifier}`,
-}));
-
-vi.mock('../../../src/core/billing.js', () => ({
-  checkGroupLimit: mocks.checkGroupLimit,
 }));
 
 vi.mock('../../../src/storage/db.js', async () => {
@@ -247,7 +242,6 @@ describe('group runtime stale-build guard', () => {
         return null;
       },
     );
-    mocks.checkGroupLimit.mockReturnValue({ allowed: true });
     mocks.getWebDeps.mockReturnValue({
       queue: {
         stopGroup: mocks.stopGroup,

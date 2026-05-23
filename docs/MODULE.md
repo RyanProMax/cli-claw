@@ -27,7 +27,6 @@
 │   ├── core/
 │   │   ├── app-root.ts              # 安装位置 / 包根路径 / 启动目录解析
 │   │   ├── auth.ts                  # Web 用户认证 helper
-│   │   ├── billing.ts               # 套餐、额度与账单 helper
 │   │   ├── cache.ts                 # `~/.cli-claw/cache` 通用缓存目录、TTL/容量清理与定时清理 loop
 │   │   ├── config.ts                # 全局路径、端口、运行环境配置
 │   │   ├── logger.ts                # pino logger
@@ -59,7 +58,6 @@
 │   │   ├── reply-visibility.ts      # final/tool/send_message 可见文本裁剪
 │   │   ├── stream-event.types.ts    # backend stream event re-export
 │   │   ├── streaming-runtime-meta.ts# streaming card runtime meta
-│   │   ├── loop-status.ts           # 循环任务状态展示
 │   │   └── tool-step-display.ts     # tool step 文本展示
 │   ├── web/
 │   │   ├── app.ts                   # Hono 应用、WebSocket、静态资源托管
@@ -70,8 +68,6 @@
 │   ├── skills/
 │   │   ├── command-dispatch.ts      # skill command 发现、冲突检查与 executor 执行
 │   │   └── utils.ts                 # skill 路径与 frontmatter helper
-│   └── mcp/
-│       └── utils.ts                 # 用户级 MCP Server 配置读取
 ├── tests/
 │   ├── unit/                        # 单模块行为，少 mock 或局部 mock
 │   ├── integration/                 # 跨模块链路，mock 外部网络/进程边界

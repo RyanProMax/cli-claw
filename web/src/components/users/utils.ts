@@ -21,7 +21,6 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   manage_users: '用户管理',
   manage_invites: '邀请码管理',
   view_audit_log: '查看审计日志',
-  manage_billing: '计费管理',
 };
 
 export const ROLE_LABELS: Record<string, string> = {

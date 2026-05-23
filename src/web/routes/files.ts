@@ -14,10 +14,8 @@ import {
   createDirectory,
   isSystemPath,
   MAX_FILE_SIZE,
-  getGroupStorageUsage,
   invalidateGroupStorageUsage,
 } from '../../core/workspace/file-manager.js';
-import { checkStorageLimit, isBillingEnabled } from '../../core/billing.js';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -292,24 +290,6 @@ fileRoutes.post('/:jid/files', authMiddleware, async (c) => {
     // 支持单文件和多文件上传
     const fileList = Array.isArray(files) ? files : [files];
     const uploadedFiles: string[] = [];
-
-    // Billing: check storage limit before uploading
-    if (isBillingEnabled() && group.created_by) {
-      const totalUploadSize = fileList.reduce(
-        (sum, f) => sum + (f instanceof File ? f.size : 0),
-        0,
-      );
-      const currentUsage = getGroupStorageUsage(group.folder, rootOverride);
-      const storageCheck = checkStorageLimit(
-        group.created_by,
-        authUser.role,
-        currentUsage,
-        totalUploadSize,
-      );
-      if (!storageCheck.allowed) {
-        return c.json({ error: storageCheck.reason }, 403);
-      }
-    }
 
     for (const file of fileList) {
       if (!(file instanceof File)) continue;
@@ -692,23 +672,6 @@ fileRoutes.put('/:jid/files/content/:path', authMiddleware, async (c) => {
     // 限制内容大小（10MB）
     if (Buffer.byteLength(body.content, 'utf-8') > 10 * 1024 * 1024) {
       return c.json({ error: 'Content too large (max 10MB)' }, 400);
-    }
-
-    if (isBillingEnabled() && group.created_by) {
-      const nextSize = Buffer.byteLength(body.content, 'utf-8');
-      const additionalBytes = Math.max(0, nextSize - stats.size);
-      if (additionalBytes > 0) {
-        const currentUsage = getGroupStorageUsage(group.folder, rootOverride);
-        const storageCheck = checkStorageLimit(
-          group.created_by,
-          authUser.role,
-          currentUsage,
-          additionalBytes,
-        );
-        if (!storageCheck.allowed) {
-          return c.json({ error: storageCheck.reason }, 403);
-        }
-      }
     }
 
     // 原子写入

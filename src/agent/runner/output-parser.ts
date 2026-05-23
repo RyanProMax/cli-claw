@@ -735,7 +735,6 @@ const API_ERROR_PATTERNS = [
   /\binternal\s+server\s+error\b/i,
   /\b(502|503|504|529)\b/,
   /\binvalid[_ ]?api\b/i,
-  /\bbilling\s+(error|issue|limit)\b/i,
   /\bcredit(s)?\s+(exhausted|insufficient)\b/i,
   /connection\s*(refused|reset|timed?\s*out)/i,
   /ECONNREFUSED|ECONNRESET|ETIMEDOUT/,

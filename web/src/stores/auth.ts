@@ -6,8 +6,7 @@ export type Permission =
   | 'manage_group_env'
   | 'manage_users'
   | 'manage_invites'
-  | 'view_audit_log'
-  | 'manage_billing';
+  | 'view_audit_log';
 
 export interface UserPublic {
   id: string;

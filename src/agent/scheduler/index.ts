@@ -29,7 +29,6 @@ import {
   ensureChatExists,
   getDueTasks,
   getTaskById,
-  getUserById,
   logTaskRunStart,
   updateTaskRunLog,
   setRegisteredGroup,
@@ -46,10 +45,6 @@ import { removeFlowArtifacts } from '../../core/workspace/file-manager.js';
 import { hasScriptCapacity, runScript } from '../script-runner.js';
 import type { StreamEvent } from '../../presentation/stream-event.types.js';
 import { RegisteredGroup, ScheduledTask } from '../../domain/types.js';
-import {
-  checkBillingAccessFresh,
-  isBillingEnabled,
-} from '../../core/billing.js';
 import { formatUserFacingRuntimeError } from '../runner/output-parser.js';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
 import { evaluateScheduledTaskUsageGuard } from './usage-guard.js';
@@ -451,42 +446,6 @@ export async function runTask(
     'Running scheduled task',
   );
 
-  // Billing quota check before running task
-  if (isBillingEnabled() && workspaceGroup.created_by) {
-    const owner = getUserById(workspaceGroup.created_by);
-    if (owner && owner.role !== 'admin') {
-      const accessResult = checkBillingAccessFresh(
-        workspaceGroup.created_by,
-        owner.role,
-      );
-      if (!accessResult.allowed) {
-        const reason = accessResult.reason || '当前账户不可用';
-        logger.info(
-          {
-            taskId: task.id,
-            userId: workspaceGroup.created_by,
-            reason,
-            blockType: accessResult.blockType,
-          },
-          'Billing access denied, blocking scheduled task',
-        );
-        updateTaskRunLog(runLogId, {
-          duration_ms: Date.now() - startTime,
-          status: 'error',
-          result: null,
-          error: `计费限制: ${reason}`,
-        });
-        runningTaskIds.delete(task.id);
-        // Still compute next run so the task isn't stuck (but preserve for manual runs)
-        const nextRun = options?.manualRun
-          ? task.next_run
-          : computeNextRun(task);
-        updateTaskAfterRun(task.id, nextRun, `Error: 计费限制: ${reason}`);
-        return;
-      }
-    }
-  }
-
   const sourceWorkspaceGroup = resolveTaskSourceGroup(task, workspaceGroups);
   const sourceRuntimeGroup =
     (sourceWorkspaceGroup &&
@@ -743,43 +702,6 @@ export async function runScriptTask(
     'Running script task',
   );
 
-  // Billing quota check before running script task
-  if (isBillingEnabled() && task.group_folder) {
-    const groups = deps.registeredGroups();
-    const group = groups[groupJid];
-    if (group?.created_by) {
-      const owner = getUserById(group.created_by);
-      if (owner && owner.role !== 'admin') {
-        const accessResult = checkBillingAccessFresh(
-          group.created_by,
-          owner.role,
-        );
-        if (!accessResult.allowed) {
-          const reason = accessResult.reason || '当前账户不可用';
-          logger.info(
-            {
-              taskId: task.id,
-              userId: group.created_by,
-              reason,
-              blockType: accessResult.blockType,
-            },
-            'Billing access denied, blocking script task',
-          );
-          updateTaskRunLog(runLogId, {
-            duration_ms: Date.now() - startTime,
-            status: 'error',
-            result: null,
-            error: `计费限制: ${reason}`,
-          });
-          runningTaskIds.delete(task.id);
-          const nextRun = manualRun ? task.next_run : computeNextRun(task);
-          updateTaskAfterRun(task.id, nextRun, `Error: 计费限制: ${reason}`);
-          return;
-        }
-      }
-    }
-  }
-
   const sourceWorkspaceGroup = resolveTaskSourceGroup(
     task,
     deps.registeredGroups(),
@@ -901,34 +823,6 @@ export async function runWorkflowTask(
     );
     if (deferredByUsageGuard) {
       return;
-    }
-
-    if (isBillingEnabled() && task.group_folder) {
-      const groups = deps.registeredGroups();
-      const group = groups[groupJid];
-      if (group?.created_by) {
-        const owner = getUserById(group.created_by);
-        if (owner && owner.role !== 'admin') {
-          const accessResult = checkBillingAccessFresh(
-            group.created_by,
-            owner.role,
-          );
-          if (!accessResult.allowed) {
-            const reason = accessResult.reason || '当前账户不可用';
-            logger.info(
-              {
-                taskId: task.id,
-                userId: group.created_by,
-                reason,
-                blockType: accessResult.blockType,
-              },
-              'Billing access denied, blocking workflow task',
-            );
-            error = `计费限制: ${reason}`;
-            return;
-          }
-        }
-      }
     }
 
     const workflowArgs = resolveWorkflowTaskArgs(task);

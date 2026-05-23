@@ -5,7 +5,6 @@ import { BottomTabBar } from './BottomTabBar';
 import { ConnectionBanner } from '../common/ConnectionBanner';
 import { wsManager } from '../../api/ws';
 import { useTheme } from '../../hooks/useTheme';
-import { useBillingStore } from '../../stores/billing';
 import { useGroupsStore } from '../../stores/groups';
 import { useChatStore } from '../../stores/chat';
 
@@ -34,22 +33,6 @@ export function AppLayout() {
   // 应用级别建立 WebSocket 连接，确保所有页面（非仅 ChatView）都有连接
   useEffect(() => {
     wsManager.connect();
-  }, []);
-
-  // 加载计费状态（控制导航栏是否显示账单入口）
-  const loadBillingStatus = useBillingStore((s) => s.loadBillingStatus);
-  useEffect(() => {
-    loadBillingStatus();
-  }, [loadBillingStatus]);
-
-  // 监听 WebSocket 计费更新
-  useEffect(() => {
-    const unsub = wsManager.on('billing_update', (data: any) => {
-      if (data.usage) {
-        useBillingStore.getState().handleBillingUpdate(data.usage);
-      }
-    });
-    return () => { unsub(); };
   }, []);
 
   // 监听 runner_state 更新 sidebar 运行状态指示器

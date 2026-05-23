@@ -12,7 +12,6 @@ import type {
   RegisteredGroup,
   MessageHistoryCursor,
 } from '../../domain/types.js';
-import { checkGroupLimit } from '../../core/billing.js';
 import { DATA_DIR, GROUPS_DIR } from '../../core/config.js';
 import { LAUNCH_CWD } from '../../core/app-root.js';
 import {
@@ -437,12 +436,6 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   const customCwd = validation.data.custom_cwd; // Schema already trims and converts empty to undefined
   const authUser = c.get('user') as AuthUser;
   let normalizedCustomCwd: string | undefined;
-
-  // Billing: check group limit
-  const groupLimit = checkGroupLimit(authUser.id, authUser.role);
-  if (!groupLimit.allowed) {
-    return c.json({ error: groupLimit.reason }, 403);
-  }
 
   if (customCwd) {
     if (!hasLocalWorkspacePermission(authUser)) {
@@ -1393,78 +1386,6 @@ groupRoutes.delete('/:jid/members/:userId', authMiddleware, (c) => {
 
   const members = getGroupMembers(group.folder);
   return c.json({ success: true, members });
-});
-
-// --- MCP Configuration Routes ---
-
-// GET /api/groups/:jid/mcp - 获取工作区 MCP 配置
-groupRoutes.get('/:jid/mcp', authMiddleware, (c) => {
-  const jid = c.req.param('jid');
-  const group = getRegisteredGroup(jid);
-  if (!group) return c.json({ error: 'Group not found' }, 404);
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-
-  return c.json({
-    mcp_mode: group.mcp_mode ?? 'inherit',
-    selected_mcps: group.selected_mcps ?? null,
-  });
-});
-
-// PUT /api/groups/:jid/mcp - 更新工作区 MCP 配置
-groupRoutes.put('/:jid/mcp', authMiddleware, async (c) => {
-  const jid = c.req.param('jid');
-  const group = getRegisteredGroup(jid);
-  if (!group) return c.json({ error: 'Group not found' }, 404);
-
-  const authUser = c.get('user') as AuthUser;
-  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
-    return c.json({ error: 'Group not found' }, 404);
-  }
-
-  const body = await c.req.json().catch(() => ({}));
-  const mcp_mode = body.mcp_mode;
-  const selected_mcps = body.selected_mcps;
-
-  // Validate mcp_mode
-  if (
-    mcp_mode !== undefined &&
-    mcp_mode !== 'inherit' &&
-    mcp_mode !== 'custom'
-  ) {
-    return c.json({ error: 'Invalid mcp_mode' }, 400);
-  }
-
-  // Validate selected_mcps
-  if (selected_mcps !== undefined && selected_mcps !== null) {
-    if (!Array.isArray(selected_mcps)) {
-      return c.json({ error: 'selected_mcps must be an array' }, 400);
-    }
-    for (const mcp of selected_mcps) {
-      if (typeof mcp !== 'string') {
-        return c.json({ error: 'selected_mcps must contain strings' }, 400);
-      }
-    }
-  }
-
-  // Update the group
-  const updatedGroup: RegisteredGroup = {
-    ...group,
-    mcp_mode: mcp_mode ?? group.mcp_mode ?? 'inherit',
-    selected_mcps:
-      selected_mcps !== undefined ? selected_mcps : group.selected_mcps,
-  };
-
-  setRegisteredGroup(jid, updatedGroup);
-
-  return c.json({
-    success: true,
-    mcp_mode: updatedGroup.mcp_mode,
-    selected_mcps: updatedGroup.selected_mcps,
-  });
 });
 
 export default groupRoutes;

@@ -84,9 +84,6 @@ export class GroupQueue {
   private onRunnerStateChangeFn:
     | ((chatJid: string, state: 'idle' | 'running') => void)
     | null = null;
-  private userConcurrentLimitFn:
-    | ((groupJid: string) => { allowed: boolean })
-    | null = null;
   private onUnconsumedAgentIpcFn:
     | ((groupJid: string, agentId: string) => void)
     | null = null;
@@ -143,12 +140,6 @@ export class GroupQueue {
     this.onRunnerStateChangeFn = fn;
   }
 
-  setUserConcurrentLimitChecker(
-    fn: (groupJid: string) => { allowed: boolean },
-  ): void {
-    this.userConcurrentLimitFn = fn;
-  }
-
   /**
    * Called when an agent runner exits with unconsumed IPC message files.
    * The callback should re-enqueue processAgentConversation for the agent.
@@ -194,16 +185,7 @@ export class GroupQueue {
   }
 
   private hasCapacityFor(groupJid: string): boolean {
-    const systemCapacity =
-      this.activeCount < getSystemSettings().maxConcurrentProcesses;
-    if (!systemCapacity) return false;
-
-    // User-level concurrent process limit (billing)
-    if (this.userConcurrentLimitFn) {
-      const result = this.userConcurrentLimitFn(groupJid);
-      if (!result.allowed) return false;
-    }
-    return true;
+    return this.activeCount < getSystemSettings().maxConcurrentProcesses;
   }
 
   private resolveActiveState(groupJid: string): ActiveGroupState | null {
@@ -319,24 +301,6 @@ export class GroupQueue {
     runnerState.drainSentinelWritten = true;
     logger.info({ groupJid, activeRunner }, reason);
     return true;
-  }
-
-  /** 检查指定 JID 是否有自己直接启动的活跃 runner（非通过 folder 共享匹配） */
-  hasDirectActiveRunner(groupJid: string): boolean {
-    const state = this.groups.get(groupJid);
-    return state?.active === true;
-  }
-
-  /** Count active task runners whose JID starts with the given base JID + '#task:' */
-  countActiveTaskRunners(baseJid: string): number {
-    const prefix = baseJid + '#task:';
-    let count = 0;
-    for (const [jid, state] of this.groups.entries()) {
-      if (state.active && jid.startsWith(prefix)) {
-        count++;
-      }
-    }
-    return count;
   }
 
   /**

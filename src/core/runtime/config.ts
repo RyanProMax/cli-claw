@@ -933,12 +933,6 @@ export interface SystemSettings {
   loginLockoutMinutes: number;
   maxConcurrentScripts: number;
   scriptTimeout: number;
-  // Billing
-  billingEnabled: boolean;
-  billingMode: 'wallet_first';
-  billingMinStartBalanceUsd: number;
-  billingCurrency: string;
-  billingCurrencyRate: number;
 }
 
 const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
@@ -950,22 +944,11 @@ const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   loginLockoutMinutes: 15,
   maxConcurrentScripts: 10,
   scriptTimeout: 60000,
-  billingEnabled: false,
-  billingMode: 'wallet_first',
-  billingMinStartBalanceUsd: 0.01,
-  billingCurrency: 'USD',
-  billingCurrencyRate: 1,
 };
 
 function parseIntEnv(envVar: string | undefined, fallback: number): number {
   if (!envVar) return fallback;
   const parsed = parseInt(envVar, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function parseFloatEnv(envVar: string | undefined, fallback: number): number {
-  if (!envVar) return fallback;
-  const parsed = parseFloat(envVar);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
@@ -1014,24 +997,6 @@ function readSystemSettingsFromFile(): SystemSettings | null {
       typeof raw.scriptTimeout === 'number' && raw.scriptTimeout > 0
         ? raw.scriptTimeout
         : DEFAULT_SYSTEM_SETTINGS.scriptTimeout,
-    billingEnabled:
-      typeof raw.billingEnabled === 'boolean'
-        ? raw.billingEnabled
-        : DEFAULT_SYSTEM_SETTINGS.billingEnabled,
-    billingMode: 'wallet_first',
-    billingMinStartBalanceUsd:
-      typeof raw.billingMinStartBalanceUsd === 'number' &&
-      raw.billingMinStartBalanceUsd >= 0
-        ? raw.billingMinStartBalanceUsd
-        : DEFAULT_SYSTEM_SETTINGS.billingMinStartBalanceUsd,
-    billingCurrency:
-      typeof raw.billingCurrency === 'string' && raw.billingCurrency
-        ? raw.billingCurrency
-        : DEFAULT_SYSTEM_SETTINGS.billingCurrency,
-    billingCurrencyRate:
-      typeof raw.billingCurrencyRate === 'number' && raw.billingCurrencyRate > 0
-        ? raw.billingCurrencyRate
-        : DEFAULT_SYSTEM_SETTINGS.billingCurrencyRate,
   };
 }
 
@@ -1068,20 +1033,6 @@ function buildEnvFallbackSettings(): SystemSettings {
     scriptTimeout: parseIntEnv(
       process.env.SCRIPT_TIMEOUT,
       DEFAULT_SYSTEM_SETTINGS.scriptTimeout,
-    ),
-    billingEnabled:
-      process.env.BILLING_ENABLED === 'true' ||
-      DEFAULT_SYSTEM_SETTINGS.billingEnabled,
-    billingMode: 'wallet_first',
-    billingMinStartBalanceUsd: parseFloatEnv(
-      process.env.BILLING_MIN_START_BALANCE_USD,
-      DEFAULT_SYSTEM_SETTINGS.billingMinStartBalanceUsd,
-    ),
-    billingCurrency:
-      process.env.BILLING_CURRENCY || DEFAULT_SYSTEM_SETTINGS.billingCurrency,
-    billingCurrencyRate: parseFloatEnv(
-      process.env.BILLING_CURRENCY_RATE,
-      DEFAULT_SYSTEM_SETTINGS.billingCurrencyRate,
     ),
   };
 }
@@ -1150,12 +1101,6 @@ export function saveSystemSettings(
   if (merged.maxConcurrentScripts > 50) merged.maxConcurrentScripts = 50;
   if (merged.scriptTimeout < 5000) merged.scriptTimeout = 5000; // min 5s
   if (merged.scriptTimeout > 600000) merged.scriptTimeout = 600000; // max 10 min
-  merged.billingMode = 'wallet_first';
-  if (merged.billingMinStartBalanceUsd < 0)
-    merged.billingMinStartBalanceUsd =
-      DEFAULT_SYSTEM_SETTINGS.billingMinStartBalanceUsd;
-  if (merged.billingMinStartBalanceUsd > 1000000)
-    merged.billingMinStartBalanceUsd = 1000000;
 
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   const tmp = `${SYSTEM_SETTINGS_FILE}.tmp`;

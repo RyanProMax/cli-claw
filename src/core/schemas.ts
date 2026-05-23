@@ -177,11 +177,6 @@ export const SystemSettingsSchema = z.object({
   loginLockoutMinutes: z.number().int().min(1).max(1440).optional(),
   maxConcurrentScripts: z.number().int().min(1).max(50).optional(),
   scriptTimeout: z.number().int().min(5000).max(600000).optional(),
-  billingEnabled: z.boolean().optional(),
-  billingMode: z.literal('wallet_first').optional(),
-  billingMinStartBalanceUsd: z.number().min(0).max(1000000).optional(),
-  billingCurrency: z.string().min(1).max(10).optional(),
-  billingCurrencyRate: z.number().min(0.0001).max(1000000).optional(),
 });
 
 export const AppearanceConfigSchema = z.object({
@@ -324,126 +319,6 @@ export const QQConfigSchema = z
       typeof data.enabled === 'boolean',
     { message: 'At least one config field must be provided' },
   );
-
-// --- Billing schemas ---
-
-export const BillingPlanCreateSchema = z.object({
-  id: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[\w-]+$/, 'ID must be alphanumeric with hyphens/underscores'),
-  name: z.string().min(1).max(64),
-  description: z.string().max(500).nullable().optional(),
-  tier: z.number().int().min(0).max(100).optional(),
-  monthly_cost_usd: z.number().min(0).optional(),
-  monthly_token_quota: z.number().int().min(0).nullable().optional(),
-  monthly_cost_quota: z.number().min(0).nullable().optional(),
-  daily_cost_quota: z.number().min(0).nullable().optional(),
-  weekly_cost_quota: z.number().min(0).nullable().optional(),
-  daily_token_quota: z.number().int().min(0).nullable().optional(),
-  weekly_token_quota: z.number().int().min(0).nullable().optional(),
-  rate_multiplier: z.number().min(0.01).max(100).optional(),
-  trial_days: z.number().int().min(1).max(365).nullable().optional(),
-  sort_order: z.number().int().min(0).max(9999).optional(),
-  display_price: z.string().max(64).nullable().optional(),
-  highlight: z.boolean().optional(),
-  max_groups: z.number().int().min(0).nullable().optional(),
-  max_concurrent_processes: z.number().int().min(0).nullable().optional(),
-  max_im_channels: z.number().int().min(0).nullable().optional(),
-  max_mcp_servers: z.number().int().min(0).nullable().optional(),
-  max_storage_mb: z.number().int().min(0).nullable().optional(),
-  allow_overage: z.boolean().optional(),
-  features: z.array(z.string().max(64)).max(50).optional(),
-  is_default: z.boolean().optional(),
-  is_active: z.boolean().optional(),
-});
-
-export const BillingPlanPatchSchema = BillingPlanCreateSchema.omit({
-  id: true,
-}).partial();
-
-export const AssignPlanSchema = z.object({
-  plan_id: z.string().min(1),
-  duration_days: z.number().int().min(1).max(3650).optional(),
-});
-
-export const AdjustBalanceSchema = z.object({
-  amount_usd: z.number().refine((v) => v !== 0, 'Amount cannot be zero'),
-  description: z.string().min(1).max(500),
-  idempotency_key: z.string().min(1).max(64).optional(),
-});
-
-export const BatchAssignPlanSchema = z.object({
-  user_ids: z.array(z.string().min(1)).min(1).max(100),
-  plan_id: z.string().min(1),
-  duration_days: z.number().int().min(1).max(3650).optional(),
-});
-
-export const RedeemCodeCreateSchema = z
-  .object({
-    type: z.enum(['balance', 'subscription', 'trial']),
-    value_usd: z.number().min(0.01).optional(),
-    plan_id: z.string().min(1).optional(),
-    duration_days: z.number().int().min(1).max(3650).optional(),
-    max_uses: z.number().int().min(1).max(10000).optional(),
-    count: z.number().int().min(1).max(100).optional(), // 批量生成数量
-    prefix: z
-      .string()
-      .max(16)
-      .regex(/^[\w-]*$/)
-      .optional(), // 兑换码前缀
-    expires_in_hours: z.number().int().min(1).max(87600).optional(),
-    notes: z.string().max(500).optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.type === 'balance' && (!data.value_usd || data.value_usd <= 0)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['value_usd'],
-        message: 'Balance type requires a positive value_usd',
-      });
-    }
-    if (data.type === 'subscription' && !data.plan_id) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['plan_id'],
-        message: 'Subscription type requires a plan_id',
-      });
-    }
-    if (
-      data.type === 'trial' &&
-      (!data.duration_days || data.duration_days <= 0)
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['duration_days'],
-        message: 'Trial type requires a positive duration_days',
-      });
-    }
-  });
-
-export const RedeemCodeSchema = z.object({
-  code: z.string().min(1).max(64),
-});
-
-// --- Bug Report schemas ---
-
-// 单张截图上限 5MB（base64 编码后约 6.67MB）
-const MAX_SCREENSHOT_BASE64_LENGTH = (5 * 1024 * 1024 * 4) / 3;
-
-export const BugReportGenerateSchema = z.object({
-  description: z.string().min(1).max(5000),
-  screenshots: z
-    .array(z.string().max(MAX_SCREENSHOT_BASE64_LENGTH))
-    .max(3)
-    .optional(),
-});
-
-export const BugReportSubmitSchema = z.object({
-  title: z.string().min(1).max(256),
-  body: z.string().min(1).max(65536),
-});
 
 export const WeChatConfigSchema = z.object({
   enabled: z.boolean().optional(),

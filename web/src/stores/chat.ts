@@ -644,7 +644,6 @@ function pickSdkTaskAliasTarget(
 }
 
 function isTerminalSystemMessage(message: Pick<Message, 'sender' | 'content'>): boolean {
-  if (message.sender === '__billing__') return true;
   // query_interrupted 仅作为视觉分隔线，不参与流式状态清理。
   // 流式状态由 status:interrupted（冻结）→ interrupt_partial（转正）两阶段处理。
   return message.sender === '__system__' && (

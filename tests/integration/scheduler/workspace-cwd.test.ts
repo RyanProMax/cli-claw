@@ -18,11 +18,6 @@ vi.mock('../../../src/agent/runner/container-runner.js', () => ({
   writeTasksSnapshot: vi.fn(),
 }));
 
-vi.mock('../../../src/core/billing.js', () => ({
-  checkBillingAccessFresh: vi.fn(),
-  isBillingEnabled: () => false,
-}));
-
 vi.mock('../../../src/core/runtime/usage.js', () => ({
   getRuntimeUsageSnapshot: runtimeUsageMock,
 }));

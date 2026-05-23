@@ -1,18 +1,12 @@
-import { useState } from 'react';
 import {
   Github,
   ExternalLink,
   Heart,
   Code2,
   Lightbulb,
-  Bug,
 } from 'lucide-react';
-import { BugReportDialog } from '@/components/common/BugReportDialog';
-import { Button } from '@/components/ui/button';
 
 export function AboutSection() {
-  const [showBugReport, setShowBugReport] = useState(false);
-
   return (
     <div className="space-y-6">
       {/* 项目信息 */}
@@ -23,7 +17,7 @@ export function AboutSection() {
         </p>
       </div>
 
-      {/* 开源地址 & 作者 & 报告问题 */}
+      {/* 开源地址 & 作者 */}
       <div className="space-y-3">
         <div className="flex items-center gap-3">
           <Github className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -41,23 +35,7 @@ export function AboutSection() {
           <Code2 className="w-4 h-4 text-muted-foreground shrink-0" />
           <span className="text-sm text-foreground">作者：riba2534</span>
         </div>
-        <div className="flex items-center gap-3">
-          <Bug className="w-4 h-4 text-muted-foreground shrink-0" />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowBugReport(true)}
-          >
-            <Bug className="w-3.5 h-3.5" />
-            报告问题
-          </Button>
-        </div>
       </div>
-
-      <BugReportDialog
-        open={showBugReport}
-        onClose={() => setShowBugReport(false)}
-      />
 
       <hr className="border-border" />
 

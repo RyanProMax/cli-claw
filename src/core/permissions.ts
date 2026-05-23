@@ -10,7 +10,6 @@ export const ALL_PERMISSIONS: Permission[] = [
   'manage_users',
   'manage_invites',
   'view_audit_log',
-  'manage_billing',
 ];
 
 export const PERMISSION_TEMPLATES: Record<

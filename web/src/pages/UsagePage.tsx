@@ -5,7 +5,6 @@ import {
 } from 'lucide-react';
 import { useUsageStore } from '../stores/usage';
 import { useAuthStore } from '../stores/auth';
-import { formatTokens } from '../components/billing/utils';
 import { PageHeader } from '@/components/common/PageHeader';
 import { SkeletonStatCards } from '@/components/common/Skeletons';
 import { Button } from '@/components/ui/button';
@@ -32,6 +31,12 @@ const CHART_COLORS = [
   '#f97316',
   '#ec4899',
 ];
+
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
+  return String(tokens);
+}
 
 function formatCost(usd: number): string {
   if (usd >= 1) return `$${usd.toFixed(2)}`;

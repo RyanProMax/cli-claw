@@ -1,15 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Plus, PanelLeftClose, Bug, LogOut, UserCog } from 'lucide-react';
+import { Plus, PanelLeftClose, LogOut, UserCog } from 'lucide-react';
 import { useChatStore } from '../../stores/chat';
 import { useAuthStore } from '../../stores/auth';
-import { useBillingStore } from '../../stores/billing';
 import { useGroupsStore } from '../../stores/groups';
 import { useClearWorkspace } from '../../hooks/useClearWorkspace';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/common';
 import { EmojiAvatar } from '../common/EmojiAvatar';
-import { BugReportDialog } from '../common/BugReportDialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ChatGroupItem } from '../chat/ChatGroupItem';
@@ -32,14 +30,9 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
   const showWorkspaceList = isChatRoute && !collapsed;
 
   const user = useAuthStore((s) => s.user);
-  const billingEnabled = useBillingStore((s) => s.billingEnabled);
-  const [showBugReport, setShowBugReport] = useState(false);
   const userInitial = (user?.display_name || user?.username || '?')[0].toUpperCase();
 
-  const navItems = useMemo(
-    () => filterNavItems(billingEnabled),
-    [billingEnabled],
-  );
+  const navItems = useMemo(() => filterNavItems(), []);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [renameState, setRenameState] = useState({ open: false, jid: '', name: '' });
@@ -169,16 +162,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Bug report */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={() => setShowBugReport(true)} className="w-10 h-10 rounded-lg flex items-center justify-center text-muted-foreground hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors">
-              <Bug className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">报告问题</TooltipContent>
-        </Tooltip>
-
         {/* User avatar popover */}
         <Popover>
           <PopoverTrigger asChild>
@@ -297,7 +280,6 @@ export function UnifiedSidebar({ collapsed, onToggleCollapse }: UnifiedSidebarPr
       </div>
     </div>
 
-        <BugReportDialog open={showBugReport} onClose={() => setShowBugReport(false)} />
         <CreateWorkspaceDialog open={createOpen} onClose={() => setCreateOpen(false)} onCreated={handleCreated} />
         <RenameDialog open={renameState.open} jid={renameState.jid} currentName={renameState.name} onClose={() => setRenameState({ open: false, jid: '', name: '' })} />
         <ConfirmDialog open={clearState.open} onClose={closeClear} onConfirm={handleClearConfirm} title="重建工作区" message={`确认重建「${clearState.name}」？不可撤销。`} confirmText="确认重建" confirmVariant="danger" loading={clearLoading} />

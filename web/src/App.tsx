@@ -10,8 +10,6 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { SetupPage } from './pages/SetupPage';
 import { SetupChannelsPage } from './pages/SetupChannelsPage';
-import { McpServersPage } from './pages/McpServersPage';
-import { AgentDefinitionsPage } from './pages/AgentDefinitionsPage';
 import { UsersPage } from './pages/UsersPage';
 import { AuthGuard } from './components/auth/AuthGuard';
 import { AppLayout } from './components/layout/AppLayout';
@@ -29,7 +27,6 @@ const AutomationsPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
-const BillingPage = lazy(() => import('./pages/BillingPage'));
 
 export function App() {
   const Router = shouldUseHashRouter() ? HashRouter : BrowserRouter;
@@ -87,16 +84,6 @@ export function App() {
             path="/usage"
             element={<Navigate to="/settings?tab=usage" replace />}
           />
-          <Route
-            path="/billing"
-            element={
-              <Suspense fallback={null}>
-                <BillingPage />
-              </Suspense>
-            }
-          />
-          <Route path="/mcp-servers" element={<McpServersPage />} />
-          <Route path="/agent-definitions" element={<AgentDefinitionsPage />} />
           <Route
             path="/settings"
             element={

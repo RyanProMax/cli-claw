@@ -3,8 +3,6 @@ import {
   User,
   Shield,
   Layers,
-  Server,
-  Bot,
   UserCog,
   Info,
   Palette,
@@ -76,18 +74,6 @@ const featureItems: NavItem[] = [
     key: 'groups',
     label: '会话管理',
     icon: <Layers className="w-4 h-4" />,
-    group: 'features',
-  },
-  {
-    key: 'mcp-servers',
-    label: 'MCP 服务器',
-    icon: <Server className="w-4 h-4" />,
-    group: 'features',
-  },
-  {
-    key: 'agent-definitions',
-    label: 'Agent',
-    icon: <Bot className="w-4 h-4" />,
     group: 'features',
   },
   {

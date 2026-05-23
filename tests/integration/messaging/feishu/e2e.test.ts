@@ -130,7 +130,6 @@ vi.mock('../../../../src/web/app.js', () => ({
   broadcastStreamEvent: vi.fn(),
   broadcastAgentStatus: vi.fn(),
   broadcastGroupCreated: vi.fn(),
-  broadcastBillingUpdate: vi.fn(),
   shutdownWebServer: vi.fn(),
   getActiveStreamingTexts: vi.fn(() => new Map()),
   clearStreamingSnapshot: vi.fn(),

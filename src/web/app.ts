@@ -39,16 +39,8 @@ import fileRoutes from './routes/files.js';
 import monitorRoutes from './routes/monitor.js';
 import browseRoutes from './routes/browse.js';
 import agentRoutes from './routes/agents.js';
-import mcpServersRoutes from './routes/mcp-servers.js';
 import workspaceConfigRoutes from './routes/workspace-config.js';
-import agentDefinitionsRoutes from './routes/agent-definitions.js';
 import { usage as usageRoutes } from './routes/usage.js';
-import billingRoutes from './routes/billing.js';
-import bugReportRoutes from './routes/bug-report.js';
-import {
-  checkBillingAccess,
-  formatBillingAccessDeniedMessage,
-} from '../core/billing.js';
 
 // Database and types (only for handleWebUserMessage and broadcast)
 import {
@@ -62,7 +54,6 @@ import {
   getGroupMembers,
   getAgent,
   isGroupShared,
-  getUserById,
 } from '../storage/db.js';
 import { isSessionExpired } from '../core/auth.js';
 import type {
@@ -163,14 +154,10 @@ app.route('/api/tasks', tasksRoutes);
 app.route('/api/workflows', workflowRoutes);
 app.route('/api/admin', adminRoutes);
 app.route('/api/browse', browseRoutes);
-app.route('/api/mcp-servers', mcpServersRoutes);
-app.route('/api/agent-definitions', agentDefinitionsRoutes);
 app.route('/api/groups', agentRoutes); // Agent routes under /api/groups/:jid/agents
 app.route('/api/groups', workspaceConfigRoutes); // Workspace config under /api/groups/:jid/workspace-config
 app.route('/api', monitorRoutes);
 app.route('/api/usage', usageRoutes);
-app.route('/api/billing', billingRoutes);
-app.route('/api/bug-report', bugReportRoutes);
 
 // --- POST /api/messages ---
 
@@ -659,39 +646,6 @@ async function handleWebUserMessage(
     attachments: attachmentsStr,
     ...(sourceKind ? { source_kind: sourceKind } : {}),
   });
-
-  if (group.created_by) {
-    const owner = getUserById(group.created_by);
-    if (owner && owner.role !== 'admin') {
-      const accessResult = checkBillingAccess(group.created_by, owner.role);
-      if (!accessResult.allowed) {
-        const sysMsg = formatBillingAccessDeniedMessage(accessResult);
-        const sysMsgId = `sys_quota_${Date.now()}`;
-        const sysTimestamp = new Date().toISOString();
-        storeMessageDirect(
-          sysMsgId,
-          chatJid,
-          '__billing__',
-          ASSISTANT_NAME,
-          sysMsg,
-          sysTimestamp,
-          true,
-        );
-        broadcastNewMessage(chatJid, {
-          id: sysMsgId,
-          chat_jid: chatJid,
-          sender: '__billing__',
-          sender_name: ASSISTANT_NAME,
-          content: sysMsg,
-          timestamp: sysTimestamp,
-          is_from_me: true,
-        });
-        deps.setLastAgentTimestamp(chatJid, { timestamp, id: messageId });
-        deps.advanceGlobalCursor({ timestamp, id: messageId });
-        return { ok: true, messageId, timestamp };
-      }
-    }
-  }
 
   const messageForAgent: NewMessage = {
     id: messageId,
@@ -1728,20 +1682,6 @@ export function broadcastGroupCreated(
     false,
     allowedUserIds,
   );
-}
-
-export function broadcastBillingUpdate(
-  userId: string,
-  usage: import('../domain/types.js').BillingAccessResult,
-): void {
-  const msg: WsMessageOut = {
-    type: 'billing_update',
-    userId,
-    usage,
-  };
-  // Send only to the specific user
-  const allowedUserIds = new Set([userId]);
-  safeBroadcast(msg, false, allowedUserIds);
 }
 
 export function broadcastAgentStatus(

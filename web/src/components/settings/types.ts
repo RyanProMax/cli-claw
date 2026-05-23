@@ -23,11 +23,6 @@ export interface SystemSettings {
   loginLockoutMinutes: number;
   maxConcurrentScripts: number;
   scriptTimeout: number;
-  billingEnabled: boolean;
-  billingMode: 'wallet_first';
-  billingMinStartBalanceUsd: number;
-  billingCurrency: string;
-  billingCurrencyRate: number;
 }
 
 export type SettingsTab =
@@ -38,8 +33,6 @@ export type SettingsTab =
   | 'my-channels'
   | 'security'
   | 'groups'
-  | 'mcp-servers'
-  | 'agent-definitions'
   | 'users'
   | 'about'
   | 'bindings'

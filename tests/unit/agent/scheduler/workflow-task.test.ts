@@ -3,19 +3,15 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { ScheduledTask } from '../../../../src/domain/types.ts';
 
 const {
-  checkBillingAccessFreshMock,
   getUserByIdMock,
   getTaskByIdMock,
-  isBillingEnabledMock,
   logTaskRunStartMock,
   runtimeUsageMock,
   updateTaskAfterRunMock,
   updateTaskRunLogMock,
 } = vi.hoisted(() => ({
-  checkBillingAccessFreshMock: vi.fn(),
   getUserByIdMock: vi.fn(),
   getTaskByIdMock: vi.fn(),
-  isBillingEnabledMock: vi.fn(),
   logTaskRunStartMock: vi.fn(() => 1001),
   runtimeUsageMock: vi.fn(),
   updateTaskAfterRunMock: vi.fn(),
@@ -30,11 +26,6 @@ vi.mock('../../../../src/agent/runner/container-runner.js', () => ({
 vi.mock('../../../../src/agent/script-runner.js', () => ({
   hasScriptCapacity: () => true,
   runScript: vi.fn(),
-}));
-
-vi.mock('../../../../src/core/billing.js', () => ({
-  checkBillingAccessFresh: checkBillingAccessFreshMock,
-  isBillingEnabled: isBillingEnabledMock,
 }));
 
 vi.mock('../../../../src/core/runtime/usage.js', () => ({
@@ -95,8 +86,6 @@ describe('scheduled workflow task helpers', () => {
       primaryRemainingPct: 80,
       secondaryRemainingPct: 80,
     });
-    isBillingEnabledMock.mockReturnValue(false);
-    checkBillingAccessFreshMock.mockReturnValue({ allowed: true });
     getUserByIdMock.mockReturnValue(null);
   });
 
@@ -272,57 +261,4 @@ describe('scheduled workflow task helpers', () => {
     );
   });
 
-  test('blocks scheduled workflow tasks when billing access denies the owner', async () => {
-    const scheduledTask = task({});
-    getTaskByIdMock.mockReturnValue(scheduledTask);
-    isBillingEnabledMock.mockReturnValue(true);
-    getUserByIdMock.mockReturnValue({ id: 'user-1', role: 'member' });
-    checkBillingAccessFreshMock.mockReturnValue({
-      allowed: false,
-      reason: 'quota exhausted',
-      blockType: 'quota',
-    });
-    const runWorkflowCommand = vi.fn();
-
-    await runWorkflowTask(
-      scheduledTask,
-      {
-        registeredGroups: () => ({
-          'web:main': {
-            name: 'Main',
-            folder: 'main',
-            added_at: '2026-05-20T14:00:00.000Z',
-            agentType: 'openai',
-            created_by: 'user-1',
-          },
-        }),
-        getSessions: () => ({}),
-        queue: {} as never,
-        onProcess: vi.fn(),
-        sendMessage: vi.fn(),
-        runWorkflowCommand,
-        assistantName: 'cli-claw',
-      },
-      'web:main',
-    );
-
-    expect(runWorkflowCommand).not.toHaveBeenCalled();
-    expect(checkBillingAccessFreshMock).toHaveBeenCalledWith(
-      'user-1',
-      'member',
-    );
-    expect(updateTaskRunLogMock).toHaveBeenCalledWith(
-      1001,
-      expect.objectContaining({
-        status: 'error',
-        result: null,
-        error: '计费限制: quota exhausted',
-      }),
-    );
-    expect(updateTaskAfterRunMock).toHaveBeenCalledWith(
-      'stock-strategy-loop-review',
-      expect.any(String),
-      'Error: 计费限制: quota exhausted',
-    );
-  });
 });
