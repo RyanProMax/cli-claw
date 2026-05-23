@@ -12,8 +12,6 @@ import {
   AuthEventType,
   GroupMember,
   ImMessageLifecycleEvent,
-  InviteCode,
-  InviteCodeWithCreator,
   MessageFinalizationReason,
   NewMessage,
   MessageCursor,
@@ -31,7 +29,6 @@ import {
   UserSession,
   UserSessionWithUser,
   Permission,
-  PermissionTemplateKey,
   RecordImMessageLifecycleEventInput,
   WorkflowContext,
   WorkflowDefinitionCache,
@@ -623,19 +620,6 @@ export function initDatabase(): void {
       deleted_at TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS invite_codes (
-      code TEXT PRIMARY KEY,
-      created_by TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member',
-      permission_template TEXT,
-      permissions TEXT NOT NULL DEFAULT '[]',
-      max_uses INTEGER NOT NULL DEFAULT 1,
-      used_count INTEGER NOT NULL DEFAULT 0,
-      expires_at TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (created_by) REFERENCES users(id)
-    );
-
     CREATE TABLE IF NOT EXISTS user_sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -662,8 +646,8 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_users_status_role ON users(status, role);
     CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
-    CREATE INDEX IF NOT EXISTS idx_invites_created_at ON invite_codes(created_at);
   `);
+  db.exec('DROP TABLE IF EXISTS invite_codes;');
 
   // Group members table for shared workspaces
   db.exec(`
@@ -715,8 +699,6 @@ export function initDatabase(): void {
   ensureColumn('users', 'disable_reason', 'TEXT');
   ensureColumn('users', 'notes', 'TEXT');
   ensureColumn('users', 'deleted_at', 'TEXT');
-  ensureColumn('invite_codes', 'permission_template', 'TEXT');
-  ensureColumn('invite_codes', 'permissions', "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn('users', 'avatar_emoji', 'TEXT');
   ensureColumn('users', 'avatar_color', 'TEXT');
   ensureColumn('registered_groups', 'agent_type', "TEXT DEFAULT 'openai'");
@@ -1054,17 +1036,6 @@ export function initDatabase(): void {
     'created_at',
     'expires_at',
     'last_active_at',
-  ]);
-  assertSchema('invite_codes', [
-    'code',
-    'created_by',
-    'role',
-    'permission_template',
-    'permissions',
-    'max_uses',
-    'used_count',
-    'expires_at',
-    'created_at',
   ]);
   assertSchema('auth_audit_log', [
     'id',
@@ -3494,231 +3465,6 @@ export function deleteExpiredSessions(): number {
     .prepare('DELETE FROM user_sessions WHERE expires_at < ?')
     .run(now);
   return result.changes;
-}
-
-// --- Invite Codes ---
-
-export function createInviteCode(invite: InviteCode): void {
-  const permissions = normalizePermissions(invite.permissions);
-  db.prepare(
-    `INSERT INTO invite_codes (code, created_by, role, permission_template, permissions, max_uses, used_count, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    invite.code,
-    invite.created_by,
-    invite.role,
-    invite.permission_template ?? null,
-    JSON.stringify(permissions),
-    invite.max_uses,
-    invite.used_count,
-    invite.expires_at,
-    invite.created_at,
-  );
-}
-
-export function getInviteCode(code: string): InviteCode | undefined {
-  const row = db
-    .prepare('SELECT * FROM invite_codes WHERE code = ?')
-    .get(code) as Record<string, unknown> | undefined;
-  if (!row) return undefined;
-  const role = parseUserRole(row.role);
-  return {
-    code: String(row.code),
-    created_by: String(row.created_by),
-    role,
-    permission_template:
-      typeof row.permission_template === 'string'
-        ? (row.permission_template as PermissionTemplateKey)
-        : null,
-    permissions: parsePermissionsFromDb(row.permissions, role),
-    max_uses: Number(row.max_uses),
-    used_count: Number(row.used_count),
-    expires_at: typeof row.expires_at === 'string' ? row.expires_at : null,
-    created_at: String(row.created_at),
-  };
-}
-
-export type RegisterUserWithInviteResult =
-  | { ok: true; role: UserRole; permissions: Permission[] }
-  | {
-      ok: false;
-      reason:
-        | 'invalid_or_expired_invite'
-        | 'invite_exhausted'
-        | 'username_taken';
-    };
-
-export function registerUserWithInvite(input: {
-  id: string;
-  username: string;
-  password_hash: string;
-  display_name: string;
-  invite_code: string;
-  created_at: string;
-  updated_at: string;
-}): RegisterUserWithInviteResult {
-  const tx = db.transaction(
-    (params: typeof input): RegisterUserWithInviteResult => {
-      const inviteRow = db
-        .prepare(
-          `SELECT code, role, permissions, max_uses, expires_at
-         FROM invite_codes
-         WHERE code = ?`,
-        )
-        .get(params.invite_code) as Record<string, unknown> | undefined;
-
-      if (!inviteRow) return { ok: false, reason: 'invalid_or_expired_invite' };
-      const inviteRole = parseUserRole(inviteRow.role);
-      const invitePermissions = parsePermissionsFromDb(
-        inviteRow.permissions,
-        inviteRole,
-      );
-      const inviteExpiresAt =
-        typeof inviteRow.expires_at === 'string' ? inviteRow.expires_at : null;
-
-      if (inviteExpiresAt) {
-        const expiresAt = Date.parse(inviteExpiresAt);
-        if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
-          return { ok: false, reason: 'invalid_or_expired_invite' };
-        }
-      }
-
-      const existing = db
-        .prepare('SELECT id FROM users WHERE username = ?')
-        .get(params.username) as { id: string } | undefined;
-      if (existing) return { ok: false, reason: 'username_taken' };
-
-      const inviteUsage = db
-        .prepare(
-          `UPDATE invite_codes
-         SET used_count = used_count + 1
-         WHERE code = ?
-           AND (max_uses = 0 OR used_count < max_uses)`,
-        )
-        .run(params.invite_code);
-      if (inviteUsage.changes === 0) {
-        return { ok: false, reason: 'invite_exhausted' };
-      }
-
-      const permissions = normalizePermissions(invitePermissions);
-      db.prepare(
-        `INSERT INTO users (
-        id, username, password_hash, display_name, role, status, permissions, must_change_password,
-        disable_reason, notes, created_at, updated_at, last_login_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        params.id,
-        params.username,
-        params.password_hash,
-        params.display_name,
-        inviteRole,
-        'active',
-        JSON.stringify(permissions),
-        0,
-        null,
-        null,
-        params.created_at,
-        params.updated_at,
-        null,
-        null,
-      );
-      return { ok: true, role: inviteRole, permissions };
-    },
-  );
-
-  try {
-    return tx(input);
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message.includes('UNIQUE constraint failed: users.username')
-    ) {
-      return { ok: false, reason: 'username_taken' };
-    }
-    throw err;
-  }
-}
-
-export type RegisterUserWithoutInviteResult =
-  | { ok: true; role: UserRole; permissions: Permission[] }
-  | { ok: false; reason: 'username_taken' };
-
-export function registerUserWithoutInvite(input: {
-  id: string;
-  username: string;
-  password_hash: string;
-  display_name: string;
-  created_at: string;
-  updated_at: string;
-}): RegisterUserWithoutInviteResult {
-  const role: UserRole = 'member';
-  const permissions: Permission[] = [];
-
-  try {
-    db.prepare(
-      `INSERT INTO users (
-        id, username, password_hash, display_name, role, status, permissions, must_change_password,
-        disable_reason, notes, created_at, updated_at, last_login_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      input.id,
-      input.username,
-      input.password_hash,
-      input.display_name,
-      role,
-      'active',
-      JSON.stringify(permissions),
-      0,
-      null,
-      null,
-      input.created_at,
-      input.updated_at,
-      null,
-      null,
-    );
-    return { ok: true, role, permissions };
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message.includes('UNIQUE constraint failed: users.username')
-    ) {
-      return { ok: false, reason: 'username_taken' };
-    }
-    throw err;
-  }
-}
-
-export function getAllInviteCodes(): InviteCodeWithCreator[] {
-  const rows = db
-    .prepare(
-      `SELECT i.*, u.username as creator_username
-       FROM invite_codes i
-       JOIN users u ON i.created_by = u.id
-       ORDER BY i.created_at DESC`,
-    )
-    .all() as Array<Record<string, unknown>>;
-  return rows.map((row) => {
-    const role = parseUserRole(row.role);
-    return {
-      code: String(row.code),
-      created_by: String(row.created_by),
-      creator_username: String(row.creator_username),
-      role,
-      permission_template:
-        typeof row.permission_template === 'string'
-          ? (row.permission_template as PermissionTemplateKey)
-          : null,
-      permissions: parsePermissionsFromDb(row.permissions, role),
-      max_uses: Number(row.max_uses),
-      used_count: Number(row.used_count),
-      expires_at: typeof row.expires_at === 'string' ? row.expires_at : null,
-      created_at: String(row.created_at),
-    };
-  });
-}
-
-export function deleteInviteCode(code: string): void {
-  db.prepare('DELETE FROM invite_codes WHERE code = ?').run(code);
 }
 
 // --- Auth Audit Log ---

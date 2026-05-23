@@ -23,7 +23,6 @@ import {
   QQConfigSchema,
   WeChatConfigSchema,
   DingTalkConfigSchema,
-  RegistrationConfigSchema,
   AppearanceConfigSchema,
   SystemSettingsSchema,
 } from '../../core/schemas.js';
@@ -36,8 +35,6 @@ import {
   getTelegramProviderConfigWithSource,
   toPublicTelegramProviderConfig,
   saveTelegramProviderConfig,
-  getRegistrationConfig,
-  saveRegistrationConfig,
   getAppearanceConfig,
   saveAppearanceConfig,
   getSystemSettings,
@@ -315,50 +312,6 @@ configRoutes.post(
       return c.json({ error: message }, 400);
     } finally {
       destroyTelegramApiAgent(agent);
-    }
-  },
-);
-
-// ─── Registration config ─────────────────────────────────────────
-
-configRoutes.get(
-  '/registration',
-  authMiddleware,
-  systemConfigMiddleware,
-  (c) => {
-    try {
-      return c.json(getRegistrationConfig());
-    } catch (err) {
-      logger.error({ err }, 'Failed to load registration config');
-      return c.json({ error: 'Failed to load registration config' }, 500);
-    }
-  },
-);
-
-configRoutes.put(
-  '/registration',
-  authMiddleware,
-  systemConfigMiddleware,
-  async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    const validation = RegistrationConfigSchema.safeParse(body);
-    if (!validation.success) {
-      return c.json(
-        { error: 'Invalid request body', details: validation.error.format() },
-        400,
-      );
-    }
-
-    try {
-      const saved = saveRegistrationConfig(validation.data);
-      return c.json(saved);
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : 'Invalid registration config payload';
-      logger.warn({ err }, 'Invalid registration config payload');
-      return c.json({ error: message }, 400);
     }
   },
 );

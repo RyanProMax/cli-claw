@@ -3486,7 +3486,7 @@ export function selectLeadingSourceTurnMessages<T extends NewMessage>(
 export async function processGroupMessages(chatJid: string): Promise<boolean> {
   let group = registeredGroups[chatJid];
   if (!group) {
-    // Group may have been created after loadState (e.g., during setup/registration)
+    // Group may have been created after loadState (e.g., during setup or admin user management)
     registeredGroups = getAllRegisteredGroups();
     group = registeredGroups[chatJid];
   }

@@ -8,14 +8,13 @@ import { FilePanel } from './FilePanel';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { PromptDialog } from '@/components/common/PromptDialog';
-import { ArrowLeft, FolderOpen, Link, ListTree, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Server, Sun, Users, X } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Link, ListTree, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Sun, Users, X } from 'lucide-react';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
 import { useTheme } from '../../hooks/useTheme';
 import { cn } from '@/lib/utils';
 import { wsManager } from '../../api/ws';
 import { api } from '../../api/client';
 import { GroupMembersPanel } from './GroupMembersPanel';
-import { WorkspaceMcpPanel } from './WorkspaceMcpPanel';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentTabBar } from './AgentTabBar';
 import { ImBindingDialog } from './ImBindingDialog';
@@ -26,7 +25,6 @@ const MAIN_BINDING = '__main__' as const;
 
 const SIDEBAR_TABS = [
   { id: 'files' as const, icon: FolderOpen, label: '文件管理' },
-  { id: 'mcp' as const, icon: Server, label: '工作区 MCP' },
   { id: 'members' as const, icon: Users, label: '成员' },
 ];
 
@@ -35,7 +33,7 @@ const POLL_INTERVAL_MS = 2000;
 // Stable empty references to avoid infinite re-render loops in Zustand selectors
 const EMPTY_AGENTS: import('../../types').AgentInfo[] = [];
 
-type SidebarTab = 'files' | 'mcp' | 'members';
+type SidebarTab = 'files' | 'members';
 
 interface ChatViewProps {
   groupJid: string;
@@ -515,8 +513,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           <div className="flex-1 overflow-hidden min-h-0">
             {sidebarTab === 'files' ? (
               <FilePanel groupJid={groupJid} />
-            ) : sidebarTab === 'mcp' ? (
-              <WorkspaceMcpPanel groupJid={groupJid} />
             ) : (
               <GroupMembersPanel groupJid={groupJid} />
             )}
@@ -532,21 +528,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           </SheetHeader>
           <div className="flex-1 overflow-hidden h-[calc(80dvh-56px)]">
             <FilePanel
-              groupJid={groupJid}
-              onClose={() => setMobilePanel(null)}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Mobile: MCP sheet */}
-      <Sheet open={mobilePanel === 'mcp'} onOpenChange={(v) => !v && setMobilePanel(null)}>
-        <SheetContent side="bottom" className="h-[80dvh] p-0">
-          <SheetHeader className="px-4 pt-4 pb-2">
-            <SheetTitle>工作区 MCP Servers</SheetTitle>
-          </SheetHeader>
-          <div className="flex-1 overflow-hidden h-[calc(80dvh-56px)]">
-            <WorkspaceMcpPanel
               groupJid={groupJid}
               onClose={() => setMobilePanel(null)}
             />
@@ -578,12 +559,6 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
               className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
             >
               工作区文件
-            </button>
-            <button
-              onClick={() => { setMobileActionsOpen(false); setMobilePanel('mcp'); }}
-              className="w-full text-left px-4 py-3 rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer text-foreground text-sm"
-            >
-              工作区 MCP
             </button>
             {showMembersTab && (
               <button

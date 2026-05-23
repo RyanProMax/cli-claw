@@ -8,7 +8,6 @@ export const ALL_PERMISSIONS: Permission[] = [
   'manage_system_config',
   'manage_group_env',
   'manage_users',
-  'manage_invites',
   'view_audit_log',
 ];
 
@@ -41,9 +40,9 @@ export const PERMISSION_TEMPLATES: Record<
   },
   user_admin: {
     key: 'user_admin',
-    label: '用户管理员（用户+邀请码+审计）',
+    label: '用户管理员（用户+审计）',
     role: 'member',
-    permissions: ['manage_users', 'manage_invites', 'view_audit_log'],
+    permissions: ['manage_users', 'view_audit_log'],
   },
 };
 
@@ -66,15 +65,6 @@ export function normalizePermissions(input: unknown): Permission[] {
 
 export function getDefaultPermissions(role: UserRole): Permission[] {
   return [...(ROLE_DEFAULT_PERMISSIONS[role] || [])];
-}
-
-export function resolveTemplate(
-  template: PermissionTemplateKey | undefined,
-): { role: UserRole; permissions: Permission[] } | null {
-  if (!template) return null;
-  const item = PERMISSION_TEMPLATES[template];
-  if (!item) return null;
-  return { role: item.role, permissions: [...item.permissions] };
 }
 
 export function hasPermission(

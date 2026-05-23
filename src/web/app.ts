@@ -39,7 +39,6 @@ import fileRoutes from './routes/files.js';
 import monitorRoutes from './routes/monitor.js';
 import browseRoutes from './routes/browse.js';
 import agentRoutes from './routes/agents.js';
-import workspaceConfigRoutes from './routes/workspace-config.js';
 
 // Database and types (only for handleWebUserMessage and broadcast)
 import {
@@ -154,7 +153,6 @@ app.route('/api/workflows', workflowRoutes);
 app.route('/api/admin', adminRoutes);
 app.route('/api/browse', browseRoutes);
 app.route('/api/groups', agentRoutes); // Agent routes under /api/groups/:jid/agents
-app.route('/api/groups', workspaceConfigRoutes); // Workspace config under /api/groups/:jid/workspace-config
 app.route('/api', monitorRoutes);
 
 // --- POST /api/messages ---
@@ -573,7 +571,7 @@ async function handleWebUserMessage(
 
   let group = deps.getRegisteredGroups()[chatJid];
   if (!group) {
-    // Group may exist in DB but not in memory cache (created via setup/registration after loadState)
+    // Group may exist in DB but not in memory cache (created via setup or admin user management after loadState)
     const dbGroup = getRegisteredGroup(chatJid);
     if (!dbGroup) return { ok: false, status: 404, error: 'Group not found' };
     group = dbGroup;

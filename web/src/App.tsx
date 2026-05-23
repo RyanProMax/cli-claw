@@ -7,7 +7,6 @@ import {
 } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { LoginPage } from './pages/LoginPage';
-import { RegisterPage } from './pages/RegisterPage';
 import { SetupPage } from './pages/SetupPage';
 import { SetupChannelsPage } from './pages/SetupChannelsPage';
 import { UsersPage } from './pages/UsersPage';
@@ -37,7 +36,6 @@ export function App() {
       <Routes>
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
         <Route path="/setup" element={<SetupPage />} />
         <Route
           path="/setup/channels"
@@ -88,11 +86,7 @@ export function App() {
             path="/users"
             element={
               <AuthGuard
-                requiredAnyPermissions={[
-                  'manage_users',
-                  'manage_invites',
-                  'view_audit_log',
-                ]}
+                requiredAnyPermissions={['manage_users', 'view_audit_log']}
               >
                 <UsersPage />
               </AuthGuard>

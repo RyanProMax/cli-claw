@@ -5,20 +5,14 @@ import type { Variables } from '../context.js';
 import {
   authMiddleware,
   usersManageMiddleware,
-  inviteManageMiddleware,
   auditViewMiddleware,
 } from '../middleware/auth.js';
 import {
   AdminCreateUserSchema,
   AdminPatchUserSchema,
-  InviteCreateSchema,
 } from '../../core/schemas.js';
 import { isUsernameConflictError, toUserPublic } from './auth.js';
-import type {
-  AuthUser,
-  PermissionTemplateKey,
-  AuthEventType,
-} from '../../domain/types.js';
+import type { AuthUser, AuthEventType } from '../../domain/types.js';
 import { lastActiveCache, invalidateUserSessions } from '../context.js';
 import {
   listUsers,
@@ -31,10 +25,6 @@ import {
   deleteUserSessionsByUserId,
   getActiveAdminCount,
   logAuthEvent,
-  getAllInviteCodes,
-  getInviteCode,
-  createInviteCode as dbCreateInviteCode,
-  deleteInviteCode,
   queryAuthAuditLogs,
 } from '../../storage/db.js';
 import {
@@ -42,13 +32,11 @@ import {
   validatePassword,
   generateUserId,
   hashPassword,
-  generateInviteCode,
 } from '../../core/auth.js';
 import {
   normalizePermissions,
   ALL_PERMISSIONS,
   PERMISSION_TEMPLATES,
-  resolveTemplate,
   hasPermission,
 } from '../../core/permissions.js';
 import { getClientIp } from '../../core/utils.js';
@@ -91,10 +79,7 @@ adminRoutes.get('/users', authMiddleware, usersManageMiddleware, (c) => {
 // GET /api/admin/permission-templates - 获取权限模板
 adminRoutes.get('/permission-templates', authMiddleware, (c) => {
   const user = c.get('user') as AuthUser;
-  if (
-    !hasPermission(user, 'manage_users') &&
-    !hasPermission(user, 'manage_invites')
-  ) {
+  if (!hasPermission(user, 'manage_users')) {
     return c.json({ error: 'Forbidden' }, 403);
   }
   return c.json({
@@ -510,126 +495,6 @@ adminRoutes.delete(
       details: { action: 'revoke_all' },
     });
 
-    return c.json({ success: true });
-  },
-);
-
-// --- Invite Codes ---
-
-// GET /api/admin/invites - 获取邀请码列表
-adminRoutes.get('/invites', authMiddleware, inviteManageMiddleware, (c) => {
-  return c.json({ invites: getAllInviteCodes() });
-});
-
-// POST /api/admin/invites - 创建邀请码
-adminRoutes.post(
-  '/invites',
-  authMiddleware,
-  inviteManageMiddleware,
-  async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    const validation = InviteCreateSchema.safeParse(body);
-    if (!validation.success) {
-      return c.json(
-        { error: 'Invalid request', details: validation.error.format() },
-        400,
-      );
-    }
-
-    const actor = c.get('user') as AuthUser;
-    const template = resolveTemplate(validation.data.permission_template);
-    if (
-      template &&
-      validation.data.role !== undefined &&
-      validation.data.role !== template.role
-    ) {
-      return c.json({ error: 'role conflicts with permission_template' }, 400);
-    }
-
-    const role = template?.role || validation.data.role || 'member';
-    const permissions = normalizePermissions(
-      validation.data.permissions ??
-        template?.permissions ??
-        (role === 'admin' ? ALL_PERMISSIONS : []),
-    );
-
-    if (actor.role !== 'admin') {
-      if (role === 'admin') {
-        return c.json(
-          { error: 'Forbidden: only admin can create admin invites' },
-          403,
-        );
-      }
-      const allowed = new Set(actor.permissions);
-      const forbidden = permissions.filter((perm) => !allowed.has(perm));
-      if (forbidden.length > 0) {
-        return c.json(
-          {
-            error: `Forbidden: cannot grant permissions [${forbidden.join(', ')}]`,
-          },
-          403,
-        );
-      }
-    }
-
-    const code = generateInviteCode();
-    const now = new Date().toISOString();
-    const expiresAt = validation.data.expires_in_hours
-      ? new Date(
-          Date.now() + validation.data.expires_in_hours * 60 * 60 * 1000,
-        ).toISOString()
-      : null;
-
-    dbCreateInviteCode({
-      code,
-      created_by: actor.id,
-      role,
-      permission_template:
-        (validation.data.permission_template as
-          | PermissionTemplateKey
-          | undefined) ?? null,
-      permissions,
-      max_uses: validation.data.max_uses ?? 1,
-      used_count: 0,
-      expires_at: expiresAt,
-      created_at: now,
-    });
-
-    logAuthEvent({
-      event_type: 'invite_created',
-      username: actor.username,
-      ip_address: getClientIp(c),
-      details: {
-        code_prefix: code.slice(0, 8),
-        role,
-        permission_template: validation.data.permission_template || null,
-        permissions,
-      },
-    });
-
-    return c.json({ success: true, code }, 201);
-  },
-);
-
-// DELETE /api/admin/invites/:code - 删除邀请码
-adminRoutes.delete(
-  '/invites/:code',
-  authMiddleware,
-  inviteManageMiddleware,
-  (c) => {
-    const code = c.req.param('code');
-    const invite = getInviteCode(code);
-    if (!invite) return c.json({ error: 'Invite not found' }, 404);
-
-    deleteInviteCode(code);
-    const actor = c.get('user') as AuthUser;
-    logAuthEvent({
-      event_type: 'invite_deleted',
-      username: actor.username,
-      actor_username: actor.username,
-      ip_address: getClientIp(c),
-      details: { code_prefix: code.slice(0, 8) },
-    });
     return c.json({ success: true });
   },
 );

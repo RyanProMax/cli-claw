@@ -4,10 +4,9 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuthStore } from '../stores/auth';
 import { UserListTab } from '../components/users/UserListTab';
-import { InviteCodesTab } from '../components/users/InviteCodesTab';
 import { AuditLogTab } from '../components/users/AuditLogTab';
 
-type Tab = 'users' | 'invites' | 'audit';
+type Tab = 'users' | 'audit';
 
 export function UsersPage() {
   const [tab, setTab] = useState<Tab>('users');
@@ -16,20 +15,19 @@ export function UsersPage() {
   const currentUser = useAuthStore((s) => s.user);
 
   const canManageUsers =
-    currentUser?.role === 'admin' || !!currentUser?.permissions.includes('manage_users');
-  const canManageInvites =
-    currentUser?.role === 'admin' || !!currentUser?.permissions.includes('manage_invites');
+    currentUser?.role === 'admin' ||
+    !!currentUser?.permissions.includes('manage_users');
   const canViewAudit =
-    currentUser?.role === 'admin' || !!currentUser?.permissions.includes('view_audit_log');
+    currentUser?.role === 'admin' ||
+    !!currentUser?.permissions.includes('view_audit_log');
 
   const tabs = useMemo(() => {
     const list: Array<{ key: Tab; label: string; visible: boolean }> = [
       { key: 'users', label: '用户列表', visible: canManageUsers },
-      { key: 'invites', label: '邀请码', visible: canManageInvites },
       { key: 'audit', label: '审计日志', visible: canViewAudit },
     ];
     return list.filter((item) => item.visible);
-  }, [canManageInvites, canManageUsers, canViewAudit]);
+  }, [canManageUsers, canViewAudit]);
 
   useEffect(() => {
     if (tabs.length === 0) return;
@@ -53,10 +51,7 @@ export function UsersPage() {
   return (
     <div className="min-h-full bg-background p-4 lg:p-8">
       <div className="max-w-5xl mx-auto space-y-6">
-        <PageHeader
-          title="用户管理"
-          subtitle="账户、邀请码与审计日志"
-        />
+        <PageHeader title="用户管理" subtitle="账户与审计日志" />
 
         {(notice || error) && (
           <Card>
@@ -78,10 +73,11 @@ export function UsersPage() {
         </Tabs>
 
         {tab === 'users' && canManageUsers && (
-          <UserListTab currentUser={currentUser} setNotice={setNotice} setError={setError} />
-        )}
-        {tab === 'invites' && canManageInvites && (
-          <InviteCodesTab currentUser={currentUser} setNotice={setNotice} setError={setError} />
+          <UserListTab
+            currentUser={currentUser}
+            setNotice={setNotice}
+            setError={setError}
+          />
         )}
         {tab === 'audit' && canViewAudit && <AuditLogTab setError={setError} />}
       </div>

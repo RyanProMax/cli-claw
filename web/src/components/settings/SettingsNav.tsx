@@ -1,5 +1,4 @@
 import {
-  UserPlus,
   User,
   Shield,
   Layers,
@@ -26,12 +25,6 @@ interface NavItem {
 }
 
 const systemItems: NavItem[] = [
-  {
-    key: 'registration',
-    label: '注册管理',
-    icon: <UserPlus className="w-4 h-4" />,
-    group: 'system',
-  },
   {
     key: 'appearance',
     label: '全局外观',

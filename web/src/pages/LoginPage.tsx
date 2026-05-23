@@ -1,18 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuthStore } from '../stores/auth';
 import { LogoLoading } from '../components/common/LogoLoading';
-import { api } from '../api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-
-interface RegisterStatus {
-  allowRegistration: boolean;
-  requireInviteCode: boolean;
-}
 
 export function LoginPage() {
   const [username, setUsername] = useState('');
@@ -32,22 +26,6 @@ export function LoginPage() {
       navigate('/setup', { replace: true });
     }
   }, [initialized, checkStatus, navigate]);
-
-  // Registration status
-  const [regStatus, setRegStatus] = useState<RegisterStatus>({
-    allowRegistration: true,
-    requireInviteCode: true,
-  });
-
-  useEffect(() => {
-    api
-      .get<RegisterStatus>('/api/auth/register/status')
-      .then((data) => setRegStatus(data))
-      .catch(() => {
-        // Fallback: show link with invite code text (safe default)
-        setRegStatus({ allowRegistration: true, requireInviteCode: true });
-      });
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,15 +114,6 @@ export function LoginPage() {
             </Button>
           </form>
 
-          {/* Register Link — hidden when registration is disabled */}
-          {regStatus.allowRegistration && (
-            <p className="text-center text-sm text-muted-foreground mt-4">
-              {regStatus.requireInviteCode ? '有邀请码？' : '还没有账户？'}
-              <Link to="/register" className="text-primary hover:text-primary/80 ml-1">
-                去注册
-              </Link>
-            </p>
-          )}
           </CardContent>
         </Card>
 

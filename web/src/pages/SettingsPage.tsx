@@ -4,7 +4,6 @@ import { Menu } from 'lucide-react';
 
 import { useAuthStore } from '../stores/auth';
 import { SettingsNav } from '../components/settings/SettingsNav';
-import { RegistrationSection } from '../components/settings/RegistrationSection';
 import { ProfileSection } from '../components/settings/ProfileSection';
 import { SecuritySection } from '../components/settings/SecuritySection';
 import { AboutSection } from '../components/settings/AboutSection';
@@ -18,7 +17,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { SettingsTab } from '../components/settings/types';
 
 const VALID_TABS: SettingsTab[] = [
-  'registration',
   'appearance',
   'system',
   'profile',
@@ -29,16 +27,8 @@ const VALID_TABS: SettingsTab[] = [
   'about',
   'bindings',
 ];
-const SYSTEM_TABS: SettingsTab[] = [
-  'registration',
-  'appearance',
-  'system',
-];
-const FULLPAGE_TABS: SettingsTab[] = [
-  'groups',
-  'users',
-  'bindings',
-];
+const SYSTEM_TABS: SettingsTab[] = ['appearance', 'system'];
+const FULLPAGE_TABS: SettingsTab[] = ['groups', 'users', 'bindings'];
 
 export function SettingsPage() {
   const { user: currentUser } = useAuthStore();
@@ -54,7 +44,6 @@ export function SettingsPage() {
   const canManageUsers =
     currentUser?.role === 'admin' ||
     !!currentUser?.permissions.includes('manage_users') ||
-    !!currentUser?.permissions.includes('manage_invites') ||
     !!currentUser?.permissions.includes('view_audit_log');
 
   const defaultTab: SettingsTab = canManageSystemConfig ? 'system' : 'profile';
@@ -92,7 +81,6 @@ export function SettingsPage() {
     tabs.push({ key: 'my-channels', label: '消息通道' });
     tabs.push({ key: 'security', label: '安全' });
     if (canManageSystemConfig) {
-      tabs.push({ key: 'registration', label: '注册' });
       tabs.push({ key: 'appearance', label: '全局外观' });
       tabs.push({ key: 'system', label: '系统' });
     }
@@ -121,7 +109,6 @@ export function SettingsPage() {
   }, [activeTab]);
 
   const sectionTitle: Record<SettingsTab, string> = {
-    registration: '注册管理',
     appearance: '全局外观',
     system: '系统参数',
     profile: '个人偏好',
@@ -212,7 +199,6 @@ export function SettingsPage() {
 
               <Card>
                 <CardContent>
-                  {activeTab === 'registration' && <RegistrationSection />}
                   {activeTab === 'appearance' && <AppearanceSection />}
                   {activeTab === 'system' && <SystemSettingsSection />}
                   {activeTab === 'profile' && <ProfileSection />}

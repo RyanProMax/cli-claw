@@ -26,10 +26,6 @@ export function generateUserId(): string {
   return crypto.randomUUID();
 }
 
-export function generateInviteCode(): string {
-  return crypto.randomBytes(16).toString('hex');
-}
-
 // --- Input validation ---
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;

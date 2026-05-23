@@ -26,7 +26,6 @@ export interface SystemSettings {
 }
 
 export type SettingsTab =
-  | 'registration'
   | 'appearance'
   | 'system'
   | 'profile'

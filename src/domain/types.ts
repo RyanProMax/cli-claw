@@ -271,7 +271,6 @@ export type Permission =
   | 'manage_system_config'
   | 'manage_group_env'
   | 'manage_users'
-  | 'manage_invites'
   | 'view_audit_log';
 
 export type PermissionTemplateKey =
@@ -346,22 +345,6 @@ export interface UserSessionWithUser extends UserSession {
   must_change_password: boolean;
 }
 
-export interface InviteCode {
-  code: string;
-  created_by: string;
-  role: UserRole;
-  permission_template: PermissionTemplateKey | null;
-  permissions: Permission[];
-  max_uses: number;
-  used_count: number;
-  expires_at: string | null;
-  created_at: string;
-}
-
-export interface InviteCodeWithCreator extends InviteCode {
-  creator_username: string;
-}
-
 export type AuthEventType =
   | 'login_success'
   | 'login_failed'
@@ -376,11 +359,7 @@ export type AuthEventType =
   | 'user_updated'
   | 'role_changed'
   | 'session_revoked'
-  | 'invite_created'
-  | 'invite_deleted'
-  | 'invite_used'
-  | 'recovery_reset'
-  | 'register_success';
+  | 'recovery_reset';
 
 export interface AuthAuditLog {
   id: number;

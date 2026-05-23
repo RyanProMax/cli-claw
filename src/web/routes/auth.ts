@@ -11,7 +11,6 @@ import { getClientIp } from '../../core/utils.js';
 import { DATA_DIR } from '../../core/config.js';
 import {
   LoginSchema,
-  RegisterSchema,
   ProfileUpdateSchema,
   ChangePasswordSchema,
 } from '../../core/schemas.js';
@@ -25,13 +24,10 @@ import {
   updateUserFields,
   getUserSessions,
   getUserCount,
-  registerUserWithInvite,
-  registerUserWithoutInvite,
   logAuthEvent,
   ensureUserHomeGroup,
 } from '../../storage/db.js';
 import {
-  getRegistrationConfig,
   getFeishuProviderConfigWithSource,
   getAppearanceConfig,
 } from '../../core/runtime/config.js';
@@ -357,167 +353,6 @@ authRoutes.post('/login', async (c) => {
     }),
     {
       status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Set-Cookie': setSessionCookie(c, token),
-      },
-    },
-  );
-});
-
-authRoutes.get('/register/status', (c) => {
-  // Before initial admin setup, force users through /setup first.
-  if (getUserCount(true) === 0) {
-    return c.json({
-      allowRegistration: false,
-      requireInviteCode: true,
-    });
-  }
-
-  const config = getRegistrationConfig();
-  return c.json({
-    allowRegistration: config.allowRegistration,
-    requireInviteCode: config.requireInviteCode,
-  });
-});
-
-authRoutes.post('/register', async (c) => {
-  if (getUserCount(true) === 0) {
-    return c.json({ error: '系统尚未初始化，请先完成管理员设置。' }, 403);
-  }
-
-  // Check registration switch
-  const regConfig = getRegistrationConfig();
-  if (!regConfig.allowRegistration) {
-    return c.json({ error: '注册功能已关闭' }, 403);
-  }
-
-  const body = await c.req.json().catch(() => ({}));
-  const validation = RegisterSchema.safeParse(body);
-  if (!validation.success) {
-    return c.json(
-      { error: 'Invalid request', details: validation.error.format() },
-      400,
-    );
-  }
-
-  const { username, password, display_name, invite_code } = validation.data;
-
-  // If invite code is required but not provided, reject
-  if (regConfig.requireInviteCode && !invite_code) {
-    return c.json({ error: '需要提供邀请码' }, 400);
-  }
-
-  const ip = getClientIp(c);
-  const ua = c.req.header('user-agent') || null;
-
-  // IP-based rate limiting for register endpoint
-  const {
-    maxLoginAttempts: regMaxAttempts,
-    loginLockoutMinutes: regLockoutMin,
-  } = getSystemSettings();
-  const rateCheck = checkLoginRateLimit(
-    `register:${ip}`,
-    ip,
-    regMaxAttempts,
-    regLockoutMin,
-  );
-  if (!rateCheck.allowed) {
-    return c.json(
-      {
-        error: `Too many registration attempts. Try again in ${rateCheck.retryAfterSeconds}s`,
-      },
-      429,
-    );
-  }
-
-  // Validate username format
-  const usernameError = validateUsername(username);
-  if (usernameError) return c.json({ error: usernameError }, 400);
-
-  const passwordError = validatePassword(password);
-  if (passwordError) return c.json({ error: passwordError }, 400);
-
-  const now = new Date().toISOString();
-  const userId = generateUserId();
-  const passwordHash = await hashPassword(password);
-
-  // Branch: with invite code or without
-  const withInvite = !!invite_code;
-  const result = withInvite
-    ? registerUserWithInvite({
-        id: userId,
-        username,
-        password_hash: passwordHash,
-        display_name: display_name || username,
-        invite_code: invite_code!,
-        created_at: now,
-        updated_at: now,
-      })
-    : registerUserWithoutInvite({
-        id: userId,
-        username,
-        password_hash: passwordHash,
-        display_name: display_name || username,
-        created_at: now,
-        updated_at: now,
-      });
-
-  if (!result.ok) {
-    recordLoginAttempt(`register:${ip}`, ip);
-    if (result.reason === 'username_taken') {
-      return c.json(
-        { error: 'Registration failed. Username may already be taken.' },
-        400,
-      );
-    }
-    return c.json({ error: 'Invalid or expired invite code' }, 400);
-  }
-
-  if (withInvite) {
-    logAuthEvent({
-      event_type: 'invite_used',
-      username,
-      ip_address: ip,
-      user_agent: ua,
-      details: { invite_code: invite_code!.slice(0, 8) + '...' },
-    });
-  }
-  logAuthEvent({
-    event_type: 'register_success',
-    username,
-    ip_address: ip,
-    user_agent: ua,
-    details: { role: result.role, with_invite: withInvite },
-  });
-
-  // Create home group for new user
-  try {
-    ensureUserHomeGroup(userId, result.role, username);
-  } catch (err) {
-    logger.warn(
-      { err, userId },
-      'Failed to create home group during registration',
-    );
-  }
-
-  // Auto-login
-  const token = generateSessionToken();
-  createUserSession({
-    id: token,
-    user_id: userId,
-    ip_address: ip,
-    user_agent: ua,
-    created_at: now,
-    expires_at: sessionExpiresAt(),
-    last_active_at: now,
-  });
-
-  const newUser = getUserById(userId)!;
-  return new Response(
-    JSON.stringify({ success: true, user: toUserPublic(newUser) }),
-    {
-      status: 201,
       headers: {
         'Content-Type': 'application/json',
         'Set-Cookie': setSessionCookie(c, token),
