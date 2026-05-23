@@ -8,7 +8,7 @@ import {
   resolveCodexCliRuntimeAuth,
   type CodexCliRuntimeAuth,
 } from './codex-cli-auth.js';
-import type { UsageProviderResult } from './usage-command.js';
+import type { UsageProviderResult } from './usage.js';
 
 const CODEX_USAGE_CACHE_TTL_MS = 3 * 60 * 1000;
 const CODEX_USAGE_STALE_FALLBACK_TTL_MS = 90 * 60 * 1000;

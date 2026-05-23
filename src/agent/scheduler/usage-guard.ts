@@ -1,4 +1,4 @@
-import type { UsageProviderResult } from '../../core/runtime/usage-command.js';
+import type { UsageProviderResult } from '../../core/runtime/usage.js';
 
 export interface ScheduledTaskUsageGuardOptions {
   minRemainingPct: number;

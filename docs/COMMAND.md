@@ -116,7 +116,7 @@ skill command 的执行结果有三类：
 - 股票策略 workflow 投递到飞书时不会原样输出长 JSON。命令层会把 `stock-strategy-discovery-loop` / `stock-strategy-loop` 的最终结果压缩成四块短摘要：`🎯 阶段目标`、`📍 本轮完成`、`📈 策略效果`、`🧭 后续规划`；每个要点使用加粗标签和空行帮助扫读，并追加只读安全边界。planner 应优先输出 `change_summary` 和 `repeat_decision`，让连续无新增时的重复判断前置；完整结果仍保留在 `workflow_runs.result` 和 `workflow_run_steps.output` 供审计。若最终 planner 因 OpenAI 临时过载或 socket 断开降级，workflow 会输出基于已完成 artifact 的 `status=degraded` 只读计划，明确“不上线、不自动 approve、不自动 activate”，而不是只把 runtime 错误回投给飞书。
 - 当工作区未显式设置 `openai` 的模型、思考强度或速度时，`/status`、`/openai` 配置卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 OpenAI 环境变量 fallback，避免不同入口看到不同值。
 - `openai` 的模型选项使用内置 preset；若当前 effective model 不在 preset 中，配置卡仍会把它作为当前值展示，避免 `/status` 与 `/openai` 不一致。
-- 普通回复 footer 会始终保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。当当前 runtime usage 可用时，会追加 5h / 7d 剩余额；OpenAI/Codex 通过 Codex CLI 登录态请求 ChatGPT Codex usage API，不依赖 `OPENAI_API_KEY` 或过期的本地 jsonl 快照。
+- 普通回复 footer 只保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。footer 不展示 5h / 7d 剩余额；OpenAI usage 只作为 scheduled agent / scheduled workflow 的启动保护使用。
 - 普通回复不会读取 `PLANS/ACTIVE.md`、roadmap、历史摘要或旧 partial body 来补正文；任务进度只留在本地计划文件与显式命令输出中。
 - `/help` 现在只展示“当前入口 + 当前 runtime”真正可执行的命令列表，不再夹带状态摘要，并分成 `Agent 命令`、`工作区命令`、`服务命令`、`技能命令` 等模块；若当前工作区存在已声明且适用于当前入口的 skill command，也会一并展示。
 - skill command 若在 `commands.json` 声明 `argumentHint` / `usage`，`/help` 会把参数占位一起展示，例如 `/research <股票名称/代码>`、`/kol [--days=30]`。

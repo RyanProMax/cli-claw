@@ -21,10 +21,6 @@ export interface AssistantFooterTokenUsage {
   durationMs?: number | null;
   numTurns?: number | null;
   modelUsage?: Record<string, AssistantFooterModelUsage> | null;
-  primaryUsagePct?: number | null;
-  secondaryUsagePct?: number | null;
-  primaryRemainingPct?: number | null;
-  secondaryRemainingPct?: number | null;
 }
 
 export interface AssistantMetaFooterInput {
@@ -97,21 +93,6 @@ export function parseAssistantTokenUsage(
   return tokenUsage;
 }
 
-function appendRemainingUsageParts(
-  parts: string[],
-  usage: AssistantFooterTokenUsage | null,
-): void {
-  const primaryRemainingPct = normalizeNumber(usage?.primaryRemainingPct);
-  if (primaryRemainingPct !== null) {
-    parts.push(`${Math.round(primaryRemainingPct)}% (5h)`);
-  }
-
-  const secondaryRemainingPct = normalizeNumber(usage?.secondaryRemainingPct);
-  if (secondaryRemainingPct !== null) {
-    parts.push(`${Math.round(secondaryRemainingPct)}% (7d)`);
-  }
-}
-
 export function getAssistantMetaFooterParts(
   input: AssistantMetaFooterInput,
 ): string[] {
@@ -143,8 +124,6 @@ export function getAssistantMetaFooterParts(
   if (speedTier) {
     parts.push(speedTier);
   }
-
-  appendRemainingUsageParts(parts, tokenUsage);
 
   return parts;
 }
@@ -180,8 +159,6 @@ export function getAssistantCardFooterParts(
   if (speedTier) {
     parts.push(speedTier);
   }
-
-  appendRemainingUsageParts(parts, tokenUsage);
 
   return parts;
 }

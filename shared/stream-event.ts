@@ -84,10 +84,6 @@ export interface StreamEvent {
     costUSD: number;
     durationMs: number;
     numTurns: number;
-    primaryUsagePct?: number | null;
-    secondaryUsagePct?: number | null;
-    primaryRemainingPct?: number | null;
-    secondaryRemainingPct?: number | null;
     modelUsage?: Record<
       string,
       { inputTokens: number; outputTokens: number; costUSD: number }

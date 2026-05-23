@@ -54,7 +54,7 @@
 │   │   ├── new-workspace.ts         # IM 创建工作区 helper
 │   │   └── providers/               # Feishu / Telegram / QQ / DingTalk / WeChat adapters
 │   ├── presentation/
-│   │   ├── assistant-meta-footer.ts # footer 格式化与 remaining usage 规则
+│   │   ├── assistant-meta-footer.ts # footer runtime identity / duration 格式化
 │   │   ├── reply-visibility.ts      # final/tool/send_message 可见文本裁剪
 │   │   ├── stream-event.types.ts    # backend stream event re-export
 │   │   ├── streaming-runtime-meta.ts# streaming card runtime meta

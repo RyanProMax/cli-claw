@@ -35,9 +35,7 @@ export type SettingsTab =
   | 'groups'
   | 'users'
   | 'about'
-  | 'bindings'
-  | 'usage'
-  | 'monitor';
+  | 'bindings';
 
 export function getErrorMessage(err: unknown, fallback: string): string {
   if (typeof err === 'object' && err !== null && 'message' in err) {

@@ -2152,10 +2152,6 @@ export class StreamingCardController {
     costUSD: number;
     durationMs: number;
     numTurns: number;
-    primaryUsagePct?: number | null;
-    secondaryUsagePct?: number | null;
-    primaryRemainingPct?: number | null;
-    secondaryRemainingPct?: number | null;
   }): Promise<void> {
     const nextUsage: AssistantFooterTokenUsage = {
       inputTokens: usage.inputTokens,
@@ -2163,24 +2159,13 @@ export class StreamingCardController {
       costUSD: usage.costUSD,
       durationMs: usage.durationMs,
       numTurns: usage.numTurns,
-      primaryUsagePct: usage.primaryUsagePct ?? null,
-      secondaryUsagePct: usage.secondaryUsagePct ?? null,
-      primaryRemainingPct: usage.primaryRemainingPct ?? null,
-      secondaryRemainingPct: usage.secondaryRemainingPct ?? null,
     };
     const unchanged =
       this.footerTokenUsage?.inputTokens === nextUsage.inputTokens &&
       this.footerTokenUsage?.outputTokens === nextUsage.outputTokens &&
       this.footerTokenUsage?.costUSD === nextUsage.costUSD &&
       this.footerTokenUsage?.durationMs === nextUsage.durationMs &&
-      this.footerTokenUsage?.numTurns === nextUsage.numTurns &&
-      this.footerTokenUsage?.primaryUsagePct === nextUsage.primaryUsagePct &&
-      this.footerTokenUsage?.secondaryUsagePct ===
-        nextUsage.secondaryUsagePct &&
-      this.footerTokenUsage?.primaryRemainingPct ===
-        nextUsage.primaryRemainingPct &&
-      this.footerTokenUsage?.secondaryRemainingPct ===
-        nextUsage.secondaryRemainingPct;
+      this.footerTokenUsage?.numTurns === nextUsage.numTurns;
     if (unchanged) return;
     this.footerTokenUsage = nextUsage;
 

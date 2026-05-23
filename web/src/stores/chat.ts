@@ -1761,10 +1761,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         costUSD: usage.costUSD,
         durationMs: usage.durationMs,
         numTurns: usage.numTurns,
-        primaryUsagePct: usage.primaryUsagePct,
-        secondaryUsagePct: usage.secondaryUsagePct,
-        primaryRemainingPct: usage.primaryRemainingPct,
-        secondaryRemainingPct: usage.secondaryRemainingPct,
         modelUsage: usage.modelUsage,
       });
       set((s) => {

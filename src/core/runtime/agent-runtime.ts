@@ -1,7 +1,7 @@
 import type { RegisteredGroup } from '../../domain/types.js';
 import type { RuntimeModelOptionsDiscoveryOptions } from './model-options.js';
 import type { RuntimePresetOption } from './command-registry.js';
-import type { UsageProviderResult } from './usage-command.js';
+import type { UsageProviderResult } from './usage.js';
 
 export type RuntimeId = 'openai';
 

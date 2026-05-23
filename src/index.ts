@@ -91,7 +91,6 @@ import {
   listAgentsByJid,
   getGroupsByOwner,
   addGroupMember,
-  insertUsageRecord,
 } from './storage/db.js';
 // feishu.js deprecated exports are no longer needed; imManager handles all connections
 import { imManager } from './messaging/manager.js';
@@ -114,7 +113,10 @@ import {
   resolveVisibleReplyParts,
   type ResolvedVisibleReplyParts,
 } from './presentation/reply-visibility.js';
-import { type AssistantFooterTokenUsage } from './presentation/assistant-meta-footer.js';
+import {
+  parseAssistantTokenUsage,
+  type AssistantFooterTokenUsage,
+} from './presentation/assistant-meta-footer.js';
 import {
   recordDeadLetteredLifecycleForPendingMessages,
   recordDirectImDeliveryLifecycleForMessages,
@@ -146,10 +148,7 @@ import {
   type ResolvedRuntimeWorkspaceTarget,
 } from './core/runtime/command-handler.js';
 import { getAvailableRuntimeModelOptions } from './core/runtime/model-options.js';
-import {
-  attachRuntimeUsageFooterMeta,
-  getRuntimeUsageSnapshot,
-} from './core/runtime/usage.js';
+import { getRuntimeUsageSnapshot } from './core/runtime/usage.js';
 import {
   discoverSkillCommands,
   executeDiscoveredSkillCommandResult,
@@ -1309,76 +1308,6 @@ export function shouldStartStartupMessageRecovery({
   imConnectionPhaseComplete: boolean;
 }): boolean {
   return !selfCheckMode && imConnectionPhaseComplete;
-}
-
-/**
- * Write usage records from a usage event to the database.
- * Handles both modelUsage (per-model breakdown) and legacy flat format.
- * When modelUsage is present, root-level cache tokens are assigned to the first model entry.
- */
-function writeUsageRecords(opts: {
-  userId: string;
-  groupFolder: string;
-  messageId?: string;
-  agentId?: string;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadInputTokens: number;
-    cacheCreationInputTokens: number;
-    costUSD: number;
-    durationMs: number;
-    numTurns: number;
-    modelUsage?: Record<
-      string,
-      { inputTokens: number; outputTokens: number; costUSD: number }
-    >;
-  };
-}): void {
-  const { userId, groupFolder, messageId, agentId, usage } = opts;
-  if (usage.modelUsage) {
-    const models = Object.entries(usage.modelUsage);
-    let cacheReadAssigned = false;
-    for (const [model, mu] of models) {
-      insertUsageRecord({
-        userId,
-        groupFolder,
-        agentId,
-        messageId,
-        model,
-        inputTokens: mu.inputTokens,
-        outputTokens: mu.outputTokens,
-        // Assign root-level cache tokens to the first model entry
-        cacheReadInputTokens: cacheReadAssigned
-          ? 0
-          : usage.cacheReadInputTokens,
-        cacheCreationInputTokens: cacheReadAssigned
-          ? 0
-          : usage.cacheCreationInputTokens,
-        costUSD: mu.costUSD,
-        durationMs: usage.durationMs,
-        numTurns: usage.numTurns,
-        source: 'agent',
-      });
-      cacheReadAssigned = true;
-    }
-  } else {
-    insertUsageRecord({
-      userId,
-      groupFolder,
-      agentId,
-      messageId,
-      model: 'unknown',
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      cacheReadInputTokens: usage.cacheReadInputTokens,
-      cacheCreationInputTokens: usage.cacheCreationInputTokens,
-      costUSD: usage.costUSD,
-      durationMs: usage.durationMs,
-      numTurns: usage.numTurns,
-      source: 'agent',
-    });
-  }
 }
 
 /**
@@ -4360,7 +4289,7 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
               }
             }
 
-            // Persist token usage to the latest agent message + usage_records
+            // Persist token usage to the latest agent message for transcript metadata.
             if (se.eventType === 'usage' && se.usage) {
               try {
                 updateLatestMessageTokenUsage(
@@ -4369,14 +4298,6 @@ export async function processGroupMessages(chatJid: string): Promise<boolean> {
                   lastReplyMsgId,
                   se.usage.costUSD,
                 );
-
-                // Write to usage_records + usage_daily_summary
-                writeUsageRecords({
-                  userId: effectiveGroup.created_by || 'system',
-                  groupFolder: effectiveGroup.folder,
-                  messageId: lastReplyMsgId,
-                  usage: se.usage,
-                });
 
                 logger.debug(
                   {
@@ -5372,25 +5293,14 @@ function decorateTaskReplyText(
 async function enrichOutboundMessageMeta(
   messageMeta?: OutboundMessageMeta,
 ): Promise<OutboundMessageMeta | undefined> {
-  if (!messageMeta) return messageMeta;
-  const tokenUsage = await attachRuntimeUsageFooterMeta(
-    messageMeta.runtimeIdentity ?? null,
-    messageMeta.tokenUsage,
-  );
-  if (tokenUsage === null && messageMeta.tokenUsage == null) {
-    return messageMeta;
-  }
-  return {
-    ...messageMeta,
-    tokenUsage,
-  };
+  return messageMeta;
 }
 
 async function enrichTokenUsageWithCurrentRuntimeRemaining(
-  runtimeIdentity: OutboundMessageMeta['runtimeIdentity'],
+  _runtimeIdentity: OutboundMessageMeta['runtimeIdentity'],
   tokenUsage?: AssistantFooterTokenUsage | string | null,
 ): Promise<AssistantFooterTokenUsage | null> {
-  return attachRuntimeUsageFooterMeta(runtimeIdentity ?? null, tokenUsage);
+  return parseAssistantTokenUsage(tokenUsage);
 }
 
 async function patchStreamingSessionFooterUsage(
@@ -5410,42 +5320,18 @@ async function patchStreamingSessionFooterUsage(
     costUSD: enrichedUsage.costUSD ?? 0,
     durationMs: enrichedUsage.durationMs ?? 0,
     numTurns: enrichedUsage.numTurns ?? 1,
-    primaryUsagePct: enrichedUsage.primaryUsagePct ?? undefined,
-    secondaryUsagePct: enrichedUsage.secondaryUsagePct ?? undefined,
-    primaryRemainingPct: enrichedUsage.primaryRemainingPct ?? undefined,
-    secondaryRemainingPct: enrichedUsage.secondaryRemainingPct ?? undefined,
   });
 }
 
 async function enrichUsageStreamEventForFooter(
   streamEvent: StreamEvent,
-  runtimeIdentity: OutboundMessageMeta['runtimeIdentity'],
+  _runtimeIdentity: OutboundMessageMeta['runtimeIdentity'],
   startedAtMs: number,
 ): Promise<StreamEvent> {
   if (streamEvent.eventType !== 'usage' || !streamEvent.usage) {
     return streamEvent;
   }
-  const normalizedStreamEvent = normalizeStreamEventUsageForCard(
-    streamEvent,
-    startedAtMs,
-  );
-  const normalizedUsage = normalizedStreamEvent.usage;
-  if (!normalizedUsage) return normalizedStreamEvent;
-  const enrichedUsage = await enrichTokenUsageWithCurrentRuntimeRemaining(
-    runtimeIdentity,
-    normalizedUsage,
-  );
-  if (!enrichedUsage) return normalizedStreamEvent;
-  return {
-    ...normalizedStreamEvent,
-    usage: {
-      ...normalizedUsage,
-      primaryUsagePct: enrichedUsage.primaryUsagePct ?? undefined,
-      secondaryUsagePct: enrichedUsage.secondaryUsagePct ?? undefined,
-      primaryRemainingPct: enrichedUsage.primaryRemainingPct ?? undefined,
-      secondaryRemainingPct: enrichedUsage.secondaryRemainingPct ?? undefined,
-    },
-  };
+  return normalizeStreamEventUsageForCard(streamEvent, startedAtMs);
 }
 
 export function buildInterruptedReply(
@@ -7413,19 +7299,6 @@ async function processAgentConversation(
             JSON.stringify(streamEventWithFooterUsage.usage),
             lastAgentReplyMsgId,
           );
-
-          // Write to usage_records + usage_daily_summary
-          // Sub-Agent 的 effectiveGroup 可能没有 created_by，从父群组继承
-          writeUsageRecords({
-            userId:
-              effectiveGroup.created_by ||
-              registeredGroups[chatJid]?.created_by ||
-              'system',
-            groupFolder: effectiveGroup.folder,
-            agentId,
-            messageId: lastAgentReplyMsgId,
-            usage: streamEventWithFooterUsage.usage,
-          });
         } catch (err) {
           logger.warn(
             { err, chatJid, agentId },

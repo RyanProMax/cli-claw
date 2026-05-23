@@ -9,8 +9,6 @@ import {
   MessageSquare,
   SlidersHorizontal,
   Link2,
-  PieChart,
-  Gauge,
 } from 'lucide-react';
 import {
   Sheet,
@@ -83,18 +81,6 @@ const featureItems: NavItem[] = [
     group: 'features',
   },
   {
-    key: 'usage',
-    label: '用量统计',
-    icon: <PieChart className="w-4 h-4" />,
-    group: 'features',
-  },
-  {
-    key: 'monitor',
-    label: '系统监控',
-    icon: <Gauge className="w-4 h-4" />,
-    group: 'features',
-  },
-  {
     key: 'users',
     label: '用户管理',
     icon: <UserCog className="w-4 h-4" />,
@@ -136,7 +122,6 @@ export function SettingsNav({
 
   const visibleFeatures = featureItems.filter((item) => {
     if (item.key === 'users' && !canManageUsers) return false;
-    if (item.key === 'monitor' && !canManageSystemConfig) return false;
     return true;
   });
   if (visibleFeatures.length > 0) {

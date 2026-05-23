@@ -77,14 +77,6 @@ export function App() {
             }
           />
           <Route
-            path="/monitor"
-            element={<Navigate to="/settings?tab=monitor" replace />}
-          />
-          <Route
-            path="/usage"
-            element={<Navigate to="/settings?tab=usage" replace />}
-          />
-          <Route
             path="/settings"
             element={
               <Suspense fallback={null}>

@@ -189,8 +189,8 @@
 
 - Status: `proposed`
 - Source: 2026-04-25 cross-cutting reliability work
-- Summary: Web Monitor and IM `/self-status` should expose the same operator truth: launch mode, exact restart command, Feishu channel readiness, queue/dead-letter state, active runners, recent delivery failures and current runtime identity.
+- Summary: IM `/self-status` and backend health/status APIs should expose the operator truth: launch mode, exact restart command, Feishu channel readiness, queue/dead-letter state, active runners, recent delivery failures and current runtime identity. 2026-05-23 精简 WebUI 时移除 Web Monitor 页面；后续若恢复 operator UI，应重新评估是否真的需要独立看板。
 - Next action:
-  - Build a compact health summary API consumed by `/self-status`, `/status`, and Web Monitor.
+  - Build a compact health summary API consumed by `/self-status` and backend `/status` consumers.
   - Add recent failure timelines for Feishu lifecycle, queue dead letters, runner exits, and restart intents.
   - Include safe commands: canonical start, canonical restart, current saved launch command, and warning when they differ.

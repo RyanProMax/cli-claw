@@ -15,13 +15,13 @@ describe('IM slash command reply policy', () => {
     expect(onCommand).toHaveBeenCalledWith('feishu:room', 'status');
   });
 
-  test('returns local usage command replies unchanged', async () => {
-    const onCommand = vi.fn().mockResolvedValue('📈 用量查询');
+  test('returns local command replies unchanged', async () => {
+    const onCommand = vi.fn().mockResolvedValue('运行时已切换');
 
     await expect(
-      resolveImSlashCommandReply('feishu:room', 'usage', onCommand),
-    ).resolves.toEqual({ kind: 'reply', content: '📈 用量查询' });
-    expect(onCommand).toHaveBeenCalledWith('feishu:room', 'usage');
+      resolveImSlashCommandReply('feishu:room', 'runtime', onCommand),
+    ).resolves.toEqual({ kind: 'reply', content: '运行时已切换' });
+    expect(onCommand).toHaveBeenCalledWith('feishu:room', 'runtime');
   });
 
   test('converts unknown slash commands into local unsupported replies', async () => {

@@ -1,66 +1,22 @@
 import { getAgentRuntime } from './runtime-registry.js';
-import {
-  parseAssistantTokenUsage,
-  type AssistantFooterTokenUsage,
-} from '../../presentation/assistant-meta-footer.js';
 import type { RuntimeIdentity } from '../../domain/types.js';
-import type { UsageProviderResult } from './usage-command.js';
 
-export type RuntimeUsageFooterMeta = Pick<
-  AssistantFooterTokenUsage,
-  'primaryRemainingPct' | 'secondaryRemainingPct'
->;
+export interface UsageProviderResult {
+  provider: 'openai';
+  available: boolean;
+  source: string;
+  primaryUsagePct?: number;
+  secondaryUsagePct?: number;
+  primaryRemainingPct?: number;
+  secondaryRemainingPct?: number;
+  primaryResetAt?: unknown;
+  secondaryResetAt?: unknown;
+  reason?: string;
+}
 
 export async function getRuntimeUsageSnapshot(
   runtimeIdentity?: Pick<RuntimeIdentity, 'agentType'> | null,
 ): Promise<UsageProviderResult | null> {
   if (!runtimeIdentity?.agentType) return null;
   return getAgentRuntime(runtimeIdentity.agentType).usage();
-}
-
-export async function getRuntimeUsageFooterMeta(
-  runtimeIdentity?: Pick<RuntimeIdentity, 'agentType'> | null,
-): Promise<RuntimeUsageFooterMeta | null> {
-  const snapshot = await getRuntimeUsageSnapshot(runtimeIdentity);
-  if (!snapshot?.available) return null;
-  if (!shouldShowRemainingUsageInFooter(snapshot)) return null;
-
-  return {
-    primaryRemainingPct: snapshot.primaryRemainingPct ?? null,
-    secondaryRemainingPct: snapshot.secondaryRemainingPct ?? null,
-  };
-}
-
-export async function attachRuntimeUsageFooterMeta(
-  runtimeIdentity: Pick<RuntimeIdentity, 'agentType'> | null | undefined,
-  tokenUsage?: AssistantFooterTokenUsage | string | null,
-): Promise<AssistantFooterTokenUsage | null> {
-  const parsed = parseAssistantTokenUsage(tokenUsage) ?? {};
-  const footerMeta = await getRuntimeUsageFooterMeta(runtimeIdentity);
-  if (!footerMeta) {
-    return Object.keys(parsed).length > 0 ? parsed : null;
-  }
-  return {
-    ...parsed,
-    ...footerMeta,
-  };
-}
-
-export function shouldShowRemainingUsageInFooter(
-  snapshot?: UsageProviderResult | null,
-): boolean {
-  if (!snapshot?.available) return false;
-  if (
-    typeof snapshot.primaryRemainingPct === 'number' &&
-    Number.isFinite(snapshot.primaryRemainingPct)
-  ) {
-    return true;
-  }
-  if (
-    typeof snapshot.secondaryRemainingPct === 'number' &&
-    Number.isFinite(snapshot.secondaryRemainingPct)
-  ) {
-    return true;
-  }
-  return false;
 }
