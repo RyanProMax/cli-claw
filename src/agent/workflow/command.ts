@@ -532,14 +532,21 @@ function formatStockStrategyFallback(result: string): string {
 function formatStockStrategyDecisionBlock(
   decision: StockStrategyPlannerDecision,
 ): string {
-  return JSON.stringify({
+  const payload: Record<string, unknown> = {
     action: decision.action,
     next_workflow: decision.next_workflow,
     cadence: decision.cadence,
     reason: decision.reason,
     evidence_signature: decision.evidence_signature,
     requires_human: decision.requires_human,
-  });
+  };
+  if (decision.current_cadence) {
+    payload.current_cadence = decision.current_cadence;
+  }
+  if (decision.next_cadence) {
+    payload.next_cadence = decision.next_cadence;
+  }
+  return JSON.stringify(payload);
 }
 
 function formatStockStrategyDecisionForDelivery(
@@ -556,7 +563,15 @@ function formatStockStrategyDecisionForDelivery(
     readChangeSummary(data) ||
     '本轮只生成调度决策；完整 planner 结果保留在 workflow run 审计中。';
   const nextWorkflow = decision.next_workflow || '暂无下游 workflow';
-  const cadence = decision.cadence || 'manual';
+  const cadence =
+    [
+      decision.current_cadence ? `当前 ${decision.current_cadence}` : null,
+      decision.next_cadence ? `下游 ${decision.next_cadence}` : null,
+    ]
+      .filter(Boolean)
+      .join(' / ') ||
+    decision.cadence ||
+    'manual';
   const humanText = decision.requires_human ? '需要人工确认' : '无需人工确认';
 
   return [

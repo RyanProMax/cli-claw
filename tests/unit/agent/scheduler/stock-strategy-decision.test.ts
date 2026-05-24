@@ -78,4 +78,24 @@ describe('stock strategy scheduler decision parsing', () => {
     expect(parseCadenceToIntervalMs('30m')).toBe(30 * 60 * 1000);
     expect(parseCadenceToIntervalMs('manual')).toBeNull();
   });
+
+  test('parses separate current and downstream cadence fields', () => {
+    const result = JSON.stringify({
+      action: 'switch_workflow',
+      next_workflow: 'stock-strategy-us-candidate-validation',
+      cadence: '2h',
+      current_cadence: '30m',
+      next_cadence: '2h',
+      reason: 'candidate validation should continue without slowing router',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: false,
+    });
+
+    expect(parseStockStrategyPlannerDecision(result)).toMatchObject({
+      action: 'switch_workflow',
+      cadence: '2h',
+      current_cadence: '30m',
+      next_cadence: '2h',
+    });
+  });
 });

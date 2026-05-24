@@ -1,0 +1,36 @@
+{
+  "id": "stock-strategy-daily-progress-summary",
+  "name": "股票策略当日进度总结工作流",
+  "description": "每天汇总股票策略发现、回测、模拟盘验证、阻塞项和下一步节奏。",
+  "roles": ["stock-strategy-progress-reporter"],
+  "start": "collect_results",
+  "nodes": [
+    {
+      "id": "collect_results",
+      "type": "local_task",
+      "taskId": "stock.strategy.collect_results",
+      "outputArtifact": "strategy_task_results",
+      "prompt": "读取 stock-analysis-api task-chain 最近任务、pending/running 任务、summary 和 agent handoff outputs；只输出当日进度所需 summary-only structured artifact。"
+    },
+    {
+      "id": "analyze_value",
+      "type": "local_task",
+      "taskId": "stock.strategy.analyze_value",
+      "outputArtifact": "strategy_value_evidence",
+      "prompt": "生成当日 paper/live ledger 摘要和 HK/US alpha daily report / backtest summary；任一底层 CLI 失败时返回 degraded 子结果，不能让总结编造收益。"
+    },
+    {
+      "id": "write_daily_progress",
+      "type": "role_task",
+      "roleId": "stock-strategy-progress-reporter",
+      "outputArtifact": "daily_progress_summary",
+      "prompt": "基于 strategy_task_results 和 strategy_value_evidence 输出人类可读的当日完成进度。必须覆盖策略挖掘、回测/OOS、模拟盘/paper ledger、阻塞项、下一步节奏和是否需要人工；不要输出 scheduler JSON，不要 approve、activate 或交易。"
+    }
+  ],
+  "edges": [
+    { "from": "collect_results", "to": "analyze_value" },
+    { "from": "analyze_value", "to": "write_daily_progress" },
+    { "from": "write_daily_progress", "to": "__end__" }
+  ],
+  "maxRetries": 1
+}

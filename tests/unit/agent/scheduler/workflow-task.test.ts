@@ -250,7 +250,7 @@ describe('scheduled workflow task helpers', () => {
     );
   });
 
-  test('keeps stock strategy discovery active when pause is requested without usability proof', async () => {
+  test('keeps stock strategy discovery on a short orchestrator cadence when pause is requested without usability proof', async () => {
     const scheduledTask = task({
       id: 'stock-strategy-discovery-loop',
       group_folder: 'stock-strategy',
@@ -303,7 +303,7 @@ describe('scheduled workflow task helpers', () => {
       'stock-strategy-discovery-loop',
       expect.objectContaining({
         schedule_type: 'interval',
-        schedule_value: String(2 * 60 * 60 * 1000),
+        schedule_value: String(30 * 60 * 1000),
         status: 'active',
       }),
     );
@@ -531,7 +531,7 @@ describe('scheduled workflow task helpers', () => {
       'stock-strategy-discovery-loop',
       expect.objectContaining({
         schedule_type: 'interval',
-        schedule_value: String(2 * 60 * 60 * 1000),
+        schedule_value: String(30 * 60 * 1000),
         status: 'active',
       }),
     );

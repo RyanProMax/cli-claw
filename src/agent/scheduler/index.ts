@@ -56,6 +56,7 @@ const runningTaskIds = new Set<string>();
 const DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT = 30;
 const DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS = 30 * 60 * 1000;
 const STOCK_STRATEGY_DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS = 30 * 60 * 1000;
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
@@ -315,6 +316,18 @@ function isStockStrategyDiscoveryTask(task: ScheduledTask): boolean {
   );
 }
 
+function defaultStockStrategyWorkflowIntervalMs(
+  workflowId: string | null,
+): number {
+  if (workflowId === 'stock-strategy-us-candidate-validation') {
+    return 2 * 60 * 60 * 1000;
+  }
+  if (workflowId === 'stock-strategy-cn-coverage-check') {
+    return 60 * 60 * 1000;
+  }
+  return STOCK_STRATEGY_DEFAULT_COOLDOWN_MS;
+}
+
 function workflowRunBelongsToTask(
   run: WorkflowRun,
   task: ScheduledTask,
@@ -353,6 +366,8 @@ function sameEvidenceSignatureWithoutHumanReview(
     left.action === right.action &&
     left.next_workflow === right.next_workflow &&
     left.cadence === right.cadence &&
+    (left.current_cadence ?? null) === (right.current_cadence ?? null) &&
+    (left.next_cadence ?? null) === (right.next_cadence ?? null) &&
     !left.requires_human &&
     !right.requires_human &&
     left.action !== 'ask_human' &&
@@ -372,7 +387,9 @@ function resolveStockStrategyShortCircuitDecision(
   return {
     ...latest,
     action: 'pause_discovery',
-    cadence: latest.cadence || '6h',
+    current_cadence: latest.current_cadence || '30m',
+    next_cadence: latest.next_cadence || latest.cadence || null,
+    cadence: latest.cadence || latest.next_cadence || '30m',
     reason: [
       'no new evidence: same evidence_signature repeated across two planner decisions',
       latest.reason,
@@ -397,45 +414,79 @@ function formatStockStrategyShortCircuitResult(
     .join('\n');
 }
 
+function resolveCurrentTaskIntervalMs(
+  task: ScheduledTask,
+  decision: StockStrategyPlannerDecision,
+  options: { pauseBlocked: boolean },
+): number | null {
+  const explicitCurrentIntervalMs = parseCadenceToIntervalMs(
+    decision.current_cadence,
+  );
+  if (explicitCurrentIntervalMs !== null) return explicitCurrentIntervalMs;
+
+  if (isStockStrategyDiscoveryTask(task)) {
+    return STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS;
+  }
+
+  const legacyCadenceIntervalMs = parseCadenceToIntervalMs(decision.cadence);
+  if (legacyCadenceIntervalMs !== null) return legacyCadenceIntervalMs;
+  if (options.pauseBlocked) return STOCK_STRATEGY_DEFAULT_COOLDOWN_MS;
+  return null;
+}
+
+function resolveNextWorkflowIntervalMs(
+  decision: StockStrategyPlannerDecision,
+): number | null {
+  if (!decision.next_workflow) return null;
+  const explicitNextIntervalMs =
+    parseCadenceToIntervalMs(decision.next_cadence) ??
+    parseCadenceToIntervalMs(decision.cadence);
+  return (
+    explicitNextIntervalMs ??
+    defaultStockStrategyWorkflowIntervalMs(decision.next_workflow)
+  );
+}
+
 function applyStockStrategyPlannerDecision(
   task: ScheduledTask,
   decision: StockStrategyPlannerDecision,
 ): string | null {
-  const intervalMs = parseCadenceToIntervalMs(decision.cadence);
   const shouldPause =
     decision.action === 'pause' || decision.action === 'pause_discovery';
   const usabilityPassed = decision.strategy_usability?.status === 'passed';
   const pauseBlocked = shouldPause && !usabilityPassed;
-  const effectiveIntervalMs =
-    intervalMs ?? (pauseBlocked ? STOCK_STRATEGY_DEFAULT_COOLDOWN_MS : null);
+  const currentTaskIntervalMs = resolveCurrentTaskIntervalMs(task, decision, {
+    pauseBlocked,
+  });
+  const nextWorkflowIntervalMs = resolveNextWorkflowIntervalMs(decision);
 
   if (shouldPause) {
     if (usabilityPassed) {
       updateTask(task.id, { status: 'paused' });
-    } else if (effectiveIntervalMs !== null) {
+    } else if (currentTaskIntervalMs !== null) {
       updateTask(task.id, {
         schedule_type: 'interval',
-        schedule_value: String(effectiveIntervalMs),
+        schedule_value: String(currentTaskIntervalMs),
         status: 'active',
       });
     }
-  } else if (decision.action === 'slow_down' && effectiveIntervalMs !== null) {
+  } else if (currentTaskIntervalMs !== null) {
     updateTask(task.id, {
       schedule_type: 'interval',
-      schedule_value: String(effectiveIntervalMs),
+      schedule_value: String(currentTaskIntervalMs),
       status: 'active',
     });
   }
 
-  if (decision.next_workflow && effectiveIntervalMs !== null) {
+  if (decision.next_workflow && nextWorkflowIntervalMs !== null) {
     const existing = getTaskById(decision.next_workflow);
-    const nextRun = new Date(Date.now() + effectiveIntervalMs).toISOString();
+    const nextRun = new Date(Date.now() + nextWorkflowIntervalMs).toISOString();
     const prompt = buildDownstreamPrompt(decision);
     if (existing) {
       updateTask(existing.id, {
         prompt,
         schedule_type: 'interval',
-        schedule_value: String(effectiveIntervalMs),
+        schedule_value: String(nextWorkflowIntervalMs),
         script_command: decision.next_workflow,
         next_run: nextRun,
         status: 'active',
@@ -448,7 +499,7 @@ function applyStockStrategyPlannerDecision(
         chat_jid: task.chat_jid,
         prompt,
         schedule_type: 'interval',
-        schedule_value: String(effectiveIntervalMs),
+        schedule_value: String(nextWorkflowIntervalMs),
         context_mode: 'isolated',
         execution_type: 'workflow',
         script_command: decision.next_workflow,

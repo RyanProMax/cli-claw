@@ -10,6 +10,8 @@ export interface StockStrategyPlannerDecision {
   action: StockStrategySchedulerAction;
   next_workflow: string | null;
   cadence: string | null;
+  current_cadence?: string | null;
+  next_cadence?: string | null;
   reason: string;
   evidence_signature: string;
   requires_human: boolean;
@@ -160,6 +162,12 @@ function normalizeDecision(
     evidence_signature: readString(value.evidence_signature),
     requires_human: readBoolean(value.requires_human),
   };
+  const currentCadence =
+    readString(value.current_cadence) || readString(value.orchestrator_cadence);
+  const nextCadence =
+    readString(value.next_cadence) || readString(value.workflow_cadence);
+  if (currentCadence) decision.current_cadence = currentCadence;
+  if (nextCadence) decision.next_cadence = nextCadence;
   if (strategyUsability) decision.strategy_usability = strategyUsability;
   return decision;
 }

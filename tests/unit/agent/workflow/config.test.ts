@@ -624,7 +624,9 @@ describe('workflow config discovery', () => {
     expect(workflowPrompts).toContain('repeat_decision');
     expect(workflowPrompts).toContain('本轮无新增');
     expect(workflowPrompts).toContain('strategy_usability');
-    expect(workflowPrompts).toContain('未达可用标准时应降频');
+    expect(workflowPrompts).toContain('current_cadence');
+    expect(workflowPrompts).toContain('next_cadence');
+    expect(workflowPrompts).toContain('默认 current_cadence=30m');
   });
 
   test('bundled stock strategy state workflows split US validation, HK design review, and CN coverage check', () => {
@@ -689,5 +691,60 @@ describe('workflow config discovery', () => {
     expect(plannerRole).toContain('next_workflow');
     expect(plannerRole).toContain('evidence_signature');
     expect(plannerRole).toContain('requires_human');
+  });
+
+  test('bundled stock strategy daily progress workflow reports progress without approval side effects', () => {
+    const repoRoot = process.cwd();
+    const workflow = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          '.agents',
+          'workflows',
+          'stock-strategy-daily-progress-summary.json',
+        ),
+        'utf-8',
+      ),
+    ) as {
+      id: string;
+      roles: string[];
+      nodes: Array<{ id: string; taskId?: string; roleId?: string }>;
+    };
+
+    expect(workflow).toMatchObject({
+      id: 'stock-strategy-daily-progress-summary',
+      roles: ['stock-strategy-progress-reporter'],
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'collect_results',
+          taskId: 'stock.strategy.collect_results',
+        }),
+        expect.objectContaining({
+          id: 'analyze_value',
+          taskId: 'stock.strategy.analyze_value',
+        }),
+        expect.objectContaining({
+          id: 'write_daily_progress',
+          roleId: 'stock-strategy-progress-reporter',
+        }),
+      ]),
+    });
+
+    const role = fs.readFileSync(
+      path.join(
+        repoRoot,
+        '.agents',
+        'agent-roles',
+        'stock-strategy-progress-reporter.md',
+      ),
+      'utf-8',
+    );
+    expect(role).toContain('当日完成进度');
+    expect(role).toContain('策略挖掘');
+    expect(role).toContain('回测');
+    expect(role).toContain('模拟盘');
+    expect(role).toContain('禁止自动 approve');
+    expect(role).toContain('禁止自动 activate');
+    expect(role).toContain('禁止真实交易');
   });
 });

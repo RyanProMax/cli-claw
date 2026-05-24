@@ -45,14 +45,24 @@ const STOCK_STRATEGY_WORKSPACE_FOLDER = 'stock-strategy';
 const STOCK_STRATEGY_WORKSPACE_NAME = '股票策略';
 const STOCK_STRATEGY_MAIN_THREAD_ID = 'thread-stock-strategy-main';
 const STOCK_STRATEGY_DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS = 30 * 60 * 1000;
+const STOCK_STRATEGY_CN_COVERAGE_INTERVAL_MS = 60 * 60 * 1000;
 const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
   'stock-strategy-discovery-loop',
   'stock-strategy-loop',
   'stock-strategy-us-candidate-validation',
   'stock-strategy-hk-design-review',
   'stock-strategy-cn-coverage-check',
+  'stock-strategy-daily-progress-summary',
 ]);
 const STOCK_STRATEGY_DEFAULT_SCHEDULES = [
+  {
+    id: 'stock-strategy-discovery-loop',
+    workflowId: 'stock-strategy-discovery-loop',
+    prompt:
+      'Route stock strategy work by state. Keep this as a lightweight orchestrator: check new data, evidence signatures, candidate state, coverage, and human feedback before deciding whether any heavy workflow should run.',
+    intervalMs: STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS,
+  },
   {
     id: 'stock-strategy-us-candidate-validation',
     workflowId: 'stock-strategy-us-candidate-validation',
@@ -72,7 +82,14 @@ const STOCK_STRATEGY_DEFAULT_SCHEDULES = [
     workflowId: 'stock-strategy-cn-coverage-check',
     prompt:
       'Check CN universe coverage; scanned=0 must remain in coverage repair and not resume empty discovery.',
-    intervalMs: 6 * 60 * 60 * 1000,
+    intervalMs: STOCK_STRATEGY_CN_COVERAGE_INTERVAL_MS,
+  },
+  {
+    id: 'stock-strategy-daily-progress-summary',
+    workflowId: 'stock-strategy-daily-progress-summary',
+    prompt:
+      'Summarize today stock strategy progress across discovery, backtesting, paper trading, blockers, next steps, and human-review needs. Keep readonly and do not approve, activate, or trade.',
+    intervalMs: 24 * 60 * 60 * 1000,
   },
 ] as const;
 
@@ -1645,6 +1662,13 @@ function stockStrategyResultHasPassedUsability(value: string | null): boolean {
   );
 }
 
+function stockStrategyResultHasSplitCadence(value: string | null): boolean {
+  if (!value) return false;
+  return (
+    /"current_cadence"\s*:/.test(value) || /"next_cadence"\s*:/.test(value)
+  );
+}
+
 function isLegacyNonUsableStockPauseResult(value: string | null): boolean {
   if (!value) return false;
   return (
@@ -1817,20 +1841,77 @@ export function ensureStockStrategyWorkspaceAndSchedules(
     );
   }
 
-  const discoveryTask = db
+  type StockStrategyTaskCadenceRow =
+    | {
+        id: string;
+        status: string;
+        schedule_type: string;
+        schedule_value: string;
+        last_result: string | null;
+      }
+    | undefined;
+
+  const readTaskCadence = db.prepare(
+    `SELECT id, status, schedule_type, schedule_value, last_result
+     FROM scheduled_tasks
+     WHERE id = ?`,
+  );
+  const writeTaskCadence = db.prepare(
+    `UPDATE scheduled_tasks
+     SET schedule_value = ?,
+         next_run = ?
+     WHERE id = ?`,
+  );
+  const normalizeLegacyDownstreamCadence = (
+    taskId: string,
+    intervalMs: number,
+  ): void => {
+    const row = readTaskCadence.get(taskId) as StockStrategyTaskCadenceRow;
+    const currentIntervalMs = row ? Number(row.schedule_value) : NaN;
+    if (
+      row?.status === 'active' &&
+      row.schedule_type === 'interval' &&
+      Number.isFinite(currentIntervalMs) &&
+      currentIntervalMs > intervalMs &&
+      !stockStrategyResultHasSplitCadence(row.last_result)
+    ) {
+      writeTaskCadence.run(
+        String(intervalMs),
+        addMsToIso(now, intervalMs),
+        row.id,
+      );
+    }
+  };
+  normalizeLegacyDownstreamCadence(
+    'stock-strategy-us-candidate-validation',
+    2 * 60 * 60 * 1000,
+  );
+  normalizeLegacyDownstreamCadence(
+    'stock-strategy-cn-coverage-check',
+    STOCK_STRATEGY_CN_COVERAGE_INTERVAL_MS,
+  );
+
+  const discoveryTaskRow = db
     .prepare(
-      `SELECT id, status, last_result
+      `SELECT id, status, schedule_type, schedule_value, last_result
        FROM scheduled_tasks
        WHERE id = 'stock-strategy-discovery-loop'`,
     )
-    .get() as
-    | { id: string; status: string; last_result: string | null }
-    | undefined;
-  if (
-    discoveryTask?.status === 'paused' &&
-    !stockStrategyResultHasPassedUsability(discoveryTask.last_result) &&
-    isLegacyNonUsableStockPauseResult(discoveryTask.last_result)
-  ) {
+    .get() as StockStrategyTaskCadenceRow;
+  const discoveryIntervalMs = discoveryTaskRow
+    ? Number(discoveryTaskRow.schedule_value)
+    : NaN;
+  const discoveryNeedsShortCadence =
+    discoveryTaskRow?.status === 'paused' &&
+    !stockStrategyResultHasPassedUsability(discoveryTaskRow.last_result) &&
+    isLegacyNonUsableStockPauseResult(discoveryTaskRow.last_result);
+  const activeDiscoveryIsTooSlow =
+    discoveryTaskRow?.status === 'active' &&
+    discoveryTaskRow.schedule_type === 'interval' &&
+    Number.isFinite(discoveryIntervalMs) &&
+    discoveryIntervalMs > STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS &&
+    !stockStrategyResultHasPassedUsability(discoveryTaskRow.last_result);
+  if (discoveryNeedsShortCadence || activeDiscoveryIsTooSlow) {
     db.prepare(
       `UPDATE scheduled_tasks
        SET status = 'active',
@@ -1839,9 +1920,9 @@ export function ensureStockStrategyWorkspaceAndSchedules(
            next_run = ?
        WHERE id = ?`,
     ).run(
-      String(STOCK_STRATEGY_DEFAULT_COOLDOWN_MS),
-      addMsToIso(now, STOCK_STRATEGY_DEFAULT_COOLDOWN_MS),
-      discoveryTask.id,
+      String(STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS),
+      addMsToIso(now, STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS),
+      discoveryTaskRow.id,
     );
   }
 

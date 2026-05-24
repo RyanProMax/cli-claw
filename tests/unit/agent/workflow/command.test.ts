@@ -448,6 +448,8 @@ describe('workflow command execution', () => {
         action: 'pause_discovery',
         next_workflow: 'stock-strategy-us-candidate-validation',
         cadence: '2h',
+        current_cadence: '30m',
+        next_cadence: '2h',
         reason: 'same evidence signature, candidate requires validation',
         evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
         requires_human: false,
@@ -474,6 +476,8 @@ describe('workflow command execution', () => {
     expect(reply).toContain(
       '"next_workflow":"stock-strategy-us-candidate-validation"',
     );
+    expect(reply).toContain('"current_cadence":"30m"');
+    expect(reply).toContain('"next_cadence":"2h"');
     expect(reply).not.toContain('raw task should stay out of delivery');
     expect(reply).not.toContain('"change_summary"');
     expect(reply).not.toContain('"candidate_tasks"');
