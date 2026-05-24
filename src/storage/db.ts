@@ -2,6 +2,7 @@ import Database from './sqlite-compat.js';
 import fs from 'fs';
 import path from 'path';
 
+import { APP_ROOT } from '../core/app-root.js';
 import { DATA_DIR, STORE_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import {
@@ -38,6 +39,18 @@ import {
 } from '../core/runtime/identity.js';
 
 let db: InstanceType<typeof Database>;
+
+const STOCK_STRATEGY_WORKSPACE_JID = 'web:stock-strategy';
+const STOCK_STRATEGY_WORKSPACE_FOLDER = 'stock-strategy';
+const STOCK_STRATEGY_WORKSPACE_NAME = '股票策略';
+const STOCK_STRATEGY_MAIN_THREAD_ID = 'thread-stock-strategy-main';
+const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
+  'stock-strategy-discovery-loop',
+  'stock-strategy-loop',
+  'stock-strategy-us-candidate-validation',
+  'stock-strategy-hk-design-review',
+  'stock-strategy-cn-coverage-check',
+]);
 
 // Prepared statement cache — lazy-initialized on first use after initDatabase()
 let _stmts: {
@@ -1167,6 +1180,8 @@ export function initDatabase(): void {
     })();
   }
 
+  ensureStockStrategyWorkspaceAndSchedules();
+
   const SCHEMA_VERSION = '36';
   db.prepare(
     'INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)',
@@ -1509,8 +1524,12 @@ export function createTask(
 ): void {
   db.prepare(
     `
-    INSERT INTO scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value, context_mode, execution_type, script_command, next_run, status, created_at, created_by, notify_channels)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scheduled_tasks (
+      id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+      context_mode, execution_type, script_command, next_run, status,
+      created_at, created_by, notify_channels, workspace_jid, workspace_folder
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     task.id,
@@ -1527,6 +1546,8 @@ export function createTask(
     task.created_at,
     task.created_by ?? null,
     task.notify_channels != null ? JSON.stringify(task.notify_channels) : null,
+    task.workspace_jid ?? null,
+    task.workspace_folder ?? null,
   );
 }
 
@@ -1547,6 +1568,158 @@ function mapTaskRow(row: unknown): ScheduledTask {
   if (r.workspace_jid === undefined) r.workspace_jid = null;
   if (r.workspace_folder === undefined) r.workspace_folder = null;
   return r as ScheduledTask;
+}
+
+function resolveStockStrategyWorkspaceCwd(): string {
+  const candidates = [
+    process.env.STOCK_ANALYSIS_API_ROOT,
+    path.join(APP_ROOT, '..', 'stock-analysis-api'),
+    path.join(APP_ROOT, '..', '..', 'stock-analysis-api'),
+    APP_ROOT,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const resolved = path.resolve(candidate);
+    if (fs.existsSync(path.join(resolved, 'scripts', 'futu_market_data.py'))) {
+      return fs.realpathSync(resolved);
+    }
+  }
+  return fs.realpathSync(APP_ROOT);
+}
+
+function parseNotifyChannelsValue(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function isStockStrategyWorkflowId(value: unknown): boolean {
+  return typeof value === 'string' && STOCK_STRATEGY_WORKFLOW_IDS.has(value);
+}
+
+export function ensureStockStrategyWorkspaceAndSchedules(
+  options: { now?: string } = {},
+): {
+  workspaceJid: string;
+  workspaceFolder: string;
+  migratedTaskIds: string[];
+} {
+  const now = options.now ?? new Date().toISOString();
+  const customCwd = resolveStockStrategyWorkspaceCwd();
+
+  db.prepare(
+    'INSERT OR IGNORE INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)',
+  ).run(STOCK_STRATEGY_WORKSPACE_JID, STOCK_STRATEGY_WORKSPACE_NAME, now);
+  db.prepare(
+    `INSERT INTO registered_groups (
+      jid, name, folder, added_at, agent_type, custom_cwd, created_by, is_home,
+      reply_policy, require_mention, activation_mode
+    )
+    VALUES (?, ?, ?, ?, 'openai', ?, NULL, 1, 'source_only', 0, 'auto')
+    ON CONFLICT(jid) DO UPDATE SET
+      name = excluded.name,
+      folder = excluded.folder,
+      custom_cwd = excluded.custom_cwd,
+      is_home = 1,
+      agent_type = COALESCE(registered_groups.agent_type, 'openai')`,
+  ).run(
+    STOCK_STRATEGY_WORKSPACE_JID,
+    STOCK_STRATEGY_WORKSPACE_NAME,
+    STOCK_STRATEGY_WORKSPACE_FOLDER,
+    now,
+    customCwd,
+  );
+  db.prepare(
+    `INSERT INTO threads (
+      id, workspace_jid, kind, title, runtime_agent_id, source_run_id, status,
+      created_at, updated_at, last_active_at, archived_at
+    )
+    VALUES (?, ?, 'main', '主线', NULL, NULL, 'active', ?, ?, ?, NULL)
+    ON CONFLICT(id) DO UPDATE SET
+      workspace_jid = excluded.workspace_jid,
+      kind = excluded.kind,
+      title = excluded.title,
+      status = 'active',
+      updated_at = excluded.updated_at,
+      archived_at = NULL`,
+  ).run(
+    STOCK_STRATEGY_MAIN_THREAD_ID,
+    STOCK_STRATEGY_WORKSPACE_JID,
+    now,
+    now,
+    now,
+  );
+
+  const rows = db
+    .prepare(
+      `SELECT id, chat_jid, notify_channels, script_command
+       FROM scheduled_tasks
+       WHERE execution_type = 'workflow'
+         AND (
+           id LIKE 'stock-strategy-%'
+           OR script_command LIKE 'stock-strategy-%'
+         )`,
+    )
+    .all() as Array<{
+    id: string;
+    chat_jid: string;
+    notify_channels: string | null;
+    script_command: string | null;
+  }>;
+
+  const migratedTaskIds: string[] = [];
+  const update = db.prepare(
+    `UPDATE scheduled_tasks
+     SET group_folder = ?,
+         chat_jid = ?,
+         workspace_jid = ?,
+         workspace_folder = ?,
+         notify_channels = ?
+     WHERE id = ?`,
+  );
+  for (const row of rows) {
+    if (
+      !isStockStrategyWorkflowId(row.id) &&
+      !isStockStrategyWorkflowId(row.script_command)
+    ) {
+      continue;
+    }
+    const notifyChannels = new Set(
+      parseNotifyChannelsValue(row.notify_channels),
+    );
+    if (
+      row.chat_jid &&
+      row.chat_jid !== STOCK_STRATEGY_WORKSPACE_JID &&
+      !row.chat_jid.startsWith('web:')
+    ) {
+      notifyChannels.add(row.chat_jid);
+    }
+    update.run(
+      STOCK_STRATEGY_WORKSPACE_FOLDER,
+      STOCK_STRATEGY_WORKSPACE_JID,
+      STOCK_STRATEGY_WORKSPACE_JID,
+      STOCK_STRATEGY_WORKSPACE_FOLDER,
+      notifyChannels.size > 0 ? JSON.stringify([...notifyChannels]) : null,
+      row.id,
+    );
+    migratedTaskIds.push(row.id);
+  }
+
+  return {
+    workspaceJid: STOCK_STRATEGY_WORKSPACE_JID,
+    workspaceFolder: STOCK_STRATEGY_WORKSPACE_FOLDER,
+    migratedTaskIds,
+  };
 }
 
 export function getTaskById(id: string): ScheduledTask | undefined {

@@ -18,4 +18,7 @@ export const DEFAULT_WORKFLOW_LOCAL_TASK_IDS = [
   'stock.strategy.collect_results',
   'stock.strategy.analyze_value',
   'stock.strategy.discovery_cycle',
+  'stock.strategy.candidate_validation',
+  'stock.strategy.design_review',
+  'stock.strategy.coverage_check',
 ] as const;

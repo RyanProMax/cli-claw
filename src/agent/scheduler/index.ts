@@ -8,10 +8,12 @@ import { logger } from '../../core/logger.js';
 import {
   cleanupOldTaskRunLogs,
   cleanupStaleRunningLogs,
+  createTask,
   getAllTasks,
   getDueTasks,
   getTaskById,
   logTaskRunStart,
+  updateTask,
   updateTaskAfterRun,
   updateTaskRunLog,
 } from '../../storage/scheduler.js';
@@ -20,6 +22,11 @@ import { serializeErrorForOutput } from '../../../shared/dist/error-serializatio
 import type { RegisteredGroup, ScheduledTask } from '../../domain/types.js';
 import type { StreamEvent } from '../../presentation/stream-event.types.js';
 import { evaluateScheduledTaskUsageGuard } from './usage-guard.js';
+import {
+  parseCadenceToIntervalMs,
+  parseStockStrategyPlannerDecision,
+  type StockStrategyPlannerDecision,
+} from './stock-strategy-decision.js';
 
 export interface SchedulerDependencies {
   registeredGroups: () => Record<string, RegisteredGroup>;
@@ -218,6 +225,111 @@ function extractWorkflowCommandFailure(result: string | null): string | null {
   return (match[1] ?? '').trim() || 'Workflow command failed';
 }
 
+function resolveTaskDeliveryJids(
+  task: ScheduledTask,
+  primaryJid: string,
+  options: { includeNotifyChannels?: boolean } = {},
+): string[] {
+  const jids = new Set<string>();
+  if (primaryJid) jids.add(primaryJid);
+  if (options.includeNotifyChannels ?? true) {
+    for (const jid of task.notify_channels ?? []) {
+      if (jid) jids.add(jid);
+    }
+  }
+  return [...jids];
+}
+
+function shouldNotifyExternalChannels(
+  decision: StockStrategyPlannerDecision | null,
+): boolean {
+  if (!decision) return true;
+  return decision.requires_human || decision.action === 'ask_human';
+}
+
+function formatStockStrategyDecisionNotice(
+  decision: StockStrategyPlannerDecision,
+): string {
+  const pieces = [
+    `股票策略调度决策：${decision.action}`,
+    decision.next_workflow ? `next=${decision.next_workflow}` : null,
+    decision.cadence ? `cadence=${decision.cadence}` : null,
+    decision.evidence_signature
+      ? `signature=${decision.evidence_signature}`
+      : null,
+    decision.reason ? `reason=${decision.reason}` : null,
+  ].filter((item): item is string => Boolean(item));
+  return pieces.join(' | ');
+}
+
+function buildDownstreamPrompt(decision: StockStrategyPlannerDecision): string {
+  const lines = [
+    `State-driven stock strategy follow-up for ${decision.next_workflow}.`,
+    decision.reason ? `Reason: ${decision.reason}` : null,
+    decision.evidence_signature
+      ? `Evidence signature: ${decision.evidence_signature}`
+      : null,
+    'Keep the workflow readonly. Do not approve, activate, or trade.',
+  ];
+  return lines.filter((line): line is string => Boolean(line)).join('\n');
+}
+
+function applyStockStrategyPlannerDecision(
+  task: ScheduledTask,
+  decision: StockStrategyPlannerDecision,
+): string | null {
+  const intervalMs = parseCadenceToIntervalMs(decision.cadence);
+  const shouldPause =
+    decision.action === 'pause' || decision.action === 'pause_discovery';
+  if (shouldPause) {
+    updateTask(task.id, { status: 'paused' });
+  } else if (decision.action === 'slow_down' && intervalMs !== null) {
+    updateTask(task.id, {
+      schedule_type: 'interval',
+      schedule_value: String(intervalMs),
+      status: 'active',
+    });
+  }
+
+  if (decision.next_workflow && intervalMs !== null) {
+    const existing = getTaskById(decision.next_workflow);
+    const nextRun = new Date(Date.now() + intervalMs).toISOString();
+    const prompt = buildDownstreamPrompt(decision);
+    if (existing) {
+      updateTask(existing.id, {
+        prompt,
+        schedule_type: 'interval',
+        schedule_value: String(intervalMs),
+        script_command: decision.next_workflow,
+        next_run: nextRun,
+        status: 'active',
+        notify_channels: task.notify_channels ?? null,
+      });
+    } else {
+      createTask({
+        id: decision.next_workflow,
+        group_folder: task.group_folder,
+        chat_jid: task.chat_jid,
+        prompt,
+        schedule_type: 'interval',
+        schedule_value: String(intervalMs),
+        context_mode: 'isolated',
+        execution_type: 'workflow',
+        script_command: decision.next_workflow,
+        workspace_jid: task.workspace_jid ?? null,
+        workspace_folder: task.workspace_folder ?? null,
+        next_run: nextRun,
+        status: 'active',
+        created_at: new Date().toISOString(),
+        created_by: task.created_by ?? null,
+        notify_channels: task.notify_channels ?? null,
+      });
+    }
+  }
+
+  return formatStockStrategyDecisionNotice(decision);
+}
+
 function isTaskStillActive(taskId: string): boolean {
   const currentTask = getTaskById(taskId);
   if (!currentTask || currentTask.status !== 'active') {
@@ -289,12 +401,25 @@ export async function runWorkflowTask(
     const workflowFailure = extractWorkflowCommandFailure(result);
     if (workflowFailure) error = workflowFailure;
 
+    const stockStrategyDecision = !error
+      ? parseStockStrategyPlannerDecision(result)
+      : null;
+    const decisionNotice = stockStrategyDecision
+      ? applyStockStrategyPlannerDecision(task, stockStrategyDecision)
+      : null;
+
     if (result) {
-      await deps.sendMessage(
-        groupJid,
-        `${deps.assistantName}: ${result.slice(0, 4000)}`,
-        { source: 'scheduled_task' },
-      );
+      const message = `${deps.assistantName}: ${[result, decisionNotice]
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, 4000)}`;
+      for (const jid of resolveTaskDeliveryJids(task, groupJid, {
+        includeNotifyChannels: shouldNotifyExternalChannels(
+          stockStrategyDecision,
+        ),
+      })) {
+        await deps.sendMessage(jid, message, { source: 'scheduled_task' });
+      }
     }
 
     logger.info(

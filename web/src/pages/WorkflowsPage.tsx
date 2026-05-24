@@ -42,6 +42,9 @@ import {
   type WorkflowDashboardRun,
   type WorkflowDashboardRunStep,
   type WorkflowDashboardScheduledTask,
+  type WorkflowDashboardStockStrategy,
+  type WorkflowDashboardStockStrategyMarket,
+  type WorkflowDashboardStockStrategyState,
   type WorkflowRunStatus,
   type WorkflowStepStatus,
 } from '../stores/workflows';
@@ -166,6 +169,50 @@ function taskStatusLabel(
   }
 }
 
+function stockStateMeta(state: WorkflowDashboardStockStrategyState): {
+  label: string;
+  variant: 'success' | 'warning' | 'error' | 'info' | 'neutral';
+  Icon: typeof Activity;
+} {
+  switch (state) {
+    case 'discovering':
+      return { label: '发现', variant: 'info', Icon: Activity };
+    case 'validating':
+      return { label: '验证', variant: 'info', Icon: ListChecks };
+    case 'blocked':
+      return { label: '阻塞', variant: 'warning', Icon: AlertCircle };
+    case 'cooldown':
+      return { label: '冷却', variant: 'neutral', Icon: TimerReset };
+    case 'human_review_ready':
+      return { label: '待人工', variant: 'warning', Icon: Clock4 };
+    case 'approved':
+      return { label: '已批准', variant: 'success', Icon: CheckCircle2 };
+    case 'rejected':
+      return { label: '已拒绝', variant: 'error', Icon: XCircle };
+  }
+}
+
+function stockSourceLabel(
+  source: WorkflowDashboardStockStrategyMarket['source'],
+): string {
+  switch (source) {
+    case 'planner_decision':
+      return 'planner';
+    case 'local_artifact':
+      return 'artifact';
+    case 'scheduled_task':
+      return 'schedule';
+  }
+}
+
+function formatStockCadence(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return '-';
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric) && numeric > 0) return formatInterval(trimmed);
+  return trimmed;
+}
+
 type WorkflowTaskPatch = {
   prompt: string;
   execution_type: 'workflow';
@@ -226,6 +273,109 @@ function StatCard({
         </div>
         <div className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
           <Icon className="size-4" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StockStrategyMarketBlock({
+  market,
+}: {
+  market: WorkflowDashboardStockStrategyMarket;
+}) {
+  const meta = stockStateMeta(market.state);
+  return (
+    <div className="min-w-0 rounded-md border border-border bg-background px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">
+              {market.market}
+            </span>
+            <Badge variant={meta.variant}>
+              <meta.Icon className="size-3" />
+              {meta.label}
+            </Badge>
+          </div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">
+            {market.workflowId || '-'}
+          </div>
+        </div>
+        {market.requiresHuman && <Badge variant="warning">人工</Badge>}
+      </div>
+
+      <div className="mt-3 grid gap-2 text-xs">
+        <div className="min-w-0">
+          <div className="text-muted-foreground">证据签名</div>
+          <div className="truncate font-mono text-foreground">
+            {market.evidenceSignature || '-'}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="min-w-0">
+            <div className="text-muted-foreground">下游</div>
+            <div className="truncate text-foreground">
+              {market.nextWorkflow || '-'}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">节奏</div>
+            <div className="text-foreground">
+              {formatStockCadence(market.cadence)}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-muted-foreground">
+            {market.reason || '-'}
+          </span>
+          <span className="shrink-0 text-muted-foreground">
+            {stockSourceLabel(market.source)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StockStrategyPanel({
+  stockStrategy,
+}: {
+  stockStrategy: WorkflowDashboardStockStrategy;
+}) {
+  const decision = stockStrategy.globalDecision;
+  return (
+    <Card className="rounded-lg">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
+          <WorkflowIcon className="size-4 text-muted-foreground" />
+          股票策略状态
+          {decision && (
+            <Badge variant={decision.requiresHuman ? 'warning' : 'neutral'}>
+              {decision.action}
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {decision && (
+          <div className="grid gap-2 rounded-md bg-muted px-3 py-2 text-xs md:grid-cols-[1fr_auto_auto]">
+            <div className="min-w-0 truncate text-foreground">
+              {decision.reason || decision.workflowId}
+            </div>
+            <div className="text-muted-foreground">
+              {formatStockCadence(decision.cadence)}
+            </div>
+            <div className="max-w-full truncate font-mono text-muted-foreground md:max-w-72">
+              {decision.evidenceSignature || '-'}
+            </div>
+          </div>
+        )}
+        <div className="grid gap-3 lg:grid-cols-3">
+          {stockStrategy.markets.map((market) => (
+            <StockStrategyMarketBlock key={market.market} market={market} />
+          ))}
         </div>
       </CardContent>
     </Card>
@@ -761,6 +911,8 @@ export function WorkflowsPage({
   );
   const showRunningSection = mode !== 'workflows';
   const showScheduledSection = mode !== 'runs';
+  const showStockStrategySection =
+    mode !== 'runs' && (dashboard?.stockStrategy?.markets.length ?? 0) > 0;
   const headerTitle =
     mode === 'runs'
       ? 'Workflow 运行'
@@ -877,6 +1029,10 @@ export function WorkflowsPage({
                 icon={AlertCircle}
               />
             </div>
+
+            {showStockStrategySection && dashboard.stockStrategy && (
+              <StockStrategyPanel stockStrategy={dashboard.stockStrategy} />
+            )}
 
             {showRunningSection && (
               <section>

@@ -450,4 +450,138 @@ describe('default workflow local tasks', () => {
       ],
     });
   });
+
+  test('candidate_validation returns US champion challenger evidence with a market state', async () => {
+    const apiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-root-'));
+    const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-bin-'));
+    tempDirs.push(apiRoot, binRoot);
+    fs.mkdirSync(path.join(apiRoot, 'scripts'), { recursive: true });
+    for (const file of [
+      'futu_market_data.py',
+      'alpha_evaluate.py',
+      'alpha_backtest.py',
+      'alpha_scan.py',
+    ]) {
+      fs.writeFileSync(path.join(apiRoot, 'scripts', file), '');
+    }
+    const fakeUv = path.join(binRoot, 'uv');
+    writeExecutable(
+      fakeUv,
+      [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const script = args[2];',
+        'const arg = (name) => args[args.indexOf(name) + 1];',
+        'if (script === "scripts/alpha_evaluate.py") {',
+        '  process.stdout.write(JSON.stringify({ status: "ok", source: "alpha_evaluate", market: arg("--market"), factor: arg("--factor"), metrics: { rank_ic_mean: 0.058, observations: 1252 } }));',
+        '} else if (script === "scripts/alpha_backtest.py") {',
+        '  process.stdout.write(JSON.stringify({ status: "ok", source: "alpha_backtest", market: arg("--market"), factor: arg("--factor"), summary: { total_return: 0.12, max_drawdown: -0.04, turnover: 0.28 }, periods: [{ split: "out_of_sample", total_return: 0.03 }] }));',
+        '} else if (script === "scripts/alpha_scan.py") {',
+        '  process.stdout.write(JSON.stringify({ status: "ok", source: "alpha_scan", market: arg("--market"), data: [{ symbol: "US.NVDA", average_amount_5d: 123456, turnover_rate: 0.02, industry: "Semiconductors" }] }));',
+        '} else {',
+        '  process.stderr.write(`unexpected script ${script}`);',
+        '  process.exit(2);',
+        '}',
+      ].join('\n'),
+    );
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_ANALYSIS_API_ROOT = apiRoot;
+    process.env.STOCK_ANALYSIS_UV = fakeUv;
+
+    const tasks = createDefaultWorkflowLocalTasks();
+    const artifact = await tasks['stock.strategy.candidate_validation']({
+      taskId: 'stock.strategy.candidate_validation',
+      nodeId: 'validate_candidate',
+      input: {
+        reportDate: '2026-05-24',
+        market: 'us',
+        candidateFactor: 'momentum_5d',
+        championFactor: 'momentum_20d',
+        holdingWindow: '5d',
+      },
+      artifacts: {},
+    });
+
+    expect(artifact).toMatchObject({
+      status: 'ok',
+      source: 'stock_strategy_candidate_validation',
+      market: 'us',
+      market_state: {
+        market: 'us',
+        state: 'candidate_validation',
+        next_state_on_pass: 'human_review_ready',
+        next_state_on_fail: 'cooldown',
+      },
+      candidate: {
+        factor: 'momentum_5d',
+        champion_factor: 'momentum_20d',
+      },
+      required_checks: expect.arrayContaining([
+        'oos_segment_performance',
+        'champion_challenger_comparison',
+        'liquidity_fields_average_amount_5d_turnover_rate',
+      ]),
+      candidate_evaluation: { factor: 'momentum_5d' },
+      champion_evaluation: { factor: 'momentum_20d' },
+      liquidity_snapshot: { status: 'ok' },
+    });
+    expect((artifact as any).evidence_signature).toContain(
+      'us:momentum_5d:all:default_cost:5d:2026-05-24',
+    );
+  });
+
+  test('coverage_check keeps CN in coverage_check state when scan is empty', async () => {
+    const apiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-root-'));
+    const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-bin-'));
+    tempDirs.push(apiRoot, binRoot);
+    fs.mkdirSync(path.join(apiRoot, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(apiRoot, 'scripts', 'futu_market_data.py'), '');
+    fs.writeFileSync(
+      path.join(apiRoot, 'scripts', 'alpha_universe_seed_status.py'),
+      '',
+    );
+    fs.writeFileSync(path.join(apiRoot, 'scripts', 'alpha_scan.py'), '');
+    const fakeUv = path.join(binRoot, 'uv');
+    writeExecutable(
+      fakeUv,
+      [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const script = args[2];',
+        'if (script === "scripts/alpha_universe_seed_status.py") {',
+        '  process.stdout.write(JSON.stringify({ status: "ok", source: "alpha_universe_seed_status", market: "cn", coverage: { symbols: [], scanned: 0 } }));',
+        '} else if (script === "scripts/alpha_scan.py") {',
+        '  process.stdout.write(JSON.stringify({ status: "ok", source: "alpha_scan", market: "cn", data: [], summary: { scanned: 0 } }));',
+        '} else {',
+        '  process.stderr.write(`unexpected script ${script}`);',
+        '  process.exit(2);',
+        '}',
+      ].join('\n'),
+    );
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_ANALYSIS_API_ROOT = apiRoot;
+    process.env.STOCK_ANALYSIS_UV = fakeUv;
+
+    const tasks = createDefaultWorkflowLocalTasks();
+    const artifact = await tasks['stock.strategy.coverage_check']({
+      taskId: 'stock.strategy.coverage_check',
+      nodeId: 'check_coverage',
+      input: { reportDate: '2026-05-24', market: 'cn' },
+      artifacts: {},
+    });
+
+    expect(artifact).toMatchObject({
+      status: 'ok',
+      source: 'stock_strategy_coverage_check',
+      market: 'cn',
+      market_state: {
+        market: 'cn',
+        state: 'coverage_check',
+        next_state_on_pass: 'discovery',
+        next_state_on_fail: 'coverage_check',
+      },
+      coverage_status: 'empty',
+      next_action: 'keep_coverage_check',
+    });
+  });
 });

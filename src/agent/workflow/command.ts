@@ -19,6 +19,10 @@ import {
   getDefaultWorkflowLocalTaskIds,
 } from './local-tasks.js';
 import { DEFAULT_WORKFLOW_KNOWN_TOOLS } from './tools.js';
+import {
+  parseStockStrategyPlannerDecision,
+  type StockStrategyPlannerDecision,
+} from '../scheduler/stock-strategy-decision.js';
 
 type WorkflowDiscovery = ReturnType<typeof discoverWorkflowConfigs>;
 
@@ -525,10 +529,88 @@ function formatStockStrategyFallback(result: string): string {
   ].join('\n');
 }
 
+function formatStockStrategyDecisionBlock(
+  decision: StockStrategyPlannerDecision,
+): string {
+  return JSON.stringify({
+    action: decision.action,
+    next_workflow: decision.next_workflow,
+    cadence: decision.cadence,
+    reason: decision.reason,
+    evidence_signature: decision.evidence_signature,
+    requires_human: decision.requires_human,
+  });
+}
+
+function formatStockStrategyDecisionForDelivery(
+  workflowId: string,
+  result: string,
+  decision: StockStrategyPlannerDecision,
+): string {
+  const data = parseJsonObjectLike(result) ?? {};
+  const isDiscovery = workflowId === 'stock-strategy-discovery-loop';
+  const title = isDiscovery
+    ? '🔎 股票策略发现｜状态路由'
+    : '🧪 股票策略复盘｜状态路由';
+  const changeSummary =
+    readChangeSummary(data) ||
+    '本轮只生成调度决策；完整 planner 结果保留在 workflow run 审计中。';
+  const nextWorkflow = decision.next_workflow || '暂无下游 workflow';
+  const cadence = decision.cadence || 'manual';
+  const humanText = decision.requires_human ? '需要人工确认' : '无需人工确认';
+
+  return [
+    title,
+    '',
+    '🎯 阶段目标',
+    '',
+    formatBullet(
+      '目标',
+      '先判断新证据与状态变化，再决定继续、暂停、降频或转验证。',
+    ),
+    '',
+    '📍 本轮完成',
+    '',
+    formatBullet('本轮', changeSummary),
+    formatBullet(
+      '调度',
+      `${decision.action} -> ${nextWorkflow}（${cadence}，${humanText}）`,
+    ),
+    '',
+    '📈 策略效果',
+    '',
+    formatBullet('结论', '本轮为调度路由，不新增可上线收益结论。'),
+    formatBullet('提醒', '以上仅为研究证据，不代表可实盘上线。'),
+    '',
+    '🧭 后续规划',
+    '',
+    formatBullet('下一步', decision.reason || '等待新证据或人工确认。'),
+    decision.evidence_signature
+      ? formatBullet('证据签名', decision.evidence_signature)
+      : null,
+    '',
+    '🛡️ **边界：** 只读，不自动 approve / activate / trade。',
+    '',
+    '[Scheduler Decision]',
+    formatStockStrategyDecisionBlock(decision),
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n');
+}
+
 function formatStockStrategyResultForDelivery(
   workflowId: string,
   result: string,
 ): string {
+  const schedulerDecision = parseStockStrategyPlannerDecision(result);
+  if (schedulerDecision) {
+    return formatStockStrategyDecisionForDelivery(
+      workflowId,
+      result,
+      schedulerDecision,
+    );
+  }
+
   const data = parseJsonObjectLike(result);
   if (!data) return formatStockStrategyFallback(result);
 

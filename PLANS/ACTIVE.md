@@ -1,128 +1,115 @@
-# 当前任务：工作区 / 线程 / 调度层 / IM 落地
+# 当前任务：股票策略状态驱动自迭代系统
 
 ## Goal
 
-- 将用户心智收敛为工作区 + 任务，隐藏“会话”作为用户主概念。
-- 新增线程作为内部上下文容器，并在 Web / 飞书 / 微信入口前增加上下文调度层，支持自然切换、多工作区 IM 私聊和统一来源 footer。
+- 将 `stock-strategy-discovery-loop` 从固定 30 分钟完整 discovery 升级为状态驱动的股票策略投研自迭代系统：每轮先判断新数据、新证据和设计变化，再决定继续、降频、暂停、切下游验证或请求人工。
+- 创建独立“股票策略”工作区承载 stock strategy discovery / validation / review；现有股票策略 scheduled workflow 从主工作区迁出，每次 workflow run 作为该工作区下的 workflow 线程，不再为每次 run 新建工作区。
 
 ## Done when
 
-- Web 顶层只展示工作区；工作区内部以主线、任务线程、工作流运行表达上下文。
-- IM 私聊可以通过调度层切换或单次投递到多个工作区/线程，不需要拉群规避一对一绑定。
-- 普通消息进入执行前解析为工作区和线程目标；workflow run 可关联 workflow 线程。
-- Web / IM 回复附带工作区/线程来源 footer。
-- `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`、`docs/MEMORY.md` 同步新边界。
+- DB / 启动迁移能 idempotently 创建“股票策略”工作区，并把 `stock-strategy-discovery-loop`、`stock-strategy-loop-review` 等股票策略 scheduled task 迁移到该工作区。
+- 30 分钟 discovery 不再无条件完整跑 Agent；scheduler 能读取固定 JSON 决策，执行 `pause`、`slow_down`、`switch_workflow`、`ask_human` 等动作。
+- 股票策略 workflow 具备 per-market 状态：`coverage_check -> discovery -> candidate_review -> candidate_validation -> human_review_ready -> approved/rejected/cooldown`，并维护 evidence signature。
+- US/HK/CN 拆出可调度工作流：US 候选验证、HK 设计复盘、CN 覆盖检查；当前节奏为 US 2h 验证、HK 手动或 6h 设计复盘、CN 6h 覆盖检查，全局 30m discovery 改为轻量 orchestrator 或暂停。
+- planner 输出固定 JSON schema，至少包含 `action`、`next_workflow`、`cadence`、`reason`、`evidence_signature`、`requires_human`；原始 JSON 保留在 workflow 审计中。
+- Web 自动化看板能展示每个市场状态，飞书/微信只推真正需要人的结论，重复无新增不刷完整发现摘要。
+- `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`、`docs/MODULE.md` 同步新的工作区、状态机、调度决策和 workflow 边界。
 
 ## Milestones
 
-### Milestone 1：线程存储与路由模型
+### Milestone 1：工作区迁移与调度决策基础
 
 Objective:
-- 增加线程、IM 入口路由和纯逻辑 Context Router，先让 `/where`、`/use`、`/to`、`/threads`、`/back` 的目标解析可测试。
+- 建立股票策略工作区迁移入口、planner decision schema parser、scheduler 决策执行基础；先停止当前 30m discovery 空转，并为后续 US/HK/CN workflow 分流提供可测试接口。
 
 Allowed scope:
 - `src/domain/types.ts`
-- `src/storage/*`
-- `src/messaging/*`
-- `src/core/runtime/command-registry.ts`
-- `src/commands.ts`
-- `tests/unit/messaging/*`
-- `tests/integration/routes/*`
-
-Validation:
-- `npm test -- tests/unit/messaging/context-router.test.ts tests/unit/messaging/command-utils.test.ts`
-- `npm run typecheck:backend`
-
-Status:
-- done
-
-Validation status:
-- passed
-
-Review status:
-- passed
-
-Risks / Notes / Handoff:
-- 已新增 `ContextRouter` 纯逻辑、`threads` / `im_entry_routes` 存储、IM 路由命令注册和入口路由文案；旧 `target_main_jid` / `target_agent_id` 暂作为默认入口目标兼容同步，不作为用户心智呈现。
-
-### Milestone 2：IM 入站调度与 footer
-
-Objective:
-- 将飞书 / 微信入站消息接入 Context Router，支持自然语言切换、显式命令兜底和统一来源 footer。
-
-Allowed scope:
-- `src/index.ts`
-- `src/messaging/providers/feishu/*`
-- `src/messaging/providers/wechat/*`
-- `src/presentation/*`
-- `tests/integration/messaging/*`
-- `tests/unit/presentation/*`
-
-Validation:
-- `npm test -- tests/unit/presentation/assistant-meta-footer.test.ts tests/unit/messaging/context-router.test.ts tests/integration/messaging/manager.test.ts`
-- `npm run typecheck:backend`
-
-Status:
-- done
-
-Validation status:
-- passed
-
-Review status:
-- passed
-
-Risks / Notes / Handoff:
-- `/use`、`/bind`、`/to`、`/where`、`/threads`、`/back` 已接入 IM 命令层；`/to` 使用 one-shot route rewrite，不改变默认工作区；静态 Web/IM 最终投递追加来源 footer。飞书/微信命令即时回复仍由 provider 直接发送，后续若要覆盖命令回执 footer，需要在 provider sendTextToChat 层继续收口。
-
-### Milestone 3：Web 线程体验与入口路由设置
-
-Objective:
-- Web 从旧内部 agent 标签页用户心智改为工作区内部主线/任务线程/工作流运行，设置页 IM 入口改名为入口路由。
-
-Allowed scope:
-- `web/src/components/chat/*`
-- `web/src/components/settings/*`
-- `web/src/stores/chat.ts`
-- `web/src/api/client.ts`
-- `src/web/routes/*`
-- `tests/unit/web/*`
-
-Validation:
-- `npm --prefix web run build`
-- `npm test -- tests/unit/web/workspace-routing.test.ts`
-
-Status:
-- done
-
-Validation status:
-- passed
-
-Review status:
-- passed
-
-Risks / Notes / Handoff:
-- Web chat/settings 入口已改用“主线 / 任务线程 / 入口路由”文案；内部 store 与 API 仍保留旧 agent slot 命名，作为实现细节分阶段迁移。
-
-### Milestone 4：workflow 线程关联、文档和全量验证
-
-Objective:
-- workflow run 关联任务线程，文档同步，并通过仓库 validation / review gate。
-
-Allowed scope:
-- `src/agent/workflow/*`
+- `src/storage/db.ts`
+- `src/storage/scheduler.ts`
+- `src/storage/workspaces.ts`
 - `src/agent/scheduler/*`
+- `src/agent/workflow/command.ts`
+- `src/agent/workflow/engine.ts`
+- `src/agent/workflow/local-tasks.ts`
+- `tests/unit/agent/scheduler/*`
+- `tests/unit/agent/workflow/command.test.ts`
+- `tests/unit/storage/*`
+- `PLANS/ACTIVE.md`
+
+Validation:
+- `npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/storage/stock-strategy-workspace.test.ts tests/unit/agent/workflow/command.test.ts`
+- `npm run typecheck:backend`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 当前真实 DB 证据：`stock-strategy-discovery-loop` 和 `stock-strategy-loop-review` 都在 `main`，目标 chat 为飞书私聊；2026-05-24 多轮 discovery 反复输出同一 US/HK/CN 判断。允许本 milestone 对真实 DB 做一次性暂停/迁移，后续再用代码迁移保证重启后幂等。
+- scope 补充 `tests/unit/agent/workflow/command.test.ts`：scheduler 当前只能拿到 `executeWorkflowCommand` 的返回文本，因此 command 层需要保留精简 `[Scheduler Decision]` JSON 给 scheduler 读取，同时不回投完整 planner JSON。
+- 已通过 `npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/storage/stock-strategy-workspace.test.ts tests/unit/agent/workflow/command.test.ts` 与 `npm run typecheck:backend`。Review gate 已检查 scope、diff、测试和无临时调试残留。
+
+### Milestone 2：US/HK/CN 工作流与本地证据任务
+
+Objective:
+- 拆出 `stock-strategy-us-candidate-validation`、`stock-strategy-hk-design-review`、`stock-strategy-cn-coverage-check`，补本地只读任务产出候选验证、设计复盘、覆盖检查结构化 artifact。
+
+Allowed scope:
+- `.agents/workflows/*.json`
+- `.agents/agent-roles/*.md`
+- `src/agent/workflow/local-tasks.ts`
+- `src/agent/workflow/tools.ts`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+
+Validation:
+- `npm test -- tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts`
+- `npm run typecheck:backend`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- US 验证必须覆盖 OOS 分段、`alpha_topn_momentum_5d.20260524` vs `alpha_topn_momentum_20d.20260520` champion/challenger、行业/主题集中度、`average_amount_5d` / `turnover_rate`、回撤、换手、成本敏感性和更可解释 universe；缺少底层 CLI 时返回 degraded artifact，不伪造结论。
+- 已新增 `stock-strategy-us-candidate-validation`、`stock-strategy-hk-design-review`、`stock-strategy-cn-coverage-check` 三个只读 workflow；local task artifact 都包含 `market_state` 与 `evidence_signature`。已通过 `npm test -- tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts` 与 `npm run typecheck:backend`；review gate 已检查只读边界、degraded 行为和固定 JSON schema。
+
+### Milestone 3：Web 看板、通知降噪与文档同步
+
+Objective:
+- Web 自动化看板展示股票策略每市场状态；飞书/微信投递只在 `requires_human` 或状态推进时发人类可读结论；同步 owner 文档。
+
+Allowed scope:
+- `src/agent/scheduler/index.ts`
 - `src/web/workflow-dashboard.ts`
+- `src/web/routes/workflows.ts`
+- `web/src/stores/workflows.ts`
+- `web/src/pages/WorkflowsPage.tsx`
+- `web/src/components/**`
+- `tests/unit/web/*`
+- `tests/unit/agent/scheduler/workflow-task.test.ts`
+- `tests/integration/routes/workflows-dashboard.test.ts`
 - `docs/ARCHITECTURE.md`
 - `docs/RUNTIME.md`
 - `docs/COMMAND.md`
-- `docs/E2E.md`
-- `docs/MEMORY.md`
+- `docs/MODULE.md`
 - `PLANS/ROADMAP.md`
 
 Validation:
+- `npm test -- tests/unit/web/workflow-dashboard.test.ts tests/integration/routes/workflows-dashboard.test.ts`
+- `npm --prefix web run build`
 - `./scripts/validate.sh`
 - `./scripts/review.sh`
-- Web 截图检查工作区、任务线程、自动化、入口路由设置。
 
 Status:
 - done
@@ -134,74 +121,56 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- workflow context 已关联 workflow 线程，不改变 checkpoint 语义；线程只做用户可追问和来源显示层。`./scripts/validate.sh` 与 `./scripts/review.sh` 已通过；Web 构建产物用 headless Chrome 截图确认登录页可正常渲染，截图在 `/tmp/cli-claw-web-smoke.png`。
+- Web 自动化看板已新增股票策略状态区，展示全局 decision、US/HK/CN 市场状态、evidence signature、下一步 workflow、cadence、原因和是否需要人工；scheduler 对非人工股票策略决策只回投工作区，不再刷飞书/微信重复发现。
+- 已通过 `npm test -- tests/unit/web/workflow-dashboard.test.ts tests/integration/routes/workflows-dashboard.test.ts`、`npm --prefix web run build`、`npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/storage/stock-strategy-workspace.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/unit/web/workflow-dashboard.test.ts tests/integration/routes/workflows-dashboard.test.ts`、`npm run typecheck:backend`、`./scripts/validate.sh` 与 `./scripts/review.sh`。浏览器 DOM 冒烟确认 `/automations?tab=workflows` 可见 `股票策略状态`、US 待人工、HK 阻塞、CN 与下游 workflow；截图 API 超时但 DOM 校验通过。
 
 ## Working Rules
 
 - `PLANS/ACTIVE.md` 是本轮执行单一真相源。
 - 一次只推进一个 milestone。
-- 目标、scope、验证方式变化时先更新本文件。
-- 删除或迁移用户可见概念时必须沿引用链清理入口、文案、测试和文档。
+- 目标、scope、验证方式或涉及文件变化时先更新本文件。
+- 删除或迁移调度行为时必须沿引用链清理入口、配置、测试、文档和调用方。
 - milestone 只有 validation 与 review 都通过后才可标记 `done`。
 
 ## Handoff
 
 Current milestone:
-- Milestone 4
+- Milestone 3
 
 Current status:
 - done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`
-- `docs/ARCHITECTURE.md`
-- `docs/COMMAND.md`
-- `docs/MEMORY.md`
-- `docs/MODULE.md`
-- `docs/RUNTIME.md`
-- `shared/runtime-command-registry.ts`
-- `src/agent/queue/group-queue.ts`
-- `src/agent/runner/output-parser.ts`
+- `src/agent/scheduler/index.ts`
+- `src/agent/scheduler/stock-strategy-decision.ts`
+- `src/web/workflow-dashboard.ts`
+- `web/src/stores/workflows.ts`
+- `web/src/pages/WorkflowsPage.tsx`
 - `src/agent/workflow/command.ts`
-- `src/agent/workflow/context.ts`
-- `src/domain/types.ts`
-- `src/index.ts`
-- `src/messaging/channel.ts`
-- `src/messaging/command-utils.ts`
-- `src/messaging/context-router.ts`
-- `src/messaging/providers/feishu/index.ts`
 - `src/storage/db.ts`
-- `src/storage/threads.ts`
-- `src/web/routes/agents.ts`
-- `src/web/routes/config.ts`
-- `tests/integration/agent/restart-recovery.test.ts`
-- `tests/integration/messaging/feishu/e2e.test.ts`
-- `tests/contracts/openai/runner-request.test.ts`
-- `tests/unit/agent/runner/output-parser.test.ts`
-- `tests/unit/agent/workflow/context.test.ts`
-- `tests/unit/core/runtime/command-registry.test.ts`
-- `tests/unit/messaging/command-utils.test.ts`
-- `tests/unit/messaging/context-router.test.ts`
-- `tests/unit/storage/threads.test.ts`
-- `web/src/components/chat/AgentTabBar.tsx`
-- `web/src/components/chat/ChatView.tsx`
-- `web/src/components/chat/ImBindingDialog.tsx`
-- `web/src/components/layout/UnifiedSidebar.tsx`
-- `web/src/components/settings/BindingTargetDialog.tsx`
-- `web/src/components/settings/BindingsSection.tsx`
-- `web/src/components/settings/ImBindingRow.tsx`
-- `web/src/components/settings/InstanceChannelsSection.tsx`
-- `web/src/components/settings/SettingsNav.tsx`
-- `web/src/components/settings/hooks/useImBindings.ts`
-- `web/src/pages/SettingsPage.tsx`
-- `web/src/stores/chat.ts`
+- `.agents/agent-roles/stock-strategy-iteration-planner.md`
+- `.agents/workflows/stock-strategy-discovery-loop.json`
+- `.agents/workflows/stock-strategy-loop.json`
+- `.agents/workflows/stock-strategy-us-candidate-validation.json`
+- `.agents/workflows/stock-strategy-hk-design-review.json`
+- `.agents/workflows/stock-strategy-cn-coverage-check.json`
+- `src/agent/workflow/local-tasks.ts`
+- `src/agent/workflow/tools.ts`
+- `tests/unit/agent/scheduler/workflow-task.test.ts`
+- `tests/unit/agent/scheduler/stock-strategy-decision.test.ts`
+- `tests/unit/agent/workflow/command.test.ts`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+- `tests/unit/web/workflow-dashboard.test.ts`
+- `tests/integration/routes/workflows-dashboard.test.ts`
+- `tests/unit/storage/stock-strategy-workspace.test.ts`
 
 Last failure summary:
-- 中途 `./scripts/validate.sh` 曾因 footer 期望和旧“会话”文案断言失败，已同步测试与文案后通过；第一次 Web 截图用 Python 静态服务遇到本机 DNS 阻塞，改用 Node 静态服务后通过。
+- 第一次 `./scripts/review.sh` 因三个源文件格式化失败，已用 `prettier --write` 修复；后续 `./scripts/validate.sh` 与 `./scripts/review.sh` 均通过。浏览器截图 API 超时，但 DOM 冒烟检查已确认股票策略状态面板渲染。
 
 Suspected cause:
-- 测试断言仍按旧会话/无 footer 语义编写；截图失败是 Python `http.server` 本机 hostname 解析卡住，不是 Web 构建失败。
+- 现有 planner 已输出重复判断，但 scheduler 没有结构化读取与执行层；scheduled task 仍固定 30 分钟运行完整 discovery。
 
 Next step:
-- 提交本轮改动；后续观察真实飞书/微信入口路由和 streaming 卡片 footer 的一致性。
+- 提交本轮改动；后续观察真实 scheduled workflow 的下游任务创建、暂停/降频与 IM 降噪效果。

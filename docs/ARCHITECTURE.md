@@ -29,11 +29,11 @@ Cli Claw 是一个单实例、自托管的 CLI Agent 工具。它接收 Web、�
 8. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
 9. 任务调度和跨工作区通知等能力，通过内置 runner tools 回到主进程执行；Skill 扩展只保留仓库级 `.agents/skills` slash command 文件，不再通过 Web UI 或 runner 工具安装用户 Skill；Web UI 不提供 workspace MCP 配置入口。
 
-Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workflow 看板。Workflow 看板主要读取主数据库中的 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 与 `task_run_logs`，不参与 workflow 调度、不写 checkpoint，也不重跑节点。看板允许对 `execution_type='workflow'` 的定时任务做编辑 / 删除：编辑只改 `scheduled_tasks` 的 workflow id、prompt、调度和值状态；删除只移除后续调度任务，不强制中断已经启动的 workflow run，既有 run/step 审计继续保留。单实例 session 登录后即可查看实例内所有工作区的 workflow 运行。
+Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workflow 看板。Workflow 看板主要读取主数据库中的 `workflow_runs`、`workflow_run_steps`、`scheduled_tasks` 与 `task_run_logs`，不参与 workflow 调度、不写 checkpoint，也不重跑节点。看板允许对 `execution_type='workflow'` 的定时任务做编辑 / 删除：编辑只改 `scheduled_tasks` 的 workflow id、prompt、调度和值状态；删除只移除后续调度任务，不强制中断已经启动的 workflow run，既有 run/step 审计继续保留。股票策略看板在同一聚合层从 planner decision、local task artifact 和 scheduled task 提炼 US/HK/CN 的 `discovering` / `validating` / `blocked` / `cooldown` / `human_review_ready` 状态、证据签名、下游 workflow 和人工确认需求。单实例 session 登录后即可查看实例内所有工作区的 workflow 运行。
 
 `/hkipo` 是当前内置 workflow 示例：用户仍从 skill slash command 入口触发，但 skill executor 只返回 `workflowId=hkipo` 和结构化 input；主进程随后执行 Futu IPO 池发现、池标准化、核心数据采集计划、二级热度/发行结构/估值证据采集、证据核验、官方文件下载解析、发行结构与估值分析、回测校准和最终报告节点。Futu/OpenD 不可用时 pool discovery 失败；Futu 可用但热度、绿鞋、基石、回拨、保荐或估值字段缺失时，证据采集节点继续按公开只读来源和 HKEX 官方文件补齐并记录降级。采集脚本自身失败或超时时，只允许 `stock.hkipo.scan_heat` / `stock.hkipo.fetch_official_docs` 返回降级 artifact，不能中断整个 workflow；后续 verifier / report 必须把该情况表述为“热度未达当日核验门槛”或“多源未取到”，并说明缺失字段。
 
-股票策略自分析 / 自迭代现在使用同一 workflow 编排层，而不是独立的分钟级 launchd tick 直接驱动 Agent。策略发现期由 `stock-strategy-discovery-loop` scheduled workflow 短间隔触发，先运行只读 `alpha_scan` 与离线 `alpha_research_loop` 形成候选和回测 evidence，再由 discovery reviewer / planner 判断下一步验证；成熟或候选复盘期由 `stock-strategy-loop` 低频触发，收集 task-chain、summary、handoff output、paper/live ledger 与回测价值证据，再由分离的 review / value / planning role 生成下一轮只读迭代建议。两类 workflow 都只产出审阅和计划 evidence，不自动 approve、不 activate、不触发 broker。
+股票策略自分析 / 自迭代现在使用同一 workflow 编排层，而不是独立的分钟级 launchd tick 直接驱动 Agent。系统启动时会幂等创建 `web:stock-strategy`（显示名“股票策略”、folder `stock-strategy`）工作区，并把 `stock-strategy-*` scheduled workflow 迁入该工作区；历史飞书/微信入口只作为 `notify_channels` 保留，不再把股票策略跑在主工作区。`stock-strategy-discovery-loop` 现在是轻量 orchestrator：planner 必须输出固定 JSON 决策（`action`、`next_workflow`、`cadence`、`reason`、`evidence_signature`、`requires_human`），scheduler 读取后可暂停当前 discovery、降频、创建/更新下游 workflow 或只在需要人工时推送外部 IM。US/HK/CN 分别由 `stock-strategy-us-candidate-validation`、`stock-strategy-hk-design-review`、`stock-strategy-cn-coverage-check` 承接验证、设计复盘和覆盖检查；每个市场维护 `coverage_check -> discovery -> candidate_review -> candidate_validation -> human_review_ready -> approved/rejected/cooldown` 状态。所有 workflow 都只产出审阅和计划 evidence，不自动 approve、不 activate、不触发 broker。
 
 ## IM 消息可靠性
 
@@ -59,6 +59,7 @@ Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workf
 - `im_entry_routes` 保存飞书 / 微信入口的默认工作区、当前活跃工作区和活跃线程。`registered_groups.target_main_jid` / `target_agent_id` 只作为迁移期同步字段，语义是“默认入口目标”，不是“一个 IM 私聊只能绑定一个会话”。
 - Context Router 位于 Web / 飞书 / 微信输入之后、Agent / workflow 执行之前，负责把普通消息、回复、workflow 卡片按钮和高级命令解析为 `{ workspaceJid, threadId, runtimeAgentId }`。`/use` 改默认工作区，`/to` 做单次定向投递，`/where` 显示当前位置，`/threads` 列最近任务线程，`/back` 回到工作区主线。
 - Workflow run 不应该为了隔离上下文而创建新工作区；它应挂在发起工作区下，使用独立 workflow context / runtime session 执行，并创建或关联 workflow 线程。结果可以回填到触发入口和对应线程，但 workflow state、checkpoint 和 role output 不污染工作区主线。
+- 股票策略是长期业务边界，使用独立 `web:stock-strategy` 工作区；每次 workflow run 是该工作区下的 workflow 线程，不为每次 run 新建工作区。
 - Runner 只是一次正在执行的底层 CLI 进程，不是工作区、线程或 session 的长期身份。
 
 ## 边界

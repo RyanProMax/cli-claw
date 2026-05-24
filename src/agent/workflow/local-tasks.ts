@@ -347,6 +347,18 @@ function readWorkflowUniverse(input: WorkflowLocalTaskInput): string {
   return typeof value === 'string' && value.trim() ? value.trim() : 'all';
 }
 
+function readWorkflowMarket(
+  input: WorkflowLocalTaskInput,
+  fallback: 'cn' | 'hk' | 'us',
+): 'cn' | 'hk' | 'us' {
+  const value = resolveWorkflowTaskInput(input).market;
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'cn' || normalized === 'hk' || normalized === 'us'
+    ? normalized
+    : fallback;
+}
+
 function readWorkflowSymbols(input: WorkflowLocalTaskInput): string | null {
   const value = resolveWorkflowTaskInput(input).symbols;
   if (typeof value === 'string' && value.trim()) return value.trim();
@@ -357,6 +369,53 @@ function readWorkflowSymbols(input: WorkflowLocalTaskInput): string | null {
     return symbols.length > 0 ? symbols.join(',') : null;
   }
   return null;
+}
+
+function readWorkflowString(
+  input: WorkflowLocalTaskInput,
+  key: string,
+  fallback: string,
+): string {
+  const value = resolveWorkflowTaskInput(input)[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function readWorkflowNumberOrNull(
+  input: WorkflowLocalTaskInput,
+  key: string,
+): number | null {
+  const value = resolveWorkflowTaskInput(input)[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function appendOptionalNumberArg(
+  args: string[],
+  flag: string,
+  value: number | null,
+): void {
+  if (value !== null) args.push(flag, String(value));
+}
+
+function artifactStatus(value: Record<string, unknown>): string {
+  return typeof value.status === 'string' ? value.status : 'ok';
+}
+
+function evidenceSignature(parts: {
+  market: string;
+  factor: string;
+  universe: string;
+  costModel: string;
+  holdingWindow: string;
+  dataVersion: string;
+}): string {
+  return [
+    parts.market,
+    parts.factor,
+    parts.universe,
+    parts.costModel,
+    parts.holdingWindow,
+    parts.dataVersion,
+  ].join(':');
 }
 
 function getCode(item: unknown): string {
@@ -767,6 +826,333 @@ function createDiscoveryCycleTask(
   };
 }
 
+function createCandidateValidationTask(
+  options: DefaultWorkflowLocalTaskOptions,
+): WorkflowLocalTask {
+  return async (input) => {
+    const reportDate = readWorkflowReportDate(input);
+    const market = readWorkflowMarket(input, 'us');
+    const universe = readWorkflowUniverse(input);
+    const symbols = readWorkflowSymbols(input);
+    const top = readWorkflowTop(input);
+    const candidateFactor = readWorkflowString(
+      input,
+      'candidateFactor',
+      'momentum_5d',
+    );
+    const championFactor = readWorkflowString(
+      input,
+      'championFactor',
+      'momentum_20d',
+    );
+    const holdingWindow = readWorkflowString(input, 'holdingWindow', '5d');
+    const costBps = readWorkflowNumberOrNull(input, 'costBps');
+    const costModel = costBps === null ? 'default_cost' : `${costBps}bps`;
+    const baseArgs = ['--market', market, '--universe', universe];
+    if (symbols) baseArgs.push('--symbols', symbols);
+
+    const evaluateArgs = (factor: string) => [
+      'scripts/alpha_evaluate.py',
+      ...baseArgs,
+      '--factor',
+      factor,
+      '--end',
+      reportDate,
+      '--forward-windows',
+      '1,5,10,20',
+    ];
+    const backtestArgs = (factor: string) => [
+      'scripts/alpha_backtest.py',
+      ...baseArgs,
+      '--factor',
+      factor,
+      '--end',
+      reportDate,
+      '--top-n',
+      String(Math.min(top, 20)),
+      '--holding-period',
+      holdingWindow.replace(/d$/i, ''),
+      '--include-details',
+    ];
+    const candidateEvaluationArgs = evaluateArgs(candidateFactor);
+    const championEvaluationArgs = evaluateArgs(championFactor);
+    const candidateBacktestArgs = backtestArgs(candidateFactor);
+    const championBacktestArgs = backtestArgs(championFactor);
+    for (const args of [
+      candidateEvaluationArgs,
+      championEvaluationArgs,
+      candidateBacktestArgs,
+      championBacktestArgs,
+    ]) {
+      appendOptionalNumberArg(args, '--cost-bps', costBps);
+    }
+
+    const scanArgs = [
+      'scripts/alpha_scan.py',
+      ...baseArgs,
+      '--top',
+      String(Math.min(top, 50)),
+      '--as-of',
+      reportDate,
+    ];
+
+    const [
+      candidateEvaluation,
+      championEvaluation,
+      candidateBacktest,
+      championBacktest,
+      liquiditySnapshot,
+    ] = await Promise.all([
+      runStockApiJsonOrDegraded(
+        'alpha_evaluate_candidate',
+        candidateEvaluationArgs,
+        input,
+        options,
+      ),
+      runStockApiJsonOrDegraded(
+        'alpha_evaluate_champion',
+        championEvaluationArgs,
+        input,
+        options,
+      ),
+      runStockApiJsonOrDegraded(
+        'alpha_backtest_candidate',
+        candidateBacktestArgs,
+        input,
+        options,
+      ),
+      runStockApiJsonOrDegraded(
+        'alpha_backtest_champion',
+        championBacktestArgs,
+        input,
+        options,
+      ),
+      runStockApiJsonOrDegraded(
+        'alpha_scan_liquidity',
+        scanArgs,
+        input,
+        options,
+      ),
+    ]);
+    const subResults = [
+      candidateEvaluation,
+      championEvaluation,
+      candidateBacktest,
+      championBacktest,
+      liquiditySnapshot,
+    ];
+    const degraded = subResults.some(
+      (result) => artifactStatus(result) === 'degraded',
+    );
+
+    return {
+      status: degraded ? 'degraded' : 'ok',
+      source: 'stock_strategy_candidate_validation',
+      generatedAt: new Date().toISOString(),
+      market,
+      report_date: reportDate,
+      evidence_signature: evidenceSignature({
+        market,
+        factor: candidateFactor,
+        universe,
+        costModel,
+        holdingWindow,
+        dataVersion: reportDate,
+      }),
+      market_state: {
+        market,
+        state: 'candidate_validation',
+        next_state_on_pass: 'human_review_ready',
+        next_state_on_fail: 'cooldown',
+      },
+      candidate: {
+        candidate_id: `alpha_topn_${candidateFactor}.${reportDate.replaceAll('-', '')}`,
+        factor: candidateFactor,
+        champion_factor: championFactor,
+        universe,
+        holding_window: holdingWindow,
+        cost_model: costModel,
+      },
+      required_checks: [
+        'oos_segment_performance',
+        'champion_challenger_comparison',
+        'industry_theme_concentration',
+        'liquidity_fields_average_amount_5d_turnover_rate',
+        'drawdown_turnover_cost_sensitivity',
+        'expanded_explainable_universe',
+      ],
+      candidate_evaluation: pruneArtifactValue(candidateEvaluation),
+      champion_evaluation: pruneArtifactValue(championEvaluation),
+      candidate_backtest: pruneArtifactValue(candidateBacktest),
+      champion_backtest: pruneArtifactValue(championBacktest),
+      liquidity_snapshot: pruneArtifactValue(liquiditySnapshot),
+    };
+  };
+}
+
+function createDesignReviewTask(
+  options: DefaultWorkflowLocalTaskOptions,
+): WorkflowLocalTask {
+  return async (input) => {
+    const reportDate = readWorkflowReportDate(input);
+    const market = readWorkflowMarket(input, 'hk');
+    const universe = readWorkflowUniverse(input);
+    const symbols = readWorkflowSymbols(input);
+    const factors = readWorkflowFactors(input);
+    const forwardWindows = readWorkflowString(
+      input,
+      'forwardWindows',
+      '1,5,10,20',
+    );
+    const costBps = readWorkflowNumberOrNull(input, 'costBps');
+    const costModel = costBps === null ? 'default_cost' : `${costBps}bps`;
+    const args = [
+      'scripts/alpha_research_loop.py',
+      '--market',
+      market,
+      '--universe',
+      universe,
+      '--factors',
+      factors.join(','),
+      '--date',
+      reportDate,
+      '--forward-windows',
+      forwardWindows,
+      '--top',
+      String(readWorkflowTop(input)),
+      '--min-observations',
+      String(readWorkflowMinObservations(input)),
+      '--min-backtest-periods',
+      String(readWorkflowMinBacktestPeriods(input)),
+      '--include-attempt-details',
+    ];
+    if (symbols) args.push('--symbols', symbols);
+    appendOptionalNumberArg(args, '--cost-bps', costBps);
+
+    const designEvidence = await runStockApiJsonOrDegraded(
+      'alpha_research_loop_design_review',
+      args,
+      input,
+      options,
+    );
+    return {
+      status: artifactStatus(designEvidence) === 'degraded' ? 'degraded' : 'ok',
+      source: 'stock_strategy_design_review',
+      generatedAt: new Date().toISOString(),
+      market,
+      report_date: reportDate,
+      evidence_signature: evidenceSignature({
+        market,
+        factor: factors.join('+'),
+        universe,
+        costModel,
+        holdingWindow: forwardWindows,
+        dataVersion: reportDate,
+      }),
+      market_state: {
+        market,
+        state: 'candidate_review',
+        next_state_on_pass: 'candidate_validation',
+        next_state_on_fail: 'cooldown',
+      },
+      design_changes: [
+        'forward_window_sensitivity',
+        'cost_model_sensitivity',
+        'universe_coverage_review',
+        'blocked_reason_recheck',
+      ],
+      design_evidence: pruneArtifactValue(designEvidence),
+    };
+  };
+}
+
+function artifactDataCount(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (!isObject(value)) return 0;
+  if (Array.isArray(value.data)) return value.data.length;
+  if (Array.isArray(value.items)) return value.items.length;
+  const summary = isObject(value.summary) ? value.summary : null;
+  const scanned = summary?.scanned;
+  return typeof scanned === 'number' && Number.isFinite(scanned) ? scanned : 0;
+}
+
+function createCoverageCheckTask(
+  options: DefaultWorkflowLocalTaskOptions,
+): WorkflowLocalTask {
+  return async (input) => {
+    const reportDate = readWorkflowReportDate(input);
+    const market = readWorkflowMarket(input, 'cn');
+    const universe = readWorkflowUniverse(input);
+    const universeSeed = readWorkflowString(
+      input,
+      'universeSeed',
+      `${market}_default`,
+    );
+    const seedStatus = await runStockApiJsonOrDegraded(
+      'alpha_universe_seed_status',
+      [
+        'scripts/alpha_universe_seed_status.py',
+        '--universe-seed',
+        universeSeed,
+        '--market',
+        market,
+        '--stale-before',
+        reportDate,
+      ],
+      input,
+      options,
+    );
+    const scan = await runStockApiJsonOrDegraded(
+      'alpha_scan_coverage_check',
+      [
+        'scripts/alpha_scan.py',
+        '--market',
+        market,
+        '--universe',
+        universe,
+        '--top',
+        String(readWorkflowTop(input)),
+        '--as-of',
+        reportDate,
+      ],
+      input,
+      options,
+    );
+    const degraded =
+      artifactStatus(seedStatus) === 'degraded' ||
+      artifactStatus(scan) === 'degraded';
+    const scanned = artifactDataCount(scan);
+    const coverageStatus = scanned > 0 ? 'ready' : 'empty';
+
+    return {
+      status: degraded ? 'degraded' : 'ok',
+      source: 'stock_strategy_coverage_check',
+      generatedAt: new Date().toISOString(),
+      market,
+      report_date: reportDate,
+      evidence_signature: evidenceSignature({
+        market,
+        factor: 'coverage',
+        universe,
+        costModel: 'none',
+        holdingWindow: 'none',
+        dataVersion: reportDate,
+      }),
+      market_state: {
+        market,
+        state: 'coverage_check',
+        next_state_on_pass: 'discovery',
+        next_state_on_fail: 'coverage_check',
+      },
+      coverage_status: coverageStatus,
+      next_action:
+        coverageStatus === 'ready' ? 'resume_discovery' : 'keep_coverage_check',
+      seed_status: pruneArtifactValue(seedStatus),
+      scan: pruneArtifactValue(scan),
+    };
+  };
+}
+
 function createFetchPoolTask(
   options: DefaultWorkflowLocalTaskOptions,
 ): WorkflowLocalTask {
@@ -923,6 +1309,10 @@ export function createDefaultWorkflowLocalTasks(
     'stock.strategy.collect_results': createCollectStrategyResultsTask(options),
     'stock.strategy.analyze_value': createAnalyzeStrategyValueTask(options),
     'stock.strategy.discovery_cycle': createDiscoveryCycleTask(options),
+    'stock.strategy.candidate_validation':
+      createCandidateValidationTask(options),
+    'stock.strategy.design_review': createDesignReviewTask(options),
+    'stock.strategy.coverage_check': createCoverageCheckTask(options),
   };
 }
 

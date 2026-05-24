@@ -3,15 +3,19 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { ScheduledTask } from '../../../../src/domain/types.ts';
 
 const {
+  createTaskMock,
   getTaskByIdMock,
   logTaskRunStartMock,
   runtimeUsageMock,
+  updateTaskMock,
   updateTaskAfterRunMock,
   updateTaskRunLogMock,
 } = vi.hoisted(() => ({
+  createTaskMock: vi.fn(),
   getTaskByIdMock: vi.fn(),
   logTaskRunStartMock: vi.fn(() => 1001),
   runtimeUsageMock: vi.fn(),
+  updateTaskMock: vi.fn(),
   updateTaskAfterRunMock: vi.fn(),
   updateTaskRunLogMock: vi.fn(),
 }));
@@ -23,10 +27,12 @@ vi.mock('../../../../src/core/runtime/usage.js', () => ({
 vi.mock('../../../../src/storage/db.js', () => ({
   cleanupOldTaskRunLogs: vi.fn(),
   cleanupStaleRunningLogs: vi.fn(),
+  createTask: createTaskMock,
   getAllTasks: vi.fn(() => []),
   getDueTasks: vi.fn(() => []),
   getTaskById: getTaskByIdMock,
   logTaskRunStart: logTaskRunStartMock,
+  updateTask: updateTaskMock,
   updateTaskAfterRun: updateTaskAfterRunMock,
   updateTaskRunLog: updateTaskRunLogMock,
 }));
@@ -237,4 +243,137 @@ describe('scheduled workflow task helpers', () => {
     );
   });
 
+  test('applies stock strategy planner decisions to pause discovery and schedule validation', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-discovery-loop',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-discovery-loop',
+      prompt: 'Route stock strategy work by state.',
+      schedule_value: String(30 * 60 * 1000),
+      notify_channels: ['feishu:private'],
+    });
+    getTaskByIdMock.mockImplementation((id: string) =>
+      id === scheduledTask.id ? scheduledTask : undefined,
+    );
+    const decision = {
+      action: 'pause_discovery',
+      next_workflow: 'stock-strategy-us-candidate-validation',
+      cadence: '2h',
+      reason: 'same evidence signature, candidate requires validation',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: false,
+    };
+    const workflowResult = [
+      '✅ 工作流 股票策略短间隔发现工作流 (stock-strategy-discovery-loop) 完成：',
+      JSON.stringify(decision),
+    ].join('\n');
+    const runWorkflowCommand = vi.fn().mockResolvedValue(workflowResult);
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(updateTaskMock).toHaveBeenCalledWith(
+      'stock-strategy-discovery-loop',
+      expect.objectContaining({ status: 'paused' }),
+    );
+    expect(createTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'stock-strategy-us-candidate-validation',
+        group_folder: 'stock-strategy',
+        chat_jid: 'web:stock-strategy',
+        execution_type: 'workflow',
+        script_command: 'stock-strategy-us-candidate-validation',
+        schedule_type: 'interval',
+        schedule_value: String(2 * 60 * 60 * 1000),
+        status: 'active',
+        notify_channels: ['feishu:private'],
+      }),
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'web:stock-strategy',
+      expect.stringContaining('same evidence signature'),
+      { source: 'scheduled_task' },
+    );
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      'feishu:private',
+      expect.any(String),
+      expect.anything(),
+    );
+  });
+
+  test('forwards stock strategy decisions to external channels only when human input is required', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-us-candidate-validation',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-us-candidate-validation',
+      prompt: 'Validate US candidate.',
+      notify_channels: ['feishu:private'],
+    });
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const decision = {
+      action: 'ask_human',
+      next_workflow: null,
+      cadence: 'manual',
+      reason: 'candidate passed validation and needs approval',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: true,
+    };
+    const runWorkflowCommand = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify(decision));
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'web:stock-strategy',
+      expect.stringContaining('candidate passed validation'),
+      { source: 'scheduled_task' },
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'feishu:private',
+      expect.stringContaining('candidate passed validation'),
+      { source: 'scheduled_task' },
+    );
+  });
 });

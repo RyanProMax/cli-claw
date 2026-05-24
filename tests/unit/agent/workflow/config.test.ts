@@ -625,4 +625,68 @@ describe('workflow config discovery', () => {
     expect(workflowPrompts).toContain('本轮无新增');
     expect(workflowPrompts).toContain('暂停同配置 30 分钟 discovery 原样重跑');
   });
+
+  test('bundled stock strategy state workflows split US validation, HK design review, and CN coverage check', () => {
+    const repoRoot = process.cwd();
+    const loadWorkflow = (file: string) =>
+      JSON.parse(
+        fs.readFileSync(
+          path.join(repoRoot, '.agents', 'workflows', file),
+          'utf-8',
+        ),
+      ) as {
+        id: string;
+        roles: string[];
+        nodes: Array<{ id: string; taskId?: string; roleId?: string }>;
+      };
+
+    const us = loadWorkflow('stock-strategy-us-candidate-validation.json');
+    const hk = loadWorkflow('stock-strategy-hk-design-review.json');
+    const cn = loadWorkflow('stock-strategy-cn-coverage-check.json');
+
+    expect(us).toMatchObject({
+      id: 'stock-strategy-us-candidate-validation',
+      roles: ['stock-strategy-iteration-planner'],
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'validate_candidate',
+          taskId: 'stock.strategy.candidate_validation',
+        }),
+        expect.objectContaining({
+          id: 'plan_next_iteration',
+          roleId: 'stock-strategy-iteration-planner',
+        }),
+      ]),
+    });
+    expect(hk.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'review_design',
+          taskId: 'stock.strategy.design_review',
+        }),
+      ]),
+    );
+    expect(cn.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'check_coverage',
+          taskId: 'stock.strategy.coverage_check',
+        }),
+      ]),
+    );
+
+    const plannerRole = fs.readFileSync(
+      path.join(
+        repoRoot,
+        '.agents',
+        'agent-roles',
+        'stock-strategy-iteration-planner.md',
+      ),
+      'utf-8',
+    );
+    expect(plannerRole).toContain('action');
+    expect(plannerRole).toContain('next_workflow');
+    expect(plannerRole).toContain('evidence_signature');
+    expect(plannerRole).toContain('requires_human');
+  });
 });

@@ -1,0 +1,28 @@
+{
+  "id": "stock-strategy-cn-coverage-check",
+  "name": "股票策略 CN 覆盖检查工作流",
+  "description": "只读检查 CN universe / symbols / scanned 覆盖，scanned=0 时不继续 discovery 空跑。",
+  "roles": ["stock-strategy-iteration-planner"],
+  "start": "check_coverage",
+  "nodes": [
+    {
+      "id": "check_coverage",
+      "type": "local_task",
+      "taskId": "stock.strategy.coverage_check",
+      "outputArtifact": "cn_coverage_evidence",
+      "prompt": "检查 CN symbols=[]、scanned=0 的覆盖缺口；仅在出现非空 symbols 或 non-zero scanned 后才允许回到 discovery。"
+    },
+    {
+      "id": "plan_next_iteration",
+      "type": "role_task",
+      "roleId": "stock-strategy-iteration-planner",
+      "outputArtifact": "next_iteration_plan",
+      "prompt": "基于 cn_coverage_evidence 输出固定 JSON 调度决策。若仍 scanned=0，action=slow_down，next_workflow=stock-strategy-cn-coverage-check，cadence=6h，requires_human=false；若覆盖恢复，action=switch_workflow，next_workflow=stock-strategy-discovery-loop。"
+    }
+  ],
+  "edges": [
+    { "from": "check_coverage", "to": "plan_next_iteration" },
+    { "from": "plan_next_iteration", "to": "__end__" }
+  ],
+  "maxRetries": 1
+}

@@ -1,0 +1,28 @@
+{
+  "id": "stock-strategy-us-candidate-validation",
+  "name": "股票策略 US 候选验证工作流",
+  "description": "对 US alpha_topn_momentum_5d 候选做只读 OOS、champion/challenger、集中度、流动性和成本敏感性补证。",
+  "roles": ["stock-strategy-iteration-planner"],
+  "start": "validate_candidate",
+  "nodes": [
+    {
+      "id": "validate_candidate",
+      "type": "local_task",
+      "taskId": "stock.strategy.candidate_validation",
+      "outputArtifact": "candidate_validation_evidence",
+      "prompt": "验证 US 候选 alpha_topn_momentum_5d.20260524：补齐 OOS 分段、与 momentum_20d champion/challenger 对比、行业/主题集中度、average_amount_5d、turnover_rate、回撤、换手、成本敏感性和更可解释 universe。"
+    },
+    {
+      "id": "plan_next_iteration",
+      "type": "role_task",
+      "roleId": "stock-strategy-iteration-planner",
+      "outputArtifact": "next_iteration_plan",
+      "prompt": "基于 candidate_validation_evidence 输出固定 JSON 调度决策。若证据齐备且仍需人审，action=ask_human、next_workflow=null、cadence=manual、requires_human=true；若 OOS/对照/流动性/集中度不合格，action=slow_down 或 pause、next_workflow=null、cadence=6h 或 manual，并将市场状态打回 cooldown。"
+    }
+  ],
+  "edges": [
+    { "from": "validate_candidate", "to": "plan_next_iteration" },
+    { "from": "plan_next_iteration", "to": "__end__" }
+  ],
+  "maxRetries": 1
+}

@@ -25,6 +25,10 @@ permissionMode: readonly
 - 基于 task review 和 value review 选择下一轮最小有价值迭代。
 - 每个迭代方向必须说明输入 evidence、验证命令或 workflow、通过/失败标准、风险护栏。
 - 若 usage 或数据不足，应规划等待、降频或补证据，而不是继续堆叠 agent 任务。
-- 输出结构化中文报告，包含 `change_summary`、`repeat_decision`、`next_iteration_objective`、`candidate_tasks`、`validation_plan`、`stop_conditions`、`human_review_needed`。
+- 输出必须是单个 JSON object，不要包 Markdown 代码块。顶层必须包含 scheduler 固定字段：`action`、`next_workflow`、`cadence`、`reason`、`evidence_signature`、`requires_human`。
+- `action` 只允许：`continue`、`pause`、`pause_discovery`、`slow_down`、`switch_workflow`、`ask_human`。
+- 同时保留中文审计字段：`change_summary`、`repeat_decision`、`next_iteration_objective`、`candidate_tasks`、`validation_plan`、`stop_conditions`、`human_review_needed`、`market_states`。
+- `market_states` 按市场维护状态，只允许：`coverage_check`、`discovery`、`candidate_review`、`candidate_validation`、`human_review_ready`、`approved`、`rejected`、`cooldown`。
+- `evidence_signature` 必须按 `market:factor:universe:cost_model:holding_window:data_version` 生成；如果是多市场路由，用最关键市场签名，其他市场写入 `market_states[].evidence_signature`。
 - `change_summary` 必须是一句话，回答“本轮完成了什么”；如果无新增，直接写“本轮无新增候选/无新增收益证据”。
 - `repeat_decision` 必须说明是否与上一轮或本轮 review 中的已知候选重复，以及下一步是等待、降频、补证，还是进入候选验证。

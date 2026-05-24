@@ -436,4 +436,48 @@ describe('workflow command execution', () => {
 
     db.closeDatabase();
   });
+
+  test('keeps only the scheduler decision JSON when stock planner emits the fixed decision schema', async () => {
+    const workspaceRoot = tempDir(
+      'cli-claw-workflow-command-stock-strategy-decision-',
+    );
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: 'Run stock strategy orchestrator.',
+      result: JSON.stringify({
+        action: 'pause_discovery',
+        next_workflow: 'stock-strategy-us-candidate-validation',
+        cadence: '2h',
+        reason: 'same evidence signature, candidate requires validation',
+        evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+        requires_human: false,
+        change_summary: '本轮无新增发现，只做路由判断。',
+        candidate_tasks: [{ name: 'raw task should stay out of delivery' }],
+      }),
+      stepResults: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: '股票策略',
+        folder: 'stock-strategy',
+        added_at: '2026-05-24T10:00:00.000Z',
+      },
+      chatJid: 'web:stock-strategy',
+      argsText: 'stock-strategy-discovery-loop Route by state.',
+      workspaceRoot,
+      runGraph,
+    });
+
+    expect(reply).toContain('[Scheduler Decision]');
+    expect(reply).toContain('"action":"pause_discovery"');
+    expect(reply).toContain(
+      '"next_workflow":"stock-strategy-us-candidate-validation"',
+    );
+    expect(reply).not.toContain('raw task should stay out of delivery');
+    expect(reply).not.toContain('"change_summary"');
+    expect(reply).not.toContain('"candidate_tasks"');
+
+    db.closeDatabase();
+  });
 });

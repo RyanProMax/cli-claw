@@ -19,7 +19,8 @@
 │   │   │   ├── workspace-reset.ts   # runtime session 清理与工作区重置
 │   │   │   ├── context-compaction.ts# 消息上下文压缩
 │   │   │   └── sdk-query.ts         # SDK 查询封装
-│   │   ├── scheduler/index.ts       # workflow 定时任务调度与执行日志
+│   │   ├── scheduler/index.ts       # workflow 定时任务调度、执行日志与股票策略 decision 路由
+│   │   ├── scheduler/stock-strategy-decision.ts # 股票策略 planner JSON / cadence 解析
 │   │   └── scheduler/usage-guard.ts # scheduled workflow 的 OpenAI 5h/7d usage 延后策略
 │   ├── core/
 │   │   ├── app-root.ts              # 安装位置 / 包根路径 / 启动目录解析
@@ -67,7 +68,7 @@
 │   ├── web/
 │   │   ├── app.ts                   # Hono 应用、WebSocket、静态资源托管
 │   │   ├── context.ts               # Web deps、实例 session 与工作区访问 helper
-│   │   ├── workflow-dashboard.ts    # 工作流看板聚合模型，汇总 workflow run / step / scheduled task
+│   │   ├── workflow-dashboard.ts    # 工作流看板聚合模型，汇总 workflow run / step / scheduled task / 股票策略状态
 │   │   ├── middleware/auth.ts       # Web auth middleware
 │   │   └── routes/                  # HTTP API routes
 │   ├── skills/
@@ -86,7 +87,7 @@
 ├── PLANS/                           # 当前计划、长期 roadmap 与计划模板
 ├── RUNBOOKS/                        # 实施、review、自迭代、handoff 操作规范
 ├── .agents/
-│   ├── workflows/                   # 仓库级/内置 workflow/crew graph 配置；含 hkipo、stock strategy discovery/review
+│   ├── workflows/                   # 仓库级/内置 workflow/crew graph 配置；含 hkipo、stock strategy discovery/validation/review
 │   ├── agent-roles/                 # runtime role card；会注入 workflow runner；含 hkipo crew 与 stock strategy roles
 │   ├── roles/                       # 仓库协作/subagent 角色，不注入 runtime
 │   └── skills/                      # 仓库内联 skill command
