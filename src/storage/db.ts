@@ -51,6 +51,29 @@ const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
   'stock-strategy-hk-design-review',
   'stock-strategy-cn-coverage-check',
 ]);
+const STOCK_STRATEGY_DEFAULT_SCHEDULES = [
+  {
+    id: 'stock-strategy-us-candidate-validation',
+    workflowId: 'stock-strategy-us-candidate-validation',
+    prompt:
+      'Validate US alpha_topn_momentum_5d.20260524 against momentum_20d champion; keep readonly and do not approve, activate, or trade.',
+    intervalMs: 2 * 60 * 60 * 1000,
+  },
+  {
+    id: 'stock-strategy-hk-design-review',
+    workflowId: 'stock-strategy-hk-design-review',
+    prompt:
+      'Review HK blocked factor design only when data coverage or design assumptions changed; keep readonly and do not repeat same-parameter discovery.',
+    intervalMs: 6 * 60 * 60 * 1000,
+  },
+  {
+    id: 'stock-strategy-cn-coverage-check',
+    workflowId: 'stock-strategy-cn-coverage-check',
+    prompt:
+      'Check CN universe coverage; scanned=0 must remain in coverage repair and not resume empty discovery.',
+    intervalMs: 6 * 60 * 60 * 1000,
+  },
+] as const;
 
 // Prepared statement cache — lazy-initialized on first use after initDatabase()
 let _stmts: {
@@ -1603,6 +1626,12 @@ function parseNotifyChannelsValue(value: unknown): string[] {
   }
 }
 
+function addMsToIso(value: string, intervalMs: number): string {
+  const anchor = Date.parse(value);
+  const base = Number.isFinite(anchor) ? anchor : Date.now();
+  return new Date(base + intervalMs).toISOString();
+}
+
 function isStockStrategyWorkflowId(value: unknown): boolean {
   return typeof value === 'string' && STOCK_STRATEGY_WORKFLOW_IDS.has(value);
 }
@@ -1678,6 +1707,7 @@ export function ensureStockStrategyWorkspaceAndSchedules(
   }>;
 
   const migratedTaskIds: string[] = [];
+  const defaultNotifyChannels = new Set<string>();
   const update = db.prepare(
     `UPDATE scheduled_tasks
      SET group_folder = ?,
@@ -1704,6 +1734,9 @@ export function ensureStockStrategyWorkspaceAndSchedules(
     ) {
       notifyChannels.add(row.chat_jid);
     }
+    for (const channel of notifyChannels) {
+      defaultNotifyChannels.add(channel);
+    }
     update.run(
       STOCK_STRATEGY_WORKSPACE_FOLDER,
       STOCK_STRATEGY_WORKSPACE_JID,
@@ -1713,6 +1746,53 @@ export function ensureStockStrategyWorkspaceAndSchedules(
       row.id,
     );
     migratedTaskIds.push(row.id);
+  }
+
+  const defaultNotifyChannelsJson =
+    defaultNotifyChannels.size > 0
+      ? JSON.stringify([...defaultNotifyChannels])
+      : null;
+  const insertDefaultTask = db.prepare(
+    `INSERT OR IGNORE INTO scheduled_tasks (
+      id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+      context_mode, execution_type, script_command, next_run, last_run,
+      last_result, status, created_at, created_by, notify_channels,
+      workspace_jid, workspace_folder
+    )
+    VALUES (?, ?, ?, ?, 'interval', ?, 'isolated', 'workflow', ?, ?, NULL,
+      NULL, 'active', ?, NULL, ?, ?, ?)`,
+  );
+  const normalizeDefaultTaskWorkspace = db.prepare(
+    `UPDATE scheduled_tasks
+     SET group_folder = ?,
+         chat_jid = ?,
+         workspace_jid = ?,
+         workspace_folder = ?,
+         notify_channels = COALESCE(notify_channels, ?)
+     WHERE id = ?`,
+  );
+  for (const schedule of STOCK_STRATEGY_DEFAULT_SCHEDULES) {
+    insertDefaultTask.run(
+      schedule.id,
+      STOCK_STRATEGY_WORKSPACE_FOLDER,
+      STOCK_STRATEGY_WORKSPACE_JID,
+      schedule.prompt,
+      String(schedule.intervalMs),
+      schedule.workflowId,
+      addMsToIso(now, schedule.intervalMs),
+      now,
+      defaultNotifyChannelsJson,
+      STOCK_STRATEGY_WORKSPACE_JID,
+      STOCK_STRATEGY_WORKSPACE_FOLDER,
+    );
+    normalizeDefaultTaskWorkspace.run(
+      STOCK_STRATEGY_WORKSPACE_FOLDER,
+      STOCK_STRATEGY_WORKSPACE_JID,
+      STOCK_STRATEGY_WORKSPACE_JID,
+      STOCK_STRATEGY_WORKSPACE_FOLDER,
+      defaultNotifyChannelsJson,
+      schedule.id,
+    );
   }
 
   return {

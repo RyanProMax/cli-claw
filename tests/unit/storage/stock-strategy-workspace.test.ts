@@ -89,6 +89,35 @@ describe('stock strategy workspace migration', () => {
       workspace_folder: 'stock-strategy',
       notify_channels: ['feishu:private'],
     });
+    expect(db.getTaskById('stock-strategy-us-candidate-validation')).toMatchObject(
+      {
+        group_folder: 'stock-strategy',
+        chat_jid: 'web:stock-strategy',
+        script_command: 'stock-strategy-us-candidate-validation',
+        schedule_type: 'interval',
+        schedule_value: String(2 * 60 * 60 * 1000),
+        status: 'active',
+        workspace_jid: 'web:stock-strategy',
+        workspace_folder: 'stock-strategy',
+        notify_channels: ['feishu:private'],
+      },
+    );
+    expect(db.getTaskById('stock-strategy-hk-design-review')).toMatchObject({
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-hk-design-review',
+      schedule_type: 'interval',
+      schedule_value: String(6 * 60 * 60 * 1000),
+      status: 'active',
+    });
+    expect(db.getTaskById('stock-strategy-cn-coverage-check')).toMatchObject({
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-cn-coverage-check',
+      schedule_type: 'interval',
+      schedule_value: String(6 * 60 * 60 * 1000),
+      status: 'active',
+    });
 
     db.closeDatabase();
   });

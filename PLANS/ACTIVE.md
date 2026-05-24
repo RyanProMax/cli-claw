@@ -155,6 +155,35 @@ Risks / Notes / Handoff:
 - scheduler 已在完整 workflow 执行前读取最近成功 planner decision；当 `stock-strategy-discovery-loop` 连续两轮 `evidence_signature`、action、下游 workflow 与 cadence 相同且无需人工时，会直接记录 `No new evidence`、不调用 workflow runner / usage guard / Agent，并应用 `pause_discovery` + 下游 cadence。Web dashboard 同步识别真实 workflow run metadata 中的 `initialInput.scheduledTaskId`，避免 scheduled run 关联丢失。
 - 已通过 `npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/web/workflow-dashboard.test.ts`、`npm run typecheck:backend`、`./scripts/validate.sh` 与 `./scripts/review.sh`；第一次 `review.sh` 因 Prettier 格式失败，已格式化 `src/agent/scheduler/index.ts` 后重跑通过。
 
+### Milestone 5：US/HK/CN 下游 scheduled task seed
+
+Objective:
+- 启动迁移不只迁移旧股票策略任务，还要在缺失时创建 US 候选验证、HK 设计复盘、CN 覆盖检查三个 scheduled workflow task，确保真实运行节奏符合 US 2h、HK 6h、CN 6h 的状态机拆分。
+
+Allowed scope:
+- `src/storage/db.ts`
+- `tests/unit/storage/stock-strategy-workspace.test.ts`
+- `PLANS/ACTIVE.md`
+
+Validation:
+- `npm test -- tests/unit/storage/stock-strategy-workspace.test.ts`
+- `npm run typecheck:backend`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 启动迁移现在会在缺失时 seed `stock-strategy-us-candidate-validation`（2h）、`stock-strategy-hk-design-review`（6h）、`stock-strategy-cn-coverage-check`（6h），并把它们归属到 `web:stock-strategy` / `stock-strategy`；若已有任务则不覆盖用户配置，只补齐 workspace 归属和空 notify channel。
+- 已通过 `npm test -- tests/unit/storage/stock-strategy-workspace.test.ts`、`npm run typecheck:backend`、`./scripts/validate.sh` 与 `./scripts/review.sh`。
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` 是本轮执行单一真相源。
@@ -166,7 +195,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 4
+- Milestone 5
 
 Current status:
 - done
@@ -198,10 +227,10 @@ Changed files:
 - `tests/unit/storage/stock-strategy-workspace.test.ts`
 
 Last failure summary:
-- Milestone 4 初次 `./scripts/review.sh` 因 `src/agent/scheduler/index.ts` 格式化失败，已用 Prettier 修复；后续 `./scripts/validate.sh` 与 `./scripts/review.sh` 均通过。
+- Milestone 5 初次 `tests/unit/storage/stock-strategy-workspace.test.ts` 发现默认下游任务若先被 seed，后续迁移来的 notify channel 不会回填；已改为只在 notify 为空时补齐迁移通道，随后 targeted test、typecheck、`./scripts/validate.sh` 与 `./scripts/review.sh` 均通过。
 
 Suspected cause:
 - 现有 planner 已输出重复判断，但 scheduler 没有结构化读取与执行层；scheduled task 仍固定 30 分钟运行完整 discovery。
 
 Next step:
-- 提交 Milestone 4，随后按安全重启路径应用到运行服务，并复核真实 DB / Web 看板状态。
+- 本轮目标已落地并应用到运行服务；后续观察下一次 US/HK/CN 下游 workflow 是否按节奏运行，以及 discovery 重复 signature 是否按 `No new evidence` 短路。
