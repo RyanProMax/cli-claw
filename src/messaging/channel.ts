@@ -55,11 +55,11 @@ export interface IMChannelConnectOpts {
   resolveManagedCommandText?: (chatJid: string, text: string) => string | null;
   /** 根据 jid 解析群组 folder，用于下载文件/图片到工作区 */
   resolveGroupFolder?: (jid: string) => string | undefined;
-  /** 将 IM chatJid 解析为绑定目标 JID（conversation agent 或工作区主对话） */
+  /** 将 IM chatJid 解析为入口路由目标 JID（任务线程或工作区主线） */
   resolveEffectiveChatJid?: (
     chatJid: string,
   ) => { effectiveJid: string; agentId: string | null } | null;
-  /** 当 IM 消息被路由到 conversation agent 后调用，触发 agent 处理 */
+  /** 当 IM 消息被路由到任务线程后调用，触发 agent 处理 */
   onAgentMessage?: (baseChatJid: string, agentId: string) => void;
   /** Bot 被添加到群聊时调用 */
   onBotAddedToGroup?: (chatJid: string, chatName: string) => void;

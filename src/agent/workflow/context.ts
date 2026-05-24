@@ -10,6 +10,7 @@ import {
   upsertWorkflowContext,
   upsertWorkflowRunStep,
 } from '../../storage/workflows.js';
+import { upsertThread } from '../../storage/threads.js';
 import type {
   WorkflowContext,
   WorkflowRun,
@@ -45,6 +46,7 @@ export function buildWorkflowRuntimeAgentId(contextId: string): string {
 export function getOrCreateWorkflowContext(input: {
   folder: string;
   workflowId: string;
+  workspaceJid?: string | null;
   metadata?: Record<string, unknown> | null;
 }): WorkflowContext {
   const existing = getWorkflowContext(input.folder, input.workflowId);
@@ -52,7 +54,7 @@ export function getOrCreateWorkflowContext(input: {
 
   const id =
     existing?.id ?? buildWorkflowContextId(input.folder, input.workflowId);
-  return upsertWorkflowContext({
+  const context = upsertWorkflowContext({
     id,
     folder: input.folder,
     workflowId: input.workflowId,
@@ -61,6 +63,15 @@ export function getOrCreateWorkflowContext(input: {
     activeRunId: existing?.active_run_id ?? null,
     metadata: input.metadata ?? existing?.metadata ?? null,
   });
+  upsertThread({
+    id: context.thread_id,
+    workspaceJid: input.workspaceJid ?? `web:${input.folder}`,
+    kind: 'workflow',
+    title: input.workflowId,
+    runtimeAgentId: context.runtime_agent_id,
+    status: 'active',
+  });
+  return context;
 }
 
 export function createWorkflowRun(input: {

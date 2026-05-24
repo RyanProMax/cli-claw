@@ -67,6 +67,14 @@ import {
   setRegisteredGroup,
 } from './storage/workspaces.js';
 import {
+  getImEntryRoute,
+  getMainThread,
+  getThread,
+  listActiveThreads,
+  upsertImEntryRoute,
+  upsertThread,
+} from './storage/threads.js';
+import {
   createTask,
   deleteTask,
   getAllTasks,
@@ -164,6 +172,13 @@ import {
   parseRuntimeCommand,
   parseSlashCommandCandidate,
 } from './core/runtime/command-registry.js';
+import {
+  resolveContextRoute,
+  formatRouteStatus,
+  type ContextRouterWorkspace,
+  type ImEntryRouteLike,
+  type ThreadLike,
+} from './messaging/context-router.js';
 import { createImNewWorkspaceGroup } from './messaging/new-workspace.js';
 import { serializeErrorForOutput } from '../shared/dist/error-serialization.js';
 import { resolveManagedSelfRestartCommand } from '../shared/dist/service-restart-guard.js';
@@ -1085,6 +1100,14 @@ const activeRouteUpdaters = new Map<string, ReplyRouteUpdater>();
 // outputs to the correct IM channel (the running session holds the truth).
 const activeImReplyRoutes = new Map<string, string | null>();
 
+// One-shot IM route used by `/to <workspace> <message>` rewrites. The provider
+// stores the rewritten message immediately after the slash handler returns, so
+// the next resolve consumes and clears this target.
+const oneShotImRouteTargets = new Map<
+  string,
+  { effectiveJid: string; agentId: string | null }
+>();
+
 // Per-folder Feishu-origin turn context for direct IPC tools such as send_image
 // and send_file. The IPC watcher is decoupled from runner output callbacks, so it
 // reads this to attach delivery evidence to the active inbound message ids.
@@ -1118,7 +1141,7 @@ const RELATIVE_IMAGE_EXTENSIONS = new Set([
   '.svg',
 ]);
 
-/** Unbind an IM group from its conversation agent or main conversation, syncing DB + in-memory cache + failure counters. */
+/** Unbind an IM entry route from its task thread or mainline, syncing DB + in-memory cache + failure counters. */
 function unbindImGroup(jid: string, reason: string): void {
   const group = registeredGroups[jid] ?? getRegisteredGroup(jid);
   if (!group?.target_agent_id && !group?.target_main_jid) return;
@@ -1421,8 +1444,9 @@ async function sendImWithRetry(
   text: string,
   localImagePaths: string[],
 ): Promise<boolean> {
+  const textWithRouteFooter = appendRouteFooter(text, imJid, imJid);
   const ok = await retryImOperation('send_message', imJid, () =>
-    imManager.sendMessage(imJid, text, localImagePaths),
+    imManager.sendMessage(imJid, textWithRouteFooter, localImagePaths),
   );
   if (ok) {
     imSendFailCounts.delete(imJid);
@@ -1921,7 +1945,17 @@ async function handleCommand(
     case 'unbind':
       return handleUnbindCommand(chatJid);
     case 'bind':
-      return handleBindCommand(chatJid, rawArgs);
+      return handleContextRouteCommand(chatJid, `/use ${rawArgs}`);
+    case 'where':
+      return handleContextRouteCommand(chatJid, '/where');
+    case 'use':
+      return handleContextRouteCommand(chatJid, normalizedCommand);
+    case 'to':
+      return handleContextRouteCommand(chatJid, normalizedCommand);
+    case 'threads':
+      return handleContextRouteCommand(chatJid, '/threads');
+    case 'back':
+      return handleContextRouteCommand(chatJid, '/back');
     case 'new':
       return handleNewCommand(chatJid, rawArgs);
     case 'require_mention':
@@ -2149,45 +2183,229 @@ function collectWorkspaces(): WorkspaceInfo[] {
   return workspaces;
 }
 
-function resolveBindingTarget(rawSpec: string): {
-  target_agent_id?: string;
-  target_main_jid?: string;
-  display: string;
-} | null {
-  const spec = rawSpec.trim();
-  if (!spec) return null;
+function collectRouterWorkspaces(): ContextRouterWorkspace[] {
+  return Object.entries(registeredGroups)
+    .filter(([jid]) => jid.startsWith('web:'))
+    .map(([jid, group]) => ({
+      jid,
+      folder: group.folder,
+      name: group.name,
+    }))
+    .sort((a, b) => {
+      if (a.jid === DEFAULT_MAIN_JID) return -1;
+      if (b.jid === DEFAULT_MAIN_JID) return 1;
+      return a.name.localeCompare(b.name);
+    });
+}
 
-  const [workspaceSpecRaw, agentSpecRaw] = spec.split('/', 2);
-  const workspaceSpec = workspaceSpecRaw.trim().toLowerCase();
-  const agentSpec = agentSpecRaw?.trim().toLowerCase();
-  const workspaces = collectWorkspaces();
-  const workspace = workspaces.find(
-    (ws) =>
-      ws.folder.toLowerCase() === workspaceSpec ||
-      ws.name.trim().toLowerCase() === workspaceSpec,
-  );
-  if (!workspace) return null;
+function mainThreadIdForWorkspace(workspaceJid: string): string {
+  return `main:${workspaceJid}`;
+}
 
-  if (!agentSpec || agentSpec === 'main' || agentSpec === '主对话') {
-    const mainJid = findWebJidForFolder(workspace.folder);
-    if (!mainJid) return null;
+function ensureMainThreadForWorkspace(
+  workspace: ContextRouterWorkspace,
+): ThreadLike {
+  const existing = getMainThread(workspace.jid);
+  if (existing) return existing;
+  return upsertThread({
+    id: mainThreadIdForWorkspace(workspace.jid),
+    workspaceJid: workspace.jid,
+    kind: 'main',
+    title: '主线',
+    runtimeAgentId: null,
+    status: 'active',
+  });
+}
+
+function collectRouterThreads(
+  workspaces: readonly ContextRouterWorkspace[],
+): ThreadLike[] {
+  const byId = new Map<string, ThreadLike>();
+  for (const thread of listActiveThreads(100)) {
+    byId.set(thread.id, thread);
+  }
+  for (const workspace of workspaces) {
+    const thread = ensureMainThreadForWorkspace(workspace);
+    byId.set(thread.id, thread);
+  }
+  return [...byId.values()];
+}
+
+function routeFromLegacyBinding(
+  imJid: string,
+  group: RegisteredGroup,
+): ImEntryRouteLike | null {
+  const stored = getImEntryRoute(imJid);
+  if (stored) return stored;
+  if (group.target_agent_id) {
+    const agent = getAgent(group.target_agent_id);
     return {
-      target_main_jid: mainJid,
-      display: `${workspace.name} / 主对话`,
+      im_jid: imJid,
+      default_workspace_jid: agent?.chat_jid ?? null,
+      active_workspace_jid: agent?.chat_jid ?? null,
+      active_thread_id: group.target_agent_id,
+      pinned: true,
     };
   }
+  if (group.target_main_jid) {
+    return {
+      im_jid: imJid,
+      default_workspace_jid: group.target_main_jid,
+      active_workspace_jid: group.target_main_jid,
+      active_thread_id: null,
+      pinned: true,
+    };
+  }
+  const webJid = findWebJidForFolder(group.folder);
+  return {
+    im_jid: imJid,
+    default_workspace_jid: webJid ?? DEFAULT_MAIN_JID,
+    active_workspace_jid: webJid ?? DEFAULT_MAIN_JID,
+    active_thread_id: null,
+    pinned: false,
+  };
+}
 
-  const agent = workspace.agents.find(
-    (item) =>
-      item.id.toLowerCase().startsWith(agentSpec) ||
-      item.name.trim().toLowerCase() === agentSpec,
-  );
-  if (!agent) return null;
+function applyImEntryRouteUpdate(
+  imJid: string,
+  group: RegisteredGroup,
+  route: ImEntryRouteLike,
+): void {
+  upsertImEntryRoute({
+    imJid,
+    defaultWorkspaceJid: route.default_workspace_jid ?? null,
+    activeWorkspaceJid: route.active_workspace_jid ?? null,
+    activeThreadId: route.active_thread_id ?? null,
+    activeUntil: route.active_until ?? null,
+    pinned: route.pinned ?? true,
+  });
+  const targetMainJid = route.default_workspace_jid ?? undefined;
+  const updated: RegisteredGroup = {
+    ...group,
+    target_main_jid: targetMainJid,
+    target_agent_id: undefined,
+    reply_policy: group.reply_policy ?? 'source_only',
+  };
+  setRegisteredGroup(imJid, updated);
+  registeredGroups[imJid] = updated;
+  imSendFailCounts.delete(imJid);
+  imHealthCheckFailCounts.delete(imJid);
+}
+
+function channelLabelForJid(jid: string): string {
+  const channelType = getChannelType(jid);
+  if (channelType === 'feishu') return '飞书';
+  if (channelType === 'wechat') return '微信';
+  return 'Web';
+}
+
+function formatRouteFooterTime(date = new Date()): string {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function getThreadTitle(threadId: string): string | null {
+  return getThread(threadId)?.title ?? null;
+}
+
+function resolveRouteFooterMeta(
+  targetJid: string,
+  deliveryJid: string = targetJid,
+): {
+  workspaceName: string;
+  threadTitle: string;
+  channelLabel: string;
+  timestamp: string;
+} | null {
+  const baseJid = stripVirtualJidSuffix(targetJid);
+  const agentMatch = targetJid.match(/#agent:([^#]+)$/);
+  const sourceGroup = registeredGroups[baseJid] ?? getRegisteredGroup(baseJid);
+  const route = getChannelType(baseJid) ? getImEntryRoute(baseJid) : null;
+  const routedWorkspaceJid =
+    route?.active_workspace_jid ??
+    route?.default_workspace_jid ??
+    sourceGroup?.target_main_jid ??
+    (sourceGroup?.target_agent_id
+      ? getAgent(sourceGroup.target_agent_id)?.chat_jid
+      : null);
+  const workspaceJid =
+    getChannelType(baseJid) && routedWorkspaceJid
+      ? routedWorkspaceJid
+      : baseJid;
+  const group =
+    registeredGroups[workspaceJid] ?? getRegisteredGroup(workspaceJid);
+  if (!group) return null;
+
+  let threadTitle = '主线';
+  const routeThread = route?.active_thread_id
+    ? getThreadTitle(route.active_thread_id)
+    : null;
+  if (routeThread) {
+    threadTitle = routeThread;
+  } else if (agentMatch?.[1]) {
+    threadTitle = getAgent(agentMatch[1])?.name ?? '任务线程';
+  } else {
+    const mainThread = getMainThread(workspaceJid);
+    threadTitle = mainThread?.title || '主线';
+  }
 
   return {
-    target_agent_id: agent.id,
-    display: `${workspace.name} / ${agent.name}`,
+    workspaceName: group.name,
+    threadTitle,
+    channelLabel: channelLabelForJid(deliveryJid),
+    timestamp: formatRouteFooterTime(),
   };
+}
+
+function appendRouteFooter(
+  text: string,
+  targetJid: string,
+  deliveryJid: string = targetJid,
+): string {
+  if (!text.trim()) return text;
+  if (text.trimStart().startsWith('{"type":"interactive"')) return text;
+  const meta = resolveRouteFooterMeta(targetJid, deliveryJid);
+  if (!meta) return text;
+  const footer = formatRouteStatus(meta);
+  if (text.trimEnd().endsWith(footer)) return text;
+  return `${text.trimEnd()}\n\n${footer}`;
+}
+
+function handleContextRouteCommand(
+  chatJid: string,
+  commandText: string,
+): string {
+  const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
+  if (!group) return '当前 IM 未绑定工作区';
+
+  const workspaces = collectRouterWorkspaces();
+  const threads = collectRouterThreads(workspaces);
+  const decision = resolveContextRoute({
+    entryJid: chatJid,
+    text: commandText,
+    workspaces,
+    threads,
+    route: routeFromLegacyBinding(chatJid, group),
+    defaultWorkspaceJid: DEFAULT_MAIN_JID,
+  });
+
+  if ('routeUpdate' in decision && decision.routeUpdate) {
+    applyImEntryRouteUpdate(chatJid, group, decision.routeUpdate);
+  }
+
+  if (decision.action === 'dispatch') {
+    oneShotImRouteTargets.set(chatJid, {
+      effectiveJid: decision.workspace_jid,
+      agentId: null,
+    });
+    return encodeImSlashRewriteMessage(decision.content);
+  }
+  if (decision.action === 'clarify') return decision.reply;
+  return decision.reply;
 }
 
 /**
@@ -2271,7 +2489,8 @@ function handleListCommand(chatJid: string): string {
       location.folder,
       currentAgentId,
       currentOnMain,
-    ) + '\n💡 使用 /bind <workspace> 或 /bind <workspace>/<agent短ID>'
+    ) +
+    '\n💡 使用 /where 查看当前入口，/use <workspace> 切换默认工作区，/to <workspace> <消息> 单次定向发送'
   );
 }
 
@@ -2321,8 +2540,8 @@ async function handleStatusCommand(chatJid: string): Promise<string> {
   const currentAgentId = group.target_agent_id ?? null;
   const currentSessionName = currentAgentId
     ? (workspace.agents.find((agent) => agent.id === currentAgentId)?.name ??
-      'conversation agent')
-    : '主对话';
+      '任务线程')
+    : '主线';
 
   const runtimeTarget = resolveRuntimeWorkspaceTarget(chatJid, {
     getGroup: lookupGroup,
@@ -2663,30 +2882,6 @@ function handleUnbindCommand(chatJid: string): string {
   return '已解绑，后续消息将回到该聊天自己的默认工作区。';
 }
 
-function handleBindCommand(chatJid: string, rawSpec: string): string {
-  const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
-  if (!group) return '当前 IM 未绑定工作区';
-  if (!rawSpec)
-    return '用法: /bind <workspace> 或 /bind <workspace>/<agent短ID>';
-
-  const resolved = resolveBindingTarget(rawSpec);
-  if (!resolved) {
-    return '未找到目标。先用 /list 查看工作区和 agent 短 ID，再执行 /bind <workspace>/<agent短ID>';
-  }
-
-  const updated: RegisteredGroup = {
-    ...group,
-    target_agent_id: resolved.target_agent_id,
-    target_main_jid: resolved.target_main_jid,
-    reply_policy: 'source_only',
-  };
-  setRegisteredGroup(chatJid, updated);
-  registeredGroups[chatJid] = updated;
-  imSendFailCounts.delete(chatJid);
-  imHealthCheckFailCounts.delete(chatJid);
-  return `已切换到 ${resolved.display}\n🔁 回复策略: source_only`;
-}
-
 async function handleNewCommand(
   chatJid: string,
   rawName: string,
@@ -2734,7 +2929,7 @@ async function handleNewCommand(
 
 function handleRequireMentionCommand(chatJid: string, rawArgs: string): string {
   const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
-  if (!group) return '未找到当前会话';
+  if (!group) return '未找到当前入口';
 
   const action = rawArgs.trim().toLowerCase();
   if (action === 'true') {
@@ -5097,14 +5292,23 @@ async function sendMessage(
   const isIMChannel = getChannelType(jid) !== null;
   const sendToIM = options.sendToIM ?? isIMChannel;
   const messageMeta = await enrichOutboundMessageMeta(options.messageMeta);
+  const textWithRouteFooter = appendRouteFooter(text, jid, jid);
   let imDeliveryFailed = false;
   try {
     if (sendToIM && isIMChannel) {
       try {
         const localImagePaths =
           options.localImagePaths ??
-          extractLocalImImagePaths(text, resolveEffectiveFolder(jid));
-        await imManager.sendMessage(jid, text, localImagePaths, messageMeta);
+          extractLocalImImagePaths(
+            textWithRouteFooter,
+            resolveEffectiveFolder(jid),
+          );
+        await imManager.sendMessage(
+          jid,
+          textWithRouteFooter,
+          localImagePaths,
+          messageMeta,
+        );
       } catch (err) {
         logger.error({ jid, err }, 'Failed to send message to IM channel');
         imDeliveryFailed = true;
@@ -5124,7 +5328,7 @@ async function sendMessage(
       jid,
       'cli-claw-agent',
       ASSISTANT_NAME,
-      text,
+      textWithRouteFooter,
       timestamp,
       true,
       {
@@ -5140,7 +5344,7 @@ async function sendMessage(
         chat_jid: jid,
         sender: 'cli-claw-agent',
         sender_name: ASSISTANT_NAME,
-        content: text,
+        content: textWithRouteFooter,
         timestamp,
         is_from_me: true,
         turn_id: messageMeta?.turnId ?? null,
@@ -5154,13 +5358,16 @@ async function sendMessage(
       undefined,
       options.source,
     );
-    logger.info({ jid, length: text.length, sendToIM }, 'Message sent');
+    logger.info(
+      { jid, length: textWithRouteFooter.length, sendToIM },
+      'Message sent',
+    );
     // Skip agent_reply broadcast for scheduled tasks to avoid clearing
     // streaming state of a concurrently running main agent.
     // Safe because scheduled tasks never trigger typing indicators, so there's
     // no typing state to clear. The message is still delivered via new_message.
     if (!options.source) {
-      broadcastToWebClients(jid, text);
+      broadcastToWebClients(jid, textWithRouteFooter);
     }
     return persistedMsgId;
   } catch (err) {
@@ -5734,7 +5941,7 @@ function startIpcWatcher(): void {
                   targetGroup,
                 )
               ) {
-                // Conversation agents: route to virtual JID so message appears
+                // Task-thread agent slots: route to virtual JID so message appears
                 // in the agent tab, not the main conversation.
                 const effectiveChatJid = ipcAgentId
                   ? `${data.chatJid}#agent:${ipcAgentId}`
@@ -5759,8 +5966,8 @@ function startIpcWatcher(): void {
                   },
                 });
 
-                // Forward to IM channel — but NOT for conversation agent messages.
-                // Conversation agents handle their own IM routing in
+                // Forward to IM channel — but NOT for task-thread messages.
+                // Task threads handle their own IM routing in
                 // processAgentConversation's wrappedOnOutput callback.
                 if (!ipcAgentId) {
                   const ipcImRoute = activeImReplyRoutes.get(sourceGroup);
@@ -5841,8 +6048,8 @@ function startIpcWatcher(): void {
                   const caption = data.caption || undefined;
                   const fileName = data.fileName || undefined;
 
-                  // For conversation agents, use activeImReplyRoutes (the IM
-                  // channel this conversation agent is bound to.
+                  // For task threads, use activeImReplyRoutes (the IM
+                  // channel this task thread is bound to).
                   const imgImRoute = ipcAgentId
                     ? (activeImReplyRoutes.get(sourceGroup) ?? null)
                     : getChannelType(data.chatJid) !== null
@@ -5895,14 +6102,14 @@ function startIpcWatcher(): void {
                       { chatJid: data.chatJid, sourceGroup },
                       'No IM route for send_image, skipped IM delivery',
                     );
-                    const skipImgMsg = `⚠️ 图片 "${fileName || 'image'}" 未发送到 IM 通道（当前会话无 IM 路由绑定）。`;
+                    const skipImgMsg = `⚠️ 图片 "${fileName || 'image'}" 未发送到 IM 通道（当前线程无 IM 路由绑定）。`;
                     broadcastToWebClients(
                       data.chatJid ?? sourceGroup,
                       skipImgMsg,
                     );
                   }
 
-                  // Conversation agents: store in virtual JID (agent tab).
+                  // Task threads: store in virtual JID (thread tab).
                   const imgChatJid = ipcAgentId
                     ? `${data.chatJid}#agent:${ipcAgentId}`
                     : data.chatJid;
@@ -6175,7 +6382,7 @@ async function processTaskIpc(
   isMainWorkspace: boolean,
   isHome: boolean, // Whether source is a home workspace
   sourceGroupEntry: RegisteredGroup | undefined, // Source group's registered entry
-  ipcAgentId: string | null = null, // Non-null when IPC comes from a conversation agent
+  ipcAgentId: string | null = null, // Non-null when IPC comes from a task-thread agent slot
 ): Promise<void> {
   switch (data.type) {
     case 'schedule_task':
@@ -6457,7 +6664,7 @@ async function processTaskIpc(
             } else {
               const warnMsg = `⚠️ 文件 "${data.fileName}" 未找到（路径 "${data.filePath}" 不存在）。请引导用户确认正确的文件路径，或使用 'send_file' 时提供正确的相对路径。`;
               broadcastToWebClients(sourceGroup, warnMsg);
-              // Also notify the bound IM route for conversation agents.
+              // Also notify the bound IM route for task threads.
               const imRoute = activeImReplyRoutes.get(sourceGroup);
               recordDirectImDeliveryLifecycleForMessages({
                 messages: activeImLifecycleMessages.get(sourceGroup) ?? [],
@@ -6485,7 +6692,7 @@ async function processTaskIpc(
             }
           }
 
-          // Route to IM: for conversation agents, use activeImReplyRoutes.
+          // Route to IM: for task threads, use activeImReplyRoutes.
           const fileImRoute = ipcAgentId
             ? (activeImReplyRoutes.get(sourceGroup) ?? null)
             : getChannelType(data.chatJid) !== null
@@ -6533,7 +6740,7 @@ async function processTaskIpc(
               'No IM route for send_file, skipped IM delivery',
             );
             // Notify the user that file delivery to IM was skipped
-            const skipMsg = `⚠️ 文件 "${data.fileName}" 未发送到 IM 通道（当前会话无 IM 路由绑定，文件仅保存在工作区）。`;
+            const skipMsg = `⚠️ 文件 "${data.fileName}" 未发送到 IM 通道（当前线程无 IM 路由绑定，文件仅保存在工作区）。`;
             broadcastToWebClients(data.chatJid ?? sourceGroup, skipMsg);
           }
           logger.info(
@@ -6562,7 +6769,7 @@ async function processTaskIpc(
 }
 
 /**
- * Process messages for a user-created conversation agent.
+ * Process messages for a user-created task thread backed by an internal agent slot.
  * Similar to processGroupMessages but uses agent-specific session/IPC and virtual JID.
  * The agent process stays alive for idleTimeout, cycling idle→running.
  */
@@ -6707,8 +6914,8 @@ async function processAgentConversation(
   }
   activeImLifecycleMessages.set(effectiveGroup.folder, messagesForAgent);
 
-  // ── Feishu Streaming Card (conversation agent) ──
-  // Unlike processGroupMessages which falls back to chatJid, conversation agents
+  // ── Feishu Streaming Card (task thread) ──
+  // Unlike processGroupMessages which falls back to chatJid, task threads
   // only stream when the message originates from an IM channel (replySourceImJid).
   // Web-only interactions don't need a Feishu streaming card.
   // Use agent-scoped key to avoid colliding with the main session's streaming card (#242).
@@ -6730,7 +6937,7 @@ async function processAgentConversation(
     registerStreamingSession(streamingSessionJid, agentStreamingSession);
     logger.debug(
       { chatJid, agentId },
-      'Streaming card session created for conversation agent',
+      'Streaming card session created for task thread',
     );
   }
   const ensureAgentStreamingSessionAvailable = () => {
@@ -6793,7 +7000,7 @@ async function processAgentConversation(
           virtualChatJid,
           reason: agentCursorCommitBlockedReason,
         },
-        'Skipping conversation agent cursor commit until IM delivery succeeds',
+        'Skipping task-thread cursor commit until IM delivery succeeds',
       );
       return;
     }
@@ -7427,7 +7634,7 @@ async function processAgentConversation(
         activeSourceJid: currentTurnSourceJid,
         ...runtimeBuildLogFields,
       },
-      'Dispatching conversation agent run',
+      'Dispatching task-thread agent run',
     );
 
     const onProcessCb = (proc: ChildProcess, identifier: string) => {
@@ -7513,7 +7720,7 @@ async function processAgentConversation(
       );
       logger.warn(
         { chatJid, agentId, folder: effectiveGroup.folder, error: detail },
-        'Unrecoverable transcript error in conversation agent, auto-resetting session',
+        'Unrecoverable transcript error in task-thread agent, auto-resetting session',
       );
 
       await clearSessionRuntimeFiles(effectiveGroup.folder, agentId);
@@ -7881,7 +8088,7 @@ async function processAgentConversation(
       }
     }
 
-    // Process ended → set status back to idle (conversation agents persist).
+    // Process ended → set status back to idle (task threads persist).
     // Spawn agents are fire-and-forget: mark as completed (or error) so they
     // don't accumulate in the active agent list.
     // MUST be inside finally so status is reset even on unhandled exceptions (#227).
@@ -7949,7 +8156,7 @@ async function startMessageLoop(): Promise<void> {
           if (!group) continue;
 
           // Skip groups with target_agent_id — their messages are routed
-          // to conversation agents at IM ingestion time.
+          // to task threads at IM ingestion time.
           if (group.target_agent_id) continue;
 
           const pendingMessages = getMessagesSince(
@@ -8160,8 +8367,8 @@ export function recoverPendingMessagesForTests(): void {
 }
 
 /**
- * Startup recovery for conversation agents.
- * After restart, running conversation agents have dead processes.
+ * Startup recovery for task-thread agent slots.
+ * After restart, running task threads have dead processes.
  * Reset their status and re-trigger processing if they have pending messages.
  */
 function recoverConversationAgents(): void {
@@ -8170,7 +8377,7 @@ function recoverConversationAgents(): void {
 
   logger.info(
     { count: agents.length },
-    'Recovery: found active conversation agents from previous session',
+    'Recovery: found active task threads from previous session',
   );
 
   for (const agent of agents) {
@@ -8201,7 +8408,7 @@ function recoverConversationAgents(): void {
       if (!sinceCursor) {
         logger.info(
           { chatJid, agentId, virtualChatJid },
-          'Recovery: skipping conversation agent without committed cursor',
+          'Recovery: skipping task thread without committed cursor',
         );
         continue;
       }
@@ -8210,7 +8417,7 @@ function recoverConversationAgents(): void {
       if (pending.length > 0) {
         logger.info(
           { agentId, agentName: agent.name, pendingCount: pending.length },
-          'Recovery: re-triggering conversation agent with pending messages',
+          'Recovery: re-triggering task thread with pending messages',
         );
 
         // Store a system notice so the user sees something in the chat
@@ -8246,7 +8453,7 @@ function recoverConversationAgents(): void {
     } catch (err) {
       logger.error(
         { err, agentId: agent.id, groupFolder: agent.group_folder },
-        'Recovery: failed to recover conversation agent, skipping',
+        'Recovery: failed to recover task thread, skipping',
       );
     }
   }
@@ -8342,7 +8549,7 @@ function buildOnBotRemovedFromGroup(): (chatJid: string) => void {
 
 /**
  * Build callback that resolves an IM chatJid to a bound target JID.
- * Supports both conversation agent binding (target_agent_id) and
+ * Supports both task-thread binding (target_agent_id) and
  * workspace main conversation binding (target_main_jid).
  * Returns null if the chatJid has no binding configured.
  */
@@ -8350,8 +8557,21 @@ function buildResolveEffectiveChatJid(): (
   chatJid: string,
 ) => { effectiveJid: string; agentId: string | null } | null {
   return (chatJid: string) => {
+    const oneShot = oneShotImRouteTargets.get(chatJid);
+    if (oneShot) {
+      oneShotImRouteTargets.delete(chatJid);
+      return oneShot;
+    }
+
     const group = registeredGroups[chatJid] ?? getRegisteredGroup(chatJid);
     if (!group) return null;
+
+    const route = getImEntryRoute(chatJid);
+    const routedWorkspaceJid =
+      route?.active_workspace_jid ?? route?.default_workspace_jid ?? null;
+    if (routedWorkspaceJid) {
+      return { effectiveJid: routedWorkspaceJid, agentId: null };
+    }
 
     // Agent binding takes priority
     if (group.target_agent_id) {
@@ -8442,7 +8662,7 @@ function buildOnAgentMessage(): (baseChatJid: string, agentId: string) => void {
         );
         logger.info(
           { homeChatJid, agentId, taskId },
-          'conversation agent IPC received',
+          'task-thread IPC received',
         );
         try {
           await processAgentConversation(homeChatJid, agentId);

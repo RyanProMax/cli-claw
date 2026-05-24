@@ -40,7 +40,7 @@ export function formatWorkspaceList(
     lines.push(`${marker} ${ws.name} (${ws.folder})`);
 
     const mainMarker = isCurrent && currentOnMain ? ' ← 当前' : '';
-    lines.push(`  · 主对话${mainMarker}`);
+    lines.push(`  · 主线${mainMarker}`);
 
     for (const agent of ws.agents) {
       const agentMarker =
@@ -106,11 +106,11 @@ export function resolveLocationInfo(
     folder = parent?.folder || group.folder;
   } else if (group.target_main_jid) {
     const target = getRegisteredGroup(group.target_main_jid);
-    locationLine = `${target?.name || group.target_main_jid} / 主对话`;
+    locationLine = `${target?.name || group.target_main_jid} / 主线`;
     folder = target?.folder || group.folder;
   } else {
     const folderName = findGroupNameByFolder(group.folder);
-    locationLine = `${folderName} / 主对话`;
+    locationLine = `${folderName} / 主线`;
     folder = group.folder;
   }
 
@@ -157,7 +157,7 @@ export function resolveBoundChatTarget(
       targetChatJid: group.target_main_jid,
       folder: target?.folder || group.folder,
       agentId: null,
-      locationLine: `${target?.name || group.target_main_jid} / 主对话`,
+      locationLine: `${target?.name || group.target_main_jid} / 主线`,
     };
   }
 
@@ -167,7 +167,7 @@ export function resolveBoundChatTarget(
     targetChatJid: sourceChatJid,
     folder: group.folder,
     agentId: null,
-    locationLine: `${workspaceName} / 主对话`,
+    locationLine: `${workspaceName} / 主线`,
   };
 }
 
@@ -231,11 +231,11 @@ export function formatSystemStatus(
     '',
     '📊 运行状态',
     '━━━━━━━━━━',
-    ...(status.currentBinding ? [`📍 当前绑定: ${status.currentBinding}`] : []),
+    ...(status.currentBinding ? [`📍 当前入口: ${status.currentBinding}`] : []),
     ...(status.replyPolicy ? [`🔁 回复策略: ${status.replyPolicy}`] : []),
     `🗂️ 当前工作区: ${status.workspaceName}`,
-    `💬 当前会话: ${status.currentSessionName}`,
-    `🔢 会话数: ${status.sessionCount}`,
+    `🧵 当前线程: ${status.currentSessionName}`,
+    `🔢 线程数: ${status.sessionCount}`,
     `⚡ 状态: ${statusText}`,
     `📦 负载: ${queueStatus.activeProcessCount}/${queueStatus.maxProcesses} 进程`,
     `📍 cwd: ${status.cwd}`,
@@ -312,21 +312,21 @@ export interface ConversationStatusInfo {
  */
 export function formatConversationStatus(info: ConversationStatusInfo): string {
   const lines = [
-    '🧵 会话与绑定',
+    '🧭 入口路由',
     '━━━━━━━━━━',
     `📁 工作区: ${info.workspace.name} (${info.workspace.folder})`,
-    `🔗 当前绑定: ${info.binding.label}`,
+    `🔗 当前入口: ${info.binding.label}`,
   ];
 
   if (info.binding.replyPolicy) {
     lines.push(`🔁 回复策略: ${info.binding.replyPolicy}`);
   }
 
-  lines.push('💬 会话:');
+  lines.push('🧵 线程:');
 
   const mainPrefix = info.currentOnMain ? '▶' : '·';
   const mainCurrent = info.currentOnMain ? ' ← 当前' : '';
-  lines.push(`  ${mainPrefix} 主对话${mainCurrent}`);
+  lines.push(`  ${mainPrefix} 主线${mainCurrent}`);
 
   for (const agent of info.workspace.agents) {
     const isCurrent = info.currentAgentId === agent.id;
@@ -339,7 +339,7 @@ export function formatConversationStatus(info: ConversationStatusInfo): string {
   }
 
   if (info.workspace.agents.length === 0) {
-    lines.push('  · 暂无 conversation agent');
+    lines.push('  · 暂无任务线程');
   }
 
   return lines.join('\n');
@@ -505,7 +505,7 @@ export function formatSelfRestartAccepted(
     '━━━━━━━━━━',
     `🧾 intent: ${info.intentPath}`,
     `👁️ watchdog PID: ${info.watchdogPid ?? 'unknown'}`,
-    '💬 重启成功后会回到当前会话补发结果',
+    '💬 重启成功后会回到当前入口补发结果',
     '⚠️ 后续由独立 watchdog 执行；当前 IM 可能短暂离线',
   ].join('\n');
 }

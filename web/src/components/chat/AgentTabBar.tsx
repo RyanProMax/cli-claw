@@ -4,13 +4,13 @@ import type { AgentInfo } from '../../types';
 
 interface AgentTabBarProps {
   agents: AgentInfo[];
-  activeTab: string | null; // null = main conversation
+  activeTab: string | null; // null = mainline thread
   onSelectTab: (agentId: string | null) => void;
   onDeleteAgent: (agentId: string) => void;
   onRenameAgent?: (agentId: string, currentName: string) => void;
   onCreateConversation?: () => void;
   onBindIm?: (agentId: string) => void;
-  /** Show bind button on main conversation tab (non-home workspaces) */
+  /** Show route button on mainline thread (non-home workspaces) */
   onBindMainIm?: () => void;
 }
 
@@ -28,7 +28,12 @@ interface ContextMenuState {
   y: number;
 }
 
-function ContextMenuOverlay({ menu, onRename, onDelete, onClose }: {
+function ContextMenuOverlay({
+  menu,
+  onRename,
+  onDelete,
+  onClose,
+}: {
   menu: ContextMenuState;
   onRename?: () => void;
   onDelete: () => void;
@@ -78,9 +83,21 @@ function ContextMenuOverlay({ menu, onRename, onDelete, onClose }: {
   );
 }
 
-export function AgentTabBar({ agents, activeTab, onSelectTab, onDeleteAgent, onRenameAgent, onCreateConversation, onBindIm, onBindMainIm }: AgentTabBarProps) {
+export function AgentTabBar({
+  agents,
+  activeTab,
+  onSelectTab,
+  onDeleteAgent,
+  onRenameAgent,
+  onCreateConversation,
+  onBindIm,
+  onBindMainIm,
+}: AgentTabBarProps) {
   // Spawn agents are rendered inline in the main chat, not as separate tabs
-  const conversations = useMemo(() => agents.filter(a => a.kind === 'conversation'), [agents]);
+  const conversations = useMemo(
+    () => agents.filter((a) => a.kind === 'conversation'),
+    [agents],
+  );
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -94,7 +111,12 @@ export function AgentTabBar({ agents, activeTab, onSelectTab, onDeleteAgent, onR
   // Show bar if there are agents OR if creation is available
   if (conversations.length === 0 && !onCreateConversation) return null;
 
-  const openContextMenu = (agentId: string, agentName: string, x: number, y: number) => {
+  const openContextMenu = (
+    agentId: string,
+    agentName: string,
+    x: number,
+    y: number,
+  ) => {
     // Clamp position to viewport
     const menuWidth = 140;
     const menuHeight = 80;
@@ -129,26 +151,30 @@ export function AgentTabBar({ agents, activeTab, onSelectTab, onDeleteAgent, onR
   return (
     <>
       <div className="flex items-center gap-1 px-4 pt-1 pb-2 border-b border-border/40 overflow-x-auto select-none">
-        {/* Main conversation tab */}
+        {/* Mainline thread tab */}
         <div
           className={`${tabClass(activeTab === null)} flex items-center gap-1.5 group`}
           onClick={() => onSelectTab(null)}
         >
-          <span>主对话</span>
+          <span>主线</span>
           {onBindMainIm && (
             <button
-              onClick={(e) => { e.stopPropagation(); onBindMainIm(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onBindMainIm();
+              }}
               className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent transition-all cursor-pointer"
-              title="绑定 IM 群组"
+              title="设置入口路由"
             >
               <Link className="w-3 h-3" />
             </button>
           )}
         </div>
 
-        {/* Conversation tabs — same visual level as main */}
+        {/* Task threads — same visual level as mainline */}
         {conversations.map((agent) => {
-          const hasLinked = agent.linked_im_groups && agent.linked_im_groups.length > 0;
+          const hasLinked =
+            agent.linked_im_groups && agent.linked_im_groups.length > 0;
           return (
             <div
               key={agent.id}
@@ -163,24 +189,32 @@ export function AgentTabBar({ agents, activeTab, onSelectTab, onDeleteAgent, onR
                 <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse flex-shrink-0" />
               )}
               {hasLinked && (
-                <span title={`已绑定: ${agent.linked_im_groups!.map(g => g.name).join(', ')}`}>
+                <span
+                  title={`已设置入口路由: ${agent.linked_im_groups!.map((g) => g.name).join(', ')}`}
+                >
                   <MessageSquare className="w-3 h-3 text-teal-500 flex-shrink-0" />
                 </span>
               )}
               <span className="truncate max-w-[120px]">{agent.name}</span>
               {onBindIm && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); onBindIm(agent.id); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBindIm(agent.id);
+                  }}
                   className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent transition-all cursor-pointer"
-                  title="绑定 IM 群组"
+                  title="设置入口路由"
                 >
                   <Link className="w-3 h-3" />
                 </button>
               )}
               <button
-                onClick={(e) => { e.stopPropagation(); onDeleteAgent(agent.id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteAgent(agent.id);
+                }}
                 className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent transition-all cursor-pointer"
-                title="关闭对话"
+                title="归档线程"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -188,27 +222,30 @@ export function AgentTabBar({ agents, activeTab, onSelectTab, onDeleteAgent, onR
           );
         })}
 
-        {/* Create conversation button */}
+        {/* Create task thread button */}
         {onCreateConversation && (
           <button
             onClick={onCreateConversation}
             className="flex-shrink-0 flex items-center gap-0.5 px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
-            title="新建对话"
+            title="新建任务线程"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
         )}
-
       </div>
 
       {/* Context menu (right-click / long-press) */}
       {contextMenu && (
         <ContextMenuOverlay
           menu={contextMenu}
-          onRename={onRenameAgent ? () => {
-            onRenameAgent(contextMenu.agentId, contextMenu.agentName);
-            setContextMenu(null);
-          } : undefined}
+          onRename={
+            onRenameAgent
+              ? () => {
+                  onRenameAgent(contextMenu.agentId, contextMenu.agentName);
+                  setContextMenu(null);
+                }
+              : undefined
+          }
           onDelete={() => {
             onDeleteAgent(contextMenu.agentId);
             setContextMenu(null);

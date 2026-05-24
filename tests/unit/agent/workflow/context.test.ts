@@ -68,6 +68,14 @@ describe('workflow context persistence', () => {
       `workflow:${workflowContext.id}`,
     );
     expect(workflowContext.metadata).toEqual({ trigger: 'unit-test' });
+    expect(db.getThread(workflowContext.thread_id)).toMatchObject({
+      id: workflowContext.thread_id,
+      workspace_jid: 'web:workspace-a',
+      kind: 'workflow',
+      title: 'investment-research',
+      runtime_agent_id: workflowContext.runtime_agent_id,
+      status: 'active',
+    });
     expect(db.getSession('workspace-a')).toBe('primary-user-session');
     expect(db.getSession('workspace-a', workflowContext.runtime_agent_id)).toBe(
       undefined,

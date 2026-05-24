@@ -683,7 +683,7 @@ describe('P0 OpenAI runner request contract', () => {
               if (nextMessageDelivered) return null;
               nextMessageDelivered = true;
               return {
-                text: '你记得当前会话我们说过些什么吗？总结下',
+                text: '你记得当前线程我们说过些什么吗？总结下',
                 cursor: {
                   timestamp: '1778942005000',
                   id: 'om_p0_session_second',
@@ -696,7 +696,7 @@ describe('P0 OpenAI runner request contract', () => {
         expect(captured).toHaveLength(2);
         const secondInput = JSON.stringify(captured[1]!.body.input);
         expect(secondInput).toContain("what's up from Feishu");
-        expect(secondInput).toContain('你记得当前会话我们说过些什么吗？总结下');
+        expect(secondInput).toContain('你记得当前线程我们说过些什么吗？总结下');
         expect(secondInput).not.toContain('rs_session_leak');
         expect(secondInput).not.toContain('msg_session_leak');
       },

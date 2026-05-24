@@ -82,7 +82,7 @@ skill command 的执行结果有三类：
 | 命令                    | 别名                | 作用                                                                      |
 | ----------------------- | ------------------- | ------------------------------------------------------------------------- |
 | `/help`                 | -                   | 按模块查看当前入口、当前 runtime 下真正可用的命令                         |
-| `/clear`                | -                   | 清除当前工作区或当前绑定 Agent 的会话上下文                               |
+| `/clear`                | -                   | 清除当前工作区主线或当前任务线程的运行时上下文                             |
 | `/sw <任务描述>`        | `/spawn <任务描述>` | 在当前工作区创建并行任务                                                  |
 | `/workflow [id] [任务]` | -                   | 列出或触发当前工作区 `.agents/workflows` 中定义的 workflow/crew           |
 | `/openai`               | -                   | 配置 OpenAI 工作区模型、思考强度和速度；仅当前 runtime 为 `openai` 时可用 |
@@ -90,7 +90,7 @@ skill command 的执行结果有三类：
 说明：
 
 - `/openai` 是当前工作区级配置入口，会持久化到工作区 runtime 配置。
-- `/workflow` 不复用用户会话主 runtime session。它只把当前 Web / IM 会话作为触发入口和结果回填通道；workflow 自身按 `(folder, workflowId)` 生成独立 `workflowContextId` / LangGraph `thread_id`，role node 通过独立 `agentId=workflow:<workflowContextId>` 启动 runner。workflow 定义优先来自当前工作区 `.agents/workflows/<id>.json`，缺失时可使用 Cli Claw 内置 `.agents/workflows/<id>.json`；runtime role card 同理优先读取 `.agents/agent-roles/<id>.md`。role 的 `allowedTools` 会在 runner tool factory 层硬过滤。
+- `/workflow` 不复用用户主线 runtime session。它只把当前 Web / IM 入口作为触发入口和结果回填通道；workflow 自身按 `(folder, workflowId)` 生成独立 `workflowContextId` / LangGraph `thread_id`，role node 通过独立 `agentId=workflow:<workflowContextId>` 启动 runner，并创建或关联一个 workflow 线程用于后续追问和来源显示。workflow 定义优先来自当前工作区 `.agents/workflows/<id>.json`，缺失时可使用 Cli Claw 内置 `.agents/workflows/<id>.json`；runtime role card 同理优先读取 `.agents/agent-roles/<id>.md`。role 的 `allowedTools` 会在 runner tool factory 层硬过滤。
 - 输入 bare `/workflow` 会列出当前工作区可用 workflow；输入 `/workflow <id> <任务>` 会创建一条 `workflow_runs` 审计记录并后台执行对应 graph。run 创建成功后，Web / IM 会立即收到 `🚀 已启动工作流 ...` 回执，包含 run id；成功、失败或 runner 超时后，系统会再向同一触发会话发送 `✅ 完成` 或 `❌ 失败` 终态消息。
 - 内置 `hkipo` workflow 是 9 节点 crew：Futu/OpenD IPO 池发现、池标准化、核心数据采集计划、二级热度/结构/估值证据采集、热度核验、官方文件下载解析、发行结构/基本面/估值分析、回测校准、最终短报告。用户仍输入 `/hkipo [--all]`；skill executor 只负责把它转成 `hkipo` workflow trigger，`--all` 作为结构化 input 传入 workflow state。最终报告面向飞书普通文本气泡，中文公司名优先，用短行和 emoji 突出排名、热度、入场费、绿鞋/基石/保荐/回拨、同类估值、合理区间、风险与池子校验，不依赖 Markdown 粗体或表格渲染。热度分只允许来自报告日同日的 `margin_multiple` 或 `subscription_multiple` evidence；`margin_multiple` 表示融资/孖展超额倍数，`subscription_multiple` 表示认购倍数，报告不得互相改名。若只有单一券商认购倍数，必须写“单一券商下限；融资/孖展倍数暂无多源核验”；若 `subscription_heat.score_status=not_scorable` 或核心因子不足，报告必须写 `0/N/A` 或“数据不足”，不得输出精确总分或主观“热5”。HKIPO 单个 role node 有 180s runtime 预算；对 `UND_ERR_SOCKET` 等 transient OpenAI socket 异常会有界重试，非最终 role 仍失败或超时时写降级 artifact 继续，最终报告 role 仍失败时用已完成的本地 artifact 生成“降级报告”，避免用户只看到 undici 堆栈。投递前还会对 `hkipo` 最终文本做轻量确定性归一化：把旧来源名统一为“致富证券 IPO”，把旧版“孖展多源未取到”改为“融资/孖展倍数暂无多源核验”，并把“卡：热17 结构8 ...”这类内部短码改写成独立 `🧮 评分` 行。
 - 内置 `stock-strategy-discovery-loop` workflow 用于前期策略发现：先收集 stock-analysis-api task-chain 状态，再运行 `stock.strategy.discovery_cycle`，该 local task 默认扫描 `cn/hk/us`，调用 stock-analysis-api `alpha_scan.py` 与 `alpha_research_loop.py` 生成 summary-only 候选、评估、回测和阻断原因；随后 readonly role 审阅新候选、重复候选、样本不足、OOS 未成熟和数据缺口，并输出下一轮验证计划。默认不写 registry；只有显式 workflow input `recordToRegistry=true` 时才记录候选/评估/proposal，仍禁止 approve / activate。
@@ -129,21 +129,25 @@ skill command 通过仓库级 skill 根目录下的 `commands.json` 声明。当
 
 | 命令                            | 别名  | 作用                                                            |
 | ------------------------------- | ----- | --------------------------------------------------------------- |
-| `/list`                         | `/ls` | 查看当前实例可访问的工作区与对话列表                            |
-| `/status`                       | -     | 查看当前工作区、运行状态与当前 runtime 摘要                     |
+| `/list`                         | `/ls` | 查看当前实例可访问的工作区与最近任务线程                        |
+| `/where`                        | -     | 查看当前 IM 入口会发往哪个工作区 / 线程                         |
+| `/use <工作区>`                 | -     | 将当前 IM 入口默认切到某个工作区主线                            |
+| `/to <工作区或任务> <消息>`     | -     | 单次把消息发往指定工作区或任务线程，不改变默认目标              |
+| `/threads`                      | -     | 列出当前工作区最近任务线程                                      |
+| `/back`                         | -     | 回到当前工作区主线                                              |
+| `/status`                       | -     | 查看当前入口、工作区、线程、运行状态与当前 runtime 摘要         |
 | `/self-status`                  | -     | 查看 cli-claw 服务版本、自检状态、restartability 与当前重启命令 |
 | `/self-check`                   | -     | 隔离启动候选服务做冷启动健康检查，不重启当前服务                |
 | `/self-restart`                 | -     | 创建自重启 intent，并交给独立 watchdog 执行                     |
-| `/bind <workspace[/agent短ID]>` | -     | 将当前 IM 会话绑定到指定工作区或指定 conversation agent         |
-| `/bind <workspace>/<agent短ID>` | -     | 将当前 IM 会话绑定到指定工作区下的 conversation agent           |
-| `/unbind`                       | -     | 解除绑定，回到默认工作区                                        |
-| `/new <名称>`                   | -     | 创建新工作区并把当前 IM 会话绑定过去                            |
+| `/bind <workspace>`             | -     | `/use <workspace>` 的兼容别名，设置当前 IM 入口默认工作区        |
+| `/unbind`                       | -     | 解除显式入口路由，回到默认工作区                                |
+| `/new <名称>`                   | -     | 创建新工作区并把当前 IM 入口切过去                              |
 | `/require_mention <true/false>` | -     | 控制群聊里是否必须被 @ 才响应                                   |
 
 说明：
 
 - `/status` 会以 “Agent” 与 “运行状态” 两段展示当前 runtime 摘要（Agent
-  类型、模型、推理强度、OpenAI 速度）、当前绑定位置、回复策略、当前工作区、当前会话、会话数、队列负载和服务进程 cwd；若当前 runtime usage 可读则展示 5h/7d 剩余额和重置时间，无法读取时才显示 `unavailable` / `unknown`。
+  类型、模型、推理强度、OpenAI 速度）、当前入口路由、回复策略、当前工作区、当前线程、线程数、队列负载和服务进程 cwd；若当前 runtime usage 可读则展示 5h/7d 剩余额和重置时间，无法读取时才显示 `unavailable` / `unknown`。
 - 若当前工作区最近触发过 workflow，`/status` 会追加最近 workflow run 的 `workflow_id`、状态、创建时间和错误摘要；它不会把 workflow 误展示成当前用户会话。
 - Feishu 入口的 `/status` 还会附加最近 Feishu 消息链路事件；当存在最近非 ok 事件时，会单独显示一行紧凑的“飞书异常”，避免投递失败或跳过原因被后续正常事件盖掉。
 - `/self-status` 与 `/self-check` 仅管理员可用，用于服务自迭代排障；`/self-status` 会直接展示当前 backend 解析到的 self-restart launch source、source/build artifact mode 和精确命令，便于判断当前进程是否真的可安全重启；若当前是 `direct_backend` 开发直启路径，或 repo-local source launcher 入口，还会提示长期运行推荐使用 `cli-claw start` / `cli-claw restart`。source launcher 模式下，build 摘要会标注“源码运行，dist build 仅供打包参考”，避免把 dist 指纹误当作当前 backend 代码新旧判断；存在最近非 ok Feishu lifecycle 事件时还会追加全局“飞书异常”摘要。`/self-check` 会复用当前 backend 捕获的 authoritative launch spec，用隔离 `HOME` 和临时 `WEB_PORT` 启动候选 backend 并检查 `/api/health`，结果会展示候选命令，不会停止或重启当前服务。
@@ -153,24 +157,26 @@ skill command 通过仓库级 skill 根目录下的 `commands.json` 声明。当
 
 本机如果需要比 watchdog 更强的兜底，使用 repo 内 `ops/install-launch-agent.sh` 安装用户级 `launchd` LaunchAgent；安装脚本默认使用 `cli-claw start`，也可以通过显式 `-- COMMAND [ARGS...]` 复用 `/self-status` 展示的 validated 启动命令。
 
-## IM 会话切换与绑定
+## IM 入口路由
 
-IM 入口本身不是长期对话身份；它会路由到某个 workspace 的主对话，或某个 workspace 下的 conversation agent。
+IM 入口本身不是长期上下文身份；它像一个多工作区遥控器，会先经过 Context Router，再进入某个工作区主线或任务线程。普通用户可以自然说“切到 HK IPO”“股票研究里帮我看下腾讯”“继续刚才那个盯盘任务”；`/where`、`/use`、`/to`、`/threads`、`/back` 是高级兜底命令，不要求每次显式调用。
 
 常用切换方式：
 
-- `/list`：查看当前实例可访问的 workspace，以及每个 workspace 下可绑定的 conversation agent 短 ID。
-- `/status`：查看当前 IM chat 实际绑定到了哪里，以及当前 workspace/runtime/queue 状态。
-- `/bind <workspace>`：把当前 IM chat 切到该 workspace 的主对话。
-- `/bind <workspace>/<agent短ID>`：把当前 IM chat 切到该 workspace 下的 conversation agent。
-- `/unbind`：取消显式绑定，回到该 IM chat 自己的默认 workspace/folder。
-- `/new <名称>`：创建新 workspace，并只把当前 IM chat 绑定到这个新 workspace 的主对话。
+- `/where`：查看当前 IM 入口实际会进入哪个工作区 / 线程。
+- `/use <workspace>`：把当前 IM 入口默认切到该 workspace 的主线，后续普通消息默认进这里。
+- `/to <workspace或任务> <消息>`：只把这一次消息定向发过去，不改变默认工作区。
+- `/threads`：查看当前工作区最近任务线程，便于继续某个长任务。
+- `/back`：回到当前工作区主线。
+- `/bind <workspace>`：兼容别名，等同于 `/use <workspace>`。
+- `/unbind`：取消显式入口路由，回到该 IM 入口自己的默认 workspace/folder。
+- `/new <名称>`：创建新 workspace，并把当前 IM 入口默认切到这个新 workspace 的主线。
 
 例子：
 
-- 飞书和微信都绑定到 `demo`，等价于两个入口共用 `demo` 的主对话 runtime session。
-- 微信执行 `/bind demo/a1b2` 后，微信切到 `demo` 下 ID 以 `a1b2` 开头的 conversation agent；飞书如果仍绑定 `demo` 主对话，则不受影响。
-- 微信执行 `/new app2` 后，只是微信切到新建的 `app2` 主对话；飞书仍停留在原 workspace。
+- 飞书执行 `/use hkipo` 后，后续普通消息默认进入 `hkipo` 工作区主线；微信如果仍停留在 `main`，不受影响。
+- 微信执行 `/to 股票研究 看下腾讯今天的变化` 后，只这一条进入“股票研究”，下一条普通消息仍回到微信原来的默认工作区。
+- 用户回复一条带来源 footer 的 workflow 结果时，调度层应优先回到同一个工作区 / workflow 线程；如果多个候选冲突，系统反问，而不是静默串台。
 
 ## Web 入口说明
 
@@ -205,5 +211,5 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命
 ## 备注
 
 - `/sw` 与 `/spawn` 是同义命令。
-- `/bind` 目标里的 `agent短ID` 指 conversation agent 的短标识，不是工作区 folder。
+- `/bind` 只保留工作区级兼容别名；任务线程切换优先使用自然语言、来源 footer、`/threads` 或 `/to`。
 - `openai` 的模型可用值以运行时命令注册表为准；本文档不枚举动态列表。

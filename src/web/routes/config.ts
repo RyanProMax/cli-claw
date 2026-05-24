@@ -464,7 +464,7 @@ configRoutes.put('/user-im/bindings/:imJid', authMiddleware, async (c) => {
     if (!agent) return c.json({ error: 'Agent not found' }, 404);
     if (agent.kind !== 'conversation') {
       return c.json(
-        { error: 'Only conversation agents can bind IM groups' },
+        { error: 'Only task threads can be used as IM route targets' },
         400,
       );
     }
@@ -487,7 +487,7 @@ configRoutes.put('/user-im/bindings/:imJid', authMiddleware, async (c) => {
     }
     if (targetMainJid === DEFAULT_MAIN_JID) {
       return c.json(
-        { error: 'Home workspace main conversation uses default IM routing' },
+        { error: 'Home workspace mainline uses default IM routing' },
         400,
       );
     }

@@ -57,7 +57,7 @@ const sections: Array<{ group: string; items: NavItem[] }> = [
       },
       {
         key: 'bindings',
-        label: 'IM 绑定',
+        label: '入口路由',
         icon: <Link2 className="w-4 h-4" />,
       },
       {

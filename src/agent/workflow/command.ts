@@ -706,6 +706,7 @@ export async function executeWorkflowCommand(
   const context = getOrCreateWorkflowContext({
     folder: options.group.folder,
     workflowId: workflow.id,
+    workspaceJid: options.chatJid.startsWith('web:') ? options.chatJid : null,
     metadata: { workspaceRoot },
   });
   const run = createWorkflowRun({

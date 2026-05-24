@@ -1,176 +1,207 @@
-# 当前任务：单实例 + Web/飞书/微信 + Workflow 精简
+# 当前任务：工作区 / 线程 / 调度层 / IM 落地
 
-> 本轮按用户确认的破坏性方案执行：收敛为单实例自托管工具，保留 Web / 飞书 / 微信入口、工作区消息、仓库级 skill command、workflow 调度与审计。
+## Goal
 
-## 目标
+- 将用户心智收敛为工作区 + 任务，隐藏“会话”作为用户主概念。
+- 新增线程作为内部上下文容器，并在 Web / 飞书 / 微信入口前增加上下文调度层，支持自然切换、多工作区 IM 私聊和统一来源 footer。
 
-- 访问控制收敛为实例密码、`access_config` 与 `access_sessions`。
-- IM 只保留 Web / Feishu / WeChat，配置与连接管理改成实例级。
-- 自动化只保留 workflow scheduled task，Web 自动化页面继续承载计划、运行中状态和 workflow 看板。
-- Web 删除用户 Skill 管理、旧通道管理、用户管理、成员管理和非 workflow 创建入口。
-- Storage 对外调用改按 `schema/access/messages/workspaces/workflows/scheduler/agents` 职责入口导入。
-- 文档同步 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`、`docs/MODULE.md`、`docs/E2E.md`、README 与 roadmap。
+## Done when
+
+- Web 顶层只展示工作区；工作区内部以主线、任务线程、工作流运行表达上下文。
+- IM 私聊可以通过调度层切换或单次投递到多个工作区/线程，不需要拉群规避一对一绑定。
+- 普通消息进入执行前解析为工作区和线程目标；workflow run 可关联 workflow 线程。
+- Web / IM 回复附带工作区/线程来源 footer。
+- `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`、`docs/MEMORY.md` 同步新边界。
 
 ## Milestones
 
-### Milestone 1：单实例访问模型与 DB 基础
+### Milestone 1：线程存储与路由模型
 
-Status: `done`
+Objective:
+- 增加线程、IM 入口路由和纯逻辑 Context Router，先让 `/where`、`/use`、`/to`、`/threads`、`/back` 的目标解析可测试。
 
-Validation:
-
-- `npm run typecheck:backend` 通过。
-- 相关 auth / route 引用已收敛到 access session。
-
-### Milestone 2：IM 通道收敛到 Web/飞书/微信
-
-Status: `done`
-
-Validation:
-
-- 源码扫描未命中旧通道 provider、旧配置路由、旧 UI card 或旧 JID prefix。
-- `npm --prefix container/agent-runner run build:runner` 通过。
-
-### Milestone 3：自动化只保留 workflow schedule
-
-Status: `done`
+Allowed scope:
+- `src/domain/types.ts`
+- `src/storage/*`
+- `src/messaging/*`
+- `src/core/runtime/command-registry.ts`
+- `src/commands.ts`
+- `tests/unit/messaging/*`
+- `tests/integration/routes/*`
 
 Validation:
+- `npm test -- tests/unit/messaging/context-router.test.ts tests/unit/messaging/command-utils.test.ts`
+- `npm run typecheck:backend`
 
-- workflow scheduled task CRUD / run-now / dashboard 相关测试通过。
-- scheduler 只接受 `execution_type='workflow'`。
+Status:
+- done
 
-### Milestone 4：模块边界、Web 资产与文档收口
+Validation status:
+- passed
 
-Status: `done`
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 已新增 `ContextRouter` 纯逻辑、`threads` / `im_entry_routes` 存储、IM 路由命令注册和入口路由文案；旧 `target_main_jid` / `target_agent_id` 暂作为默认入口目标兼容同步，不作为用户心智呈现。
+
+### Milestone 2：IM 入站调度与 footer
+
+Objective:
+- 将飞书 / 微信入站消息接入 Context Router，支持自然语言切换、显式命令兜底和统一来源 footer。
+
+Allowed scope:
+- `src/index.ts`
+- `src/messaging/providers/feishu/*`
+- `src/messaging/providers/wechat/*`
+- `src/presentation/*`
+- `tests/integration/messaging/*`
+- `tests/unit/presentation/*`
 
 Validation:
+- `npm test -- tests/unit/presentation/assistant-meta-footer.test.ts tests/unit/messaging/context-router.test.ts tests/integration/messaging/manager.test.ts`
+- `npm run typecheck:backend`
 
-- `npm run build:web` 通过。
-- 相关 targeted tests 通过。
-- `./scripts/validate.sh` 通过：70 个 test files passed、1 skipped；495 个 tests passed、1 skipped；shared/backend/web/agent-runner build 均通过。
-- `./scripts/review.sh` 通过 diff hygiene 与 `src/**/*.ts` format check。
-- 残留扫描未命中旧 Telegram / QQ / DingTalk、admin / user permission、非 workflow task、直接业务导入 `storage/db.ts`。
-- `bun src/cli.ts restart` 已通过 safe intent / watchdog，restart 记录 `status: passed`。
-- `/api/health` 返回 healthy。
+Status:
+- done
 
-Review:
+Validation status:
+- passed
 
-- `passed`。按 `RUNBOOKS/Review.md` 检查 scope、目标覆盖、模式契合、验证证据、文档同步和残留风险；无 blocking finding。
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- `/use`、`/bind`、`/to`、`/where`、`/threads`、`/back` 已接入 IM 命令层；`/to` 使用 one-shot route rewrite，不改变默认工作区；静态 Web/IM 最终投递追加来源 footer。飞书/微信命令即时回复仍由 provider 直接发送，后续若要覆盖命令回执 footer，需要在 provider sendTextToChat 层继续收口。
+
+### Milestone 3：Web 线程体验与入口路由设置
+
+Objective:
+- Web 从旧内部 agent 标签页用户心智改为工作区内部主线/任务线程/工作流运行，设置页 IM 入口改名为入口路由。
+
+Allowed scope:
+- `web/src/components/chat/*`
+- `web/src/components/settings/*`
+- `web/src/stores/chat.ts`
+- `web/src/api/client.ts`
+- `src/web/routes/*`
+- `tests/unit/web/*`
+
+Validation:
+- `npm --prefix web run build`
+- `npm test -- tests/unit/web/workspace-routing.test.ts`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- Web chat/settings 入口已改用“主线 / 任务线程 / 入口路由”文案；内部 store 与 API 仍保留旧 agent slot 命名，作为实现细节分阶段迁移。
+
+### Milestone 4：workflow 线程关联、文档和全量验证
+
+Objective:
+- workflow run 关联任务线程，文档同步，并通过仓库 validation / review gate。
+
+Allowed scope:
+- `src/agent/workflow/*`
+- `src/agent/scheduler/*`
+- `src/web/workflow-dashboard.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/RUNTIME.md`
+- `docs/COMMAND.md`
+- `docs/E2E.md`
+- `docs/MEMORY.md`
+- `PLANS/ROADMAP.md`
+
+Validation:
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+- Web 截图检查工作区、任务线程、自动化、入口路由设置。
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- workflow context 已关联 workflow 线程，不改变 checkpoint 语义；线程只做用户可追问和来源显示层。`./scripts/validate.sh` 与 `./scripts/review.sh` 已通过；Web 构建产物用 headless Chrome 截图确认登录页可正常渲染，截图在 `/tmp/cli-claw-web-smoke.png`。
+
+## Working Rules
+
+- `PLANS/ACTIVE.md` 是本轮执行单一真相源。
+- 一次只推进一个 milestone。
+- 目标、scope、验证方式变化时先更新本文件。
+- 删除或迁移用户可见概念时必须沿引用链清理入口、文案、测试和文档。
+- milestone 只有 validation 与 review 都通过后才可标记 `done`。
 
 ## Handoff
 
 Current milestone:
-
 - Milestone 4
 
 Current status:
-
 - done
 
-Changed areas:
+Changed files:
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
+- `docs/MEMORY.md`
+- `docs/MODULE.md`
+- `docs/RUNTIME.md`
+- `shared/runtime-command-registry.ts`
+- `src/agent/queue/group-queue.ts`
+- `src/agent/runner/output-parser.ts`
+- `src/agent/workflow/command.ts`
+- `src/agent/workflow/context.ts`
+- `src/domain/types.ts`
+- `src/index.ts`
+- `src/messaging/channel.ts`
+- `src/messaging/command-utils.ts`
+- `src/messaging/context-router.ts`
+- `src/messaging/providers/feishu/index.ts`
+- `src/storage/db.ts`
+- `src/storage/threads.ts`
+- `src/web/routes/agents.ts`
+- `src/web/routes/config.ts`
+- `tests/integration/agent/restart-recovery.test.ts`
+- `tests/integration/messaging/feishu/e2e.test.ts`
+- `tests/contracts/openai/runner-request.test.ts`
+- `tests/unit/agent/runner/output-parser.test.ts`
+- `tests/unit/agent/workflow/context.test.ts`
+- `tests/unit/core/runtime/command-registry.test.ts`
+- `tests/unit/messaging/command-utils.test.ts`
+- `tests/unit/messaging/context-router.test.ts`
+- `tests/unit/storage/threads.test.ts`
+- `web/src/components/chat/AgentTabBar.tsx`
+- `web/src/components/chat/ChatView.tsx`
+- `web/src/components/chat/ImBindingDialog.tsx`
+- `web/src/components/layout/UnifiedSidebar.tsx`
+- `web/src/components/settings/BindingTargetDialog.tsx`
+- `web/src/components/settings/BindingsSection.tsx`
+- `web/src/components/settings/ImBindingRow.tsx`
+- `web/src/components/settings/InstanceChannelsSection.tsx`
+- `web/src/components/settings/SettingsNav.tsx`
+- `web/src/components/settings/hooks/useImBindings.ts`
+- `web/src/pages/SettingsPage.tsx`
+- `web/src/stores/chat.ts`
 
-- Backend auth/session、IM manager/config、scheduler/tasks、runner IPC、storage import boundaries。
-- Web auth/setup/settings/automations/chat/sidebar/task form。
-- Tests, package manifests, docs, README, roadmap, assets。
+Last failure summary:
+- 中途 `./scripts/validate.sh` 曾因 footer 期望和旧“会话”文案断言失败，已同步测试与文案后通过；第一次 Web 截图用 Python 静态服务遇到本机 DNS 阻塞，改用 Node 静态服务后通过。
+
+Suspected cause:
+- 测试断言仍按旧会话/无 footer 语义编写；截图失败是 Python `http.server` 本机 hostname 解析卡住，不是 Web 构建失败。
 
 Next step:
-
-- 本轮主精简已提交；继续处理实例级 IM 配置继承 follow-up。
-
-## Follow-up：实例级 IM 配置继承修复
-
-Status: `done`
-
-Issue:
-
-- 单实例重构后只读取 `config/feishu-provider.json` 与 `config/wechat-provider.json`。
-- 既有机器仍保留旧 `config/user-im/<旧用户ID>/feishu.json` / `wechat.json`，导致主工作区误提示“未配置 IM 渠道”。
-- Web 横幅使用 live connection 状态表达“是否配置”，连接未启动时也会误报未配置。
-
-Fix:
-
-- 读取实例级 provider 失败时，自动提升最新的旧 user-scoped 飞书/微信配置到实例级 provider 文件，并清理已提升的旧文件。
-- `/api/config/user-im/status` 改为返回“已配置且启用”的状态，不再用 live connection 状态代替配置状态。
-- 增加单元测试与路由集成测试覆盖继承和状态判断。
-
-Validation:
-
-- `npm test -- tests/unit/core/runtime/config.test.ts tests/integration/routes/config-status.test.ts` 通过。
-- `npm run typecheck:backend` 通过。
-- `./scripts/validate.sh` 通过。
-- `./scripts/review.sh` 通过 diff hygiene 与 `src/**/*.ts` format check。
-- 本机配置已提升为实例级 `feishu-provider.json` / `wechat-provider.json`，旧 `user-im` 配置文件已清理。
-- `bun src/cli.ts restart` 安全重启通过，`/api/health` 返回 healthy。
-
-Review:
-
-- `passed`。按 `RUNBOOKS/Review.md` 检查 scope、目标覆盖、模式契合、验证证据与回归风险；无 blocking finding。
-
-## Follow-up：工作区/会话边界与会话列表选择修复
-
-Status: `done`
-
-Issue:
-
-- 需要重新评估单实例后“工作区”和“会话”的职责边界，尤其 workflow task 应落在独立会话还是独立工作区。
-- 会话列表中的“飞书私聊”无法点击。
-- 盯盘任务下方出现 `o9cq80wYiFvJ_f1PWS7aGSJ_nO2Y` 会话，点击后跳回主工作区，怀疑是 IM JID / 工作区 JID / 会话路由映射不一致。
-
-Scope:
-
-- 先沿前端会话列表、工作区 API、IM binding 和 DB 数据定位根因。
-- 修复会话列表选择行为与显示归类，不扩大到 workflow schema 重构。
-- 给出工作区/会话/工作流归属的产品方案；如涉及长期结构调整，再写入 roadmap。
-
-Validation:
-
-- `passed`：`npm test -- tests/integration/routes/groups.test.ts tests/integration/routes/config-status.test.ts`。
-- `passed`：`npm run typecheck:backend`。
-- `passed`：`npm --prefix web run build`。
-- `passed`：`./scripts/validate.sh`。
-- `passed`：`./scripts/review.sh`。
-
-Review:
-
-- `passed`。按 `RUNBOOKS/Review.md` 做语义 review：Web 工作区列表只暴露 `web:` 工作区，IM 注册项继续作为绑定来源由 `/im-groups` 提供；旧 `is_home` 标记不再影响默认主工作区识别，只有 `web:main` 享有不可删除和默认路由语义；路由解析不再回退到同 folder 的 IM JID。
-
-Decision:
-
-- 保留“工作区”概念，用于 cwd、文件边界、仓库级 `.agents`、模型配置和默认主对话；“会话”用于同一工作区内的对话/runtime 边界。
-- Workflow task 挂在工作区下执行，但使用独立 workflow context / runtime session；只有 cwd、`.agents` 配置或文件边界确实不同，才创建独立工作区。
-
-## Follow-up：HK IPO 工作区重复与路由串台修复
-
-Status: `done`
-
-Issue:
-
-- Web 会话/工作区列表出现 3 个同名 `HK IPO Workspace`。
-- 点击这些工作区时会跳到错误会话或串台。
-
-Root cause evidence:
-
-- 本机 `registered_groups` 中存在 `web:hkipo`、`web:hkipo-ack`、`web:hkipo-ack-ecc32ec9-9fe8-46f8-b83d-3ca5d0138de6` 三条同名 Web 工作区。
-- 其中 `web:hkipo-ack` 与 `web:hkipo-ack-ecc32ec9-9fe8-46f8-b83d-3ca5d0138de6` 共享 `folder=hkipo-ack`。
-- 前端路由仍使用 `/chat/:folder`，而实际选择态用 `jid`；当多个 JID 共享 folder 时，URL 无法唯一表达目标工作区，导致 route resolve 保留或选中错误 JID。
-
-Scope:
-
-- 将 Web 工作区路由改为以 JID 为唯一标识，避免同 folder 或同名工作区串台。
-- 保持后端 API 仍按 JID 操作，不在本轮删除历史数据或合并消息。
-- 必要时保留旧 folder URL 的兼容跳转到唯一匹配项；若 folder 不唯一，进入安全默认页。
-
-Validation:
-
-- `passed`：新增 `tests/unit/web/workspace-routing.test.ts`，先复现缺少 JID 路由 helper 的失败，再验证同 folder 双 JID 不再被 folder URL 猜测。
-- `passed`：`npm test -- tests/unit/web/workspace-routing.test.ts`。
-- `passed`：`npm --prefix web run build`。
-- `passed`：`./scripts/validate.sh`。
-- `passed`：`./scripts/review.sh`。
-- `passed`：`bun src/cli.ts restart` 后 `/api/health` 返回 healthy。
-- `passed`：浏览器冒烟点击 HK IPO 列表项，前三个同名按钮分别进入 `/chat/web%3Ahkipo-ack-ecc32ec9-9fe8-46f8-b83d-3ca5d0138de6`、`/chat/web%3Ahkipo`、`/chat/web%3Ahkipo-ack`，未再跳到同一个 folder 路由；访问旧 `/chat/hkipo-ack` 会回到安全列表页而不是猜测目标。
-
-Review:
-
-- `passed`。按 `RUNBOOKS/Review.md` 做语义 review：修复点集中在 Web 路由解析和跳转入口，后端 JID API、消息存储、IM 绑定和历史工作区数据均未改动；历史重复 HK IPO 工作区不自动删除，避免误删旧消息。
+- 提交本轮改动；后续观察真实飞书/微信入口路由和 streaming 卡片 footer 的一致性。

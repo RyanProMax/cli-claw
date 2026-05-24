@@ -37,7 +37,7 @@ describe('formatUserFacingRuntimeError', () => {
     `;
 
     expect(formatUserFacingRuntimeError(stderr)).toBe(
-      'OpenAI 上下文压缩失败：当前 OpenAI 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 OpenAI runtime 后重试，必要时发送 /clear 清除当前会话上下文。',
+      'OpenAI 上下文压缩失败：当前 OpenAI 运行时向远端 compact 接口发送了不兼容参数 safety_identifier。任务已中断；请升级或重启 OpenAI runtime 后重试，必要时发送 /clear 清除当前线程上下文。',
     );
   });
 

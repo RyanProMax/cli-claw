@@ -60,11 +60,19 @@ export function BindingTargetDialog({
   }, [filtered]);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); setFilter(''); } }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          onClose();
+          setFilter('');
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base truncate">
-            选择绑定目标 — {imGroupName}
+            选择路由目标 — {imGroupName}
           </DialogTitle>
         </DialogHeader>
 
@@ -87,7 +95,7 @@ export function BindingTargetDialog({
 
           {!targetsLoading && targets.length === 0 && (
             <div className="text-center py-8 text-muted-foreground text-sm">
-              暂无可绑定的工作区。请先创建一个非主页的工作区。
+              暂无可设置的工作区。请先创建一个非主页的工作区。
             </div>
           )}
 
@@ -117,10 +125,12 @@ export function BindingTargetDialog({
                       <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                       <span className="flex-1 text-sm truncate">
                         {target.type === 'agent'
-                          ? target.agentName || 'Agent'
-                          : '主对话'}
+                          ? target.agentName || '任务线程'
+                          : '主线'}
                       </span>
-                      {isSelecting && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
+                      {isSelecting && (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                      )}
                     </button>
                   );
                 })}

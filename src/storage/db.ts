@@ -27,6 +27,10 @@ import {
   WorkflowRunStatus,
   WorkflowRunStep,
   WorkflowRunStepStatus,
+  Thread,
+  ThreadKind,
+  ThreadStatus,
+  ImEntryRoute,
 } from '../domain/types.js';
 import {
   parseRuntimeIdentity,
@@ -211,6 +215,31 @@ interface DbWorkflowRunStepRow {
   error: string | null;
   started_at: string | null;
   completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DbThreadRow {
+  id: string;
+  workspace_jid: string;
+  kind: ThreadKind;
+  title: string;
+  runtime_agent_id: string | null;
+  source_run_id: string | null;
+  status: ThreadStatus;
+  created_at: string;
+  updated_at: string;
+  last_active_at: string;
+  archived_at: string | null;
+}
+
+interface DbImEntryRouteRow {
+  im_jid: string;
+  default_workspace_jid: string | null;
+  active_workspace_jid: string | null;
+  active_thread_id: string | null;
+  active_until: string | null;
+  pinned: number;
   created_at: string;
   updated_at: string;
 }
@@ -587,6 +616,36 @@ export function initDatabase(): void {
       reply_policy TEXT DEFAULT 'source_only',
       require_mention INTEGER DEFAULT 0,
       activation_mode TEXT DEFAULT 'auto'
+    );
+
+    CREATE TABLE IF NOT EXISTS threads (
+      id TEXT PRIMARY KEY,
+      workspace_jid TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      runtime_agent_id TEXT,
+      source_run_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_active_at TEXT NOT NULL,
+      archived_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_threads_workspace
+      ON threads(workspace_jid, status, last_active_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_main_workspace
+      ON threads(workspace_jid)
+      WHERE kind = 'main' AND archived_at IS NULL;
+
+    CREATE TABLE IF NOT EXISTS im_entry_routes (
+      im_jid TEXT PRIMARY KEY,
+      default_workspace_jid TEXT,
+      active_workspace_jid TEXT,
+      active_thread_id TEXT,
+      active_until TEXT,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
   `);
 
@@ -2184,6 +2243,185 @@ export function listWorkflowRunStepsForRunIds(
   return rows.map(mapWorkflowRunStepRow);
 }
 
+function mapThreadRow(row: DbThreadRow): Thread {
+  return {
+    id: row.id,
+    workspace_jid: row.workspace_jid,
+    kind: row.kind,
+    title: row.title,
+    runtime_agent_id: row.runtime_agent_id ?? null,
+    source_run_id: row.source_run_id ?? null,
+    status: row.status,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    last_active_at: row.last_active_at,
+    archived_at: row.archived_at ?? null,
+  };
+}
+
+function mapImEntryRouteRow(row: DbImEntryRouteRow): ImEntryRoute {
+  return {
+    im_jid: row.im_jid,
+    default_workspace_jid: row.default_workspace_jid ?? null,
+    active_workspace_jid: row.active_workspace_jid ?? null,
+    active_thread_id: row.active_thread_id ?? null,
+    active_until: row.active_until ?? null,
+    pinned: row.pinned === 1,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+export function upsertThread(input: {
+  id: string;
+  workspaceJid: string;
+  kind: ThreadKind;
+  title: string;
+  runtimeAgentId?: string | null;
+  sourceRunId?: string | null;
+  status?: ThreadStatus;
+  createdAt?: string;
+  updatedAt?: string;
+  lastActiveAt?: string;
+  archivedAt?: string | null;
+}): Thread {
+  const now = new Date().toISOString();
+  const createdAt = input.createdAt ?? now;
+  const updatedAt = input.updatedAt ?? now;
+  const lastActiveAt = input.lastActiveAt ?? updatedAt;
+  db.prepare(
+    `INSERT INTO threads (
+      id, workspace_jid, kind, title, runtime_agent_id, source_run_id, status,
+      created_at, updated_at, last_active_at, archived_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      workspace_jid = excluded.workspace_jid,
+      kind = excluded.kind,
+      title = excluded.title,
+      runtime_agent_id = excluded.runtime_agent_id,
+      source_run_id = excluded.source_run_id,
+      status = excluded.status,
+      updated_at = excluded.updated_at,
+      last_active_at = excluded.last_active_at,
+      archived_at = excluded.archived_at`,
+  ).run(
+    input.id,
+    input.workspaceJid,
+    input.kind,
+    input.title,
+    input.runtimeAgentId ?? null,
+    input.sourceRunId ?? null,
+    input.status ?? 'active',
+    createdAt,
+    updatedAt,
+    lastActiveAt,
+    input.archivedAt ?? null,
+  );
+  const thread = getThread(input.id);
+  if (!thread) throw new Error(`Failed to persist thread ${input.id}`);
+  return thread;
+}
+
+export function getThread(id: string): Thread | null {
+  const row = db.prepare('SELECT * FROM threads WHERE id = ?').get(id) as
+    | DbThreadRow
+    | undefined;
+  return row ? mapThreadRow(row) : null;
+}
+
+export function getMainThread(workspaceJid: string): Thread | null {
+  const row = db
+    .prepare(
+      "SELECT * FROM threads WHERE workspace_jid = ? AND kind = 'main' AND archived_at IS NULL ORDER BY created_at ASC LIMIT 1",
+    )
+    .get(workspaceJid) as DbThreadRow | undefined;
+  return row ? mapThreadRow(row) : null;
+}
+
+export function listThreadsForWorkspace(workspaceJid: string): Thread[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM threads
+       WHERE workspace_jid = ?
+       ORDER BY archived_at IS NULL DESC, last_active_at DESC, created_at DESC`,
+    )
+    .all(workspaceJid) as DbThreadRow[];
+  return rows.map(mapThreadRow);
+}
+
+export function listActiveThreads(limit = 20): Thread[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM threads
+       WHERE status = 'active' AND archived_at IS NULL
+       ORDER BY last_active_at DESC, created_at DESC
+       LIMIT ?`,
+    )
+    .all(Math.max(1, Math.min(limit, 100))) as DbThreadRow[];
+  return rows.map(mapThreadRow);
+}
+
+export function archiveThread(
+  id: string,
+  archivedAt = new Date().toISOString(),
+) {
+  db.prepare(
+    "UPDATE threads SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?",
+  ).run(archivedAt, archivedAt, id);
+}
+
+export function upsertImEntryRoute(input: {
+  imJid: string;
+  defaultWorkspaceJid?: string | null;
+  activeWorkspaceJid?: string | null;
+  activeThreadId?: string | null;
+  activeUntil?: string | null;
+  pinned?: boolean | null;
+  createdAt?: string;
+  updatedAt?: string;
+}): ImEntryRoute {
+  const now = new Date().toISOString();
+  const createdAt = input.createdAt ?? now;
+  const updatedAt = input.updatedAt ?? now;
+  db.prepare(
+    `INSERT INTO im_entry_routes (
+      im_jid, default_workspace_jid, active_workspace_jid, active_thread_id,
+      active_until, pinned, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(im_jid) DO UPDATE SET
+      default_workspace_jid = excluded.default_workspace_jid,
+      active_workspace_jid = excluded.active_workspace_jid,
+      active_thread_id = excluded.active_thread_id,
+      active_until = excluded.active_until,
+      pinned = excluded.pinned,
+      updated_at = excluded.updated_at`,
+  ).run(
+    input.imJid,
+    input.defaultWorkspaceJid ?? null,
+    input.activeWorkspaceJid ?? null,
+    input.activeThreadId ?? null,
+    input.activeUntil ?? null,
+    input.pinned === true ? 1 : 0,
+    createdAt,
+    updatedAt,
+  );
+  const route = getImEntryRoute(input.imJid);
+  if (!route)
+    throw new Error(`Failed to persist IM entry route ${input.imJid}`);
+  return route;
+}
+
+export function getImEntryRoute(imJid: string): ImEntryRoute | null {
+  const row = db
+    .prepare('SELECT * FROM im_entry_routes WHERE im_jid = ?')
+    .get(imJid) as DbImEntryRouteRow | undefined;
+  return row ? mapImEntryRouteRow(row) : null;
+}
+
+export function deleteImEntryRoute(imJid: string): void {
+  db.prepare('DELETE FROM im_entry_routes WHERE im_jid = ?').run(imJid);
+}
+
 // --- Registered group accessors ---
 
 /** Raw row shape from registered_groups table — single source of truth for column mapping. */
@@ -2307,7 +2545,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
 }
 
 /**
- * Get all registered groups that route to a specific conversation agent.
+ * Get all registered groups that route to a specific internal task-thread agent slot.
  * Returns array of { jid, group } for each IM group targeting the given agentId.
  */
 export function getGroupsByTargetAgent(

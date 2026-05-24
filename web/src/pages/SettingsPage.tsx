@@ -48,7 +48,7 @@ export function SettingsPage() {
       { key: 'channels' as SettingsTab, label: '消息通道' },
       { key: 'security' as SettingsTab, label: '访问密码' },
       { key: 'groups' as SettingsTab, label: '工作区' },
-      { key: 'bindings' as SettingsTab, label: 'IM 绑定' },
+      { key: 'bindings' as SettingsTab, label: '入口路由' },
       { key: 'about' as SettingsTab, label: '关于' },
     ],
     [],
@@ -74,7 +74,7 @@ export function SettingsPage() {
     security: '访问密码',
     groups: '工作区',
     about: '关于',
-    bindings: 'IM 绑定',
+    bindings: '入口路由',
   };
 
   return (

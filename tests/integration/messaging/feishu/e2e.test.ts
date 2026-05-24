@@ -122,6 +122,19 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
   };
 });
 
+function expectMessageWithRouteFooter(
+  content: string | undefined,
+  body: string,
+  workspaceName: string,
+) {
+  expect(content).toContain(body);
+  expect(content).toMatch(
+    new RegExp(
+      `\\n\\n\\| ${workspaceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}（主线）\\| 飞书 \\| \\d{2}:\\d{2} \\|$`,
+    ),
+  );
+}
+
 vi.mock('../../../../src/web/app.js', () => ({
   startWebServer: vi.fn(),
   broadcastToWebClients: vi.fn(),
@@ -764,7 +777,11 @@ describe('Feishu in-process E2E harness', () => {
       (message: any) => message.sender === 'cli-claw-agent',
     );
     const finalAssistantMessage = assistantMessages[0];
-    expect(finalAssistantMessage?.content).toBe(finalText);
+    expectMessageWithRouteFooter(
+      finalAssistantMessage?.content,
+      finalText,
+      'Feishu Process Group',
+    );
     for (const snippet of forbiddenSnippets) {
       expect(finalAssistantMessage?.content).not.toContain(snippet);
     }
@@ -927,7 +944,11 @@ describe('Feishu in-process E2E harness', () => {
     const assistantMessages = db
       .getMessagesPage(chatJid, undefined, 10)
       .filter((message: any) => message.sender === 'cli-claw-agent');
-    expect(assistantMessages[0]?.content).toBe(friendlyError);
+    expectMessageWithRouteFooter(
+      assistantMessages[0]?.content,
+      friendlyError,
+      'Feishu OpenAI Error',
+    );
     for (const snippet of forbiddenSnippets) {
       expect(assistantMessages[0]?.content).not.toContain(snippet);
     }
@@ -1114,7 +1135,11 @@ describe('Feishu in-process E2E harness', () => {
     const assistantMessages = db
       .getMessagesPage(chatJid, undefined, 10)
       .filter((message: any) => message.sender === 'cli-claw-agent');
-    expect(assistantMessages[0]?.content).toBe(finalText);
+    expectMessageWithRouteFooter(
+      assistantMessages[0]?.content,
+      finalText,
+      'Feishu Cursor Boundary',
+    );
   });
 
   test('does not write OpenAI replayed presentation text into real Feishu streaming cards for the current cursor', async () => {
@@ -1262,7 +1287,11 @@ describe('Feishu in-process E2E harness', () => {
     const assistantMessages = db
       .getMessagesPage(chatJid, undefined, 10)
       .filter((message: any) => message.sender === 'cli-claw-agent');
-    expect(assistantMessages[0]?.content).toBe(finalText);
+    expectMessageWithRouteFooter(
+      assistantMessages[0]?.content,
+      finalText,
+      'Feishu OpenAI Current Cursor Replay',
+    );
   });
 
   test('routes current Feishu stream events without replay gates', async () => {

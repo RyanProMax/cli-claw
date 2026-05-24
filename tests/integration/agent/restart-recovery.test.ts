@@ -685,7 +685,7 @@ describe('restart recovery cursor handling', () => {
     ]);
   });
 
-  test('does not recover conversation agent history when no committed cursor exists', async () => {
+  test('does not recover task-thread history when no committed cursor exists', async () => {
     const { resolveConversationAgentRecoveryCursor } = await loadIndexModule();
 
     expect(
@@ -1716,9 +1716,14 @@ describe('restart recovery cursor handling', () => {
     await expect(processGroupMessages('feishu:oc_test')).resolves.toBe(true);
 
     expect(imMocks.sessions.some((session) => session.finalText)).toBe(false);
+    const staticFallbackText = imMocks.sendMessage.mock.calls[0]?.[1];
+    expect(staticFallbackText).toContain('已触发并完成重启。');
+    expect(staticFallbackText).toMatch(
+      /\n\n\| Feishu（主线）\| 飞书 \| \d{2}:\d{2} \|$/,
+    );
     expect(imMocks.sendMessage).toHaveBeenCalledWith(
       'feishu:oc_test',
-      '已触发并完成重启。',
+      expect.stringContaining('已触发并完成重启。'),
       expect.any(Array),
       expect.objectContaining({
         sourceKind: 'sdk_final',

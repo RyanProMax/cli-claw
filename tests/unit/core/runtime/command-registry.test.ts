@@ -55,10 +55,15 @@ describe('runtime command registry', () => {
     expect(help).toContain('工作区命令：');
     expect(help).toContain('服务命令：');
     expect(help).toContain('/help');
-    expect(help).toContain('/bind <workspace[/agent短ID]>');
+    expect(help).toContain('/where');
+    expect(help).toContain('/use <工作区>');
+    expect(help).toContain('/to <工作区> <消息>');
+    expect(help).toContain('/threads');
+    expect(help).toContain('/back');
+    expect(help).toContain('/bind <workspace>');
     expect(help).toContain('/require_mention <true/false>');
     expect(help).toContain('/workflow [id] [任务]');
-    expect(help).not.toContain('/where');
+    expect(help).toContain('/where');
     expect(help).toContain('/openai');
     expect(help).not.toContain('/claude');
     expect(help).not.toContain('/model');
@@ -80,7 +85,6 @@ describe('runtime command registry', () => {
     expect(imHelp).not.toContain('/usage');
     expect(webHelp).not.toContain('/usage');
     expect(parseRuntimeCommand('/usage')).toBeNull();
-    expect(parseRuntimeCommand('/where')).toBeNull();
     expect(parseRuntimeCommand('/model')).toBeNull();
     expect(parseRuntimeCommand('/effort')).toBeNull();
     expect(parseRuntimeCommand('/speed')).toBeNull();
@@ -93,6 +97,21 @@ describe('runtime command registry', () => {
       name: 'workflow',
       argsText: 'research 写一份复盘',
       args: ['research', '写一份复盘'],
+    });
+    expect(parseRuntimeCommand('/where')).toMatchObject({
+      name: 'where',
+      argsText: '',
+      args: [],
+    });
+    expect(parseRuntimeCommand('/use HK IPO')).toMatchObject({
+      name: 'use',
+      argsText: 'HK IPO',
+      args: ['HK', 'IPO'],
+    });
+    expect(parseRuntimeCommand('/to 股票研究 帮我看腾讯')).toMatchObject({
+      name: 'to',
+      argsText: '股票研究 帮我看腾讯',
+      args: ['股票研究', '帮我看腾讯'],
     });
     expect(parseRuntimeCommand('/claude')).toBeNull();
   });

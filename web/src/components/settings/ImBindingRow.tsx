@@ -10,27 +10,35 @@ interface ImBindingRowProps {
   onUnbind: (group: AvailableImGroup) => void;
 }
 
-export function ImBindingRow({ group, isActioning, onRebind, onUnbind }: ImBindingRowProps) {
+export function ImBindingRow({
+  group,
+  isActioning,
+  onRebind,
+  onUnbind,
+}: ImBindingRowProps) {
   const hasBound = !!group.bound_agent_id || !!group.bound_main_jid;
 
   const bindingLabel = (): string => {
     if (group.bound_agent_id && group.bound_target_name) {
-      return group.bound_workspace_name && group.bound_workspace_name !== group.bound_target_name
+      return group.bound_workspace_name &&
+        group.bound_workspace_name !== group.bound_target_name
         ? `${group.bound_workspace_name} / ${group.bound_target_name}`
         : group.bound_target_name;
     }
     if (group.bound_main_jid && group.bound_target_name) {
-      return `${group.bound_target_name} / 主对话`;
+      return `${group.bound_target_name} / 主线`;
     }
     return '默认（主工作区）';
   };
 
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
-      hasBound
-        ? 'border-brand-200 bg-brand-50/50 dark:border-brand-700/30 dark:bg-brand-700/10'
-        : 'border-border'
-    }`}>
+    <div
+      className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+        hasBound
+          ? 'border-brand-200 bg-brand-50/50 dark:border-brand-700/30 dark:bg-brand-700/10'
+          : 'border-border'
+      }`}
+    >
       {/* Avatar */}
       {group.avatar ? (
         <img
@@ -51,7 +59,13 @@ export function ImBindingRow({ group, isActioning, onRebind, onUnbind }: ImBindi
           <ChannelBadge channelType={group.channel_type} />
         </div>
         <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-          <span className={hasBound ? 'text-primary dark:text-brand-400' : 'text-muted-foreground'}>
+          <span
+            className={
+              hasBound
+                ? 'text-primary dark:text-brand-400'
+                : 'text-muted-foreground'
+            }
+          >
             → {bindingLabel()}
           </span>
         </div>
@@ -85,7 +99,7 @@ export function ImBindingRow({ group, isActioning, onRebind, onUnbind }: ImBindi
           ) : (
             <ArrowRightLeft className="w-3 h-3 mr-1" />
           )}
-          换绑
+          切换
         </Button>
       </div>
     </div>

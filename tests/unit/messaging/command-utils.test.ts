@@ -75,7 +75,7 @@ describe('resolveBoundChatTarget', () => {
       targetChatJid: 'web:graduation-jid',
       folder: 'flow-graduation',
       agentId: null,
-      locationLine: 'graduation / 主对话',
+      locationLine: 'graduation / 主线',
     });
   });
 
@@ -118,26 +118,26 @@ describe('formatConversationStatus', () => {
         currentOnMain: true,
         binding: {
           type: 'main',
-          label: 'Graduation / 主对话',
+          label: 'Graduation / 主线',
           replyPolicy: 'source_only',
         },
       }),
     ).toBe(
       [
-        '🧵 会话与绑定',
+        '🧭 入口路由',
         '━━━━━━━━━━',
         '📁 工作区: Graduation (flow-graduation)',
-        '🔗 当前绑定: Graduation / 主对话',
+        '🔗 当前入口: Graduation / 主线',
         '🔁 回复策略: source_only',
-        '💬 会话:',
-        '  ▶ 主对话 ← 当前',
+        '🧵 线程:',
+        '  ▶ 主线 ← 当前',
         '  · Thesis Agent [agen] idle',
         '  · Review Agent [agen] running',
       ].join('\n'),
     );
   });
 
-  test('marks the bound conversation agent as current', () => {
+  test('marks the bound task thread as current', () => {
     expect(
       formatConversationStatus({
         workspace: {
@@ -157,13 +157,13 @@ describe('formatConversationStatus', () => {
       }),
     ).toBe(
       [
-        '🧵 会话与绑定',
+        '🧭 入口路由',
         '━━━━━━━━━━',
         '📁 工作区: Home (home-u1)',
-        '🔗 当前绑定: Home / Thesis Agent',
+        '🔗 当前入口: Home / Thesis Agent',
         '🔁 回复策略: source_only',
-        '💬 会话:',
-        '  · 主对话',
+        '🧵 线程:',
+        '  · 主线',
         '  ▶ Thesis Agent [agen] running ← 当前',
       ].join('\n'),
     );
@@ -191,10 +191,10 @@ describe('formatSystemStatus', () => {
           primaryReset: '2026-04-13 02:09',
           secondaryRemaining: '75%',
           secondaryReset: '2026-04-19 11:50',
-          currentBinding: '主工作区 / 主对话',
+          currentBinding: '主工作区 / 主线',
           replyPolicy: 'source_only',
           workspaceName: '主工作区',
-          currentSessionName: '主对话',
+          currentSessionName: '主线',
           sessionCount: 3,
           cwd: '/Users/ryan/projects/cli-claw',
         },
@@ -212,11 +212,11 @@ describe('formatSystemStatus', () => {
         '',
         '📊 运行状态',
         '━━━━━━━━━━',
-        '📍 当前绑定: 主工作区 / 主对话',
+        '📍 当前入口: 主工作区 / 主线',
         '🔁 回复策略: source_only',
         '🗂️ 当前工作区: 主工作区',
-        '💬 当前会话: 主对话',
-        '🔢 会话数: 3',
+        '🧵 当前线程: 主线',
+        '🔢 线程数: 3',
         '⚡ 状态: 空闲',
         '📦 负载: 0/5 进程',
         '📍 cwd: /Users/ryan/projects/cli-claw',
@@ -561,7 +561,7 @@ describe('formatSelfRestartAccepted', () => {
         '━━━━━━━━━━',
         '🧾 intent: /Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
         '👁️ watchdog PID: 4321',
-        '💬 重启成功后会回到当前会话补发结果',
+        '💬 重启成功后会回到当前入口补发结果',
         '⚠️ 后续由独立 watchdog 执行；当前 IM 可能短暂离线',
       ].join('\n'),
     );
@@ -599,7 +599,7 @@ describe('executeSessionReset', () => {
     vi.useRealTimers();
   });
 
-  test('resets a bound conversation agent under the real workspace jid', async () => {
+  test('resets a bound task thread under the real workspace jid', async () => {
     const { executeSessionReset } = await import('../../../src/commands.js');
     const stopGroup = vi.fn(async () => {});
     const broadcast = vi.fn();

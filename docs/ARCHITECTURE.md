@@ -48,15 +48,18 @@ Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workf
 - Runner stdout 是当前 turn 的 live output 边界：底层 runtime session 的恢复、历史 transcript 读取和旧执行事件都必须在 runner 内部闭环，不能作为 stream event 发给主进程。
 - graceful shutdown / self-restart / crash recovery 不持久化 interrupted partial 正文，也不直接发到 IM；若后续新用户消息前仍存在中断残留，只处理新的未提交用户消息，不能自动把旧上下文混入新 prompt。
 
-## 工作区与会话身份
+## 工作区、线程与入口路由
 
-- `registered_groups` 是工作区入口注册表；`jid` 是 Web / IM 对外入口，`folder` 是平台存储和默认主会话的目录键。
-- 多个入口可以共享同一个 `folder`。它们是否共享上下文，不看 channel 类型，而看是否最终路由到同一个 conversation identity。
-- Web 工作区列表只展示 `web:` 工作区，且只有 `web:main` 是默认主工作区。Web 路由必须用 `web:*` JID 作为唯一标识；旧的 folder URL 只在唯一匹配时兼容，folder 不唯一时不得猜测目标工作区。飞书 / 微信注册项只是 IM 入口和绑定记录，不作为可点击工作区行展示；同 folder 的 IM 消息会聚合到目标 Web 工作区或 conversation agent 的时间线。
-- Workspace 主对话使用 `(folder, 空 agentId)`；Web 创建的 conversation agent 使用 `(folder, agentId)`，消息落到虚拟 JID `{workspaceJid}#agent:{agentId}`。
-- 工作区负责项目边界：执行目录、文件访问、仓库级 `.agents` 配置、模型配置和默认主会话。会话负责对话边界：主对话、conversation agent、workflow context 或一次定时 workflow 的触发回填。
-- Workflow run 不应该为了隔离上下文而创建新工作区；它应挂在发起工作区下，使用独立 workflow context / runtime session 执行，并把结果回填到目标会话。只有需要不同 cwd、不同 `.agents` 配置或不同文件边界时，才创建独立工作区。
-- Runner 只是一次正在执行的底层 CLI 进程，不是长期会话身份。
+- `registered_groups` 是工作区和外部入口注册表；`jid` 是 Web / IM 对外入口，`folder` 是平台存储、默认 cwd 和 runtime session 的目录键。
+- 用户只直接面对工作区与任务。Web 工作区列表只展示 `web:` 工作区，且只有 `web:main` 是默认主工作区；飞书 / 微信注册项只是入口路由记录，不作为可点击工作区行展示。
+- 工作区负责项目边界：执行目录、文件访问、仓库级 `.agents` 配置、workflow 定义、模型配置和默认主线。只有需要不同 cwd、不同 `.agents` 配置或不同文件边界时，才创建独立工作区。
+- `threads` 是内部上下文容器，不作为全局一级产品对象。每个工作区有一条 `kind=main` 主线线程；用户发起的并行任务使用 `kind=task` 线程；workflow run / workflow context 使用 `kind=workflow` 线程承载后续追问和来源显示。
+- 线程是稳定业务身份，底层 Codex/OpenAI session 是线程背后的运行时身份；session 丢失时可以按线程消息和 runtime session 表重建，不能把 runner 进程本身当作长期身份。
+- 主线线程映射到 `(folder, 空 agentId)`；任务线程可映射到内部 conversation-agent runtime slot；workflow 线程映射到 `workflow:<workflowContextId>` 和 LangGraph `thread_id`。旧虚拟 JID `{workspaceJid}#agent:{agentId}` 仍是内部消息路由实现细节，不作为用户心智呈现。
+- `im_entry_routes` 保存飞书 / 微信入口的默认工作区、当前活跃工作区和活跃线程。`registered_groups.target_main_jid` / `target_agent_id` 只作为迁移期同步字段，语义是“默认入口目标”，不是“一个 IM 私聊只能绑定一个会话”。
+- Context Router 位于 Web / 飞书 / 微信输入之后、Agent / workflow 执行之前，负责把普通消息、回复、workflow 卡片按钮和高级命令解析为 `{ workspaceJid, threadId, runtimeAgentId }`。`/use` 改默认工作区，`/to` 做单次定向投递，`/where` 显示当前位置，`/threads` 列最近任务线程，`/back` 回到工作区主线。
+- Workflow run 不应该为了隔离上下文而创建新工作区；它应挂在发起工作区下，使用独立 workflow context / runtime session 执行，并创建或关联 workflow 线程。结果可以回填到触发入口和对应线程，但 workflow state、checkpoint 和 role output 不污染工作区主线。
+- Runner 只是一次正在执行的底层 CLI 进程，不是工作区、线程或 session 的长期身份。
 
 ## 边界
 

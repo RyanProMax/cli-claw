@@ -4,16 +4,39 @@ import { useChatStore } from '../../stores/chat';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { FilePanel } from './FilePanel';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { PromptDialog } from '@/components/common/PromptDialog';
-import { ArrowLeft, FolderOpen, Link, ListTree, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Sun, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  FolderOpen,
+  Link,
+  ListTree,
+  MessageSquare,
+  Monitor,
+  Moon,
+  MoreHorizontal,
+  PanelRightClose,
+  PanelRightOpen,
+  Sun,
+  X,
+} from 'lucide-react';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
 import { useTheme } from '../../hooks/useTheme';
 import { cn } from '@/lib/utils';
 import { wsManager } from '../../api/ws';
 import { api } from '../../api/client';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { AgentTabBar } from './AgentTabBar';
 import { ImBindingDialog } from './ImBindingDialog';
 import { showToast } from '../../utils/toast';
@@ -51,10 +74,16 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   // null = dialog closed; MAIN_BINDING = main conversation; other = agent id
   const [bindingAgentId, setBindingAgentId] = useState<string | null>(null);
   const [showNewConversation, setShowNewConversation] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<{ agentId: string; name: string } | null>(null);
-  const [imStatus, setImStatus] = useState<{ feishu: boolean; wechat: boolean } | null>(null);
-  const [imBannerDismissed, setImBannerDismissed] = useState(() =>
-    localStorage.getItem('im-banner-dismissed') === '1',
+  const [renameTarget, setRenameTarget] = useState<{
+    agentId: string;
+    name: string;
+  } | null>(null);
+  const [imStatus, setImStatus] = useState<{
+    feishu: boolean;
+    wechat: boolean;
+  } | null>(null);
+  const [imBannerDismissed, setImBannerDismissed] = useState(
+    () => localStorage.getItem('im-banner-dismissed') === '1',
   );
   const navigate = useNavigate();
 
@@ -62,50 +91,61 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Individual selectors: avoid re-renders from unrelated store changes (e.g. streaming)
-  const group = useChatStore(s => s.groups[groupJid]);
-  const groupMessages = useChatStore(s => s.messages[groupJid]);
-  const isWaiting = useChatStore(s => !!s.waiting[groupJid]);
-  const hasMoreMessages = useChatStore(s => !!s.hasMore[groupJid]);
-  const loading = useChatStore(s => s.loading);
-  const loadMessages = useChatStore(s => s.loadMessages);
-  const refreshMessages = useChatStore(s => s.refreshMessages);
-  const sendMessage = useChatStore(s => s.sendMessage);
-  const interruptQuery = useChatStore(s => s.interruptQuery);
-  const resetSession = useChatStore(s => s.resetSession);
-  const handleStreamEvent = useChatStore(s => s.handleStreamEvent);
-  const handleWsNewMessage = useChatStore(s => s.handleWsNewMessage);
-  const handleStreamSnapshot = useChatStore(s => s.handleStreamSnapshot);
+  const group = useChatStore((s) => s.groups[groupJid]);
+  const groupMessages = useChatStore((s) => s.messages[groupJid]);
+  const isWaiting = useChatStore((s) => !!s.waiting[groupJid]);
+  const hasMoreMessages = useChatStore((s) => !!s.hasMore[groupJid]);
+  const loading = useChatStore((s) => s.loading);
+  const loadMessages = useChatStore((s) => s.loadMessages);
+  const refreshMessages = useChatStore((s) => s.refreshMessages);
+  const sendMessage = useChatStore((s) => s.sendMessage);
+  const interruptQuery = useChatStore((s) => s.interruptQuery);
+  const resetSession = useChatStore((s) => s.resetSession);
+  const handleStreamEvent = useChatStore((s) => s.handleStreamEvent);
+  const handleWsNewMessage = useChatStore((s) => s.handleWsNewMessage);
+  const handleStreamSnapshot = useChatStore((s) => s.handleStreamSnapshot);
 
-  const agents = useChatStore(s => s.agents[groupJid] ?? EMPTY_AGENTS);
-  const activeAgentTab = useChatStore(s => s.activeAgentTab[groupJid] ?? null);
-  const setActiveAgentTab = useChatStore(s => s.setActiveAgentTab);
-  const loadAgents = useChatStore(s => s.loadAgents);
-  const deleteAgentAction = useChatStore(s => s.deleteAgentAction);
-  const agentStreaming = useChatStore(s => s.agentStreaming);
-  const createConversation = useChatStore(s => s.createConversation);
-  const renameConversation = useChatStore(s => s.renameConversation);
-  const loadAgentMessages = useChatStore(s => s.loadAgentMessages);
-  const refreshAgentMessages = useChatStore(s => s.refreshAgentMessages);
-  const sendAgentMessage = useChatStore(s => s.sendAgentMessage);
-  const agentMessages = useChatStore(s => s.agentMessages);
-  const agentWaiting = useChatStore(s => s.agentWaiting);
-  const agentHasMore = useChatStore(s => s.agentHasMore);
+  const agents = useChatStore((s) => s.agents[groupJid] ?? EMPTY_AGENTS);
+  const activeAgentTab = useChatStore(
+    (s) => s.activeAgentTab[groupJid] ?? null,
+  );
+  const setActiveAgentTab = useChatStore((s) => s.setActiveAgentTab);
+  const loadAgents = useChatStore((s) => s.loadAgents);
+  const deleteAgentAction = useChatStore((s) => s.deleteAgentAction);
+  const agentStreaming = useChatStore((s) => s.agentStreaming);
+  const createConversation = useChatStore((s) => s.createConversation);
+  const renameConversation = useChatStore((s) => s.renameConversation);
+  const loadAgentMessages = useChatStore((s) => s.loadAgentMessages);
+  const refreshAgentMessages = useChatStore((s) => s.refreshAgentMessages);
+  const sendAgentMessage = useChatStore((s) => s.sendAgentMessage);
+  const agentMessages = useChatStore((s) => s.agentMessages);
+  const agentWaiting = useChatStore((s) => s.agentWaiting);
+  const agentHasMore = useChatStore((s) => s.agentHasMore);
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const isHome = !!group?.is_home;
   const visibleTabs = SIDEBAR_TABS;
   const isOwnHome = isHome;
   useEffect(() => {
-    if (!isOwnHome) { setImStatus(null); return; }
+    if (!isOwnHome) {
+      setImStatus(null);
+      return;
+    }
     let active = true;
     const fetchStatus = () => {
-      api.get<{ feishu: boolean; wechat: boolean }>('/api/config/user-im/status')
-        .then((data) => { if (active) setImStatus(data); })
+      api
+        .get<{ feishu: boolean; wechat: boolean }>('/api/config/user-im/status')
+        .then((data) => {
+          if (active) setImStatus(data);
+        })
         .catch(() => {});
     };
     fetchStatus();
     const timer = setInterval(fetchStatus, 30_000); // refresh every 30s
-    return () => { active = false; clearInterval(timer); };
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [isOwnHome]);
 
   // Load messages on group select
@@ -129,7 +169,9 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
       if (!active) return;
       try {
         await refreshMessages(groupJid);
-      } catch { /* handled in store */ }
+      } catch {
+        /* handled in store */
+      }
       schedulePoll();
     };
 
@@ -152,9 +194,9 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupJid]);
 
-  // WS 重连时恢复正在运行的 agent 状态（独立于 groupJid，避免切换会话时重复调用）
+  // WS 重连时恢复正在运行的 agent 状态（独立于 groupJid，避免切换工作区时重复调用）
   // wsManager.connect() 已提升到 AppLayout 级别
-  const restoreActiveState = useChatStore(s => s.restoreActiveState);
+  const restoreActiveState = useChatStore((s) => s.restoreActiveState);
   useEffect(() => {
     restoreActiveState();
     const unsub = wsManager.on('connected', () => {
@@ -162,31 +204,37 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
       // Reconcile agent list with backend truth — picks up any agent_status
       // events that were missed during WS disconnection.
       loadAgents(groupJid);
-      // Refresh conversation agent messages that may have been missed during WS disconnection
+      // Refresh task-thread messages that may have been missed during WS disconnection
       const state = useChatStore.getState();
       const currentTab = state.activeAgentTab[groupJid];
       if (currentTab) {
-        const agentInfo = (state.agents[groupJid] || []).find(a => a.id === currentTab);
+        const agentInfo = (state.agents[groupJid] || []).find(
+          (a) => a.id === currentTab,
+        );
         if (agentInfo?.kind === 'conversation') {
           refreshAgentMessages(groupJid, currentTab);
         }
       }
     });
-    return () => { unsub(); };
+    return () => {
+      unsub();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupJid]);
 
   // Derived: active agent info and kind
-  const activeAgent = activeAgentTab ? agents.find(a => a.id === activeAgentTab) : null;
+  const activeAgent = activeAgentTab
+    ? agents.find((a) => a.id === activeAgentTab)
+    : null;
   const isConversationTab = activeAgent?.kind === 'conversation';
-  // SDK Tasks 不再创建独立标签页，事件直接显示在主对话流式卡片中
+  // SDK Tasks 不再创建独立标签页，事件直接显示在主线流式卡片中
 
   // Load sub-agents for this group
   useEffect(() => {
     loadAgents(groupJid);
   }, [groupJid, loadAgents]);
 
-  // Load messages for conversation agent tabs
+  // Load messages for task-thread tabs
   useEffect(() => {
     if (activeAgentTab && isConversationTab) {
       const existing = agentMessages[activeAgentTab];
@@ -194,7 +242,13 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         loadAgentMessages(groupJid, activeAgentTab);
       }
     }
-  }, [activeAgentTab, isConversationTab, groupJid, loadAgentMessages, agentMessages]);
+  }, [
+    activeAgentTab,
+    isConversationTab,
+    groupJid,
+    loadAgentMessages,
+    agentMessages,
+  ]);
 
   // 监听 WebSocket 流式事件
   useEffect(() => {
@@ -207,7 +261,11 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
     const unsub2 = wsManager.on('new_message', (data: any) => {
       if (data.chatJid === groupJid && data.message) {
         handleWsNewMessage(groupJid, data.message, data.agentId, data.source);
-        if (group?.is_home && data.message.chat_jid && data.message.chat_jid !== groupJid) {
+        if (
+          group?.is_home &&
+          data.message.chat_jid &&
+          data.message.chat_jid !== groupJid
+        ) {
           void refreshMessages(groupJid);
         }
       }
@@ -224,21 +282,39 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
       if (!data.snapshot) return;
       if (data.chatJid === groupJid) {
         handleStreamSnapshot(groupJid, data.snapshot);
-      } else if (typeof data.chatJid === 'string' && data.chatJid.startsWith(agentSnapshotPrefix)) {
+      } else if (
+        typeof data.chatJid === 'string' &&
+        data.chatJid.startsWith(agentSnapshotPrefix)
+      ) {
         // Agent-specific snapshot: extract agentId and restore agentStreaming
         const snapshotAgentId = data.chatJid.slice(agentSnapshotPrefix.length);
         handleStreamSnapshot(groupJid, data.snapshot, snapshotAgentId);
       }
     });
     // agent_status 已提升到 AppLayout 全局监听
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
-  }, [group?.is_home, groupJid, handleStreamEvent, handleWsNewMessage, handleStreamSnapshot, refreshMessages]);
+    return () => {
+      unsub1();
+      unsub2();
+      unsub3();
+      unsub4();
+    };
+  }, [
+    group?.is_home,
+    groupJid,
+    handleStreamEvent,
+    handleWsNewMessage,
+    handleStreamSnapshot,
+    refreshMessages,
+  ]);
 
   const [scrollTrigger, setScrollTrigger] = useState(0);
 
-  const handleSend = async (content: string, attachments?: Array<{ data: string; mimeType: string }>) => {
+  const handleSend = async (
+    content: string,
+    attachments?: Array<{ data: string; mimeType: string }>,
+  ) => {
     await sendMessage(groupJid, content, attachments);
-    setScrollTrigger(n => n + 1);
+    setScrollTrigger((n) => n + 1);
   };
 
   const handleLoadMore = () => {
@@ -271,7 +347,10 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
   }
 
   return (
-    <div ref={containerRef} className="h-full flex flex-col bg-surface dark:bg-background max-lg:rounded-none lg:rounded-t-2xl lg:rounded-b-none lg:mr-5 lg:ml-3 lg:overflow-hidden">
+    <div
+      ref={containerRef}
+      className="h-full flex flex-col bg-surface dark:bg-background max-lg:rounded-none lg:rounded-t-2xl lg:rounded-b-none lg:mr-5 lg:ml-3 lg:overflow-hidden"
+    >
       {/* Header */}
       <div className="flex items-center gap-3 px-6 py-4 max-lg:px-4 max-lg:py-2.5 max-lg:bg-background/60 max-lg:backdrop-blur-xl max-lg:saturate-[1.8] max-lg:border-border/40">
         {onBack && (
@@ -285,9 +364,13 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         )}
         {headerLeft}
         <div className="flex-1 min-w-0">
-          <h2 className="font-semibold text-foreground text-[15px] truncate">{group.name}</h2>
+          <h2 className="font-semibold text-foreground text-[15px] truncate">
+            {group.name}
+          </h2>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span>{isWaiting ? '正在思考...' : group.is_home ? '主 Agent' : 'Agent'}</span>
+            <span>
+              {isWaiting ? '正在思考...' : group.is_home ? '主 Agent' : 'Agent'}
+            </span>
             {isOwnHome && imStatus && (imStatus.feishu || imStatus.wechat) && (
               <>
                 <span className="text-muted-foreground/40">·</span>
@@ -311,19 +394,43 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         <button
           onClick={toggleTheme}
           className="hidden lg:flex p-2 rounded-lg hover:bg-accent text-muted-foreground transition-colors cursor-pointer"
-          title={theme === 'light' ? '切换到暗色模式' : theme === 'dark' ? '跟随系统' : '切换到亮色模式'}
-          aria-label={theme === 'light' ? '切换到暗色模式' : theme === 'dark' ? '跟随系统' : '切换到亮色模式'}
+          title={
+            theme === 'light'
+              ? '切换到暗色模式'
+              : theme === 'dark'
+                ? '跟随系统'
+                : '切换到亮色模式'
+          }
+          aria-label={
+            theme === 'light'
+              ? '切换到暗色模式'
+              : theme === 'dark'
+                ? '跟随系统'
+                : '切换到亮色模式'
+          }
         >
-          {theme === 'light' ? <Moon className="w-5 h-5" /> : theme === 'dark' ? <Monitor className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+          {theme === 'light' ? (
+            <Moon className="w-5 h-5" />
+          ) : theme === 'dark' ? (
+            <Monitor className="w-5 h-5" />
+          ) : (
+            <Sun className="w-5 h-5" />
+          )}
         </button>
         {/* Desktop: toggle display mode */}
         <button
           onClick={toggleDisplayMode}
           className="hidden lg:flex p-2 rounded-lg hover:bg-accent text-muted-foreground transition-colors cursor-pointer"
           title={displayMode === 'chat' ? '紧凑模式' : '对话模式'}
-          aria-label={displayMode === 'chat' ? '切换到紧凑模式' : '切换到对话模式'}
+          aria-label={
+            displayMode === 'chat' ? '切换到紧凑模式' : '切换到对话模式'
+          }
         >
-          {displayMode === 'chat' ? <ListTree className="w-5 h-5" /> : <MessageSquare className="w-5 h-5" />}
+          {displayMode === 'chat' ? (
+            <ListTree className="w-5 h-5" />
+          ) : (
+            <MessageSquare className="w-5 h-5" />
+          )}
         </button>
         {/* Desktop: toggle side panel */}
         <button
@@ -332,7 +439,11 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           title={panelOpen ? '收起面板' : '展开面板'}
           aria-label={panelOpen ? '收起面板' : '展开面板'}
         >
-          {panelOpen ? <PanelRightClose className="w-5 h-5" /> : <PanelRightOpen className="w-5 h-5" />}
+          {panelOpen ? (
+            <PanelRightClose className="w-5 h-5" />
+          ) : (
+            <PanelRightOpen className="w-5 h-5" />
+          )}
         </button>
         {/* Mobile only: condensed actions */}
         <div className="lg:hidden">
@@ -348,30 +459,36 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
       </div>
 
       {/* IM channel setup banner for home workspace without IM */}
-      {isOwnHome && imStatus && !imStatus.feishu && !imStatus.wechat && !imBannerDismissed && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
-          <Link className="w-4 h-4 flex-shrink-0" />
-          <span className="flex-1 min-w-0">未配置 IM 渠道，飞书 / 微信消息无法与主工作区互通</span>
-          <button
-            onClick={() => navigate('/settings?tab=channels')}
-            className="flex-shrink-0 px-3 py-1 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors cursor-pointer"
-          >
-            去配置
-          </button>
-          <button
-            onClick={() => {
-              setImBannerDismissed(true);
-              localStorage.setItem('im-banner-dismissed', '1');
-            }}
-            className="flex-shrink-0 p-0.5 rounded hover:bg-amber-200/60 transition-colors cursor-pointer"
-            aria-label="关闭"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      {isOwnHome &&
+        imStatus &&
+        !imStatus.feishu &&
+        !imStatus.wechat &&
+        !imBannerDismissed && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
+            <Link className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1 min-w-0">
+              未配置 IM 渠道，飞书 / 微信消息无法与主工作区互通
+            </span>
+            <button
+              onClick={() => navigate('/settings?tab=channels')}
+              className="flex-shrink-0 px-3 py-1 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors cursor-pointer"
+            >
+              去配置
+            </button>
+            <button
+              onClick={() => {
+                setImBannerDismissed(true);
+                localStorage.setItem('im-banner-dismissed', '1');
+              }}
+              className="flex-shrink-0 p-0.5 rounded hover:bg-amber-200/60 transition-colors cursor-pointer"
+              aria-label="关闭"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
-      {/* Agent tab bar */}
+      {/* Workspace thread bar */}
       <AgentTabBar
         agents={agents}
         activeTab={activeAgentTab}
@@ -380,16 +497,22 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
           const agent = agents.find((a) => a.id === id);
           if (agent?.linked_im_groups && agent.linked_im_groups.length > 0) {
             const names = agent.linked_im_groups.map((g) => g.name).join('、');
-            alert(`该对话已绑定 IM 渠道（${names}），请先解绑后再删除。`);
+            alert(
+              `该任务线程已设置入口路由（${names}），请先恢复默认路由后再归档。`,
+            );
             setBindingAgentId(id);
             return;
           }
           deleteAgentAction(groupJid, id);
         }}
-        onRenameAgent={(id, currentName) => setRenameTarget({ agentId: id, name: currentName })}
+        onRenameAgent={(id, currentName) =>
+          setRenameTarget({ agentId: id, name: currentName })
+        }
         onCreateConversation={() => setShowNewConversation(true)}
         onBindIm={setBindingAgentId}
-        onBindMainIm={!isHome ? () => setBindingAgentId(MAIN_BINDING) : undefined}
+        onBindMainIm={
+          !isHome ? () => setBindingAgentId(MAIN_BINDING) : undefined
+        }
       />
 
       {/* Main Content: Messages + Sidebar */}
@@ -397,31 +520,46 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         {/* Messages Area */}
         <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
           {activeAgentTab && isConversationTab ? (
-            /* Conversation agent tab: interactive — user can send messages */
+            /* Task thread: interactive — user can send messages */
             <>
               <MessageList
                 key={`conv-${activeAgentTab}`}
                 messages={agentMessages[activeAgentTab] || []}
                 loading={false}
                 hasMore={!!agentHasMore[activeAgentTab]}
-                onLoadMore={() => loadAgentMessages(groupJid, activeAgentTab, true)}
+                onLoadMore={() =>
+                  loadAgentMessages(groupJid, activeAgentTab, true)
+                }
                 scrollTrigger={scrollTrigger}
                 groupJid={groupJid}
-                isWaiting={!!agentWaiting[activeAgentTab] || !!agentStreaming[activeAgentTab]}
-                onInterrupt={() => interruptQuery(`${groupJid}#agent:${activeAgentTab}`)}
+                isWaiting={
+                  !!agentWaiting[activeAgentTab] ||
+                  !!agentStreaming[activeAgentTab]
+                }
+                onInterrupt={() =>
+                  interruptQuery(`${groupJid}#agent:${activeAgentTab}`)
+                }
                 agentId={activeAgentTab}
               />
               <MessageInput
                 onSend={async (content, attachments) => {
-                  sendAgentMessage(groupJid, activeAgentTab, content, attachments);
-                  setScrollTrigger(n => n + 1);
+                  sendAgentMessage(
+                    groupJid,
+                    activeAgentTab,
+                    content,
+                    attachments,
+                  );
+                  setScrollTrigger((n) => n + 1);
                 }}
                 groupJid={groupJid}
-                onResetSession={() => { setResetAgentId(activeAgentTab); setShowResetConfirm(true); }}
+                onResetSession={() => {
+                  setResetAgentId(activeAgentTab);
+                  setShowResetConfirm(true);
+                }}
               />
             </>
           ) : (
-            /* Main conversation tab */
+            /* Mainline thread */
             <>
               <MessageList
                 key={`main-${groupJid}`}
@@ -438,21 +576,26 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
               <MessageInput
                 onSend={handleSend}
                 groupJid={groupJid}
-                onResetSession={() => { setResetAgentId(null); setShowResetConfirm(true); }}
+                onResetSession={() => {
+                  setResetAgentId(null);
+                  setShowResetConfirm(true);
+                }}
               />
             </>
           )}
         </div>
 
         {/* Desktop: sidebar with icon tabs (collapsible) */}
-        <div className={cn(
-          "hidden lg:flex lg:flex-col flex-shrink-0 border-l border-border bg-surface dark:bg-background transition-[width] duration-200",
-          panelOpen ? "w-80" : "w-0 overflow-hidden border-l-0"
-        )}>
+        <div
+          className={cn(
+            'hidden lg:flex lg:flex-col flex-shrink-0 border-l border-border bg-surface dark:bg-background transition-[width] duration-200',
+            panelOpen ? 'w-80' : 'w-0 overflow-hidden border-l-0',
+          )}
+        >
           {/* Icon tab bar */}
           <TooltipProvider delayDuration={300}>
             <div className="flex border-b border-border">
-              {visibleTabs.map(tab => {
+              {visibleTabs.map((tab) => {
                 const Icon = tab.icon;
                 const active = sidebarTab === tab.id;
                 return (
@@ -461,10 +604,10 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
                       <button
                         onClick={() => setSidebarTab(tab.id)}
                         className={cn(
-                          "flex-1 flex items-center justify-center py-2.5 transition-colors cursor-pointer",
+                          'flex-1 flex items-center justify-center py-2.5 transition-colors cursor-pointer',
                           active
-                            ? "text-primary border-b-2 border-primary"
-                            : "text-muted-foreground hover:text-foreground"
+                            ? 'text-primary border-b-2 border-primary'
+                            : 'text-muted-foreground hover:text-foreground',
                         )}
                       >
                         <Icon className="w-4 h-4" />
@@ -487,7 +630,10 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
       </div>
 
       {/* Mobile: file panel sheet */}
-      <Sheet open={mobilePanel === 'files'} onOpenChange={(v) => !v && setMobilePanel(null)}>
+      <Sheet
+        open={mobilePanel === 'files'}
+        onOpenChange={(v) => !v && setMobilePanel(null)}
+      >
         <SheetContent side="bottom" className="h-[80dvh] p-0">
           <SheetHeader className="px-4 pt-4 pb-2">
             <SheetTitle>工作区文件管理</SheetTitle>
@@ -502,8 +648,14 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
       </Sheet>
 
       {/* Mobile: Action Sheet */}
-      <Sheet open={mobileActionsOpen} onOpenChange={(v) => !v && setMobileActionsOpen(false)}>
-        <SheetContent side="bottom" className="pb-[env(safe-area-inset-bottom)]">
+      <Sheet
+        open={mobileActionsOpen}
+        onOpenChange={(v) => !v && setMobileActionsOpen(false)}
+      >
+        <SheetContent
+          side="bottom"
+          className="pb-[env(safe-area-inset-bottom)]"
+        >
           <SheetHeader>
             <SheetTitle>工作区操作</SheetTitle>
           </SheetHeader>
@@ -524,31 +676,36 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         onClose={() => setShowResetConfirm(false)}
         onConfirm={handleResetSession}
         title="清除上下文"
-        message={resetAgentId
-          ? '将清除该子对话的 Agent 会话上下文，下次发送消息时将开始全新会话。聊天记录不受影响。'
-          : '将清除 Agent 会话上下文并停止运行中的工作区进程，下次发送消息时将开始全新会话。聊天记录不受影响。'
+        message={
+          resetAgentId
+            ? '将清除该任务线程的运行时上下文，下次发送消息时将开始全新上下文。聊天记录不受影响。'
+            : '将清除主线运行时上下文并停止运行中的工作区进程，下次发送消息时将开始全新上下文。聊天记录不受影响。'
         }
         confirmText="清除"
         confirmVariant="danger"
         loading={resetLoading}
       />
 
-      {/* IM binding dialog */}
+      {/* IM route dialog */}
       {bindingAgentId && (
         <ImBindingDialog
           open={!!bindingAgentId}
           groupJid={groupJid}
           agentId={bindingAgentId === MAIN_BINDING ? null : bindingAgentId}
-          agent={bindingAgentId !== MAIN_BINDING ? agents.find((a) => a.id === bindingAgentId) : undefined}
+          agent={
+            bindingAgentId !== MAIN_BINDING
+              ? agents.find((a) => a.id === bindingAgentId)
+              : undefined
+          }
           onClose={() => setBindingAgentId(null)}
         />
       )}
 
       <PromptDialog
         open={showNewConversation}
-        title="新建对话"
-        label="对话名称"
-        placeholder="输入对话名称"
+        title="新建任务线程"
+        label="线程名称"
+        placeholder="输入任务线程名称"
         onConfirm={(name) => {
           createConversation(groupJid, name).then((agent) => {
             if (agent) setActiveAgentTab(groupJid, agent.id);
@@ -559,12 +716,13 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
 
       <PromptDialog
         open={renameTarget !== null}
-        title="重命名对话"
-        label="对话名称"
+        title="重命名任务线程"
+        label="线程名称"
         placeholder="输入新名称"
         defaultValue={renameTarget?.name ?? ''}
         onConfirm={(name) => {
-          if (renameTarget) renameConversation(groupJid, renameTarget.agentId, name);
+          if (renameTarget)
+            renameConversation(groupJid, renameTarget.agentId, name);
         }}
         onClose={() => setRenameTarget(null)}
       />

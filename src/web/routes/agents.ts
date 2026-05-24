@@ -98,7 +98,7 @@ router.post('/:jid/agents', authMiddleware, async (c) => {
   const { broadcastAgentStatus } = await import('../app.js');
   broadcastAgentStatus(jid, agentId, 'idle', name, description);
 
-  logger.info({ agentId, jid, name }, 'Conversation agent created');
+  logger.info({ agentId, jid, name }, 'Task thread created');
   return c.json({
     agent: {
       id: agent.id,

@@ -1,6 +1,6 @@
 # RUNTIME
 
-> 本文负责：运行时矩阵、`agentType` 约束、runtime identity、workspace cwd 和外部运行时契约。工作区 / conversation 身份见 `docs/ARCHITECTURE.md`；记忆机制见 `docs/MEMORY.md`。
+> 本文负责：运行时矩阵、`agentType` 约束、runtime identity、workspace cwd 和外部运行时契约。工作区 / 线程 / 入口路由身份见 `docs/ARCHITECTURE.md`；记忆机制见 `docs/MEMORY.md`。
 
 ## 概览
 
@@ -95,7 +95,7 @@ Cli Claw 的可重建下载物统一落在 `~/.cli-claw/cache/<namespace>`。这
 
 该 cwd 必须是绝对路径、已存在目录，并在配置了 mount allowlist 时落在允许根目录内。
 
-这个 contract 会被本地 Agent 进程、文件 API、workflow local task 和 conversation agent 共同使用。
+这个 contract 会被本地 Agent 进程、文件 API、workflow local task 和任务线程共同使用。
 
 `customCwd` 只影响执行目录和文件访问根目录，不改变工作区 ownership，也不改变数据库或 session 在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
 
@@ -119,27 +119,28 @@ Cli Claw 的可重建下载物统一落在 `~/.cli-claw/cache/<namespace>`。这
 
 backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`reasoningEffort` 与 `speedTier` 写入 runner input。对 OpenAI，这份 effective identity 会显式纳入 `OPENAI_*` / `SERVICE_TIER` 环境变量 fallback；这样 workspace 未显式设置时，`/status`、选择卡、dispatch 和 footer fallback 仍会保持一套值。若 runner 返回了实际 `runtime_identity`，仍以 runner 返回值为最终记录。
 
-## 会话与 Runner 对应关系
+## 线程与 Runner 对应关系
 
-外层 channel、workspace conversation、底层 runtime session 和 runner 不是同一个概念：
+外层 channel、工作区线程、底层 runtime session 和 runner 不是同一个概念：
 
-- 外层 channel 是消息入口，例如飞书或微信。
-- Workspace conversation 是 Cli Claw 的对话身份，由 `folder` 加可选 `agentId` 决定。
-- Runtime session 是 Codex / OpenAI 自己的会话 ID，持久化在 `sessions` 表。主对话所有 channel 共用 `(folder, 空 agent_id)`；conversation agent 使用 `(folder, agent_id)`。
+- 外层 channel 是消息入口，例如 Web、飞书或微信。
+- 工作区线程是 Cli Claw 的内部上下文身份，分为主线线程、任务线程和 workflow 线程。
+- Runtime session 是 Codex / OpenAI 自己的会话 ID，持久化在 `sessions` 表。主线线程使用 `(folder, 空 agent_id)`；任务线程使用自己的 runtime slot；workflow 线程使用 `workflow:<workflowContextId>`。
 - Runner 是正在处理消息的底层 CLI 进程，只在执行期间存在，并可能在 idle timeout 后退出。
 
 对应关系：
 
-- 同一个 workspace 主对话共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 普通消息会合并成一轮；遇到不同来源或 `assistant_prompt` 任务边界即切到下一轮，按入库顺序继续处理，不跨来源重排。例如 `A1/A2/B1/A3/B2/B3` 必须切成 `A1+A2`、`B1`、`A3`、`B2+B3` 四轮。
+- 同一个 workspace 主线线程共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 普通消息会合并成一轮；遇到不同来源或 `assistant_prompt` 任务边界即切到下一轮，按入库顺序继续处理，不跨来源重排。例如 `A1/A2/B1/A3/B2/B3` 必须切成 `A1+A2`、`B1`、`A3`、`B2+B3` 四轮。
 - Skill slash command 如果返回 `assistant_prompt`，该消息会标记为 `source_kind='assistant_prompt'`，并用隔离 runtime session 作为新 turn 发送给底层 runtime；它不读取 workspace 主 runtime session，完成后也不写回主 session，避免命令生成的研究任务污染后续普通对话。若历史版本已经把上一轮 skill final 的 session 写成主 session，下一条普通用户消息必须忽略它并建立新的正常主 session。
 - Skill slash command 如果返回 `workflow`，不会改写成用户消息，也不会进入主 runtime session；宿主会用返回的 `workflowId`、`prompt` 和结构化 `input` 创建独立 workflow run。run 创建成功后，触发会话先收到启动回执；后台 graph 完成、失败或 runner 超时后，触发会话再收到终态消息。`/hkipo [--all]` 当前走这条路径。
-- 同一个 workspace 下的每个 conversation agent 都有独立 runtime session，不与主对话共享 Codex / OpenAI 对话上下文。
-- Runner 按 serialization key 串行化：主对话以 `folder` 为 key，conversation agent 以 `folder + agentId` 为 key，任务运行以 `folder + taskId` 为 key。runtime query 正在执行时不消费新的用户 IPC 消息；新消息只会排队并触发 drain。只有当前 query 已结束、runner 处于等待下一条消息的 idle 阶段时，才允许同来源消息通过 IPC 复用同一 runtime session。不同来源消息始终排队并触发 drain，让当前 turn 完成后按顺序处理。
+- 同一个 workspace 下的每个任务线程都有独立 runtime session，不与主线共享 Codex / OpenAI 对话上下文。内部实现可以继续使用旧 agent slot，但 Web / IM 不把它作为用户主概念展示。
+- Workflow run 有独立 workflow context、LangGraph `thread_id` 和 workflow 线程；它不写入工作区主线 runtime session。workflow 线程只用于来源标识、运行追问和审计串联。
+- Runner 按 serialization key 串行化：主线以 `folder` 为 key，任务线程以 `folder + runtimeAgentId` 为 key，workflow / 任务运行以独立任务 key 为 key。runtime query 正在执行时不消费新的用户 IPC 消息；新消息只会排队并触发 drain。只有当前 query 已结束、runner 处于等待下一条消息的 idle 阶段时，才允许同来源消息通过 IPC 复用同一 runtime session。不同来源消息始终排队并触发 drain，让当前 turn 完成后按顺序处理。
 - Runner 可以用 runtime session id 恢复底层会话，但恢复过程是 runner 内部动作。恢复期间产生的历史 session 片段或旧工具步骤不得进入 runner stdout；stdout 只发布当前 prompt live 期间产生的事件和最终结果。
 - 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 OpenAI commentary 和可识别的内部包装从主正文剥离，避免 runtime session 细节直接发给用户。
 - 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只允许作为 Web/调试展示的过渡 buffer，不得覆盖新 turn 的最终回复。中断、overflow、compact、crash recovery 的 partial body 不会作为 IM 正文发送或持久化，也不能推进 committed cursor。
 - OpenAI runtime 错误必须在 runner 边界格式化为稳定提示；API key、quota/rate limit、context window、invalid model 等诊断不得以低层异常原样进入飞书/Web 正文。
-- 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主对话、conversation agent 或任务同时存在多个 runner。
+- 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主线、任务线程或 workflow 同时存在多个 runner。
 
 ### Feishu Streaming Card Presentation
 
@@ -163,9 +164,9 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 当前限制：
 
-- `sessions` 表的主键维度仍是 `(folder, agentId)`；主会话使用空 `agent_id`，不再为 IM 主对话创建或保留 `im:<sourceJid>` runtime slot。它不是 `(folder, agentId, agentType)`。
+- `sessions` 表的主键维度仍是 `(folder, agentId)`；主线使用空 `agent_id`，不再为 IM 入口创建或保留 `im:<sourceJid>` runtime slot。它不是 `(folder, agentId, agentType)`。
 - 切换 `agentType`、`model`、`reasoningEffort` 或 `speedTier` 时，服务会停止活跃 runner 并清理该 workspace 的 runtime session，避免把旧 runtime 的 transcript 当成新 runtime 继续使用。
-- 因此，主对话切换 `agentType` 后不保证恢复切换前的 OpenAI session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、agent 会话和迁移逻辑。
+- 因此，主线切换 `agentType` 后不保证恢复切换前的 OpenAI session。若要支持 per-runtime 恢复，需要把 session 持久化改成按 runtime 分槽存储，并调整 `/clear`、runtime reset、任务线程和迁移逻辑。
 
 ## 外部运行时契约
 

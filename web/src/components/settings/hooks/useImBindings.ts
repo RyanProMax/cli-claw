@@ -70,7 +70,8 @@ export function useImBindings() {
         });
       }
 
-      // Load conversation agents for each workspace
+      // Load task threads for each workspace. They are still backed by
+      // internal agent slots, but the Web UI presents them as threads.
       const agentPromises = webGroups.map(async ([jid, group]) => {
         try {
           const data = await api.get<{ agents: AgentInfo[] }>(

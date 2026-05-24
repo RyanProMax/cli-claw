@@ -43,9 +43,9 @@ export interface RegisteredGroup {
   customCwd?: string; // 工作区执行目录（绝对路径）
   created_by?: string | null;
   is_home?: boolean; // 主工作区标记
-  target_agent_id?: string; // IM 消息路由到指定 conversation agent
-  target_main_jid?: string; // IM 消息路由到指定工作区的主对话（web:{folder}）
-  reply_policy?: 'source_only' | 'mirror'; // IM 绑定的回复策略
+  target_agent_id?: string; // legacy: IM 消息路由到指定内部任务线程 agent slot
+  target_main_jid?: string; // legacy: IM 消息路由到指定工作区主线（web:{folder}）
+  reply_policy?: 'source_only' | 'mirror'; // IM 入口回复策略
   require_mention?: boolean; // 群聊是否需要 @机器人 才响应（默认 false）
   activation_mode?: 'auto' | 'always' | 'when_mentioned' | 'disabled'; // 消息门控模式（默认 'auto'，兼容 require_mention）
 }
@@ -248,6 +248,34 @@ export interface WorkflowRunStep {
   error: string | null;
   started_at: string | null;
   completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ThreadKind = 'main' | 'task' | 'workflow';
+export type ThreadStatus = 'active' | 'archived';
+
+export interface Thread {
+  id: string;
+  workspace_jid: string;
+  kind: ThreadKind;
+  title: string;
+  runtime_agent_id: string | null;
+  source_run_id: string | null;
+  status: ThreadStatus;
+  created_at: string;
+  updated_at: string;
+  last_active_at: string;
+  archived_at: string | null;
+}
+
+export interface ImEntryRoute {
+  im_jid: string;
+  default_workspace_jid: string | null;
+  active_workspace_jid: string | null;
+  active_thread_id: string | null;
+  active_until: string | null;
+  pinned: boolean;
   created_at: string;
   updated_at: string;
 }

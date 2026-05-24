@@ -40,6 +40,7 @@
 │   │   ├── workflows.ts             # workflow definition/context/run/step 审计
 │   │   ├── scheduler.ts             # workflow scheduled task 与 task run logs
 │   │   ├── agents.ts                # conversation/spawn agents 与 runtime sessions
+│   │   ├── threads.ts               # 工作区线程与 IM 入口路由存储入口
 │   │   ├── db.ts                    # SQLite 连接与底层存储实现
 │   │   └── sqlite-compat.ts         # Bun / Node.js SQLite 兼容加载
 │   ├── domain/
@@ -51,6 +52,7 @@
 │   │   ├── lifecycle.ts             # IM 消息 lifecycle 记录
 │   │   ├── slash-command.ts         # IM slash command 解析与改写
 │   │   ├── command-utils.ts         # IM command 共享工具
+│   │   ├── context-router.ts        # Web / Feishu / WeChat 输入的工作区与线程调度
 │   │   ├── attachments.ts           # 图片 / 文件附件规范化
 │   │   ├── downloader.ts            # IM 文件下载
 │   │   ├── image-detector.ts        # 图片 MIME 探测

@@ -166,7 +166,7 @@ interface ChatState {
   }>;
   // SDK Task alias map: runtime taskId/parentToolUseId -> canonical sdkTasks key
   sdkTaskAliases: Record<string, string>;
-  // Conversation agent state
+  // Task thread state backed by persisted agent records
   agentMessages: Record<string, Message[]>;          // agentId → messages
   agentWaiting: Record<string, boolean>;             // agentId → waiting for reply
   agentHasMore: Record<string, boolean>;             // agentId → has more messages
@@ -206,7 +206,7 @@ interface ChatState {
   loadAgents: (jid: string) => Promise<void>;
   deleteAgentAction: (jid: string, agentId: string) => Promise<boolean>;
   setActiveAgentTab: (jid: string, agentId: string | null) => void;
-  // Conversation agent actions
+  // Task thread actions
   createConversation: (jid: string, name: string, description?: string) => Promise<AgentInfo | null>;
   renameConversation: (jid: string, agentId: string, name: string) => Promise<boolean>;
   loadAgentMessages: (jid: string, agentId: string, loadMore?: boolean) => Promise<void>;
@@ -1523,7 +1523,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    // ① conversation agent（DB 持久化的）— 已有逻辑不变
+    // ① 任务线程（DB 持久化）— 已有内部 agent slot 逻辑不变
     if (agentId) {
       if (event.eventType === 'status' && event.statusText === 'interrupted') {
         set((s) => {
@@ -1629,7 +1629,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         event.taskDescription || event.toolInputSummary,
         event.isTeammate,
       );
-      // 不 return — 让 task_start 同时落入主对话 streaming（显示 Task 工具卡片）
+      // 不 return — 让 task_start 同时落入主线 streaming（显示 Task 工具卡片）
     }
 
     // ③ task_notification → 标记完成/失败并自动关闭标签页
@@ -1654,11 +1654,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         notifyIfHidden(`cli-claw: ${desc} ${status}`, event.taskSummary);
       }
 
-      // 不落入主对话 streaming
+      // 不落入主线 streaming
       return;
     }
 
-    // ④ parentToolUseId 匹配已知 SDK Task → 刷新 stale timer，事件落入主对话 streaming
+    // ④ parentToolUseId 匹配已知 SDK Task → 刷新 stale timer，事件落入主线 streaming
     if (event.parentToolUseId) {
       const tid = resolveOrBindTaskId(event.parentToolUseId);
       const state = get();
@@ -1669,7 +1669,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (task && !task.isTeammate) {
           resetSdkTaskStaleTimer(set, get, tid, chatJid);
         }
-        // 不 return — 让事件落入主对话 streaming（步骤⑥）
+        // 不 return — 让事件落入主线 streaming（步骤⑥）
       }
     }
 
@@ -1680,7 +1680,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (task && task.status === 'running') {
         finalizeSdkTask(resolvedToolUseId, 'completed', task.summary, SDK_TASK_TOOL_END_FALLBACK_CLOSE_MS);
       }
-      // fall-through 到主对话处理，移除 activeTools 中的 Task 条目
+      // fall-through 到主线处理，移除 activeTools 中的 Task 条目
     }
 
     // 中断事件：冻结流式 UI（保留已输出文本），等待 new_message 完成最终转换。
@@ -1796,10 +1796,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         updated[targetIdx] = { ...updated[targetIdx], token_usage: tokenUsageJson };
         return { messages: { ...s.messages, [chatJid]: updated } };
       });
-      // 不 return — usage 事件同时落入主对话 streaming（如需 recentEvents 展示）
+      // 不 return — usage 事件同时落入主线 streaming（如需 recentEvents 展示）
     }
 
-    // ⑥ 主对话 streaming — 使用 applyStreamEvent 共享函数
+    // ⑥ 主线 streaming — 使用 applyStreamEvent 共享函数
     set((s) => {
       // If streaming state was already cleared (final message received),
       // ignore late-arriving stream events to prevent "thinking" from reappearing.
@@ -1847,7 +1847,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       finalization_reason: wsMsg.finalization_reason ?? null,
     };
 
-    // Route to agentMessages if this is a conversation agent message
+    // Route to task-thread messages when this event belongs to an internal agent slot
     if (agentId) {
       set((s) => {
         const existing = s.agentMessages[agentId] || [];
@@ -1973,7 +1973,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const nextSdkTasks = { ...s.sdkTasks };
         delete nextSdkTasks[agentId];
         const nextSdkTaskAliases = removeSdkTaskAliases(s.sdkTaskAliases, agentId);
-        // Clean up conversation agent state
+        // Clean up task-thread state
         const nextAgentMessages = { ...s.agentMessages };
         delete nextAgentMessages[agentId];
         const nextAgentWaiting = { ...s.agentWaiting };
@@ -2042,8 +2042,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         scheduleDbTaskAgentCleanup(set, agentId, chatJid);
       }
 
-      // Conversation agent started running: reset agentWaiting so stream events
-      // are accepted (mirrors handleRunnerState for the main conversation).
+      // Task thread started running: reset agentWaiting so stream events
+      // are accepted (mirrors handleRunnerState for the mainline).
       // Without this, Feishu-sourced messages (which skip sendAgentMessage) would
       // leave agentWaiting=false and cause all streaming events to be dropped.
       const nextAgentWaiting =
@@ -2183,7 +2183,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } catch { /* ignore */ }
   },
 
-  // -- Conversation agent actions --
+  // -- Task thread actions --
 
   createConversation: async (jid, name, description?) => {
     try {
@@ -2602,7 +2602,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           agentStreamingChanged = true;
         }
       }
-      // 同时清理 agents[] 中已完成的 conversation agent 的 agentStreaming
+      // 同时清理 agents[] 中已完成任务线程的 agentStreaming
       for (const agent of (s.agents[chatJid] || [])) {
         if (agent.status !== 'running' && nextAgentStreaming[agent.id]) {
           delete nextAgentStreaming[agent.id];

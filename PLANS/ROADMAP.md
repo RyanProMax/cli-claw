@@ -16,6 +16,21 @@
 
 ## Live Items
 
+### P1 RM-2026-05-24-01 Workspace Thread Router UX
+
+- Status: `monitoring`
+- Source: 2026-05-24 user request to collapse the product mental model to workspace + task, hide conversation/session management, and make Feishu/WeChat private chats route across multiple workspaces.
+- Summary: 已新增工作区线程与入口路由基础层：`threads` 记录主线、任务线程与 workflow 线程；`im_entry_routes` 记录飞书 / 微信入口默认工作区和活跃目标；Context Router 支持 `/where`、`/use`、`/to`、`/threads`、`/back`，并让 `/bind <workspace>` 退化为 `/use` 兼容别名。Web 文案收敛为“主线 / 任务线程 / 入口路由”，workflow context 创建时会关联 workflow 线程，静态 Web/IM 最终回复会追加工作区/线程来源 footer。
+- Durable contract:
+  - 工作区、线程与入口路由边界见 `docs/ARCHITECTURE.md`。
+  - 线程与 runtime session / runner 对应关系见 `docs/RUNTIME.md`。
+  - IM 入口路由命令见 `docs/COMMAND.md`。
+  - workflow 与主线记忆隔离见 `docs/MEMORY.md`。
+- Next action:
+  - 真实飞书 / 微信私聊验证自然语言切换、“继续刚才那个任务”、回复带来源 footer 的 workflow 消息和 `/to` 单次投递；发现多候选歧义时应反问而不是静默串台。
+  - 后续把内部 conversation-agent API 进一步重命名为 thread API，减少实现命名和产品心智的错位；本轮 Web 用户心智已先收敛。
+  - 飞书 streaming card 的实时卡片 footer 仍主要展示 runtime 信息；如需要完全统一来源 footer，可继续把路由元数据下沉到 streaming card builder。
+
 ### P1 RM-2026-05-20-01 Stock Strategy Self-Iteration Workflow
 
 - Status: `monitoring`
