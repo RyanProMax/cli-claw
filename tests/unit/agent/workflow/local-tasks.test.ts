@@ -521,6 +521,20 @@ describe('default workflow local tasks', () => {
         'champion_challenger_comparison',
         'liquidity_fields_average_amount_5d_turnover_rate',
       ]),
+      strategy_usability_standard: {
+        version: 'stock_strategy_usability_v1',
+        pause_policy:
+          'pause_only_when_strategy_usability_passed_otherwise_continue_iteration',
+        required_checks: expect.arrayContaining([
+          expect.objectContaining({ id: 'artifact_integrity' }),
+          expect.objectContaining({ id: 'oos_segment_performance' }),
+          expect.objectContaining({ id: 'champion_challenger_comparison' }),
+          expect.objectContaining({ id: 'liquidity_and_execution' }),
+          expect.objectContaining({ id: 'risk_and_cost_sensitivity' }),
+          expect.objectContaining({ id: 'explainable_universe' }),
+          expect.objectContaining({ id: 'human_approval_boundary' }),
+        ]),
+      },
       candidate_evaluation: { factor: 'momentum_5d' },
       champion_evaluation: { factor: 'momentum_20d' },
       liquidity_snapshot: { status: 'ok' },

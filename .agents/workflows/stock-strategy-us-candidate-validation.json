@@ -17,7 +17,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-iteration-planner",
       "outputArtifact": "next_iteration_plan",
-      "prompt": "基于 candidate_validation_evidence 输出固定 JSON 调度决策。若证据齐备且仍需人审，action=ask_human、next_workflow=null、cadence=manual、requires_human=true；若 OOS/对照/流动性/集中度不合格，action=slow_down 或 pause、next_workflow=null、cadence=6h 或 manual，并将市场状态打回 cooldown。"
+      "prompt": "基于 candidate_validation_evidence 输出固定 JSON 调度决策，并填写 strategy_usability。只有 strategy_usability.status=passed 才允许 action=pause 或 pause_discovery；证据齐备且仍需人审时优先 action=ask_human、next_workflow=null、cadence=manual、requires_human=true、market_state=human_review_ready。若 OOS/对照/流动性/集中度不合格或证据缺失，action=slow_down 或 switch_workflow、cadence=6h，继续补证或打回 cooldown，不要暂停。"
     }
   ],
   "edges": [

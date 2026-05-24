@@ -17,7 +17,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-iteration-planner",
       "outputArtifact": "next_iteration_plan",
-      "prompt": "基于 hk_design_review_evidence 输出固定 JSON 调度决策。若仍是相同 blocked reason，action=pause 或 slow_down，cadence=6h/manual，next_workflow=null；若设计变化产生可验证候选，再切 candidate_validation。"
+      "prompt": "基于 hk_design_review_evidence 输出固定 JSON 调度决策，并填写 strategy_usability。若仍是相同 blocked reason，strategy_usability.status=failed 或 unknown，action=slow_down，cadence=6h/manual，next_workflow=null 或继续设计复盘；不要暂停。若设计变化产生可验证候选，再切 candidate_validation。只有 strategy_usability.status=passed 且已进入 human_review_ready 时才允许 pause。"
     }
   ],
   "edges": [

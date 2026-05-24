@@ -250,7 +250,7 @@ describe('scheduled workflow task helpers', () => {
     );
   });
 
-  test('applies stock strategy planner decisions to pause discovery and schedule validation', async () => {
+  test('keeps stock strategy discovery active when pause is requested without usability proof', async () => {
     const scheduledTask = task({
       id: 'stock-strategy-discovery-loop',
       group_folder: 'stock-strategy',
@@ -301,6 +301,14 @@ describe('scheduled workflow task helpers', () => {
 
     expect(updateTaskMock).toHaveBeenCalledWith(
       'stock-strategy-discovery-loop',
+      expect.objectContaining({
+        schedule_type: 'interval',
+        schedule_value: String(2 * 60 * 60 * 1000),
+        status: 'active',
+      }),
+    );
+    expect(updateTaskMock).not.toHaveBeenCalledWith(
+      'stock-strategy-discovery-loop',
       expect.objectContaining({ status: 'paused' }),
     );
     expect(createTaskMock).toHaveBeenCalledWith(
@@ -325,6 +333,70 @@ describe('scheduled workflow task helpers', () => {
       'feishu:private',
       expect.any(String),
       expect.anything(),
+    );
+  });
+
+  test('allows stock strategy pause only when usability gate passed', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-us-candidate-validation',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-us-candidate-validation',
+      prompt: 'Validate US candidate.',
+      notify_channels: ['feishu:private'],
+    });
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const decision = {
+      action: 'pause',
+      next_workflow: null,
+      cadence: 'manual',
+      reason: 'candidate meets the usability standard and awaits human review',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: true,
+      strategy_usability: {
+        status: 'passed',
+        standard_version: 'stock_strategy_usability_v1',
+        passed_checks: [
+          'artifact_integrity',
+          'oos_segment_performance',
+          'champion_challenger_comparison',
+          'liquidity_and_execution',
+          'risk_and_cost_sensitivity',
+          'explainable_universe',
+          'human_approval_boundary',
+        ],
+        failed_checks: [],
+      },
+    };
+    const runWorkflowCommand = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify(decision));
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(updateTaskMock).toHaveBeenCalledWith(
+      'stock-strategy-us-candidate-validation',
+      expect.objectContaining({ status: 'paused' }),
     );
   });
 
@@ -456,6 +528,14 @@ describe('scheduled workflow task helpers', () => {
     expect(runWorkflowCommand).not.toHaveBeenCalled();
     expect(runtimeUsageMock).not.toHaveBeenCalled();
     expect(updateTaskMock).toHaveBeenCalledWith(
+      'stock-strategy-discovery-loop',
+      expect.objectContaining({
+        schedule_type: 'interval',
+        schedule_value: String(2 * 60 * 60 * 1000),
+        status: 'active',
+      }),
+    );
+    expect(updateTaskMock).not.toHaveBeenCalledWith(
       'stock-strategy-discovery-loop',
       expect.objectContaining({ status: 'paused' }),
     );

@@ -623,7 +623,8 @@ describe('workflow config discovery', () => {
     expect(workflowPrompts).toContain('change_summary');
     expect(workflowPrompts).toContain('repeat_decision');
     expect(workflowPrompts).toContain('本轮无新增');
-    expect(workflowPrompts).toContain('暂停同配置 30 分钟 discovery 原样重跑');
+    expect(workflowPrompts).toContain('strategy_usability');
+    expect(workflowPrompts).toContain('未达可用标准时应降频');
   });
 
   test('bundled stock strategy state workflows split US validation, HK design review, and CN coverage check', () => {

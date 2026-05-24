@@ -17,7 +17,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-iteration-planner",
       "outputArtifact": "next_iteration_plan",
-      "prompt": "基于 cn_coverage_evidence 输出固定 JSON 调度决策。若仍 scanned=0，action=slow_down，next_workflow=stock-strategy-cn-coverage-check，cadence=6h，requires_human=false；若覆盖恢复，action=switch_workflow，next_workflow=stock-strategy-discovery-loop。"
+      "prompt": "基于 cn_coverage_evidence 输出固定 JSON 调度决策，并填写 strategy_usability。若仍 scanned=0，strategy_usability.status=failed 或 unknown，action=slow_down，next_workflow=stock-strategy-cn-coverage-check，cadence=6h，requires_human=false；不要暂停。若覆盖恢复，action=switch_workflow，next_workflow=stock-strategy-discovery-loop。CN 覆盖检查本身不代表策略可用，只有后续候选验证达到可用标准才允许 pause。"
     }
   ],
   "edges": [

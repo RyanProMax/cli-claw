@@ -34,7 +34,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-iteration-planner",
       "outputArtifact": "next_iteration_plan",
-      "prompt": "基于 discovery review 输出下一轮最小验证计划，必须是单个 JSON object，并包含 action、next_workflow、cadence、reason、evidence_signature、requires_human。必须先给出本轮增量 change_summary 和重复判断 repeat_decision；若候选、blocked reason 或数据缺口与前几轮一致，明确写本轮无新增，并暂停同配置 30 分钟 discovery 原样重跑，改为等待、补证、降频、进入 2 小时候选验证或 6 小时成熟复盘。"
+      "prompt": "基于 discovery review 输出下一轮最小验证计划，必须是单个 JSON object，并包含 action、next_workflow、cadence、reason、evidence_signature、requires_human、strategy_usability。必须先给出本轮增量 change_summary 和重复判断 repeat_decision；若候选、blocked reason 或数据缺口与前几轮一致，明确写本轮无新增，但只有 strategy_usability.status=passed 才能暂停。未达可用标准时应降频、进入 2 小时候选验证、6 小时设计/覆盖复盘或 cooldown，不要把重复 discovery 当作可停止迭代。"
     }
   ],
   "edges": [

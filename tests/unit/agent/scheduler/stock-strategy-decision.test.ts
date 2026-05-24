@@ -29,6 +29,49 @@ describe('stock strategy scheduler decision parsing', () => {
     });
   });
 
+  test('parses strategy usability gate evidence from planner decisions', () => {
+    const result = JSON.stringify({
+      action: 'pause',
+      next_workflow: null,
+      cadence: 'manual',
+      reason: 'candidate meets the strategy usability standard',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: true,
+      strategy_usability: {
+        status: 'passed',
+        standard_version: 'stock_strategy_usability_v1',
+        passed_checks: [
+          'artifact_integrity',
+          'oos_segment_performance',
+          'champion_challenger_comparison',
+        ],
+        failed_checks: [],
+        summary: 'US candidate is ready for human review.',
+      },
+    });
+
+    expect(parseStockStrategyPlannerDecision(result)).toEqual({
+      action: 'pause',
+      next_workflow: null,
+      cadence: 'manual',
+      reason: 'candidate meets the strategy usability standard',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: true,
+      strategy_usability: {
+        status: 'passed',
+        standard_version: 'stock_strategy_usability_v1',
+        passed_checks: [
+          'artifact_integrity',
+          'oos_segment_performance',
+          'champion_challenger_comparison',
+        ],
+        failed_checks: [],
+        missing_checks: [],
+        summary: 'US candidate is ready for human review.',
+      },
+    });
+  });
+
   test('normalizes cadence labels into interval milliseconds', () => {
     expect(parseCadenceToIntervalMs('2h')).toBe(2 * 60 * 60 * 1000);
     expect(parseCadenceToIntervalMs('6 小时')).toBe(6 * 60 * 60 * 1000);

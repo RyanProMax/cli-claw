@@ -44,6 +44,7 @@ const STOCK_STRATEGY_WORKSPACE_JID = 'web:stock-strategy';
 const STOCK_STRATEGY_WORKSPACE_FOLDER = 'stock-strategy';
 const STOCK_STRATEGY_WORKSPACE_NAME = '股票策略';
 const STOCK_STRATEGY_MAIN_THREAD_ID = 'thread-stock-strategy-main';
+const STOCK_STRATEGY_DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
   'stock-strategy-discovery-loop',
   'stock-strategy-loop',
@@ -1636,6 +1637,27 @@ function isStockStrategyWorkflowId(value: unknown): boolean {
   return typeof value === 'string' && STOCK_STRATEGY_WORKFLOW_IDS.has(value);
 }
 
+function stockStrategyResultHasPassedUsability(value: string | null): boolean {
+  if (!value) return false;
+  return (
+    /\busability=passed\b/.test(value) ||
+    /"strategy_usability"\s*:\s*\{[\s\S]*?"status"\s*:\s*"passed"/.test(value)
+  );
+}
+
+function isLegacyNonUsableStockPauseResult(value: string | null): boolean {
+  if (!value) return false;
+  return (
+    value.includes('No new evidence') ||
+    value.includes('pause_discovery') ||
+    value.includes('same evidence_signature') ||
+    value.includes('usability=unknown') ||
+    value.includes('usability=failed') ||
+    value.includes('pause_blocked=usability_gate_not_passed') ||
+    value.includes('stock strategy discovery is being migrated')
+  );
+}
+
 export function ensureStockStrategyWorkspaceAndSchedules(
   options: { now?: string } = {},
 ): {
@@ -1792,6 +1814,34 @@ export function ensureStockStrategyWorkspaceAndSchedules(
       STOCK_STRATEGY_WORKSPACE_FOLDER,
       defaultNotifyChannelsJson,
       schedule.id,
+    );
+  }
+
+  const discoveryTask = db
+    .prepare(
+      `SELECT id, status, last_result
+       FROM scheduled_tasks
+       WHERE id = 'stock-strategy-discovery-loop'`,
+    )
+    .get() as
+    | { id: string; status: string; last_result: string | null }
+    | undefined;
+  if (
+    discoveryTask?.status === 'paused' &&
+    !stockStrategyResultHasPassedUsability(discoveryTask.last_result) &&
+    isLegacyNonUsableStockPauseResult(discoveryTask.last_result)
+  ) {
+    db.prepare(
+      `UPDATE scheduled_tasks
+       SET status = 'active',
+           schedule_type = 'interval',
+           schedule_value = ?,
+           next_run = ?
+       WHERE id = ?`,
+    ).run(
+      String(STOCK_STRATEGY_DEFAULT_COOLDOWN_MS),
+      addMsToIso(now, STOCK_STRATEGY_DEFAULT_COOLDOWN_MS),
+      discoveryTask.id,
     );
   }
 

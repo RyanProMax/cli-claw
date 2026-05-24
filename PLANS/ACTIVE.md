@@ -12,6 +12,7 @@
 - 股票策略 workflow 具备 per-market 状态：`coverage_check -> discovery -> candidate_review -> candidate_validation -> human_review_ready -> approved/rejected/cooldown`，并维护 evidence signature。
 - US/HK/CN 拆出可调度工作流：US 候选验证、HK 设计复盘、CN 覆盖检查；当前节奏为 US 2h 验证、HK 手动或 6h 设计复盘、CN 6h 覆盖检查，全局 30m discovery 改为轻量 orchestrator 或暂停。
 - planner 输出固定 JSON schema，至少包含 `action`、`next_workflow`、`cadence`、`reason`、`evidence_signature`、`requires_human`；原始 JSON 保留在 workflow 审计中。
+- planner / scheduler 共同维护 `strategy_usability` 标准：只有策略证据达到可用标准时才允许真正暂停；未通过或未知时只能继续验证、设计复盘、覆盖检查、降频或 cooldown。
 - Web 自动化看板能展示每个市场状态，飞书/微信只推真正需要人的结论，重复无新增不刷完整发现摘要。
 - `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`、`docs/MODULE.md` 同步新的工作区、状态机、调度决策和 workflow 边界。
 
@@ -184,6 +185,51 @@ Risks / Notes / Handoff:
 - 启动迁移现在会在缺失时 seed `stock-strategy-us-candidate-validation`（2h）、`stock-strategy-hk-design-review`（6h）、`stock-strategy-cn-coverage-check`（6h），并把它们归属到 `web:stock-strategy` / `stock-strategy`；若已有任务则不覆盖用户配置，只补齐 workspace 归属和空 notify channel。
 - 已通过 `npm test -- tests/unit/storage/stock-strategy-workspace.test.ts`、`npm run typecheck:backend`、`./scripts/validate.sh` 与 `./scripts/review.sh`。
 
+### Milestone 6：策略可用标准与 pause gate
+
+Objective:
+- 回顾当前股票策略闭环的可优化点，定义 `stock_strategy_usability_v1` 策略可用标准，并让 scheduler 对 `pause` / `pause_discovery` 做标准门控：只有 `strategy_usability.status=passed` 时才真正暂停；未通过或未知时保持任务 active，通过降频、cooldown 或下游 workflow 继续迭代。
+
+Allowed scope:
+- `src/agent/scheduler/stock-strategy-decision.ts`
+- `src/agent/scheduler/index.ts`
+- `src/agent/workflow/local-tasks.ts`
+- `src/storage/db.ts`
+- `.agents/agent-roles/stock-strategy-iteration-planner.md`
+- `.agents/workflows/stock-strategy-*.json`
+- `tests/unit/agent/scheduler/stock-strategy-decision.test.ts`
+- `tests/unit/agent/scheduler/workflow-task.test.ts`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+- `tests/unit/storage/stock-strategy-workspace.test.ts`
+- `docs/RUNTIME.md`
+- `docs/COMMAND.md`
+- `docs/ARCHITECTURE.md`
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+
+Validation:
+- `npm test -- tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/unit/storage/stock-strategy-workspace.test.ts`
+- `npm run typecheck:backend`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 当前可优化点：`pause` 语义过宽，重复证据、blocked、候选待人审和真正策略可用都可能映射为暂停；scheduler 只信 planner action，没有结构化核验策略是否满足可用门槛。
+- `pause_discovery` 应避免 30 分钟 discovery 空跑，但不能等同于“策略已经可用”。若策略未达标，应保留 active 调度并降频，或转入 US 验证 / HK 设计复盘 / CN 覆盖检查。
+- 已落地 `stock_strategy_usability_v1`：artifact 完整性、OOS 分段、champion/challenger 同口径对比、流动性与执行字段、回撤/换手/成本敏感性、可解释 universe、人工审批边界。planner 必须输出 `strategy_usability`，scheduler 只有在 `status=passed` 时才真正 pause；缺失/failed/unknown 会转成 active cooldown / slow_down。
+- 启动迁移会把旧的非可用 discovery 暂停态（包括 `Paused by Codex: stock strategy discovery is being migrated...`）恢复为 6 小时低频 active，以便当前真实系统也被新规则接管。
+- 已通过 milestone targeted tests、`npm run typecheck:backend`、`./scripts/validate.sh` 与 `./scripts/review.sh`；semantic review 按 scope、目标、文档、测试覆盖和回归风险检查通过。
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` 是本轮执行单一真相源。
@@ -195,7 +241,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 5
+- Milestone 6
 
 Current status:
 - done
@@ -227,10 +273,10 @@ Changed files:
 - `tests/unit/storage/stock-strategy-workspace.test.ts`
 
 Last failure summary:
-- Milestone 5 初次 `tests/unit/storage/stock-strategy-workspace.test.ts` 发现默认下游任务若先被 seed，后续迁移来的 notify channel 不会回填；已改为只在 notify 为空时补齐迁移通道，随后 targeted test、typecheck、`./scripts/validate.sh` 与 `./scripts/review.sh` 均通过。
+- Milestone 6 初次全量验证发现 `tests/unit/agent/workflow/config.test.ts` 仍期待旧 prompt “暂停同配置 30 分钟 discovery 原样重跑”；已改为断言 `strategy_usability` 与“未达可用标准时应降频”。真实 DB 检查还发现旧暂停原因 `Paused by Codex: stock strategy discovery is being migrated...`，已补迁移识别和 storage 回归测试。
 
 Suspected cause:
-- 现有 planner 已输出重复判断，但 scheduler 没有结构化读取与执行层；scheduled task 仍固定 30 分钟运行完整 discovery。
+- 已确认并修复：暂停动作缺少策略可用标准门控，旧迁移也会把非可用 discovery 停在 paused 状态。
 
 Next step:
-- 本轮目标已落地并应用到运行服务；后续观察下一次 US/HK/CN 下游 workflow 是否按节奏运行，以及 discovery 重复 signature 是否按 `No new evidence` 短路。
+- 提交后按安全重启路径应用变更，并确认真实 `stock-strategy-discovery-loop` 从旧 paused 恢复为 6 小时低频 active；后续观察 planner 是否稳定填充 `strategy_usability`，以及只有 `status=passed` 的策略才进入真正暂停/人工评审。

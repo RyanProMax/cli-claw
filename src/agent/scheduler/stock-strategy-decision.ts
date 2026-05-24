@@ -13,6 +13,18 @@ export interface StockStrategyPlannerDecision {
   reason: string;
   evidence_signature: string;
   requires_human: boolean;
+  strategy_usability?: StockStrategyUsabilityGate;
+}
+
+export type StockStrategyUsabilityStatus = 'passed' | 'failed' | 'unknown';
+
+export interface StockStrategyUsabilityGate {
+  status: StockStrategyUsabilityStatus;
+  standard_version: string;
+  passed_checks: string[];
+  failed_checks: string[];
+  missing_checks: string[];
+  summary: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -25,6 +37,13 @@ function readString(value: unknown): string {
 
 function readBoolean(value: unknown): boolean {
   return value === true;
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
 }
 
 function normalizeAction(value: string): StockStrategySchedulerAction | null {
@@ -40,6 +59,59 @@ function normalizeAction(value: string): StockStrategySchedulerAction | null {
     return normalized;
   }
   return null;
+}
+
+function normalizeUsabilityStatus(
+  value: string,
+): StockStrategyUsabilityStatus | null {
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'passed' ||
+    normalized === 'failed' ||
+    normalized === 'unknown'
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeUsabilityGate(
+  value: unknown,
+): StockStrategyUsabilityGate | undefined {
+  if (isRecord(value)) {
+    const status = normalizeUsabilityStatus(readString(value.status));
+    if (!status) return undefined;
+    return {
+      status,
+      standard_version:
+        readString(value.standard_version) || 'stock_strategy_usability_v1',
+      passed_checks: readStringArray(value.passed_checks),
+      failed_checks: readStringArray(value.failed_checks),
+      missing_checks: readStringArray(value.missing_checks),
+      summary: readString(value.summary),
+    };
+  }
+  if (value === true) {
+    return {
+      status: 'passed',
+      standard_version: 'stock_strategy_usability_v1',
+      passed_checks: [],
+      failed_checks: [],
+      missing_checks: [],
+      summary: '',
+    };
+  }
+  if (value === false) {
+    return {
+      status: 'failed',
+      standard_version: 'stock_strategy_usability_v1',
+      passed_checks: [],
+      failed_checks: [],
+      missing_checks: [],
+      summary: '',
+    };
+  }
+  return undefined;
 }
 
 function tryParseJsonObject(value: string): Record<string, unknown> | null {
@@ -75,8 +147,12 @@ function normalizeDecision(
 ): StockStrategyPlannerDecision | null {
   const action = normalizeAction(readString(value.action));
   if (!action) return null;
+  const strategyUsability =
+    normalizeUsabilityGate(value.strategy_usability) ??
+    normalizeUsabilityGate(value.usability_gate) ??
+    normalizeUsabilityGate(value.strategy_usable);
 
-  return {
+  const decision: StockStrategyPlannerDecision = {
     action,
     next_workflow: readString(value.next_workflow) || null,
     cadence: readString(value.cadence) || null,
@@ -84,6 +160,8 @@ function normalizeDecision(
     evidence_signature: readString(value.evidence_signature),
     requires_human: readBoolean(value.requires_human),
   };
+  if (strategyUsability) decision.strategy_usability = strategyUsability;
+  return decision;
 }
 
 export function parseStockStrategyPlannerDecision(

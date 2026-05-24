@@ -121,4 +121,45 @@ describe('stock strategy workspace migration', () => {
 
     db.closeDatabase();
   });
+
+  test('resumes legacy paused discovery when usability was not proven', async () => {
+    const { db } = await loadStorage();
+
+    db.createTask({
+      id: 'stock-strategy-discovery-loop',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      prompt: 'Run stock strategy discovery',
+      schedule_type: 'interval',
+      schedule_value: String(30 * 60 * 1000),
+      context_mode: 'isolated',
+      execution_type: 'workflow',
+      script_command: 'stock-strategy-discovery-loop',
+      next_run: '2026-05-24T01:00:00.000Z',
+      status: 'active',
+      created_at: '2026-05-24T00:05:00.000Z',
+      created_by: 'instance-1',
+      notify_channels: null,
+    });
+    db.updateTaskAfterRun(
+      'stock-strategy-discovery-loop',
+      '2026-05-24T01:00:00.000Z',
+      'Paused by Codex: stock strategy discovery is being migrated to state-driven orchestrator',
+    );
+    db.updateTask('stock-strategy-discovery-loop', { status: 'paused' });
+
+    db.ensureStockStrategyWorkspaceAndSchedules({
+      now: '2026-05-24T00:10:00.000Z',
+    });
+
+    expect(db.getTaskById('stock-strategy-discovery-loop')).toMatchObject({
+      status: 'active',
+      schedule_type: 'interval',
+      schedule_value: String(6 * 60 * 60 * 1000),
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+    });
+
+    db.closeDatabase();
+  });
 });

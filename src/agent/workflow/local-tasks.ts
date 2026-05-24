@@ -418,6 +418,49 @@ function evidenceSignature(parts: {
   ].join(':');
 }
 
+const STOCK_STRATEGY_USABILITY_STANDARD = {
+  version: 'stock_strategy_usability_v1',
+  pause_policy:
+    'pause_only_when_strategy_usability_passed_otherwise_continue_iteration',
+  required_checks: [
+    {
+      id: 'artifact_integrity',
+      description:
+        'All mandatory validation artifacts are present and not degraded.',
+    },
+    {
+      id: 'oos_segment_performance',
+      description:
+        'Out-of-sample segment evidence is available and not dependent on one recent slice.',
+    },
+    {
+      id: 'champion_challenger_comparison',
+      description:
+        'Candidate is compared against the current champion under the same universe, holding window, and cost model.',
+    },
+    {
+      id: 'liquidity_and_execution',
+      description:
+        'Selected symbols include average_amount_5d and turnover_rate evidence sufficient for execution review.',
+    },
+    {
+      id: 'risk_and_cost_sensitivity',
+      description:
+        'Drawdown, turnover, and default plus stressed cost sensitivity do not invalidate the net edge.',
+    },
+    {
+      id: 'explainable_universe',
+      description:
+        'Universe expands beyond a tiny symbol sample and concentration is explainable by industry or theme.',
+    },
+    {
+      id: 'human_approval_boundary',
+      description:
+        'Human review remains required before approve, activate, or any broker action.',
+    },
+  ],
+} as const;
+
 function getCode(item: unknown): string {
   return isObject(item) && typeof item.code === 'string' ? item.code : '';
 }
@@ -981,6 +1024,7 @@ function createCandidateValidationTask(
         'drawdown_turnover_cost_sensitivity',
         'expanded_explainable_universe',
       ],
+      strategy_usability_standard: STOCK_STRATEGY_USABILITY_STANDARD,
       candidate_evaluation: pruneArtifactValue(candidateEvaluation),
       champion_evaluation: pruneArtifactValue(championEvaluation),
       candidate_backtest: pruneArtifactValue(candidateBacktest),
@@ -1061,6 +1105,7 @@ function createDesignReviewTask(
         'universe_coverage_review',
         'blocked_reason_recheck',
       ],
+      strategy_usability_standard: STOCK_STRATEGY_USABILITY_STANDARD,
       design_evidence: pruneArtifactValue(designEvidence),
     };
   };
@@ -1147,6 +1192,7 @@ function createCoverageCheckTask(
       coverage_status: coverageStatus,
       next_action:
         coverageStatus === 'ready' ? 'resume_discovery' : 'keep_coverage_check',
+      strategy_usability_standard: STOCK_STRATEGY_USABILITY_STANDARD,
       seed_status: pruneArtifactValue(seedStatus),
       scan: pruneArtifactValue(scan),
     };

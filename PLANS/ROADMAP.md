@@ -43,6 +43,7 @@
 - Next action:
   - 2026-05-24 已将股票策略自动化升级为状态驱动投研闭环：启动迁移会创建 `web:stock-strategy`（股票策略）工作区并迁移 `stock-strategy-*` scheduled workflow；planner 固定输出 `action` / `next_workflow` / `cadence` / `reason` / `evidence_signature` / `requires_human`，scheduler 可暂停、降频、触发下游 workflow 或只在需要人工时通知飞书/微信。
   - 2026-05-24 已新增三条市场状态 workflow：`stock-strategy-us-candidate-validation` 做 US 候选验证，`stock-strategy-hk-design-review` 做 HK 设计复盘，`stock-strategy-cn-coverage-check` 做 CN 覆盖检查；Web 自动化看板会展示 US/HK/CN 的状态、证据签名、下游 workflow、cadence 和人工确认需求。
+  - 2026-05-24 已补 `stock_strategy_usability_v1` 策略可用标准与 pause gate：planner 必须输出 `strategy_usability`，只有 `status=passed` 才允许真正暂停；未通过或未知的 pause / pause_discovery 会被 scheduler 转为 active 的 cooldown / slow_down，并继续验证、设计复盘或覆盖检查。启动迁移会把旧的非可用 discovery 暂停态恢复为 6 小时低频 active。
   - 第一轮真实 `stock-strategy-discovery-loop` 已于 2026-05-20T16:30:52Z 成功完成，下一轮排到 2026-05-20T17:00:00Z；继续观察后续 discovery 是否稳定区分新候选、重复候选、样本不足和 OOS 未成熟，且没有交易/approve/activate 越界。
   - 2026-05-21 已新增股票策略 workflow 飞书摘要层并完成卡片精修：用户可见消息固定展示阶段目标、本轮完成、策略效果和后续规划；要点使用加粗标题与空行；完整 JSON 只留在 workflow 审计中。
   - 2026-05-21 已收紧 planner 契约：`stock-strategy-iteration-planner` 必须输出 `change_summary` 与 `repeat_decision`，连续无新增时要明确写重复判断、等待、降频、补证或转候选验证，避免把同一 discovery 结果包装成新结论。

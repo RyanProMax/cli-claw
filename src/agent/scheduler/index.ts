@@ -55,6 +55,7 @@ export interface SchedulerDependencies {
 const runningTaskIds = new Set<string>();
 const DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT = 30;
 const DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS = 30 * 60 * 1000;
+const STOCK_STRATEGY_DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
@@ -254,9 +255,13 @@ function shouldNotifyExternalChannels(
 
 function formatStockStrategyDecisionNotice(
   decision: StockStrategyPlannerDecision,
+  options: { pauseBlocked?: boolean } = {},
 ): string {
+  const usabilityStatus = decision.strategy_usability?.status ?? 'unknown';
   const pieces = [
     `股票策略调度决策：${decision.action}`,
+    `usability=${usabilityStatus}`,
+    options.pauseBlocked ? 'pause_blocked=usability_gate_not_passed' : null,
     decision.next_workflow ? `next=${decision.next_workflow}` : null,
     decision.cadence ? `cadence=${decision.cadence}` : null,
     decision.evidence_signature
@@ -399,25 +404,38 @@ function applyStockStrategyPlannerDecision(
   const intervalMs = parseCadenceToIntervalMs(decision.cadence);
   const shouldPause =
     decision.action === 'pause' || decision.action === 'pause_discovery';
+  const usabilityPassed = decision.strategy_usability?.status === 'passed';
+  const pauseBlocked = shouldPause && !usabilityPassed;
+  const effectiveIntervalMs =
+    intervalMs ?? (pauseBlocked ? STOCK_STRATEGY_DEFAULT_COOLDOWN_MS : null);
+
   if (shouldPause) {
-    updateTask(task.id, { status: 'paused' });
-  } else if (decision.action === 'slow_down' && intervalMs !== null) {
+    if (usabilityPassed) {
+      updateTask(task.id, { status: 'paused' });
+    } else if (effectiveIntervalMs !== null) {
+      updateTask(task.id, {
+        schedule_type: 'interval',
+        schedule_value: String(effectiveIntervalMs),
+        status: 'active',
+      });
+    }
+  } else if (decision.action === 'slow_down' && effectiveIntervalMs !== null) {
     updateTask(task.id, {
       schedule_type: 'interval',
-      schedule_value: String(intervalMs),
+      schedule_value: String(effectiveIntervalMs),
       status: 'active',
     });
   }
 
-  if (decision.next_workflow && intervalMs !== null) {
+  if (decision.next_workflow && effectiveIntervalMs !== null) {
     const existing = getTaskById(decision.next_workflow);
-    const nextRun = new Date(Date.now() + intervalMs).toISOString();
+    const nextRun = new Date(Date.now() + effectiveIntervalMs).toISOString();
     const prompt = buildDownstreamPrompt(decision);
     if (existing) {
       updateTask(existing.id, {
         prompt,
         schedule_type: 'interval',
-        schedule_value: String(intervalMs),
+        schedule_value: String(effectiveIntervalMs),
         script_command: decision.next_workflow,
         next_run: nextRun,
         status: 'active',
@@ -430,7 +448,7 @@ function applyStockStrategyPlannerDecision(
         chat_jid: task.chat_jid,
         prompt,
         schedule_type: 'interval',
-        schedule_value: String(intervalMs),
+        schedule_value: String(effectiveIntervalMs),
         context_mode: 'isolated',
         execution_type: 'workflow',
         script_command: decision.next_workflow,
@@ -445,7 +463,7 @@ function applyStockStrategyPlannerDecision(
     }
   }
 
-  return formatStockStrategyDecisionNotice(decision);
+  return formatStockStrategyDecisionNotice(decision, { pauseBlocked });
 }
 
 function isTaskStillActive(taskId: string): boolean {
