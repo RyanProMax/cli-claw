@@ -613,7 +613,12 @@ function readScheduledTaskId(
   metadata: Record<string, unknown> | null,
 ): string | null {
   const id = metadata?.scheduledTaskId;
-  return typeof id === 'string' && id.trim() ? id : null;
+  if (typeof id === 'string' && id.trim()) return id;
+  const initialInput = isRecord(metadata?.initialInput)
+    ? metadata.initialInput
+    : null;
+  const nestedId = initialInput?.scheduledTaskId;
+  return typeof nestedId === 'string' && nestedId.trim() ? nestedId : null;
 }
 
 function taskWorkflowId(task: ScheduledTask): string | null {

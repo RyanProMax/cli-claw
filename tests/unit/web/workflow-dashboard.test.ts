@@ -32,8 +32,8 @@ function input(
         result: null,
         error: null,
         metadata: {
-          source: 'scheduled_task',
-          scheduledTaskId: 'task-discovery',
+          source: 'slash-command',
+          initialInput: { scheduledTaskId: 'task-discovery' },
         },
         started_at: '2026-05-22T10:00:00.000Z',
         completed_at: null,
@@ -54,8 +54,8 @@ function input(
         result: 'completed',
         error: null,
         metadata: {
-          source: 'scheduled_task',
-          scheduledTaskId: 'task-discovery',
+          source: 'slash-command',
+          initialInput: { scheduledTaskId: 'task-discovery' },
         },
         started_at: '2026-05-22T09:00:00.000Z',
         completed_at: '2026-05-22T09:02:30.000Z',

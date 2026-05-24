@@ -124,6 +124,37 @@ Risks / Notes / Handoff:
 - Web 自动化看板已新增股票策略状态区，展示全局 decision、US/HK/CN 市场状态、evidence signature、下一步 workflow、cadence、原因和是否需要人工；scheduler 对非人工股票策略决策只回投工作区，不再刷飞书/微信重复发现。
 - 已通过 `npm test -- tests/unit/web/workflow-dashboard.test.ts tests/integration/routes/workflows-dashboard.test.ts`、`npm --prefix web run build`、`npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/storage/stock-strategy-workspace.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/unit/web/workflow-dashboard.test.ts tests/integration/routes/workflows-dashboard.test.ts`、`npm run typecheck:backend`、`./scripts/validate.sh` 与 `./scripts/review.sh`。浏览器 DOM 冒烟确认 `/automations?tab=workflows` 可见 `股票策略状态`、US 待人工、HK 阻塞、CN 与下游 workflow；截图 API 超时但 DOM 校验通过。
 
+### Milestone 4：evidence signature 防空转前置短路
+
+Objective:
+- scheduler 在启动完整 discovery workflow 前读取最近 planner 决策；若连续两轮 `evidence_signature` 相同且不需要人工，则不再调用 Agent / 不再跑完整 discovery，只记录“无新增证据”并把 discovery 置入 cooldown / 下游验证。
+
+Allowed scope:
+- `src/agent/scheduler/index.ts`
+- `src/web/workflow-dashboard.ts`
+- `tests/unit/agent/scheduler/workflow-task.test.ts`
+- `tests/unit/web/workflow-dashboard.test.ts`
+- `PLANS/ACTIVE.md`
+
+Validation:
+- `npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/web/workflow-dashboard.test.ts`
+- `npm run typecheck:backend`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- scheduler 已在完整 workflow 执行前读取最近成功 planner decision；当 `stock-strategy-discovery-loop` 连续两轮 `evidence_signature`、action、下游 workflow 与 cadence 相同且无需人工时，会直接记录 `No new evidence`、不调用 workflow runner / usage guard / Agent，并应用 `pause_discovery` + 下游 cadence。Web dashboard 同步识别真实 workflow run metadata 中的 `initialInput.scheduledTaskId`，避免 scheduled run 关联丢失。
+- 已通过 `npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/web/workflow-dashboard.test.ts`、`npm run typecheck:backend`、`./scripts/validate.sh` 与 `./scripts/review.sh`；第一次 `review.sh` 因 Prettier 格式失败，已格式化 `src/agent/scheduler/index.ts` 后重跑通过。
+
 ## Working Rules
 
 - `PLANS/ACTIVE.md` 是本轮执行单一真相源。
@@ -135,7 +166,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 3
+- Milestone 4
 
 Current status:
 - done
@@ -167,10 +198,10 @@ Changed files:
 - `tests/unit/storage/stock-strategy-workspace.test.ts`
 
 Last failure summary:
-- 第一次 `./scripts/review.sh` 因三个源文件格式化失败，已用 `prettier --write` 修复；后续 `./scripts/validate.sh` 与 `./scripts/review.sh` 均通过。浏览器截图 API 超时，但 DOM 冒烟检查已确认股票策略状态面板渲染。
+- Milestone 4 初次 `./scripts/review.sh` 因 `src/agent/scheduler/index.ts` 格式化失败，已用 Prettier 修复；后续 `./scripts/validate.sh` 与 `./scripts/review.sh` 均通过。
 
 Suspected cause:
 - 现有 planner 已输出重复判断，但 scheduler 没有结构化读取与执行层；scheduled task 仍固定 30 分钟运行完整 discovery。
 
 Next step:
-- 提交本轮改动；后续观察真实 scheduled workflow 的下游任务创建、暂停/降频与 IM 降噪效果。
+- 提交 Milestone 4，随后按安全重启路径应用到运行服务，并复核真实 DB / Web 看板状态。

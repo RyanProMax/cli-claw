@@ -5,6 +5,7 @@ import type { ScheduledTask } from '../../../../src/domain/types.ts';
 const {
   createTaskMock,
   getTaskByIdMock,
+  listWorkflowRunsMock,
   logTaskRunStartMock,
   runtimeUsageMock,
   updateTaskMock,
@@ -13,6 +14,7 @@ const {
 } = vi.hoisted(() => ({
   createTaskMock: vi.fn(),
   getTaskByIdMock: vi.fn(),
+  listWorkflowRunsMock: vi.fn(() => []),
   logTaskRunStartMock: vi.fn(() => 1001),
   runtimeUsageMock: vi.fn(),
   updateTaskMock: vi.fn(),
@@ -35,6 +37,10 @@ vi.mock('../../../../src/storage/db.js', () => ({
   updateTask: updateTaskMock,
   updateTaskAfterRun: updateTaskAfterRunMock,
   updateTaskRunLog: updateTaskRunLogMock,
+}));
+
+vi.mock('../../../../src/storage/workflows.js', () => ({
+  listWorkflowRuns: listWorkflowRunsMock,
 }));
 
 import {
@@ -66,6 +72,7 @@ describe('scheduled workflow task helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     logTaskRunStartMock.mockReturnValue(1001);
+    listWorkflowRunsMock.mockReturnValue([]);
     runtimeUsageMock.mockResolvedValue({
       provider: 'openai',
       available: true,
@@ -375,5 +382,104 @@ describe('scheduled workflow task helpers', () => {
       expect.stringContaining('candidate passed validation'),
       { source: 'scheduled_task' },
     );
+  });
+
+  test('short-circuits repeated stock discovery evidence before running the workflow command', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-discovery-loop',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-discovery-loop',
+      prompt: 'Route stock strategy work by state.',
+      schedule_value: String(30 * 60 * 1000),
+      workspace_jid: 'web:stock-strategy',
+      workspace_folder: 'stock-strategy',
+      notify_channels: ['feishu:private'],
+    });
+    getTaskByIdMock.mockImplementation((id: string) =>
+      id === scheduledTask.id ? scheduledTask : undefined,
+    );
+    const decision = {
+      action: 'switch_workflow',
+      next_workflow: 'stock-strategy-us-candidate-validation',
+      cadence: '2h',
+      reason: 'same evidence signature, candidate requires validation',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: false,
+    };
+    listWorkflowRunsMock.mockReturnValue([
+      {
+        id: 'run-latest',
+        status: 'success',
+        workflow_id: 'stock-strategy-discovery-loop',
+        result: JSON.stringify(decision),
+        metadata: {
+          source: 'slash-command',
+          initialInput: { scheduledTaskId: 'stock-strategy-discovery-loop' },
+        },
+      },
+      {
+        id: 'run-previous',
+        status: 'success',
+        workflow_id: 'stock-strategy-discovery-loop',
+        result: JSON.stringify(decision),
+        metadata: {
+          source: 'slash-command',
+          initialInput: { scheduledTaskId: 'stock-strategy-discovery-loop' },
+        },
+      },
+    ]);
+    const runWorkflowCommand = vi.fn();
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(runWorkflowCommand).not.toHaveBeenCalled();
+    expect(runtimeUsageMock).not.toHaveBeenCalled();
+    expect(updateTaskMock).toHaveBeenCalledWith(
+      'stock-strategy-discovery-loop',
+      expect.objectContaining({ status: 'paused' }),
+    );
+    expect(createTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'stock-strategy-us-candidate-validation',
+        script_command: 'stock-strategy-us-candidate-validation',
+        schedule_type: 'interval',
+        schedule_value: String(2 * 60 * 60 * 1000),
+      }),
+    );
+    expect(updateTaskRunLogMock).toHaveBeenCalledWith(
+      1001,
+      expect.objectContaining({
+        status: 'success',
+        result: expect.stringContaining('No new evidence'),
+        error: null,
+      }),
+    );
+    expect(updateTaskAfterRunMock).toHaveBeenCalledWith(
+      'stock-strategy-discovery-loop',
+      expect.any(String),
+      expect.stringContaining('No new evidence'),
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

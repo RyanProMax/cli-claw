@@ -17,9 +17,14 @@ import {
   updateTaskAfterRun,
   updateTaskRunLog,
 } from '../../storage/scheduler.js';
+import { listWorkflowRuns } from '../../storage/workflows.js';
 import type { GroupQueue } from '../queue/group-queue.js';
 import { serializeErrorForOutput } from '../../../shared/dist/error-serialization.js';
-import type { RegisteredGroup, ScheduledTask } from '../../domain/types.js';
+import type {
+  RegisteredGroup,
+  ScheduledTask,
+  WorkflowRun,
+} from '../../domain/types.js';
 import type { StreamEvent } from '../../presentation/stream-event.types.js';
 import { evaluateScheduledTaskUsageGuard } from './usage-guard.js';
 import {
@@ -274,6 +279,119 @@ function buildDownstreamPrompt(decision: StockStrategyPlannerDecision): string {
   return lines.filter((line): line is string => Boolean(line)).join('\n');
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readRunScheduledTaskId(run: WorkflowRun): string | null {
+  const metadata = run.metadata;
+  if (!isRecord(metadata)) return null;
+  if (typeof metadata.scheduledTaskId === 'string') {
+    return metadata.scheduledTaskId;
+  }
+  const initialInput = metadata.initialInput;
+  if (
+    isRecord(initialInput) &&
+    typeof initialInput.scheduledTaskId === 'string'
+  ) {
+    return initialInput.scheduledTaskId;
+  }
+  return null;
+}
+
+function taskWorkflowId(task: ScheduledTask): string | null {
+  return task.script_command?.trim() || null;
+}
+
+function isStockStrategyDiscoveryTask(task: ScheduledTask): boolean {
+  return (
+    task.id === 'stock-strategy-discovery-loop' ||
+    taskWorkflowId(task) === 'stock-strategy-discovery-loop'
+  );
+}
+
+function workflowRunBelongsToTask(
+  run: WorkflowRun,
+  task: ScheduledTask,
+): boolean {
+  const scheduledTaskId = readRunScheduledTaskId(run);
+  if (scheduledTaskId) return scheduledTaskId === task.id;
+  return run.workflow_id === taskWorkflowId(task);
+}
+
+function recentStockStrategyPlannerDecisions(
+  task: ScheduledTask,
+): StockStrategyPlannerDecision[] {
+  const workflowId = taskWorkflowId(task);
+  if (!workflowId) return [];
+  return listWorkflowRuns({ workflowId, limit: 20 })
+    .filter(
+      (run) =>
+        run.status === 'success' &&
+        workflowRunBelongsToTask(run, task) &&
+        Boolean(run.result),
+    )
+    .map((run) => parseStockStrategyPlannerDecision(run.result))
+    .filter(
+      (decision): decision is StockStrategyPlannerDecision => decision !== null,
+    )
+    .slice(0, 2);
+}
+
+function sameEvidenceSignatureWithoutHumanReview(
+  left: StockStrategyPlannerDecision,
+  right: StockStrategyPlannerDecision,
+): boolean {
+  return (
+    Boolean(left.evidence_signature) &&
+    left.evidence_signature === right.evidence_signature &&
+    left.action === right.action &&
+    left.next_workflow === right.next_workflow &&
+    left.cadence === right.cadence &&
+    !left.requires_human &&
+    !right.requires_human &&
+    left.action !== 'ask_human' &&
+    right.action !== 'ask_human'
+  );
+}
+
+function resolveStockStrategyShortCircuitDecision(
+  task: ScheduledTask,
+): StockStrategyPlannerDecision | null {
+  if (!isStockStrategyDiscoveryTask(task)) return null;
+  const decisions = recentStockStrategyPlannerDecisions(task);
+  if (decisions.length < 2) return null;
+  const [latest, previous] = decisions;
+  if (!sameEvidenceSignatureWithoutHumanReview(latest, previous)) return null;
+
+  return {
+    ...latest,
+    action: 'pause_discovery',
+    cadence: latest.cadence || '6h',
+    reason: [
+      'no new evidence: same evidence_signature repeated across two planner decisions',
+      latest.reason,
+    ]
+      .filter(Boolean)
+      .join('; '),
+    requires_human: false,
+  };
+}
+
+function formatStockStrategyShortCircuitResult(
+  decision: StockStrategyPlannerDecision,
+): string {
+  return [
+    'No new evidence: stock strategy discovery short-circuited before workflow execution.',
+    `evidence_signature=${decision.evidence_signature}`,
+    decision.next_workflow ? `next_workflow=${decision.next_workflow}` : null,
+    decision.cadence ? `cadence=${decision.cadence}` : null,
+    decision.reason ? `reason=${decision.reason}` : null,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
 function applyStockStrategyPlannerDecision(
   task: ScheduledTask,
   decision: StockStrategyPlannerDecision,
@@ -367,8 +485,47 @@ export async function runWorkflowTask(
   let result: string | null = null;
   let error: string | null = null;
   let deferredByUsageGuard = false;
+  let completedByEvidenceShortCircuit = false;
 
   try {
+    const stockStrategyShortCircuitDecision =
+      !manualRun && !error
+        ? resolveStockStrategyShortCircuitDecision(task)
+        : null;
+    if (stockStrategyShortCircuitDecision) {
+      const shortCircuitResult = formatStockStrategyShortCircuitResult(
+        stockStrategyShortCircuitDecision,
+      );
+      const decisionNotice = applyStockStrategyPlannerDecision(
+        task,
+        stockStrategyShortCircuitDecision,
+      );
+      const currentTask = getTaskById(task.id) ?? task;
+      updateTaskRunLog(runLogId, {
+        duration_ms: Date.now() - startTime,
+        status: 'success',
+        result: [shortCircuitResult, decisionNotice]
+          .filter(Boolean)
+          .join('\n\n'),
+        error: null,
+      });
+      updateTaskAfterRun(
+        task.id,
+        computeNextRun(currentTask),
+        shortCircuitResult.slice(0, 200),
+      );
+      completedByEvidenceShortCircuit = true;
+      logger.info(
+        {
+          taskId: task.id,
+          evidenceSignature:
+            stockStrategyShortCircuitDecision.evidence_signature,
+        },
+        'Stock strategy discovery short-circuited with no new evidence',
+      );
+      return;
+    }
+
     deferredByUsageGuard = await deferScheduledTaskIfUsageLow(
       task,
       deps,
@@ -431,7 +588,7 @@ export async function runWorkflowTask(
     logger.error({ taskId: task.id, error }, 'Workflow task failed');
   } finally {
     runningTaskIds.delete(task.id);
-    if (!deferredByUsageGuard) {
+    if (!deferredByUsageGuard && !completedByEvidenceShortCircuit) {
       updateTaskRunLog(runLogId, {
         duration_ms: Date.now() - startTime,
         status: error ? 'error' : 'success',
