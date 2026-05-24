@@ -12,10 +12,15 @@ export interface StockStrategyPlannerDecision {
   cadence: string | null;
   current_cadence?: string | null;
   next_cadence?: string | null;
+  current_next_run_at?: string | null;
+  next_run_at?: string | null;
+  next_workflows?: StockStrategyWorkflowAssignment[];
   reason: string;
   evidence_signature: string;
   requires_human: boolean;
   strategy_usability?: StockStrategyUsabilityGate;
+  quality_gate?: StockStrategyQualityGate;
+  work_budget?: StockStrategyWorkBudget;
 }
 
 export type StockStrategyUsabilityStatus = 'passed' | 'failed' | 'unknown';
@@ -29,6 +34,37 @@ export interface StockStrategyUsabilityGate {
   summary: string;
 }
 
+export type StockStrategyQualityGateStatus = 'passed' | 'failed' | 'unknown';
+
+export interface StockStrategyQualityGate {
+  status: StockStrategyQualityGateStatus;
+  standard_version: string;
+  stage: string;
+  score: number | null;
+  passed_checks: string[];
+  failed_checks: string[];
+  missing_checks: string[];
+  defects: string[];
+  summary: string;
+}
+
+export interface StockStrategyWorkflowAssignment {
+  workflow_id: string;
+  cadence?: string | null;
+  next_run_at?: string | null;
+  priority?: string | null;
+  reason?: string | null;
+  prompt?: string | null;
+  quality_gate?: string | StockStrategyQualityGate | null;
+}
+
+export interface StockStrategyWorkBudget {
+  max_runtime_minutes?: number | null;
+  max_retries?: number | null;
+  max_cost_usd?: number | null;
+  priority?: string | null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -39,6 +75,11 @@ function readString(value: unknown): string {
 
 function readBoolean(value: unknown): boolean {
   return value === true;
+}
+
+function readNumber(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function readStringArray(value: unknown): string[] {
@@ -75,6 +116,12 @@ function normalizeUsabilityStatus(
     return normalized;
   }
   return null;
+}
+
+function normalizeQualityGateStatus(
+  value: string,
+): StockStrategyQualityGateStatus | null {
+  return normalizeUsabilityStatus(value);
 }
 
 function normalizeUsabilityGate(
@@ -116,6 +163,120 @@ function normalizeUsabilityGate(
   return undefined;
 }
 
+function normalizeQualityGate(
+  value: unknown,
+): StockStrategyQualityGate | undefined {
+  if (isRecord(value)) {
+    const status = normalizeQualityGateStatus(readString(value.status));
+    if (!status) return undefined;
+    return {
+      status,
+      standard_version:
+        readString(value.standard_version) || 'stock_strategy_quality_gate_v1',
+      stage: readString(value.stage),
+      score: readNumber(value.score),
+      passed_checks: readStringArray(value.passed_checks),
+      failed_checks: readStringArray(value.failed_checks),
+      missing_checks: readStringArray(value.missing_checks),
+      defects: readStringArray(value.defects),
+      summary: readString(value.summary),
+    };
+  }
+  if (value === true) {
+    return {
+      status: 'passed',
+      standard_version: 'stock_strategy_quality_gate_v1',
+      stage: '',
+      score: null,
+      passed_checks: [],
+      failed_checks: [],
+      missing_checks: [],
+      defects: [],
+      summary: '',
+    };
+  }
+  if (value === false) {
+    return {
+      status: 'failed',
+      standard_version: 'stock_strategy_quality_gate_v1',
+      stage: '',
+      score: null,
+      passed_checks: [],
+      failed_checks: [],
+      missing_checks: [],
+      defects: [],
+      summary: '',
+    };
+  }
+  return undefined;
+}
+
+function normalizeAssignmentQualityGate(
+  value: unknown,
+): string | StockStrategyQualityGate | null | undefined {
+  const label = readString(value);
+  if (label) return label;
+  const gate = normalizeQualityGate(value);
+  return gate ?? undefined;
+}
+
+function normalizeWorkflowAssignment(
+  value: unknown,
+): StockStrategyWorkflowAssignment | null {
+  if (!isRecord(value)) return null;
+  const workflowId =
+    readString(value.workflow_id) || readString(value.workflowId);
+  if (!workflowId) return null;
+  const assignment: StockStrategyWorkflowAssignment = {
+    workflow_id: workflowId,
+  };
+  const cadence = readString(value.cadence);
+  const nextRunAt =
+    readString(value.next_run_at) || readString(value.nextRunAt);
+  const priority = readString(value.priority);
+  const reason = readString(value.reason);
+  const prompt = readString(value.prompt);
+  const qualityGate = normalizeAssignmentQualityGate(value.quality_gate);
+  if (cadence) assignment.cadence = cadence;
+  if (nextRunAt) assignment.next_run_at = nextRunAt;
+  if (priority) assignment.priority = priority;
+  if (reason) assignment.reason = reason;
+  if (prompt) assignment.prompt = prompt;
+  if (qualityGate !== undefined) assignment.quality_gate = qualityGate;
+  return assignment;
+}
+
+function normalizeWorkflowAssignments(
+  value: unknown,
+): StockStrategyWorkflowAssignment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const assignments = value
+    .map(normalizeWorkflowAssignment)
+    .filter(
+      (assignment): assignment is StockStrategyWorkflowAssignment =>
+        assignment !== null,
+    );
+  return assignments.length > 0 ? assignments : undefined;
+}
+
+function normalizeWorkBudget(
+  value: unknown,
+): StockStrategyWorkBudget | undefined {
+  if (!isRecord(value)) return undefined;
+  const budget: StockStrategyWorkBudget = {};
+  const maxRuntimeMinutes = readNumber(value.max_runtime_minutes);
+  const maxRetries = readNumber(value.max_retries);
+  const maxCostUsd = readNumber(value.max_cost_usd);
+  const priority = readString(value.priority);
+  if (maxRuntimeMinutes !== null) {
+    budget.max_runtime_minutes = maxRuntimeMinutes;
+  }
+  if (maxRetries !== null) budget.max_retries = maxRetries;
+  if (maxCostUsd !== null) budget.max_cost_usd = maxCostUsd;
+  if (priority) budget.priority = priority;
+  return Object.keys(budget).length > 0 ? budget : undefined;
+}
+
 function tryParseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -153,6 +314,9 @@ function normalizeDecision(
     normalizeUsabilityGate(value.strategy_usability) ??
     normalizeUsabilityGate(value.usability_gate) ??
     normalizeUsabilityGate(value.strategy_usable);
+  const qualityGate = normalizeQualityGate(value.quality_gate);
+  const nextWorkflows = normalizeWorkflowAssignments(value.next_workflows);
+  const workBudget = normalizeWorkBudget(value.work_budget);
 
   const decision: StockStrategyPlannerDecision = {
     action,
@@ -166,9 +330,18 @@ function normalizeDecision(
     readString(value.current_cadence) || readString(value.orchestrator_cadence);
   const nextCadence =
     readString(value.next_cadence) || readString(value.workflow_cadence);
+  const currentNextRunAt =
+    readString(value.current_next_run_at) ||
+    readString(value.orchestrator_next_run_at);
+  const nextRunAt = readString(value.next_run_at);
   if (currentCadence) decision.current_cadence = currentCadence;
   if (nextCadence) decision.next_cadence = nextCadence;
+  if (currentNextRunAt) decision.current_next_run_at = currentNextRunAt;
+  if (nextRunAt) decision.next_run_at = nextRunAt;
+  if (nextWorkflows) decision.next_workflows = nextWorkflows;
   if (strategyUsability) decision.strategy_usability = strategyUsability;
+  if (qualityGate) decision.quality_gate = qualityGate;
+  if (workBudget) decision.work_budget = workBudget;
   return decision;
 }
 

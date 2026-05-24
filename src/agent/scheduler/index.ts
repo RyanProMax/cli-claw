@@ -31,6 +31,7 @@ import {
   parseCadenceToIntervalMs,
   parseStockStrategyPlannerDecision,
   type StockStrategyPlannerDecision,
+  type StockStrategyWorkflowAssignment,
 } from './stock-strategy-decision.js';
 
 export interface SchedulerDependencies {
@@ -57,6 +58,7 @@ const DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT = 30;
 const DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS = 30 * 60 * 1000;
 const STOCK_STRATEGY_DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS = 30 * 60 * 1000;
+const STOCK_STRATEGY_CONTROL_LOOP_WORKFLOW_ID = 'stock-strategy-control-loop';
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
@@ -259,12 +261,22 @@ function formatStockStrategyDecisionNotice(
   options: { pauseBlocked?: boolean } = {},
 ): string {
   const usabilityStatus = decision.strategy_usability?.status ?? 'unknown';
+  const qualityStatus = decision.quality_gate?.status ?? 'unknown';
   const pieces = [
     `股票策略调度决策：${decision.action}`,
     `usability=${usabilityStatus}`,
+    `quality=${qualityStatus}`,
     options.pauseBlocked ? 'pause_blocked=usability_gate_not_passed' : null,
     decision.next_workflow ? `next=${decision.next_workflow}` : null,
+    decision.next_workflows && decision.next_workflows.length > 0
+      ? `next_workflows=${decision.next_workflows
+          .map((item) => item.workflow_id)
+          .join(',')}`
+      : null,
     decision.cadence ? `cadence=${decision.cadence}` : null,
+    decision.current_next_run_at
+      ? `current_next_run_at=${decision.current_next_run_at}`
+      : null,
     decision.evidence_signature
       ? `signature=${decision.evidence_signature}`
       : null,
@@ -273,12 +285,31 @@ function formatStockStrategyDecisionNotice(
   return pieces.join(' | ');
 }
 
-function buildDownstreamPrompt(decision: StockStrategyPlannerDecision): string {
+function describeAssignmentQualityGate(
+  assignment: StockStrategyWorkflowAssignment,
+): string | null {
+  const gate = assignment.quality_gate;
+  if (!gate) return null;
+  if (typeof gate === 'string') return gate;
+  return `${gate.standard_version}:${gate.stage}:${gate.status}`;
+}
+
+function buildDownstreamPrompt(
+  decision: StockStrategyPlannerDecision,
+  assignment?: StockStrategyWorkflowAssignment,
+): string {
   const lines = [
-    `State-driven stock strategy follow-up for ${decision.next_workflow}.`,
-    decision.reason ? `Reason: ${decision.reason}` : null,
+    `State-driven stock strategy follow-up for ${assignment?.workflow_id ?? decision.next_workflow}.`,
+    assignment?.reason || decision.reason
+      ? `Reason: ${assignment?.reason || decision.reason}`
+      : null,
     decision.evidence_signature
       ? `Evidence signature: ${decision.evidence_signature}`
+      : null,
+    assignment?.priority ? `Priority: ${assignment.priority}` : null,
+    assignment ? `Cadence: ${assignment.cadence ?? 'dynamic'}` : null,
+    assignment
+      ? `Quality gate: ${describeAssignmentQualityGate(assignment) ?? 'default'}`
       : null,
     'Keep the workflow readonly. Do not approve, activate, or trade.',
   ];
@@ -316,6 +347,13 @@ function isStockStrategyDiscoveryTask(task: ScheduledTask): boolean {
   );
 }
 
+function isStockStrategyControlTask(task: ScheduledTask): boolean {
+  return (
+    task.id === STOCK_STRATEGY_CONTROL_LOOP_WORKFLOW_ID ||
+    taskWorkflowId(task) === STOCK_STRATEGY_CONTROL_LOOP_WORKFLOW_ID
+  );
+}
+
 function defaultStockStrategyWorkflowIntervalMs(
   workflowId: string | null,
 ): number {
@@ -323,6 +361,9 @@ function defaultStockStrategyWorkflowIntervalMs(
     return 2 * 60 * 60 * 1000;
   }
   if (workflowId === 'stock-strategy-cn-coverage-check') {
+    return 60 * 60 * 1000;
+  }
+  if (workflowId === 'stock-strategy-paper-validation') {
     return 60 * 60 * 1000;
   }
   return STOCK_STRATEGY_DEFAULT_COOLDOWN_MS;
@@ -365,6 +406,8 @@ function sameEvidenceSignatureWithoutHumanReview(
     left.evidence_signature === right.evidence_signature &&
     left.action === right.action &&
     left.next_workflow === right.next_workflow &&
+    JSON.stringify(left.next_workflows ?? []) ===
+      JSON.stringify(right.next_workflows ?? []) &&
     left.cadence === right.cadence &&
     (left.current_cadence ?? null) === (right.current_cadence ?? null) &&
     (left.next_cadence ?? null) === (right.next_cadence ?? null) &&
@@ -427,6 +470,9 @@ function resolveCurrentTaskIntervalMs(
   if (isStockStrategyDiscoveryTask(task)) {
     return STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS;
   }
+  if (isStockStrategyControlTask(task)) {
+    return STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS;
+  }
 
   const legacyCadenceIntervalMs = parseCadenceToIntervalMs(decision.cadence);
   if (legacyCadenceIntervalMs !== null) return legacyCadenceIntervalMs;
@@ -434,39 +480,120 @@ function resolveCurrentTaskIntervalMs(
   return null;
 }
 
-function resolveNextWorkflowIntervalMs(
+function parseNextRunAt(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  if (raw.toLowerCase() === 'immediate' || raw === '立即') {
+    return new Date(Date.now()).toISOString();
+  }
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString();
+}
+
+function nextRunFromInterval(intervalMs: number | null): string | null {
+  if (intervalMs === null) return null;
+  return new Date(Date.now() + intervalMs).toISOString();
+}
+
+function resolveCurrentTaskNextRunOverride(
   decision: StockStrategyPlannerDecision,
-): number | null {
-  if (!decision.next_workflow) return null;
-  const explicitNextIntervalMs =
-    parseCadenceToIntervalMs(decision.next_cadence) ??
-    parseCadenceToIntervalMs(decision.cadence);
+  currentTaskIntervalMs: number | null,
+): string | null {
   return (
-    explicitNextIntervalMs ??
-    defaultStockStrategyWorkflowIntervalMs(decision.next_workflow)
+    parseNextRunAt(decision.current_next_run_at) ??
+    parseNextRunAt(decision.next_run_at) ??
+    nextRunFromInterval(currentTaskIntervalMs)
   );
+}
+
+function downstreamAssignmentsFromDecision(
+  decision: StockStrategyPlannerDecision,
+): StockStrategyWorkflowAssignment[] {
+  const assignments = [...(decision.next_workflows ?? [])];
+  if (decision.next_workflow) {
+    const exists = assignments.some(
+      (assignment) => assignment.workflow_id === decision.next_workflow,
+    );
+    if (!exists) {
+      assignments.push({
+        workflow_id: decision.next_workflow,
+        cadence: decision.next_cadence ?? decision.cadence,
+        next_run_at: decision.next_run_at,
+        reason: decision.reason,
+      });
+    }
+  }
+  return assignments;
+}
+
+function resolveAssignmentIntervalMs(
+  assignment: StockStrategyWorkflowAssignment,
+): number | null {
+  const cadence = assignment.cadence?.trim();
+  if (!cadence && assignment.next_run_at) return null;
+  const explicitIntervalMs = parseCadenceToIntervalMs(assignment.cadence);
+  if (explicitIntervalMs !== null) return explicitIntervalMs;
+  if (cadence === 'manual') return null;
+  return defaultStockStrategyWorkflowIntervalMs(assignment.workflow_id);
+}
+
+function resolveAssignmentSchedule(
+  assignment: StockStrategyWorkflowAssignment,
+): {
+  scheduleType: ScheduledTask['schedule_type'];
+  scheduleValue: string;
+  nextRun: string | null;
+} | null {
+  const intervalMs = resolveAssignmentIntervalMs(assignment);
+  const explicitNextRun = parseNextRunAt(assignment.next_run_at);
+  if (intervalMs !== null) {
+    return {
+      scheduleType: 'interval',
+      scheduleValue: String(intervalMs),
+      nextRun: explicitNextRun ?? nextRunFromInterval(intervalMs),
+    };
+  }
+  if (explicitNextRun) {
+    return {
+      scheduleType: 'once',
+      scheduleValue: '',
+      nextRun: explicitNextRun,
+    };
+  }
+  return null;
 }
 
 function applyStockStrategyPlannerDecision(
   task: ScheduledTask,
   decision: StockStrategyPlannerDecision,
-): string | null {
+): { notice: string | null; currentNextRunOverride: string | null } {
   const shouldPause =
     decision.action === 'pause' || decision.action === 'pause_discovery';
   const usabilityPassed = decision.strategy_usability?.status === 'passed';
-  const pauseBlocked = shouldPause && !usabilityPassed;
+  const qualityPassed = decision.quality_gate?.status === 'passed';
+  const pauseBlocked = shouldPause && !(usabilityPassed && qualityPassed);
   const currentTaskIntervalMs = resolveCurrentTaskIntervalMs(task, decision, {
     pauseBlocked,
   });
-  const nextWorkflowIntervalMs = resolveNextWorkflowIntervalMs(decision);
+  const currentNextRunOverride = resolveCurrentTaskNextRunOverride(
+    decision,
+    currentTaskIntervalMs,
+  );
 
   if (shouldPause) {
-    if (usabilityPassed) {
+    if (usabilityPassed && qualityPassed) {
       updateTask(task.id, { status: 'paused' });
     } else if (currentTaskIntervalMs !== null) {
       updateTask(task.id, {
         schedule_type: 'interval',
         schedule_value: String(currentTaskIntervalMs),
+        next_run: currentNextRunOverride,
+        status: 'active',
+      });
+    } else if (currentNextRunOverride) {
+      updateTask(task.id, {
+        next_run: currentNextRunOverride,
         status: 'active',
       });
     }
@@ -474,38 +601,46 @@ function applyStockStrategyPlannerDecision(
     updateTask(task.id, {
       schedule_type: 'interval',
       schedule_value: String(currentTaskIntervalMs),
+      next_run: currentNextRunOverride,
+      status: 'active',
+    });
+  } else if (currentNextRunOverride) {
+    updateTask(task.id, {
+      next_run: currentNextRunOverride,
       status: 'active',
     });
   }
 
-  if (decision.next_workflow && nextWorkflowIntervalMs !== null) {
-    const existing = getTaskById(decision.next_workflow);
-    const nextRun = new Date(Date.now() + nextWorkflowIntervalMs).toISOString();
-    const prompt = buildDownstreamPrompt(decision);
+  for (const assignment of downstreamAssignmentsFromDecision(decision)) {
+    const schedule = resolveAssignmentSchedule(assignment);
+    if (!schedule) continue;
+    const existing = getTaskById(assignment.workflow_id);
+    const prompt =
+      assignment.prompt?.trim() || buildDownstreamPrompt(decision, assignment);
     if (existing) {
       updateTask(existing.id, {
         prompt,
-        schedule_type: 'interval',
-        schedule_value: String(nextWorkflowIntervalMs),
-        script_command: decision.next_workflow,
-        next_run: nextRun,
+        schedule_type: schedule.scheduleType,
+        schedule_value: schedule.scheduleValue,
+        script_command: assignment.workflow_id,
+        next_run: schedule.nextRun,
         status: 'active',
         notify_channels: task.notify_channels ?? null,
       });
     } else {
       createTask({
-        id: decision.next_workflow,
+        id: assignment.workflow_id,
         group_folder: task.group_folder,
         chat_jid: task.chat_jid,
         prompt,
-        schedule_type: 'interval',
-        schedule_value: String(nextWorkflowIntervalMs),
+        schedule_type: schedule.scheduleType,
+        schedule_value: schedule.scheduleValue,
         context_mode: 'isolated',
         execution_type: 'workflow',
-        script_command: decision.next_workflow,
+        script_command: assignment.workflow_id,
         workspace_jid: task.workspace_jid ?? null,
         workspace_folder: task.workspace_folder ?? null,
-        next_run: nextRun,
+        next_run: schedule.nextRun,
         status: 'active',
         created_at: new Date().toISOString(),
         created_by: task.created_by ?? null,
@@ -514,7 +649,10 @@ function applyStockStrategyPlannerDecision(
     }
   }
 
-  return formatStockStrategyDecisionNotice(decision, { pauseBlocked });
+  return {
+    notice: formatStockStrategyDecisionNotice(decision, { pauseBlocked }),
+    currentNextRunOverride,
+  };
 }
 
 function isTaskStillActive(taskId: string): boolean {
@@ -555,6 +693,10 @@ export async function runWorkflowTask(
   let error: string | null = null;
   let deferredByUsageGuard = false;
   let completedByEvidenceShortCircuit = false;
+  let stockStrategyApplyResult: {
+    notice: string | null;
+    currentNextRunOverride: string | null;
+  } | null = null;
 
   try {
     const stockStrategyShortCircuitDecision =
@@ -565,7 +707,7 @@ export async function runWorkflowTask(
       const shortCircuitResult = formatStockStrategyShortCircuitResult(
         stockStrategyShortCircuitDecision,
       );
-      const decisionNotice = applyStockStrategyPlannerDecision(
+      const applyResult = applyStockStrategyPlannerDecision(
         task,
         stockStrategyShortCircuitDecision,
       );
@@ -573,14 +715,14 @@ export async function runWorkflowTask(
       updateTaskRunLog(runLogId, {
         duration_ms: Date.now() - startTime,
         status: 'success',
-        result: [shortCircuitResult, decisionNotice]
+        result: [shortCircuitResult, applyResult.notice]
           .filter(Boolean)
           .join('\n\n'),
         error: null,
       });
       updateTaskAfterRun(
         task.id,
-        computeNextRun(currentTask),
+        applyResult.currentNextRunOverride ?? computeNextRun(currentTask),
         shortCircuitResult.slice(0, 200),
       );
       completedByEvidenceShortCircuit = true;
@@ -630,12 +772,15 @@ export async function runWorkflowTask(
     const stockStrategyDecision = !error
       ? parseStockStrategyPlannerDecision(result)
       : null;
-    const decisionNotice = stockStrategyDecision
+    stockStrategyApplyResult = stockStrategyDecision
       ? applyStockStrategyPlannerDecision(task, stockStrategyDecision)
       : null;
 
     if (result) {
-      const message = `${deps.assistantName}: ${[result, decisionNotice]
+      const message = `${deps.assistantName}: ${[
+        result,
+        stockStrategyApplyResult?.notice,
+      ]
         .filter(Boolean)
         .join('\n\n')
         .slice(0, 4000)}`;
@@ -664,7 +809,11 @@ export async function runWorkflowTask(
         result,
         error,
       });
-      const nextRun = manualRun ? task.next_run : computeNextRun(task);
+      const currentTask = getTaskById(task.id) ?? task;
+      const nextRun = manualRun
+        ? task.next_run
+        : (stockStrategyApplyResult?.currentNextRunOverride ??
+          computeNextRun(currentTask));
       const resultSummary = error
         ? `Error: ${error}`
         : result

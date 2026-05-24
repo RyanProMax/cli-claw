@@ -1,0 +1,47 @@
+{
+  "id": "stock-strategy-paper-validation",
+  "name": "股票策略模拟盘验证工作流",
+  "description": "候选通过回测后读取 paper/live ledger 与 reconciliation evidence，判断是否可进入人工实盘审批。",
+  "roles": [
+    "stock-strategy-quality-reviewer",
+    "stock-strategy-chief-orchestrator"
+  ],
+  "start": "collect_results",
+  "nodes": [
+    {
+      "id": "collect_results",
+      "type": "local_task",
+      "taskId": "stock.strategy.collect_results",
+      "outputArtifact": "strategy_task_results",
+      "prompt": "读取候选验证、人工待审、最近任务链和 handoff evidence；确认本轮 paper validation 对应的候选、market、factor、universe 和 evidence_signature。"
+    },
+    {
+      "id": "analyze_value",
+      "type": "local_task",
+      "taskId": "stock.strategy.analyze_value",
+      "outputArtifact": "paper_validation_evidence",
+      "prompt": "读取 paper/live ledger、paper/live reconciliation、alpha daily report、OOS backtest、费用、滑点、成交和资金占用证据。必须明确 paper/live ledger 与 backtest 差异；没有证据时 degraded。"
+    },
+    {
+      "id": "quality_review",
+      "type": "role_task",
+      "roleId": "stock-strategy-quality-reviewer",
+      "outputArtifact": "paper_quality_gate",
+      "prompt": "基于 paper_validation_evidence 输出 quality_gate。重点检查 paper/live ledger、reconciliation、实时数据可得性、虚拟成交、费用/滑点/成交偏差、回撤和换手。只有质量通过才允许主控考虑 human_review_ready；禁止 approve、activate 或真实交易。"
+    },
+    {
+      "id": "coordinate_next_work",
+      "type": "role_task",
+      "roleId": "stock-strategy-chief-orchestrator",
+      "outputArtifact": "paper_validation_decision",
+      "prompt": "基于 strategy_task_results、paper_validation_evidence 和 paper_quality_gate 输出 scheduler JSON。必须包含 action、next_workflow、cadence、reason、evidence_signature、requires_human、strategy_usability、quality_gate、current_next_run_at、next_workflows、work_budget。若 paper/live ledger 与 OOS backtest reconciliation 通过，可输出 ask_human 或 human_review_ready；否则安排 stock-strategy-paper-validation 继续观察或打回 candidate validation。禁止自动 approve、activate 或真实交易。"
+    }
+  ],
+  "edges": [
+    { "from": "collect_results", "to": "analyze_value" },
+    { "from": "analyze_value", "to": "quality_review" },
+    { "from": "quality_review", "to": "coordinate_next_work" },
+    { "from": "coordinate_next_work", "to": "__end__" }
+  ],
+  "maxRetries": 1
+}

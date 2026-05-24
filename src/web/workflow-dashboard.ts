@@ -121,12 +121,24 @@ export type WorkflowDashboardStockStrategyState =
 export interface WorkflowDashboardStockStrategyDecision {
   action: StockStrategySchedulerAction;
   nextWorkflow: string | null;
+  nextWorkflows: WorkflowDashboardStockStrategyNextWorkflow[];
   cadence: string | null;
+  currentNextRunAt: string | null;
   reason: string;
   evidenceSignature: string;
   requiresHuman: boolean;
+  qualityGateStatus: string | null;
+  qualityGateSummary: string | null;
   workflowId: string;
   updatedAt: string;
+}
+
+export interface WorkflowDashboardStockStrategyNextWorkflow {
+  workflowId: string;
+  cadence: string | null;
+  nextRunAt: string | null;
+  priority: string | null;
+  reason: string | null;
 }
 
 export interface WorkflowDashboardStockStrategyMarket {
@@ -200,11 +212,13 @@ function preview(value: string | null | undefined): string | null {
 const STOCK_STRATEGY_WORKSPACE_JID = 'web:stock-strategy';
 const STOCK_STRATEGY_WORKSPACE_FOLDER = 'stock-strategy';
 const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
+  'stock-strategy-control-loop',
   'stock-strategy-discovery-loop',
   'stock-strategy-loop',
   'stock-strategy-us-candidate-validation',
   'stock-strategy-hk-design-review',
   'stock-strategy-cn-coverage-check',
+  'stock-strategy-paper-validation',
   'stock-strategy-daily-progress-summary',
 ]);
 const STOCK_MARKET_ORDER: WorkflowDashboardStockStrategyMarketCode[] = [
@@ -334,6 +348,9 @@ function stateFromWorkflowId(
   if (workflowId === 'stock-strategy-us-candidate-validation') {
     return 'validating';
   }
+  if (workflowId === 'stock-strategy-paper-validation') {
+    return 'validating';
+  }
   if (
     workflowId === 'stock-strategy-hk-design-review' ||
     workflowId === 'stock-strategy-cn-coverage-check'
@@ -342,6 +359,7 @@ function stateFromWorkflowId(
   }
   if (
     workflowId === 'stock-strategy-discovery-loop' ||
+    workflowId === 'stock-strategy-control-loop' ||
     workflowId === 'stock-strategy-loop'
   ) {
     return 'discovering';
@@ -372,10 +390,20 @@ function toDashboardStockStrategyDecision(
   return {
     action: decision.action,
     nextWorkflow: decision.next_workflow,
+    nextWorkflows: (decision.next_workflows ?? []).map((assignment) => ({
+      workflowId: assignment.workflow_id,
+      cadence: assignment.cadence ?? null,
+      nextRunAt: assignment.next_run_at ?? null,
+      priority: assignment.priority ?? null,
+      reason: assignment.reason ?? null,
+    })),
     cadence: decision.cadence,
+    currentNextRunAt: decision.current_next_run_at ?? null,
     reason: decision.reason,
     evidenceSignature: decision.evidence_signature,
     requiresHuman: decision.requires_human,
+    qualityGateStatus: decision.quality_gate?.status ?? null,
+    qualityGateSummary: decision.quality_gate?.summary ?? null,
     workflowId: run.workflow_id,
     updatedAt: run.completed_at ?? run.updated_at,
   };

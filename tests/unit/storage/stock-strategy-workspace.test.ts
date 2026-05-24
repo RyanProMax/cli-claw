@@ -89,20 +89,20 @@ describe('stock strategy workspace migration', () => {
       workspace_jid: 'web:stock-strategy',
       workspace_folder: 'stock-strategy',
       notify_channels: ['feishu:private'],
+      status: 'paused',
+      next_run: null,
     });
-    expect(db.getTaskById('stock-strategy-us-candidate-validation')).toMatchObject(
-      {
-        group_folder: 'stock-strategy',
-        chat_jid: 'web:stock-strategy',
-        script_command: 'stock-strategy-us-candidate-validation',
-        schedule_type: 'interval',
-        schedule_value: String(2 * 60 * 60 * 1000),
-        status: 'active',
-        workspace_jid: 'web:stock-strategy',
-        workspace_folder: 'stock-strategy',
-        notify_channels: ['feishu:private'],
-      },
-    );
+    expect(db.getTaskById('stock-strategy-control-loop')).toMatchObject({
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-control-loop',
+      schedule_type: 'interval',
+      schedule_value: String(30 * 60 * 1000),
+      status: 'active',
+      workspace_jid: 'web:stock-strategy',
+      workspace_folder: 'stock-strategy',
+      notify_channels: ['feishu:private'],
+    });
     expect(db.getTaskById('stock-strategy-daily-progress-summary')).toMatchObject(
       {
         group_folder: 'stock-strategy',
@@ -116,27 +116,15 @@ describe('stock strategy workspace migration', () => {
         notify_channels: ['feishu:private'],
       },
     );
-    expect(db.getTaskById('stock-strategy-hk-design-review')).toMatchObject({
-      group_folder: 'stock-strategy',
-      chat_jid: 'web:stock-strategy',
-      script_command: 'stock-strategy-hk-design-review',
-      schedule_type: 'interval',
-      schedule_value: String(6 * 60 * 60 * 1000),
-      status: 'active',
-    });
-    expect(db.getTaskById('stock-strategy-cn-coverage-check')).toMatchObject({
-      group_folder: 'stock-strategy',
-      chat_jid: 'web:stock-strategy',
-      script_command: 'stock-strategy-cn-coverage-check',
-      schedule_type: 'interval',
-      schedule_value: String(60 * 60 * 1000),
-      status: 'active',
-    });
+    expect(db.getTaskById('stock-strategy-us-candidate-validation')).toBeUndefined();
+    expect(db.getTaskById('stock-strategy-hk-design-review')).toBeUndefined();
+    expect(db.getTaskById('stock-strategy-cn-coverage-check')).toBeUndefined();
+    expect(db.getTaskById('stock-strategy-paper-validation')).toBeUndefined();
 
     db.closeDatabase();
   });
 
-  test('resumes legacy paused discovery when usability was not proven', async () => {
+  test('keeps legacy paused discovery as a worker and relies on the control loop heartbeat', async () => {
     const { db } = await loadStorage();
 
     db.deleteTask('stock-strategy-discovery-loop');
@@ -168,6 +156,12 @@ describe('stock strategy workspace migration', () => {
     });
 
     expect(db.getTaskById('stock-strategy-discovery-loop')).toMatchObject({
+      status: 'paused',
+      next_run: null,
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+    });
+    expect(db.getTaskById('stock-strategy-control-loop')).toMatchObject({
       status: 'active',
       schedule_type: 'interval',
       schedule_value: String(30 * 60 * 1000),
@@ -178,7 +172,7 @@ describe('stock strategy workspace migration', () => {
     db.closeDatabase();
   });
 
-  test('normalizes legacy active discovery back to the short orchestrator cadence', async () => {
+  test('pauses legacy active discovery and hands the fixed heartbeat to the control loop', async () => {
     const { db } = await loadStorage();
 
     db.deleteTask('stock-strategy-discovery-loop');
@@ -206,16 +200,22 @@ describe('stock strategy workspace migration', () => {
     });
 
     expect(db.getTaskById('stock-strategy-discovery-loop')).toMatchObject({
+      status: 'paused',
+      next_run: null,
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+    });
+    expect(db.getTaskById('stock-strategy-control-loop')).toMatchObject({
       status: 'active',
       schedule_type: 'interval',
       schedule_value: String(30 * 60 * 1000),
-      next_run: '2026-05-24T00:40:00.000Z',
+      next_run: expect.any(String),
     });
 
     db.closeDatabase();
   });
 
-  test('normalizes legacy downstream schedules from old cadence-only decisions', async () => {
+  test('pauses legacy fixed worker schedules from old cadence-only decisions', async () => {
     const { db } = await loadStorage();
 
     db.deleteTask('stock-strategy-us-candidate-validation');
@@ -258,24 +258,75 @@ describe('stock strategy workspace migration', () => {
       notify_channels: null,
     });
 
+    db.deleteTask('stock-strategy-loop-review');
+    db.createTask({
+      id: 'stock-strategy-loop-review',
+      group_folder: 'main',
+      chat_jid: 'feishu:private',
+      prompt: 'Review stock strategy loop',
+      schedule_type: 'interval',
+      schedule_value: String(6 * 60 * 60 * 1000),
+      context_mode: 'isolated',
+      execution_type: 'workflow',
+      script_command: 'stock-strategy-loop',
+      next_run: '2026-05-24T06:00:00.000Z',
+      last_result:
+        '✅ 工作流完成：{"action":"slow_down","next_workflow":"stock-strategy-loop","cadence":"6h"}',
+      status: 'active',
+      created_at: '2026-05-24T00:05:00.000Z',
+      created_by: 'instance-1',
+      notify_channels: null,
+    });
+
+    db.deleteTask('stock-strategy-candidate-validation');
+    db.createTask({
+      id: 'stock-strategy-candidate-validation',
+      group_folder: 'main',
+      chat_jid: 'feishu:private',
+      prompt: 'Validate stock strategy candidate',
+      schedule_type: 'interval',
+      schedule_value: String(2 * 60 * 60 * 1000),
+      context_mode: 'isolated',
+      execution_type: 'workflow',
+      script_command: 'stock-strategy-candidate-validation',
+      next_run: '2026-05-24T02:00:00.000Z',
+      last_result: null,
+      status: 'active',
+      created_at: '2026-05-24T00:05:00.000Z',
+      created_by: 'instance-1',
+      notify_channels: null,
+    });
+
     db.ensureStockStrategyWorkspaceAndSchedules({
       now: '2026-05-24T00:10:00.000Z',
     });
 
     expect(db.getTaskById('stock-strategy-us-candidate-validation')).toMatchObject(
       {
-        status: 'active',
-        schedule_type: 'interval',
-        schedule_value: String(2 * 60 * 60 * 1000),
-        next_run: '2026-05-24T02:10:00.000Z',
+        status: 'paused',
+        next_run: null,
       },
     );
     expect(db.getTaskById('stock-strategy-cn-coverage-check')).toMatchObject({
-      status: 'active',
-      schedule_type: 'interval',
-      schedule_value: String(60 * 60 * 1000),
-      next_run: '2026-05-24T01:10:00.000Z',
+      status: 'paused',
+      next_run: null,
     });
+    expect(db.getTaskById('stock-strategy-loop-review')).toMatchObject({
+      status: 'paused',
+      next_run: null,
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      workspace_jid: 'web:stock-strategy',
+    });
+    expect(db.getTaskById('stock-strategy-candidate-validation')).toMatchObject(
+      {
+        status: 'paused',
+        next_run: null,
+        group_folder: 'stock-strategy',
+        chat_jid: 'web:stock-strategy',
+        workspace_jid: 'web:stock-strategy',
+      },
+    );
 
     db.closeDatabase();
   });

@@ -17,7 +17,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-iteration-planner",
       "outputArtifact": "next_iteration_plan",
-      "prompt": "基于 cn_coverage_evidence 输出固定 JSON 调度决策，并填写 strategy_usability。若仍 scanned=0，strategy_usability.status=failed 或 unknown，action=slow_down，current_cadence=1h，next_workflow=stock-strategy-cn-coverage-check，next_cadence=1h，requires_human=false；只有连续确认长期无源时才可 next_cadence=6h。若覆盖恢复，action=switch_workflow，next_workflow=stock-strategy-discovery-loop，next_cadence=30m。CN 覆盖检查本身不代表策略可用，只有后续候选验证达到可用标准才允许 pause。"
+      "prompt": "基于 cn_coverage_evidence 输出固定 JSON 调度决策，并填写 strategy_usability 与 quality_gate。若仍 scanned=0，strategy_usability.status=failed 或 unknown，quality_gate.status=failed 或 unknown，action=slow_down，next_workflows 可继续安排 stock-strategy-cn-coverage-check 或回到 stock-strategy-control-loop，requires_human=false；只有连续确认长期无源时才允许主控拉长下一次检查。若覆盖恢复，action=switch_workflow，next_workflows 安排 stock-strategy-discovery-loop。CN 覆盖检查本身不代表策略可用，只有后续候选验证与质量门都达到标准才允许 pause。"
     }
   ],
   "edges": [

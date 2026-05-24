@@ -546,6 +546,21 @@ function formatStockStrategyDecisionBlock(
   if (decision.next_cadence) {
     payload.next_cadence = decision.next_cadence;
   }
+  if (decision.current_next_run_at) {
+    payload.current_next_run_at = decision.current_next_run_at;
+  }
+  if (decision.next_run_at) {
+    payload.next_run_at = decision.next_run_at;
+  }
+  if (decision.next_workflows && decision.next_workflows.length > 0) {
+    payload.next_workflows = decision.next_workflows;
+  }
+  if (decision.quality_gate) {
+    payload.quality_gate = decision.quality_gate;
+  }
+  if (decision.work_budget) {
+    payload.work_budget = decision.work_budget;
+  }
   return JSON.stringify(payload);
 }
 
@@ -567,6 +582,9 @@ function formatStockStrategyDecisionForDelivery(
     [
       decision.current_cadence ? `当前 ${decision.current_cadence}` : null,
       decision.next_cadence ? `下游 ${decision.next_cadence}` : null,
+      decision.current_next_run_at
+        ? `下次主控 ${decision.current_next_run_at}`
+        : null,
     ]
       .filter(Boolean)
       .join(' / ') ||

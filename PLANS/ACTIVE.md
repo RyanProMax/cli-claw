@@ -2,9 +2,9 @@
 
 ## Goal
 
-- 将 `stock-strategy-discovery-loop` 从固定 30 分钟完整 discovery 升级为状态驱动的股票策略投研自迭代系统：每轮先判断新数据、新证据和设计变化，再决定继续、降频、暂停、切下游验证或请求人工。
+- 将股票策略自动化从固定 30 分钟 discovery 升级为 `stock-strategy-control-loop` 主控心跳 + 动态 worker 的投研自迭代系统：每轮先判断新数据、新证据、质量门、设计变化和人工反馈，再决定继续、降频、暂停、切下游验证或请求人工。
 - 创建独立“股票策略”工作区承载 stock strategy discovery / validation / review；现有股票策略 scheduled workflow 从主工作区迁出，每次 workflow run 作为该工作区下的 workflow 线程，不再为每次 run 新建工作区。
-- 基于外部自迭代 / MLOps / 量化策略生命周期最佳实践，补齐“策略挖掘 -> 回测验证 -> 模拟盘观察 -> 人工审批”的推进节奏：轻量 orchestrator 保持短周期路由，重任务按证据成熟度调度，禁止连续几天只重复挖掘没有候选、回测或模拟盘结论。
+- 基于外部自迭代 / MLOps / 量化策略生命周期最佳实践，补齐“策略挖掘 -> 回测验证 -> 模拟盘观察 -> 人工审批”的推进节奏：固定心跳只做主控路由，重任务按证据成熟度动态调度，禁止连续几天只重复挖掘没有候选、回测或模拟盘结论。
 - 每天必须输出股票策略当日进度总结，覆盖发现、回测、模拟盘 / paper ledger、阻塞项、下一步和是否需要人工，而不是只在需要人工审批时才有可见结论。
 
 ## Research Synthesis
@@ -13,18 +13,25 @@
 - AWS MLOps continuous training checklist 把重训触发分成 schedule、新数据、性能退化和数据分布漂移；对应本系统应优先用 data_version / evidence_signature / performance drift 触发验证或复盘，固定 schedule 只负责兜底巡检。
 - LangChain agent improvement loop 的实践重点是生产或类生产环境收集数据、用人工判断校准自动 evaluator；对应本系统应让人类审批边界聚焦在候选通过自动可用标准之后，而不是让人审重复 discovery 噪音。
 - QuantConnect backtesting / paper trading 文档把 backtest 定义为历史模拟，paper trading 定义为实时数据 + 虚拟资金，用于检验回测是否过拟合；reconciliation 文档强调 live 与 backtest 会因数据时点、look-ahead bias、费用、滑点、订单成交、状态恢复等产生偏差。对应本系统必须把回测、OOS、成本敏感性和模拟盘观察作为不同阶段，不允许用 discovery 结果替代后续验证。
+- LangChain / LangGraph multi-agent 文档把 subagents 定义为由 central main agent / supervisor 统一路由，子 Agent 负责窄领域执行并返回结构化结果；多 Agent 只在工具过多、上下文过长、需要并行或顺序约束时有价值。对应本系统不应简单堆“研究/回测/质量”三个聊天角色，而应设置主控 Agent 管状态和节奏，阶段 Agent 管具体产物，质量 Agent 独立验收。
+- LangGraph workflow patterns 区分 predetermined workflow 与 autonomous agent，并给出 orchestrator-worker、evaluator-optimizer 两类适合本系统的模式：主控可动态分配多个 worker，质量验收不通过时必须反馈重做或降级，而不是让 scheduler 继续固定频率重跑。
+- Google Cloud MLOps level 1 / CT 文档强调 data validation 可直接决定 retrain 或 stop，model validation 决定能否 promotion，trigger 可来自 schedule、新训练数据、性能退化。对应本系统固定 30m 只能是 control heartbeat；重任务的 next_run 必须由新数据、证据变化、质量门缺口和候选成熟度决定。
+- QuantConnect paper trading 与 reconciliation 文档强调 paper 是 live real-time data + 虚拟资金，且要对比 live / OOS backtest equity、order fills、费用、滑点和状态差异。对应“尽快实盘验证”应先落成 paper validation / live-readiness gate：通过回测和人审后尽快进入模拟盘观察，但禁止 Agent 自动 approve、activate 或真实下单。
 
 ## Done when
 
 - DB / 启动迁移能 idempotently 创建“股票策略”工作区，并把 `stock-strategy-discovery-loop`、`stock-strategy-loop-review` 等股票策略 scheduled task 迁移到该工作区。
 - 30 分钟 discovery 不再无条件完整跑 Agent；scheduler 能读取固定 JSON 决策，执行 `pause`、`slow_down`、`switch_workflow`、`ask_human` 等动作。
 - 股票策略 workflow 具备 per-market 状态：`coverage_check -> discovery -> candidate_review -> candidate_validation -> human_review_ready -> approved/rejected/cooldown`，并维护 evidence signature。
-- US/HK/CN 拆出可调度工作流：US 候选验证、HK 设计复盘、CN 覆盖检查；当前节奏为 discovery/orchestrator 30m 轻量巡检、US 2h 验证、HK 手动或 6h 设计复盘、CN 覆盖坏时 1h 覆盖检查、长期无源才 6h。
+- US/HK/CN 拆出可调度 worker：US 候选验证、HK 设计复盘、CN 覆盖检查；固定 30m 只保留给主控心跳，worker 由 `next_workflows[]` / `next_run_at` 动态唤醒，并保留 US 2h、HK 6h、CN 1h、paper 1h 作为 fallback cadence。
 - planner 输出固定 JSON schema，至少包含 `action`、`next_workflow`、`cadence`、`reason`、`evidence_signature`、`requires_human`；原始 JSON 保留在 workflow 审计中。
 - planner / scheduler 共同维护 `strategy_usability` 标准：只有策略证据达到可用标准时才允许真正暂停；未通过或未知时只能继续验证、设计复盘、覆盖检查、降频或 cooldown。
-- `cadence` 不能再同时控制当前 orchestrator 和下游重任务；scheduler 必须支持当前任务 cadence 与 next workflow cadence 解耦。默认 discovery/orchestrator 短周期保持 30 分钟，US active candidate validation 为 30 分钟到 2 小时，HK 设计复盘为事件触发或 2-6 小时，CN 覆盖坏时 1 小时巡检、确认长期无源后才 6 小时。
-- 重复 evidence signature 只能短路完整 Agent / discovery review，不能把 orchestrator 自身降到长周期；短路后仍应按短周期检查新数据、候选状态、覆盖恢复和人工反馈。
+- `cadence` 不能再同时控制主控和下游重任务；scheduler 必须支持 `current_next_run_at` 与 `next_workflows[]` 解耦。默认只有 control loop 保持 30 分钟心跳，US active candidate validation、HK 设计复盘、CN 覆盖检查、paper validation 都由主控按复杂度与证据成熟度动态安排。
+- 重复 evidence signature 只能短路完整 Agent / discovery review，不能触发固定 worker 重跑；短路后仍应由主控按短周期检查新数据、候选状态、覆盖恢复和人工反馈。
 - 每日进度总结 workflow 自动调度，默认每天输出一次股票策略进度，包含当日完成、候选推进阶段、回测/OOS、模拟盘或 paper ledger、阻塞原因、下一步节奏与人审需求。
+- 股票策略主控不再依赖固定 discovery cadence 推进；planner JSON 支持 `current_next_run_at` / `next_run_at`、`next_workflows[]`、`work_budget` 和 `quality_gate`，scheduler 读取后能动态安排当前任务和多个下游任务。
+- 至少具备三层职责：主控 Agent 负责全局状态、证据签名、优先级和节奏；阶段执行 Agent 负责 discovery / validation / design / coverage / paper validation 的只读产物；质量 Agent 负责独立验收、缺口列表和 promotion gate。
+- 回测通过后的候选必须能进入 `stock-strategy-paper-validation`，该阶段只读读取 paper/live ledger 与 reconciliation evidence，输出是否可进入人工实盘审批，不允许自动真实交易。
 - Web 自动化看板能展示每个市场状态，飞书/微信只推真正需要人的结论，重复无新增不刷完整发现摘要。
 - `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`、`docs/MODULE.md` 同步新的工作区、状态机、调度决策和 workflow 边界。
 
@@ -245,12 +252,13 @@ Risks / Notes / Handoff:
 ### Milestone 7：最佳实践节奏重构与每日进度总结
 
 Objective:
-- 按调研结论修正股票策略闭环：将轻量 orchestrator 与下游验证 cadence 解耦，恢复 discovery/orchestrator 30 分钟短周期巡检；新增每日进度总结 workflow，保证策略挖掘、回测、模拟盘验证和阻塞项每天有可见进展输出。
+- 按当时调研结论先修正股票策略闭环：将轻量巡检与下游验证 cadence 解耦，新增每日进度总结 workflow，保证策略挖掘、回测、模拟盘验证和阻塞项每天有可见进展输出。后续 Milestone 8 已进一步收敛为 `stock-strategy-control-loop` 主控心跳，discovery 改为按需 worker。
 
 Allowed scope:
 - `src/agent/scheduler/stock-strategy-decision.ts`
 - `src/agent/scheduler/index.ts`
 - `src/agent/workflow/command.ts`
+- `src/agent/workflow/engine.ts`
 - `src/storage/db.ts`
 - `src/web/workflow-dashboard.ts`
 - `.agents/agent-roles/stock-strategy-iteration-planner.md`
@@ -286,12 +294,63 @@ Review status:
 
 Risks / Notes / Handoff:
 - 当前真实设计缺口：`cadence` 同时控制 discovery-loop 和下游 workflow，导致 planner 输出 2h / 6h 验证节奏时，轻量 orchestrator 也被拖慢；`STOCK_STRATEGY_DEFAULT_COOLDOWN_MS=6h` 还会把 legacy non-usable discovery 恢复成 6 小时 active。
-- 本 milestone 必须保留已有 pause gate：策略未达 `stock_strategy_usability_v1` 不能真暂停；但未达标时 discovery/orchestrator 仍要短周期巡检，完整 Agent 才通过 evidence signature 短路。
+- 本 milestone 必须保留已有 pause gate：策略未达 `stock_strategy_usability_v1` 不能真暂停；但未达标时主控巡检仍要保持短周期，完整 Agent 才通过 evidence signature 短路。
 - 每日总结只报告进度和证据，不审批、不激活、不交易；飞书/微信外部推送允许用于每日总结和人工审批，重复 discovery 仍不外推。
-- 已将 planner decision 扩展为 `current_cadence` / `next_cadence`：当前 discovery/orchestrator 默认保持 30m；下游 workflow 独立按 US 2h、HK 6h、CN 1h、daily 24h 调度。重复 evidence signature 只短路完整 Agent review，不再把轻量巡检拖成长周期。
+- 已将 planner decision 扩展为 `current_cadence` / `next_cadence`，先把轻量巡检和下游重任务拆开；Milestone 8 已升级为 `current_next_run_at` / `next_workflows[]`，由 `stock-strategy-control-loop` 保持主控心跳，discovery / validation / design / coverage / paper validation 都按需派工。重复 evidence signature 只短路完整 Agent review，不再把轻量巡检拖成长周期。
 - 已新增 `stock-strategy-daily-progress-summary` 与 `stock-strategy-progress-reporter`，启动迁移会 seed 每日进度总结；Web 股票策略 workflow 集合同步纳入该工作流。
 - 已补迁移保护：旧 schema cadence-only 的 US/CN 下游任务会在启动时分别收敛为 US 2h 验证、CN 1h 覆盖修复；已经写入 `current_cadence` / `next_cadence` 的新 planner 结果不被启动迁移覆盖。
 - 已通过 targeted scheduler/storage/workflow/web tests（42 tests）、`npm run typecheck:backend`、`./scripts/validate.sh`（527 passed / 1 skipped）与 `./scripts/review.sh`。`review.sh` 第一次因 Prettier 失败，格式化相关 TS 文件后已通过；最终 semantic review 未发现 scope、权限或调度语义回归。
+
+### Milestone 8：主控 Agent、质量门与动态调度控制面
+
+Objective:
+- 将股票策略自动化从“固定心跳 + 单 planner 文本决策”升级为可执行的多 Agent 控制面：主控 Agent 统一把控节奏和派工，阶段 Agent 产出窄领域证据，质量 Agent 独立验收并决定是否进入下一阶段；scheduler 根据结构化 JSON 动态设置当前任务 next_run、多个下游 workflow、质量门和模拟盘验证入口。
+
+Allowed scope:
+- `src/agent/scheduler/stock-strategy-decision.ts`
+- `src/agent/scheduler/index.ts`
+- `src/agent/workflow/command.ts`
+- `src/storage/db.ts`
+- `src/web/workflow-dashboard.ts`
+- `.agents/agent-roles/stock-strategy-chief-orchestrator.md`
+- `.agents/agent-roles/stock-strategy-quality-reviewer.md`
+- `.agents/agent-roles/stock-strategy-iteration-planner.md`
+- `.agents/workflows/stock-strategy-*.json`
+- `tests/unit/agent/scheduler/stock-strategy-decision.test.ts`
+- `tests/unit/agent/scheduler/workflow-task.test.ts`
+- `tests/unit/agent/workflow/command.test.ts`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/storage/stock-strategy-workspace.test.ts`
+- `tests/unit/web/workflow-dashboard.test.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/RUNTIME.md`
+- `docs/COMMAND.md`
+- `docs/MODULE.md`
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+
+Validation:
+- `npm test -- tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/storage/stock-strategy-workspace.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/web/workflow-dashboard.test.ts`
+- `npm run typecheck:backend`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+
+Status:
+- done
+
+Validation status:
+- passed
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 当前设计判断：固定 30m 作为“策略推导周期”不合理；它只能是 control heartbeat，用来发现状态变化和接收人工/数据事件。真正的 discovery、回测、设计复盘、覆盖修复、模拟盘验证都必须由主控 Agent 根据证据成熟度、质量门缺口、执行成本和目标时效动态安排。
+- 本 milestone 不追求把所有市场研究逻辑重写成复杂多 Agent 聊天；先落地最小可靠控制面：`stock-strategy-control-loop` 作为主控心跳，`stock-strategy-quality-reviewer` 独立输出 `quality_gate`，scheduler 执行 `next_workflows[]` 和 `current_next_run_at`，并新增 `stock-strategy-paper-validation` 作为候选通过后的模拟盘验证入口。
+- “尽快实现实盘验证”的安全解释：加速进入 paper/live-readiness 验证与人工审批，不允许 Agent 直接 approve、activate 或下真实订单；质量门必须检查 OOS、champion/challenger、流动性、成本、回撤、换手、样本解释性与 paper/live reconciliation。
+- 已新增 `stock-strategy-chief-orchestrator` / `stock-strategy-quality-reviewer`，并把 discovery、US/HK/CN worker、legacy `stock-strategy-loop-review` / `stock-strategy-candidate-validation` 都收敛到主控动态派工；真实 DB 重启迁移后仅 `stock-strategy-control-loop` 与 `stock-strategy-daily-progress-summary` 保持 active，旧固定 worker 均为 paused。
+- 已通过 `./scripts/validate.sh`（76 files passed / 1 skipped，531 tests passed / 1 skipped，typecheck 与 build 通过）与 `./scripts/review.sh`（Prettier format check 通过）；semantic review 重点检查固定 discovery 残留、quality gate pause block、legacy task ID 迁移和 docs/runtime 口径，未发现阻塞问题。
+- 已按 `docs/COMMAND.md` 使用 repo-local safe restart fallback `bun src/cli.ts restart` 应用变更；`/api/health` 返回 healthy，`current-backend.json` 显示新 PID `66763`，真实 DB 中股票策略工作区为 `web:stock-strategy` / `stock-strategy`。
 
 ## Working Rules
 
@@ -304,27 +363,31 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 7
+- Milestone 8
 
 Current status:
 - done
 
 Changed files:
+- `.agents/agent-roles/stock-strategy-chief-orchestrator.md`
+- `.agents/agent-roles/stock-strategy-quality-reviewer.md`
+- `.agents/agent-roles/stock-strategy-discovery-reviewer.md`
+- `.agents/agent-roles/stock-strategy-iteration-planner.md`
+- `.agents/workflows/stock-strategy-control-loop.json`
+- `.agents/workflows/stock-strategy-paper-validation.json`
+- `.agents/workflows/stock-strategy-discovery-loop.json`
+- `.agents/workflows/stock-strategy-loop.json`
+- `.agents/workflows/stock-strategy-us-candidate-validation.json`
+- `.agents/workflows/stock-strategy-hk-design-review.json`
+- `.agents/workflows/stock-strategy-cn-coverage-check.json`
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`
 - `src/agent/scheduler/index.ts`
 - `src/agent/scheduler/stock-strategy-decision.ts`
 - `src/web/workflow-dashboard.ts`
 - `src/agent/workflow/command.ts`
+- `src/agent/workflow/engine.ts`
 - `src/storage/db.ts`
-- `.agents/agent-roles/stock-strategy-iteration-planner.md`
-- `.agents/agent-roles/stock-strategy-progress-reporter.md`
-- `.agents/workflows/stock-strategy-discovery-loop.json`
-- `.agents/workflows/stock-strategy-loop.json`
-- `.agents/workflows/stock-strategy-us-candidate-validation.json`
-- `.agents/workflows/stock-strategy-hk-design-review.json`
-- `.agents/workflows/stock-strategy-cn-coverage-check.json`
-- `.agents/workflows/stock-strategy-daily-progress-summary.json`
 - `docs/ARCHITECTURE.md`
 - `docs/RUNTIME.md`
 - `docs/COMMAND.md`
@@ -337,10 +400,10 @@ Changed files:
 - `tests/unit/storage/stock-strategy-workspace.test.ts`
 
 Last failure summary:
-- Milestone 7 初次 targeted tests 按 TDD 失败在 cadence 解耦、每日总结 workflow seed、command 层保留新字段和 workflow/role 配置缺失；实现后语义审查又发现旧默认 CN 覆盖任务可能保留 6h，已补 migration 与 storage test。最终 targeted tests、backend typecheck、全量 validate 与 review gate 均通过。
+- Milestone 8 初次语义 review 发现旧 runtime prompt 仍残留 discovery 30m 表述，已改为 control-loop 主控心跳；真实 DB 重启检查又发现旧 `stock-strategy-loop-review` 与 `stock-strategy-candidate-validation` 仍 active，已补 legacy task ID 迁移并加 storage 回归测试。最终 targeted tests、全量 validate、review gate、安全重启与 DB 实态检查均通过。
 
 Suspected cause:
-- 已确认并修复：原设计把 `cadence` 同时用于当前 orchestrator 与下游重任务，导致“US 2h 验证 / HK 6h 复盘”错误地拉长了新证据巡检周期；现在由 `current_cadence` 和 `next_cadence` 拆开。
+- 已确认并修复：原设计把固定 cadence 当作策略推进节奏，且历史 task id 没有全部纳入迁移规则。现在固定 30m 只属于 `stock-strategy-control-loop`；worker 由 `current_next_run_at` / `next_workflows[]` 动态派发，pause 必须同时通过 `strategy_usability` 与 `quality_gate`。
 
 Next step:
-- 安全重启服务并检查真实 DB 中 `stock-strategy-discovery-loop` 仍为 30m、US/HK/CN/daily 下游任务已 seed 到股票策略工作区；下一轮可继续把市场状态持久化为显式 registry，并补 paper trading promotion gate。
+- 后续真实策略推进应由 `stock-strategy-control-loop` 派发：优先 US candidate validation 与 paper validation 缺口补证；HK 只在设计或数据变化时复盘；CN 只做覆盖恢复检查。任何进入实盘审批前仍必须经过人工确认，Agent 不自动 approve、activate 或下单。

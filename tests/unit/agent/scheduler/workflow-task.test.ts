@@ -367,6 +367,15 @@ describe('scheduled workflow task helpers', () => {
         ],
         failed_checks: [],
       },
+      quality_gate: {
+        status: 'passed',
+        standard_version: 'stock_strategy_quality_gate_v1',
+        stage: 'human_review_ready',
+        passed_checks: ['strategy_usability', 'paper_reconciliation'],
+        failed_checks: [],
+        missing_checks: [],
+        summary: 'Candidate passed independent quality review.',
+      },
     };
     const runWorkflowCommand = vi
       .fn()
@@ -398,6 +407,217 @@ describe('scheduled workflow task helpers', () => {
       'stock-strategy-us-candidate-validation',
       expect.objectContaining({ status: 'paused' }),
     );
+  });
+
+  test('blocks stock strategy pause when the independent quality gate fails', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-us-candidate-validation',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-us-candidate-validation',
+      prompt: 'Validate US candidate.',
+      schedule_value: String(2 * 60 * 60 * 1000),
+      notify_channels: ['feishu:private'],
+    });
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const decision = {
+      action: 'pause',
+      next_workflow: null,
+      cadence: 'manual',
+      reason: 'planner thinks candidate is ready, but quality found gaps',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: true,
+      strategy_usability: {
+        status: 'passed',
+        standard_version: 'stock_strategy_usability_v1',
+        passed_checks: ['artifact_integrity'],
+        failed_checks: [],
+      },
+      quality_gate: {
+        status: 'failed',
+        standard_version: 'stock_strategy_quality_gate_v1',
+        stage: 'backtest_validation',
+        passed_checks: ['artifact_integrity'],
+        failed_checks: ['oos_segment_performance'],
+        missing_checks: ['paper_reconciliation'],
+        summary: 'OOS and paper reconciliation are still missing.',
+      },
+    };
+    const runWorkflowCommand = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify(decision));
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(updateTaskMock).not.toHaveBeenCalledWith(
+      'stock-strategy-us-candidate-validation',
+      expect.objectContaining({ status: 'paused' }),
+    );
+    expect(updateTaskMock).toHaveBeenCalledWith(
+      'stock-strategy-us-candidate-validation',
+      expect.objectContaining({
+        schedule_type: 'interval',
+        schedule_value: String(6 * 60 * 60 * 1000),
+        status: 'active',
+      }),
+    );
+  });
+
+  test('applies control-loop decisions with dynamic current next run and multiple downstream workflows', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-24T14:00:00.000Z'));
+    try {
+      const scheduledTask = task({
+        id: 'stock-strategy-control-loop',
+        group_folder: 'stock-strategy',
+        chat_jid: 'web:stock-strategy',
+        script_command: 'stock-strategy-control-loop',
+        prompt: 'Coordinate stock strategy research by state.',
+        schedule_value: String(30 * 60 * 1000),
+        next_run: '2026-05-24T14:00:00.000Z',
+        workspace_jid: 'web:stock-strategy',
+        workspace_folder: 'stock-strategy',
+        notify_channels: ['feishu:private'],
+      });
+      getTaskByIdMock.mockImplementation((id: string) =>
+        id === scheduledTask.id ? scheduledTask : undefined,
+      );
+      const decision = {
+        action: 'switch_workflow',
+        next_workflow: null,
+        cadence: 'dynamic',
+        current_next_run_at: '2026-05-24T14:45:00.000Z',
+        reason: 'US validation and paper-readiness can run in parallel.',
+        evidence_signature:
+          'control:portfolio:all:default_cost:mixed:20260524',
+        requires_human: false,
+        quality_gate: {
+          status: 'failed',
+          standard_version: 'stock_strategy_quality_gate_v1',
+          stage: 'backtest_validation',
+          passed_checks: ['artifact_integrity'],
+          failed_checks: ['oos_segment_performance'],
+          missing_checks: ['paper_reconciliation'],
+          summary: 'Continue validation before human review.',
+        },
+        next_workflows: [
+          {
+            workflow_id: 'stock-strategy-us-candidate-validation',
+            next_run_at: 'immediate',
+            cadence: '2h',
+            priority: 'high',
+            reason: '补齐 OOS 与 champion/challenger 对比。',
+            prompt: 'Validate US momentum_5d candidate with OOS evidence.',
+            quality_gate: 'backtest_validation',
+          },
+          {
+            workflow_id: 'stock-strategy-paper-validation',
+            next_run_at: '2026-05-24T15:00:00.000Z',
+            cadence: '1h',
+            priority: 'normal',
+            reason: '读取 paper/live ledger 做 reconciliation。',
+          },
+        ],
+      };
+      const runWorkflowCommand = vi
+        .fn()
+        .mockResolvedValue(JSON.stringify(decision));
+      const sendMessage = vi.fn();
+
+      await runWorkflowTask(
+        scheduledTask,
+        {
+          registeredGroups: () => ({
+            'web:stock-strategy': {
+              name: '股票策略',
+              folder: 'stock-strategy',
+              added_at: '2026-05-24T00:00:00.000Z',
+              agentType: 'openai',
+              is_home: true,
+            },
+          }),
+          getSessions: () => ({}),
+          queue: {} as never,
+          sendMessage,
+          runWorkflowCommand,
+          assistantName: 'cli-claw',
+        },
+        'web:stock-strategy',
+      );
+
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        'stock-strategy-control-loop',
+        expect.objectContaining({
+          next_run: '2026-05-24T14:45:00.000Z',
+          status: 'active',
+        }),
+      );
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'stock-strategy-us-candidate-validation',
+          prompt: 'Validate US momentum_5d candidate with OOS evidence.',
+          schedule_type: 'interval',
+          schedule_value: String(2 * 60 * 60 * 1000),
+          script_command: 'stock-strategy-us-candidate-validation',
+          next_run: '2026-05-24T14:00:00.000Z',
+          status: 'active',
+        }),
+      );
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'stock-strategy-paper-validation',
+          schedule_type: 'interval',
+          schedule_value: String(60 * 60 * 1000),
+          script_command: 'stock-strategy-paper-validation',
+          next_run: '2026-05-24T15:00:00.000Z',
+          status: 'active',
+        }),
+      );
+      expect(updateTaskRunLogMock).toHaveBeenCalledWith(
+        1001,
+        expect.objectContaining({
+          status: 'success',
+          error: null,
+        }),
+      );
+      expect(updateTaskAfterRunMock).toHaveBeenCalledWith(
+        'stock-strategy-control-loop',
+        '2026-05-24T14:45:00.000Z',
+        expect.any(String),
+      );
+      expect(sendMessage).toHaveBeenCalledWith(
+        'web:stock-strategy',
+        expect.stringContaining('US validation and paper-readiness'),
+        { source: 'scheduled_task' },
+      );
+      expect(sendMessage).not.toHaveBeenCalledWith(
+        'feishu:private',
+        expect.any(String),
+        expect.anything(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('forwards stock strategy decisions to external channels only when human input is required', async () => {

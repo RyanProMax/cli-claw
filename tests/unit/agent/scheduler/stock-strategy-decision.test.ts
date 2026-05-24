@@ -98,4 +98,94 @@ describe('stock strategy scheduler decision parsing', () => {
       next_cadence: '2h',
     });
   });
+
+  test('parses dynamic control decisions with multiple downstream workflow assignments and quality gate', () => {
+    const result = JSON.stringify({
+      action: 'switch_workflow',
+      next_workflow: null,
+      cadence: 'dynamic',
+      current_next_run_at: '2026-05-24T14:45:00.000Z',
+      reason: 'US candidate needs validation and paper-readiness checks.',
+      evidence_signature: 'control:portfolio:all:default_cost:mixed:20260524',
+      requires_human: false,
+      work_budget: {
+        max_runtime_minutes: 25,
+        max_retries: 1,
+        priority: 'high',
+      },
+      quality_gate: {
+        status: 'failed',
+        standard_version: 'stock_strategy_quality_gate_v1',
+        stage: 'backtest_validation',
+        score: 0.64,
+        passed_checks: ['artifact_integrity'],
+        failed_checks: ['oos_segment_performance'],
+        missing_checks: ['paper_reconciliation'],
+        defects: ['OOS 分段缺失，不能进入人工审批。'],
+        summary: '验证证据不足，继续补 OOS 和模拟盘对账。',
+      },
+      next_workflows: [
+        {
+          workflow_id: 'stock-strategy-us-candidate-validation',
+          next_run_at: 'immediate',
+          cadence: '2h',
+          priority: 'high',
+          reason: '补齐 OOS 与 champion/challenger 对比。',
+          prompt: 'Validate US momentum_5d candidate with OOS evidence.',
+          quality_gate: 'backtest_validation',
+        },
+        {
+          workflow_id: 'stock-strategy-paper-validation',
+          next_run_at: '2026-05-24T15:00:00.000Z',
+          cadence: '1h',
+          priority: 'normal',
+          reason: '读取 paper/live ledger 做 reconciliation。',
+        },
+      ],
+    });
+
+    expect(parseStockStrategyPlannerDecision(result)).toEqual({
+      action: 'switch_workflow',
+      next_workflow: null,
+      cadence: 'dynamic',
+      current_next_run_at: '2026-05-24T14:45:00.000Z',
+      reason: 'US candidate needs validation and paper-readiness checks.',
+      evidence_signature: 'control:portfolio:all:default_cost:mixed:20260524',
+      requires_human: false,
+      work_budget: {
+        max_runtime_minutes: 25,
+        max_retries: 1,
+        priority: 'high',
+      },
+      quality_gate: {
+        status: 'failed',
+        standard_version: 'stock_strategy_quality_gate_v1',
+        stage: 'backtest_validation',
+        score: 0.64,
+        passed_checks: ['artifact_integrity'],
+        failed_checks: ['oos_segment_performance'],
+        missing_checks: ['paper_reconciliation'],
+        defects: ['OOS 分段缺失，不能进入人工审批。'],
+        summary: '验证证据不足，继续补 OOS 和模拟盘对账。',
+      },
+      next_workflows: [
+        {
+          workflow_id: 'stock-strategy-us-candidate-validation',
+          next_run_at: 'immediate',
+          cadence: '2h',
+          priority: 'high',
+          reason: '补齐 OOS 与 champion/challenger 对比。',
+          prompt: 'Validate US momentum_5d candidate with OOS evidence.',
+          quality_gate: 'backtest_validation',
+        },
+        {
+          workflow_id: 'stock-strategy-paper-validation',
+          next_run_at: '2026-05-24T15:00:00.000Z',
+          cadence: '1h',
+          priority: 'normal',
+          reason: '读取 paper/live ledger 做 reconciliation。',
+        },
+      ],
+    });
+  });
 });

@@ -616,7 +616,7 @@ describe('workflow config discovery', () => {
       ),
       'utf-8',
     );
-    expect(role).toContain('30 分钟');
+    expect(role).toContain('按需 discovery worker');
     expect(role).toContain('禁止真实交易');
     expect(role).toContain('禁止自动 approve');
     expect(role).toContain('禁止自动 activate');
@@ -624,9 +624,10 @@ describe('workflow config discovery', () => {
     expect(workflowPrompts).toContain('repeat_decision');
     expect(workflowPrompts).toContain('本轮无新增');
     expect(workflowPrompts).toContain('strategy_usability');
-    expect(workflowPrompts).toContain('current_cadence');
-    expect(workflowPrompts).toContain('next_cadence');
-    expect(workflowPrompts).toContain('默认 current_cadence=30m');
+    expect(workflowPrompts).toContain('current_next_run_at');
+    expect(workflowPrompts).toContain('next_workflows');
+    expect(workflowPrompts).toContain('quality_gate');
+    expect(workflowPrompts).toContain('按需 worker');
   });
 
   test('bundled stock strategy state workflows split US validation, HK design review, and CN coverage check', () => {
@@ -691,6 +692,7 @@ describe('workflow config discovery', () => {
     expect(plannerRole).toContain('next_workflow');
     expect(plannerRole).toContain('evidence_signature');
     expect(plannerRole).toContain('requires_human');
+    expect(plannerRole).toContain('quality_gate');
   });
 
   test('bundled stock strategy daily progress workflow reports progress without approval side effects', () => {
@@ -746,5 +748,110 @@ describe('workflow config discovery', () => {
     expect(role).toContain('禁止自动 approve');
     expect(role).toContain('禁止自动 activate');
     expect(role).toContain('禁止真实交易');
+  });
+
+  test('bundled stock strategy control and paper validation workflows separate orchestration and quality review', () => {
+    const repoRoot = process.cwd();
+    const loadWorkflow = (file: string) =>
+      JSON.parse(
+        fs.readFileSync(
+          path.join(repoRoot, '.agents', 'workflows', file),
+          'utf-8',
+        ),
+      ) as {
+        id: string;
+        roles: string[];
+        nodes: Array<{
+          id: string;
+          taskId?: string;
+          roleId?: string;
+          prompt?: string;
+        }>;
+      };
+
+    const control = loadWorkflow('stock-strategy-control-loop.json');
+    const paper = loadWorkflow('stock-strategy-paper-validation.json');
+    const controlPrompts = control.nodes
+      .map((node) => `${node.id}: ${node.prompt ?? ''}`)
+      .join('\n');
+    const paperPrompts = paper.nodes
+      .map((node) => `${node.id}: ${node.prompt ?? ''}`)
+      .join('\n');
+
+    expect(control).toMatchObject({
+      id: 'stock-strategy-control-loop',
+      roles: [
+        'stock-strategy-quality-reviewer',
+        'stock-strategy-chief-orchestrator',
+      ],
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'collect_results',
+          taskId: 'stock.strategy.collect_results',
+        }),
+        expect.objectContaining({
+          id: 'analyze_value',
+          taskId: 'stock.strategy.analyze_value',
+        }),
+        expect.objectContaining({
+          id: 'quality_review',
+          roleId: 'stock-strategy-quality-reviewer',
+        }),
+        expect.objectContaining({
+          id: 'coordinate_next_work',
+          roleId: 'stock-strategy-chief-orchestrator',
+        }),
+      ]),
+    });
+    expect(paper).toMatchObject({
+      id: 'stock-strategy-paper-validation',
+      roles: [
+        'stock-strategy-quality-reviewer',
+        'stock-strategy-chief-orchestrator',
+      ],
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'collect_results',
+          taskId: 'stock.strategy.collect_results',
+        }),
+        expect.objectContaining({
+          id: 'analyze_value',
+          taskId: 'stock.strategy.analyze_value',
+        }),
+        expect.objectContaining({
+          id: 'quality_review',
+          roleId: 'stock-strategy-quality-reviewer',
+        }),
+        expect.objectContaining({
+          id: 'coordinate_next_work',
+          roleId: 'stock-strategy-chief-orchestrator',
+        }),
+      ]),
+    });
+
+    expect(controlPrompts).toContain('next_workflows');
+    expect(controlPrompts).toContain('current_next_run_at');
+    expect(controlPrompts).toContain('quality_gate');
+    expect(controlPrompts).toContain('work_budget');
+    expect(controlPrompts).toContain('stock-strategy-paper-validation');
+    expect(paperPrompts).toContain('paper/live ledger');
+    expect(paperPrompts).toContain('reconciliation');
+    expect(paperPrompts).toContain('human_review_ready');
+
+    for (const roleId of [
+      'stock-strategy-quality-reviewer',
+      'stock-strategy-chief-orchestrator',
+    ]) {
+      const role = fs.readFileSync(
+        path.join(repoRoot, '.agents', 'agent-roles', `${roleId}.md`),
+        'utf-8',
+      );
+      expect(role).toContain('next_workflows');
+      expect(role).toContain('quality_gate');
+      expect(role).toContain('current_next_run_at');
+      expect(role).toContain('禁止真实交易');
+      expect(role).toContain('禁止自动 approve');
+      expect(role).toContain('禁止自动 activate');
+    }
   });
 });

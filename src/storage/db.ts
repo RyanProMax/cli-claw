@@ -44,45 +44,36 @@ const STOCK_STRATEGY_WORKSPACE_JID = 'web:stock-strategy';
 const STOCK_STRATEGY_WORKSPACE_FOLDER = 'stock-strategy';
 const STOCK_STRATEGY_WORKSPACE_NAME = '股票策略';
 const STOCK_STRATEGY_MAIN_THREAD_ID = 'thread-stock-strategy-main';
-const STOCK_STRATEGY_DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS = 30 * 60 * 1000;
-const STOCK_STRATEGY_CN_COVERAGE_INTERVAL_MS = 60 * 60 * 1000;
 const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
+  'stock-strategy-control-loop',
   'stock-strategy-discovery-loop',
   'stock-strategy-loop',
   'stock-strategy-us-candidate-validation',
   'stock-strategy-hk-design-review',
   'stock-strategy-cn-coverage-check',
+  'stock-strategy-paper-validation',
   'stock-strategy-daily-progress-summary',
+]);
+const STOCK_STRATEGY_DYNAMIC_WORKER_IDS = new Set([
+  'stock-strategy-discovery-loop',
+  'stock-strategy-loop',
+  'stock-strategy-us-candidate-validation',
+  'stock-strategy-hk-design-review',
+  'stock-strategy-cn-coverage-check',
+  'stock-strategy-paper-validation',
+]);
+const STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS = new Set([
+  'stock-strategy-loop-review',
+  'stock-strategy-candidate-validation',
 ]);
 const STOCK_STRATEGY_DEFAULT_SCHEDULES = [
   {
-    id: 'stock-strategy-discovery-loop',
-    workflowId: 'stock-strategy-discovery-loop',
+    id: 'stock-strategy-control-loop',
+    workflowId: 'stock-strategy-control-loop',
     prompt:
-      'Route stock strategy work by state. Keep this as a lightweight orchestrator: check new data, evidence signatures, candidate state, coverage, and human feedback before deciding whether any heavy workflow should run.',
+      'Coordinate stock strategy research by state. This is the only fixed heartbeat: inspect new data, evidence signatures, quality gaps, candidate maturity, paper/live ledger, and human feedback before scheduling heavy worker workflows.',
     intervalMs: STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS,
-  },
-  {
-    id: 'stock-strategy-us-candidate-validation',
-    workflowId: 'stock-strategy-us-candidate-validation',
-    prompt:
-      'Validate US alpha_topn_momentum_5d.20260524 against momentum_20d champion; keep readonly and do not approve, activate, or trade.',
-    intervalMs: 2 * 60 * 60 * 1000,
-  },
-  {
-    id: 'stock-strategy-hk-design-review',
-    workflowId: 'stock-strategy-hk-design-review',
-    prompt:
-      'Review HK blocked factor design only when data coverage or design assumptions changed; keep readonly and do not repeat same-parameter discovery.',
-    intervalMs: 6 * 60 * 60 * 1000,
-  },
-  {
-    id: 'stock-strategy-cn-coverage-check',
-    workflowId: 'stock-strategy-cn-coverage-check',
-    prompt:
-      'Check CN universe coverage; scanned=0 must remain in coverage repair and not resume empty discovery.',
-    intervalMs: STOCK_STRATEGY_CN_COVERAGE_INTERVAL_MS,
   },
   {
     id: 'stock-strategy-daily-progress-summary',
@@ -1654,6 +1645,14 @@ function isStockStrategyWorkflowId(value: unknown): boolean {
   return typeof value === 'string' && STOCK_STRATEGY_WORKFLOW_IDS.has(value);
 }
 
+function isStockStrategyTaskOrWorkflowId(value: unknown): boolean {
+  return (
+    isStockStrategyWorkflowId(value) ||
+    (typeof value === 'string' &&
+      STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS.has(value))
+  );
+}
+
 function stockStrategyResultHasPassedUsability(value: string | null): boolean {
   if (!value) return false;
   return (
@@ -1662,10 +1661,12 @@ function stockStrategyResultHasPassedUsability(value: string | null): boolean {
   );
 }
 
-function stockStrategyResultHasSplitCadence(value: string | null): boolean {
+function stockStrategyResultHasDynamicControl(value: string | null): boolean {
   if (!value) return false;
   return (
-    /"current_cadence"\s*:/.test(value) || /"next_cadence"\s*:/.test(value)
+    /"current_next_run_at"\s*:/.test(value) ||
+    /"next_workflows"\s*:/.test(value) ||
+    /"quality_gate"\s*:/.test(value)
   );
 }
 
@@ -1765,7 +1766,7 @@ export function ensureStockStrategyWorkspaceAndSchedules(
   );
   for (const row of rows) {
     if (
-      !isStockStrategyWorkflowId(row.id) &&
+      !isStockStrategyTaskOrWorkflowId(row.id) &&
       !isStockStrategyWorkflowId(row.script_command)
     ) {
       continue;
@@ -1844,6 +1845,7 @@ export function ensureStockStrategyWorkspaceAndSchedules(
   type StockStrategyTaskCadenceRow =
     | {
         id: string;
+        script_command: string | null;
         status: string;
         schedule_type: string;
         schedule_value: string;
@@ -1852,78 +1854,52 @@ export function ensureStockStrategyWorkspaceAndSchedules(
     | undefined;
 
   const readTaskCadence = db.prepare(
-    `SELECT id, status, schedule_type, schedule_value, last_result
+    `SELECT id, script_command, status, schedule_type, schedule_value, last_result
      FROM scheduled_tasks
      WHERE id = ?`,
   );
-  const writeTaskCadence = db.prepare(
+  const pauseWorkerTask = db.prepare(
     `UPDATE scheduled_tasks
-     SET schedule_value = ?,
-         next_run = ?
+     SET status = 'paused',
+         next_run = NULL
      WHERE id = ?`,
   );
-  const normalizeLegacyDownstreamCadence = (
-    taskId: string,
-    intervalMs: number,
-  ): void => {
+  const pauseLegacyFixedWorker = (taskId: string): void => {
     const row = readTaskCadence.get(taskId) as StockStrategyTaskCadenceRow;
-    const currentIntervalMs = row ? Number(row.schedule_value) : NaN;
     if (
-      row?.status === 'active' &&
-      row.schedule_type === 'interval' &&
-      Number.isFinite(currentIntervalMs) &&
-      currentIntervalMs > intervalMs &&
-      !stockStrategyResultHasSplitCadence(row.last_result)
+      row &&
+      (STOCK_STRATEGY_DYNAMIC_WORKER_IDS.has(row.id) ||
+        STOCK_STRATEGY_DYNAMIC_WORKER_IDS.has(row.script_command ?? '') ||
+        STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS.has(row.id)) &&
+      !stockStrategyResultHasPassedUsability(row.last_result) &&
+      !stockStrategyResultHasDynamicControl(row.last_result)
     ) {
-      writeTaskCadence.run(
-        String(intervalMs),
-        addMsToIso(now, intervalMs),
-        row.id,
-      );
+      pauseWorkerTask.run(row.id);
     }
   };
-  normalizeLegacyDownstreamCadence(
-    'stock-strategy-us-candidate-validation',
-    2 * 60 * 60 * 1000,
-  );
-  normalizeLegacyDownstreamCadence(
-    'stock-strategy-cn-coverage-check',
-    STOCK_STRATEGY_CN_COVERAGE_INTERVAL_MS,
-  );
 
   const discoveryTaskRow = db
     .prepare(
-      `SELECT id, status, schedule_type, schedule_value, last_result
+      `SELECT id, script_command, status, schedule_type, schedule_value, last_result
        FROM scheduled_tasks
        WHERE id = 'stock-strategy-discovery-loop'`,
     )
     .get() as StockStrategyTaskCadenceRow;
-  const discoveryIntervalMs = discoveryTaskRow
-    ? Number(discoveryTaskRow.schedule_value)
-    : NaN;
-  const discoveryNeedsShortCadence =
-    discoveryTaskRow?.status === 'paused' &&
+  if (
+    discoveryTaskRow &&
     !stockStrategyResultHasPassedUsability(discoveryTaskRow.last_result) &&
-    isLegacyNonUsableStockPauseResult(discoveryTaskRow.last_result);
-  const activeDiscoveryIsTooSlow =
-    discoveryTaskRow?.status === 'active' &&
-    discoveryTaskRow.schedule_type === 'interval' &&
-    Number.isFinite(discoveryIntervalMs) &&
-    discoveryIntervalMs > STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS &&
-    !stockStrategyResultHasPassedUsability(discoveryTaskRow.last_result);
-  if (discoveryNeedsShortCadence || activeDiscoveryIsTooSlow) {
-    db.prepare(
-      `UPDATE scheduled_tasks
-       SET status = 'active',
-           schedule_type = 'interval',
-           schedule_value = ?,
-           next_run = ?
-       WHERE id = ?`,
-    ).run(
-      String(STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS),
-      addMsToIso(now, STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS),
-      discoveryTaskRow.id,
-    );
+    (discoveryTaskRow.status === 'active' ||
+      isLegacyNonUsableStockPauseResult(discoveryTaskRow.last_result))
+  ) {
+    pauseWorkerTask.run(discoveryTaskRow.id);
+  }
+
+  for (const workerId of STOCK_STRATEGY_DYNAMIC_WORKER_IDS) {
+    if (workerId === 'stock-strategy-discovery-loop') continue;
+    pauseLegacyFixedWorker(workerId);
+  }
+  for (const workerId of STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS) {
+    pauseLegacyFixedWorker(workerId);
   }
 
   return {

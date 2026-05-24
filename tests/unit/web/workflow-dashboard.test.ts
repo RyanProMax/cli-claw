@@ -299,9 +299,33 @@ describe('workflow dashboard aggregation', () => {
               action: 'pause_discovery',
               next_workflow: 'stock-strategy-us-candidate-validation',
               cadence: '2h',
+              current_next_run_at: '2026-05-22T09:30:00.000Z',
               reason: 'same evidence signature, candidate requires validation',
               evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
               requires_human: false,
+              quality_gate: {
+                status: 'failed',
+                standard_version: 'stock_strategy_quality_gate_v1',
+                stage: 'backtest_validation',
+                passed_checks: ['artifact_integrity'],
+                failed_checks: ['oos_segment_performance'],
+                missing_checks: ['paper_reconciliation'],
+                summary: 'Still missing OOS and paper reconciliation.',
+              },
+              next_workflows: [
+                {
+                  workflow_id: 'stock-strategy-us-candidate-validation',
+                  next_run_at: 'immediate',
+                  cadence: '2h',
+                  priority: 'high',
+                },
+                {
+                  workflow_id: 'stock-strategy-paper-validation',
+                  next_run_at: '2026-05-22T10:00:00.000Z',
+                  cadence: '1h',
+                  priority: 'normal',
+                },
+              ],
               market_states: [
                 {
                   market: 'US',
@@ -467,6 +491,20 @@ describe('workflow dashboard aggregation', () => {
       nextWorkflow: 'stock-strategy-us-candidate-validation',
       cadence: '2h',
       requiresHuman: false,
+      qualityGateStatus: 'failed',
+      currentNextRunAt: '2026-05-22T09:30:00.000Z',
+      nextWorkflows: [
+        expect.objectContaining({
+          workflowId: 'stock-strategy-us-candidate-validation',
+          cadence: '2h',
+          priority: 'high',
+        }),
+        expect.objectContaining({
+          workflowId: 'stock-strategy-paper-validation',
+          nextRunAt: '2026-05-22T10:00:00.000Z',
+          cadence: '1h',
+        }),
+      ],
     });
     expect(dashboard.stockStrategy?.markets).toEqual([
       expect.objectContaining({

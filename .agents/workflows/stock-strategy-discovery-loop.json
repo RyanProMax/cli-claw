@@ -34,7 +34,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-iteration-planner",
       "outputArtifact": "next_iteration_plan",
-      "prompt": "基于 discovery review 输出下一轮最小验证计划，必须是单个 JSON object，并包含 action、next_workflow、cadence、current_cadence、next_cadence、reason、evidence_signature、requires_human、strategy_usability。必须先给出本轮增量 change_summary 和重复判断 repeat_decision；若候选、blocked reason 或数据缺口与前几轮一致，明确写本轮无新增，但只有 strategy_usability.status=passed 才能暂停。discovery-loop 是轻量 orchestrator，默认 current_cadence=30m；未达可用标准时只降频下游验证/复盘（例如 next_cadence=2h/6h）或 cooldown，不要把重复 discovery 当作可停止迭代。"
+      "prompt": "基于 discovery review 输出下一轮最小验证计划，必须是单个 JSON object，并包含 action、next_workflow、cadence、reason、evidence_signature、requires_human、strategy_usability、quality_gate；可额外使用 current_next_run_at、next_workflows、work_budget。必须先给出本轮增量 change_summary 和重复判断 repeat_decision；若候选、blocked reason 或数据缺口与前几轮一致，明确写本轮无新增。discovery-loop 是按需 worker，不是固定 30 分钟 orchestrator；未达可用标准或质量门时只建议回到主控、补证 worker 或 cooldown，不要把重复 discovery 当作可停止迭代。"
     }
   ],
   "edges": [

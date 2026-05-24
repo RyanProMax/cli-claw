@@ -450,9 +450,35 @@ describe('workflow command execution', () => {
         cadence: '2h',
         current_cadence: '30m',
         next_cadence: '2h',
+        current_next_run_at: '2026-05-24T14:45:00.000Z',
         reason: 'same evidence signature, candidate requires validation',
         evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
         requires_human: false,
+        quality_gate: {
+          status: 'failed',
+          standard_version: 'stock_strategy_quality_gate_v1',
+          stage: 'backtest_validation',
+          passed_checks: ['artifact_integrity'],
+          failed_checks: ['oos_segment_performance'],
+          missing_checks: ['paper_reconciliation'],
+          summary: 'OOS evidence still missing.',
+        },
+        next_workflows: [
+          {
+            workflow_id: 'stock-strategy-us-candidate-validation',
+            next_run_at: 'immediate',
+            cadence: '2h',
+            priority: 'high',
+            reason: '补齐 OOS 与 champion/challenger 对比。',
+          },
+          {
+            workflow_id: 'stock-strategy-paper-validation',
+            next_run_at: '2026-05-24T15:00:00.000Z',
+            cadence: '1h',
+            priority: 'normal',
+            reason: '读取 paper/live ledger 做 reconciliation。',
+          },
+        ],
         change_summary: '本轮无新增发现，只做路由判断。',
         candidate_tasks: [{ name: 'raw task should stay out of delivery' }],
       }),
@@ -478,6 +504,11 @@ describe('workflow command execution', () => {
     );
     expect(reply).toContain('"current_cadence":"30m"');
     expect(reply).toContain('"next_cadence":"2h"');
+    expect(reply).toContain('"current_next_run_at":"2026-05-24T14:45:00.000Z"');
+    expect(reply).toContain('"next_workflows"');
+    expect(reply).toContain('"workflow_id":"stock-strategy-paper-validation"');
+    expect(reply).toContain('"quality_gate"');
+    expect(reply).toContain('"status":"failed"');
     expect(reply).not.toContain('raw task should stay out of delivery');
     expect(reply).not.toContain('"change_summary"');
     expect(reply).not.toContain('"candidate_tasks"');

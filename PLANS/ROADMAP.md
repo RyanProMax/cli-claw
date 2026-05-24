@@ -35,7 +35,7 @@
 
 - Status: `monitoring`
 - Source: 2026-05-20 user request to replace the old stock strategy self-analysis / self-iteration timer chain with a Cli Claw workflow loop.
-- Summary: 旧股票定时链路已冻结并移除：`launchd` 的 `com.ryan.stock-analysis-task-chain` 已 disabled；`stock-loop-progress-notifier` scheduled task 已于 2026-05-22 删除，删除前确认该任务共有 7690 条运行日志、54 条非空进展、0 条错误，最后有效进展停在 2026-05-20 晚间旧 task-chain 日终链路：每日复盘已生成、策略分析待审核 1 / 需迭代 1、KOL 扫描仍是 `agent_required`、小时摘要为任务 4 / 模拟下单 0 / 风险 0，安全边界仍为 paper_only / readonly。2026-05-23 精简项目时删除旧非 workflow 自动化入口与本机旧定时记录：`stock-watch-feishu-20260427-0208` 最后一次 run 为 2026-05-20T15:23:59.524Z，保留 3394 条 task_run_logs；`maintenance-loop-heartbeat` 最后一次 run 为 2026-05-23T02:54:06.274Z，保留 2244 条 task_run_logs。新闭环改成阶段化调度：探索期 `stock-strategy-discovery-loop` 每 30 分钟触发内置 `stock-strategy-discovery-loop`，只读运行 alpha scan / offline research loop 并审阅候选；成熟或候选复盘期 `stock-strategy-loop-review` 每 6 小时触发 `stock-strategy-loop`，收集 task-chain / summary / handoff output、分析 paper/live ledger 与 HK/US alpha daily report / backtest summary，最后由 readonly role 输出下一轮迭代计划。scheduled workflow 启动前会检查 OpenAI 5h / 7d usage，任一窗口剩余额低于 30% 时延后到 reset time 或保守重试。
+- Summary: 旧股票定时链路已冻结并移除：`launchd` 的 `com.ryan.stock-analysis-task-chain` 已 disabled；`stock-loop-progress-notifier` scheduled task 已于 2026-05-22 删除，删除前确认该任务共有 7690 条运行日志、54 条非空进展、0 条错误，最后有效进展停在 2026-05-20 晚间旧 task-chain 日终链路：每日复盘已生成、策略分析待审核 1 / 需迭代 1、KOL 扫描仍是 `agent_required`、小时摘要为任务 4 / 模拟下单 0 / 风险 0，安全边界仍为 paper_only / readonly。2026-05-23 精简项目时删除旧非 workflow 自动化入口与本机旧定时记录：`stock-watch-feishu-20260427-0208` 最后一次 run 为 2026-05-20T15:23:59.524Z，保留 3394 条 task_run_logs；`maintenance-loop-heartbeat` 最后一次 run 为 2026-05-23T02:54:06.274Z，保留 2244 条 task_run_logs。新闭环已从“固定 discovery / review 定时器”升级为主控心跳 + 动态 worker：`stock-strategy-control-loop` 每 30 分钟只判断状态、证据、质量门、预算和人审反馈，scheduler 根据 `current_next_run_at`、`next_workflows[]`、`quality_gate`、`work_budget` 动态唤醒 discovery、US 验证、HK 设计复盘、CN 覆盖检查或 paper validation；旧固定 worker schedule 会在启动迁移中暂停。scheduled workflow 启动前会检查 OpenAI 5h / 7d usage，任一窗口剩余额低于 30% 时延后到 reset time 或保守重试。
 - Durable contract:
   - scheduled workflow task 和 stock strategy loop 用户/运维入口见 `docs/COMMAND.md`。
   - workflow local task、usage guard 与 stock strategy artifact 边界见 `docs/RUNTIME.md`。
@@ -44,15 +44,17 @@
   - 2026-05-24 已将股票策略自动化升级为状态驱动投研闭环：启动迁移会创建 `web:stock-strategy`（股票策略）工作区并迁移 `stock-strategy-*` scheduled workflow；planner 固定输出 `action` / `next_workflow` / `cadence` / `reason` / `evidence_signature` / `requires_human`，scheduler 可暂停、降频、触发下游 workflow 或只在需要人工时通知飞书/微信。
   - 2026-05-24 已新增三条市场状态 workflow：`stock-strategy-us-candidate-validation` 做 US 候选验证，`stock-strategy-hk-design-review` 做 HK 设计复盘，`stock-strategy-cn-coverage-check` 做 CN 覆盖检查；Web 自动化看板会展示 US/HK/CN 的状态、证据签名、下游 workflow、cadence 和人工确认需求。
   - 2026-05-24 已补 `stock_strategy_usability_v1` 策略可用标准与 pause gate：planner 必须输出 `strategy_usability`，只有 `status=passed` 才允许真正暂停；未通过或未知的 pause / pause_discovery 会被 scheduler 转为 active 的 cooldown / slow_down，并继续验证、设计复盘或覆盖检查。
-  - 2026-05-24 已按最佳实践复盘修正节奏设计：`stock-strategy-discovery-loop` 保持 30 分钟轻量 orchestrator，只做新数据 / 新证据 / 新设计变化判断；planner decision 增加 `current_cadence` 与 `next_cadence`，下游重任务独立调度为 US 验证 2h、HK 设计复盘 6h、CN 覆盖坏时 1h、每日进度总结 24h。重复 evidence signature 只短路完整 Agent review，不再把 orchestrator 自身拖成长周期。
+  - 2026-05-24 已按最佳实践复盘修正节奏设计：第一版把 `stock-strategy-discovery-loop` 设为 30 分钟轻量 orchestrator，并用 `current_cadence` / `next_cadence` 解耦下游重任务；后续本轮已再收敛为 `stock-strategy-control-loop` 主控心跳，discovery 改为按需 worker。重复 evidence signature 只短路完整 Agent review，不再触发固定重跑。
   - 2026-05-24 已新增 `stock-strategy-daily-progress-summary` 和 `stock-strategy-progress-reporter`，每天输出股票策略进度，覆盖策略挖掘、回测/OOS、模拟盘或 paper ledger、阻塞项、下一步节奏和是否需要人工。
+  - 2026-05-24 已进一步修正固定 30 分钟 discovery 设计：固定时间只保留给 `stock-strategy-control-loop` 主控心跳；新增 `stock-strategy-chief-orchestrator` 与 `stock-strategy-quality-reviewer`，planner JSON 支持 `current_next_run_at`、`next_workflows[]`、`quality_gate`、`work_budget`。scheduler 可一次派发多个 worker、精确设置当前任务 next_run，并在 quality gate failed 时阻止 pause / 人审推进。
+  - 2026-05-24 已新增 `stock-strategy-paper-validation`，候选通过回测/OOS 后可尽快进入 paper/live ledger 与 reconciliation 验证；只有质量门通过才允许 `human_review_ready` / `ask_human`，仍禁止自动 approve、activate 或真实交易。
   - 第一轮真实 `stock-strategy-discovery-loop` 已于 2026-05-20T16:30:52Z 成功完成，下一轮排到 2026-05-20T17:00:00Z；继续观察后续 discovery 是否稳定区分新候选、重复候选、样本不足和 OOS 未成熟，且没有交易/approve/activate 越界。
   - 2026-05-21 已新增股票策略 workflow 飞书摘要层并完成卡片精修：用户可见消息固定展示阶段目标、本轮完成、策略效果和后续规划；要点使用加粗标题与空行；完整 JSON 只留在 workflow 审计中。
   - 2026-05-21 已收紧 planner 契约：`stock-strategy-iteration-planner` 必须输出 `change_summary` 与 `repeat_decision`，连续无新增时要明确写重复判断、等待、降频、补证或转候选验证，避免把同一 discovery 结果包装成新结论。
   - 2026-05-21 定时任务失败复盘：真实 workflow 错误集中在最终 `plan_next_iteration` 遇到 OpenAI `server_is_overloaded` / `ECONNRESET` / `server_error`，上游 local task 与 review artifact 多数已完成；usage guard 不可读曾被误记为 task error。已将 usage guard 延期改成 `Deferred` 非失败、识别 workflow 失败文本、扩大 transient runtime retry 识别，并为股票策略 planner 增加基于已完成 artifact 的 `status=degraded` fallback plan。
   - 后续观察 `stock-strategy-loop-review` 是否只承担成熟/候选复盘；若 planner 连续输出相同 evidence signature，scheduler 应保持 cooldown / 降频，不再向外部 IM 刷重复发现。
   - 后续可把 state machine 持久化为显式 registry 表，而不是仅从 planner decision、workflow artifact 和 scheduled task 聚合恢复状态；若接入真实候选审批，再补 `approved` / `rejected` 的人工按钮与审计字段。
-  - 后续补独立 paper trading promotion gate：候选通过回测/OOS 和人工审批后，进入模拟盘观察，按真实成交可得性、滑点、资金占用、换手与 ledger 偏差决定是否继续人审。
+  - 后续观察第一批 `stock-strategy-control-loop` 真实运行是否能按证据成熟度动态派 US 验证 / paper validation，而不是恢复旧固定 worker 空跑；若控制面足够稳定，再把市场状态持久化为显式 registry 表。
   - 后续可增加 golden dataset / semantic eval，评价 planner 是否持续提出可验证、不过拟合、只读、且具备真实增量的下一轮迭代任务。
 
 ### P1 RM-2026-05-18-03 HKIPO Official Document Parser

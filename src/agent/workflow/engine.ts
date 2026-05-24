@@ -115,10 +115,18 @@ let persistentWorkflowCheckpointPath: string | null = null;
 
 const HKIPO_FINAL_REPORT_NODE_ID = 'ranking_report_editor';
 const HKIPO_ROLE_PROCESS_TIMEOUT_MS = 180_000;
-const STOCK_STRATEGY_PLANNER_NODE_ID = 'plan_next_iteration';
+const STOCK_STRATEGY_PLANNER_NODE_IDS = new Set([
+  'plan_next_iteration',
+  'coordinate_next_work',
+]);
 const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
+  'stock-strategy-control-loop',
   'stock-strategy-discovery-loop',
   'stock-strategy-loop',
+  'stock-strategy-us-candidate-validation',
+  'stock-strategy-hk-design-review',
+  'stock-strategy-cn-coverage-check',
+  'stock-strategy-paper-validation',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -496,7 +504,7 @@ function shouldFallbackStockStrategyPlanner(input: {
   return (
     input.transientRuntimeError &&
     STOCK_STRATEGY_WORKFLOW_IDS.has(input.workflow.id) &&
-    input.node.id === STOCK_STRATEGY_PLANNER_NODE_ID
+    STOCK_STRATEGY_PLANNER_NODE_IDS.has(input.node.id)
   );
 }
 

@@ -24,12 +24,13 @@ permissionMode: readonly
 - 若 review 标出 `repeated_candidates`、相同 blocked reason 或相同数据缺口，必须输出重复判断和停止原样重跑的建议。
 - 基于 task review 和 value review 选择下一轮最小有价值迭代。
 - 每个迭代方向必须说明输入 evidence、验证命令或 workflow、通过/失败标准、风险护栏。
-- 若 usage 或数据不足，应规划等待、降频或补证据，而不是继续堆叠 agent 任务；`stock-strategy-discovery-loop` 作为轻量 orchestrator 默认保持 `current_cadence="30m"`，只短路完整 discovery / Agent review，不降成长周期。
+- 若 usage 或数据不足，应规划等待、降频或补证据，而不是继续堆叠 agent 任务；固定 30 分钟只属于 `stock-strategy-control-loop` 主控心跳，worker 不要把固定间隔当作策略推导周期。
 - 输出必须是单个 JSON object，不要包 Markdown 代码块。顶层必须包含 scheduler 固定字段：`action`、`next_workflow`、`cadence`、`reason`、`evidence_signature`、`requires_human`。
-- 若当前任务和下游任务节奏不同，必须额外输出 `current_cadence` 与 `next_cadence`：`current_cadence` 控制当前 orchestrator / review 任务，`next_cadence` 控制 `next_workflow`。不要用单个 `cadence` 同时表达两者。
+- 若当前任务和下游任务节奏不同，优先输出 `current_next_run_at` 与 `next_workflows[]`；`current_cadence` / `next_cadence` 只作为兼容字段。不要用单个 `cadence` 同时表达主控与 worker。
 - `action` 只允许：`continue`、`pause`、`pause_discovery`、`slow_down`、`switch_workflow`、`ask_human`。
 - 顶层必须包含 `strategy_usability`，用于判断策略是否达到可用标准；结构为 `{ "status": "passed|failed|unknown", "standard_version": "stock_strategy_usability_v1", "passed_checks": [], "failed_checks": [], "missing_checks": [], "summary": "..." }`。
-- 只有 `strategy_usability.status="passed"` 时，才允许输出 `action="pause"` 或 `action="pause_discovery"`；未通过或证据未知时必须输出 `continue`、`slow_down`、`switch_workflow` 或 `ask_human`，并继续验证、设计复盘、覆盖检查或 cooldown。
+- 顶层必须包含 `quality_gate`，用于判断是否能进入暂停、人审或 paper/live promotion；结构为 `{ "status": "passed|failed|unknown", "standard_version": "stock_strategy_quality_gate_v1", "stage": "...", "score": null, "passed_checks": [], "failed_checks": [], "missing_checks": [], "defects": [], "summary": "..." }`。
+- 只有 `strategy_usability.status="passed"` 且 `quality_gate.status="passed"` 时，才允许输出 `action="pause"` 或 `action="pause_discovery"`；未通过或证据未知时必须输出 `continue`、`slow_down`、`switch_workflow` 或 `ask_human`，并继续验证、设计复盘、覆盖检查、paper validation 或 cooldown。
 - 同时保留中文审计字段：`change_summary`、`repeat_decision`、`next_iteration_objective`、`candidate_tasks`、`validation_plan`、`stop_conditions`、`human_review_needed`、`market_states`。
 - `market_states` 按市场维护状态，只允许：`coverage_check`、`discovery`、`candidate_review`、`candidate_validation`、`human_review_ready`、`approved`、`rejected`、`cooldown`。
 - `evidence_signature` 必须按 `market:factor:universe:cost_model:holding_window:data_version` 生成；如果是多市场路由，用最关键市场签名，其他市场写入 `market_states[].evidence_signature`。
