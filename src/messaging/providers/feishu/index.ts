@@ -28,8 +28,8 @@ import {
 } from './streaming-card.js';
 import { optimizeMarkdownStyle } from './markdown-style.js';
 import {
-  appendAssistantMetaFooter,
   formatAssistantCardFooter,
+  formatAssistantMetaFooter,
   type AssistantFooterTokenUsage,
 } from '../../../presentation/assistant-meta-footer.js';
 import {
@@ -57,6 +57,7 @@ export interface FeishuConnectionConfig {
 interface FeishuOutboundMessageMeta {
   runtimeIdentity?: RuntimeIdentity | null;
   tokenUsage?: AssistantFooterTokenUsage | string | null;
+  routeFooter?: string | null;
 }
 
 /** 飞书文件信息（用于下载到工作区） */
@@ -493,12 +494,15 @@ function formatFeishuFooterNote(
   messageMeta?: FeishuOutboundMessageMeta,
 ): string | undefined {
   if (!messageMeta) return undefined;
-  return (
-    formatAssistantCardFooter({
-      runtimeIdentity: messageMeta.runtimeIdentity,
-      tokenUsage: messageMeta.tokenUsage,
-    }) ?? undefined
-  );
+  const assistantFooter = formatAssistantCardFooter({
+    runtimeIdentity: messageMeta.runtimeIdentity,
+    tokenUsage: messageMeta.tokenUsage,
+  });
+  const footer = [assistantFooter, messageMeta.routeFooter]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(' | ');
+  return footer || undefined;
 }
 
 function appendFeishuPostFooter(
@@ -506,10 +510,17 @@ function appendFeishuPostFooter(
   messageMeta?: FeishuOutboundMessageMeta,
 ): string {
   if (!messageMeta) return text;
-  return appendAssistantMetaFooter(text, {
+  const assistantFooter = formatAssistantMetaFooter({
     runtimeIdentity: messageMeta.runtimeIdentity,
     tokenUsage: messageMeta.tokenUsage,
   });
+  const footer = [assistantFooter, messageMeta.routeFooter]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(' | ');
+  if (!footer) return text;
+  const base = text.trimEnd();
+  return base ? `${base}\n\n${footer}` : footer;
 }
 
 function extractPrebuiltInteractiveCardContent(text: string): string | null {

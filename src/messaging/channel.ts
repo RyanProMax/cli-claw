@@ -21,7 +21,7 @@ import {
 } from './providers/feishu/streaming-card.js';
 import { CHANNEL_PREFIXES } from './channel-prefixes.js';
 import {
-  appendAssistantMetaFooter,
+  formatAssistantMetaFooter,
   type AssistantFooterTokenUsage,
 } from '../presentation/assistant-meta-footer.js';
 import type {
@@ -87,6 +87,7 @@ export interface OutboundMessageMeta {
   finalizationReason?: MessageFinalizationReason | null;
   runtimeIdentity?: RuntimeIdentity | null;
   tokenUsage?: AssistantFooterTokenUsage | string | null;
+  routeFooter?: string | null;
 }
 
 export interface IMChannel {
@@ -132,10 +133,17 @@ function applyTextChannelFooter(
   messageMeta?: OutboundMessageMeta,
 ): string {
   if (!messageMeta) return text;
-  return appendAssistantMetaFooter(text, {
+  const assistantFooter = formatAssistantMetaFooter({
     runtimeIdentity: messageMeta.runtimeIdentity,
     tokenUsage: messageMeta.tokenUsage,
   });
+  const footer = [assistantFooter, messageMeta.routeFooter]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(' | ');
+  if (!footer) return text;
+  const base = text.trimEnd();
+  return base ? `${base}\n\n${footer}` : footer;
 }
 
 // ─── Channel Registry ───────────────────────────────────────────

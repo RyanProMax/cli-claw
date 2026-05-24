@@ -1444,9 +1444,9 @@ async function sendImWithRetry(
   text: string,
   localImagePaths: string[],
 ): Promise<boolean> {
-  const textWithRouteFooter = appendRouteFooter(text, imJid, imJid);
+  const messageMeta = addRouteFooterToMessageMeta(undefined, imJid, imJid);
   const ok = await retryImOperation('send_message', imJid, () =>
-    imManager.sendMessage(imJid, textWithRouteFooter, localImagePaths),
+    imManager.sendMessage(imJid, text, localImagePaths, messageMeta),
   );
   if (ok) {
     imSendFailCounts.delete(imJid);
@@ -2373,6 +2373,19 @@ function appendRouteFooter(
   const footer = formatRouteStatus(meta);
   if (text.trimEnd().endsWith(footer)) return text;
   return `${text.trimEnd()}\n\n${footer}`;
+}
+
+function addRouteFooterToMessageMeta(
+  messageMeta: OutboundMessageMeta | undefined,
+  targetJid: string,
+  deliveryJid: string = targetJid,
+): OutboundMessageMeta | undefined {
+  const meta = resolveRouteFooterMeta(targetJid, deliveryJid);
+  if (!meta) return messageMeta;
+  return {
+    ...messageMeta,
+    routeFooter: formatRouteStatus(meta),
+  };
 }
 
 function handleContextRouteCommand(
@@ -5291,7 +5304,9 @@ async function sendMessage(
 ): Promise<string | undefined> {
   const isIMChannel = getChannelType(jid) !== null;
   const sendToIM = options.sendToIM ?? isIMChannel;
-  const messageMeta = await enrichOutboundMessageMeta(options.messageMeta);
+  const messageMeta = await enrichOutboundMessageMeta(
+    addRouteFooterToMessageMeta(options.messageMeta, jid, jid),
+  );
   const textWithRouteFooter = appendRouteFooter(text, jid, jid);
   let imDeliveryFailed = false;
   try {
@@ -5303,12 +5318,7 @@ async function sendMessage(
             textWithRouteFooter,
             resolveEffectiveFolder(jid),
           );
-        await imManager.sendMessage(
-          jid,
-          textWithRouteFooter,
-          localImagePaths,
-          messageMeta,
-        );
+        await imManager.sendMessage(jid, text, localImagePaths, messageMeta);
       } catch (err) {
         logger.error({ jid, err }, 'Failed to send message to IM channel');
         imDeliveryFailed = true;

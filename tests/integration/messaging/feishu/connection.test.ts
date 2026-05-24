@@ -290,10 +290,12 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         outputTokens: 300,
         durationMs: 2_500,
       },
+      routeFooter: 'HK IPO（主线） | 飞书 | 09:42',
     });
 
     expect(buildStaticReplyCard).toHaveBeenCalledWith('最终回复', {
-      footerNote: '2s | OpenAI | GPT-5.5 | high | standard (1x)',
+      footerNote:
+        '2s | OpenAI | GPT-5.5 | high | standard (1x) | HK IPO（主线） | 飞书 | 09:42',
       runtimeIdentity,
     });
     expect(hoisted.createSpy).toHaveBeenCalledWith({
@@ -333,6 +335,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         tokenUsage: {
           durationMs: 2_500,
         },
+        routeFooter: 'HK IPO（主线） | 飞书 | 09:42',
       },
     );
 
@@ -347,7 +350,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
               [
                 {
                   tag: 'md',
-                  text: '最终回复\n\n2s | OpenAI | GPT-5.5 | high | standard (1x)',
+                  text: '最终回复\n\n2s | OpenAI | GPT-5.5 | high | standard (1x) | HK IPO（主线） | 飞书 | 09:42',
                 },
               ],
             ],

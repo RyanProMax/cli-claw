@@ -1718,9 +1718,7 @@ describe('restart recovery cursor handling', () => {
     expect(imMocks.sessions.some((session) => session.finalText)).toBe(false);
     const staticFallbackText = imMocks.sendMessage.mock.calls[0]?.[1];
     expect(staticFallbackText).toContain('已触发并完成重启。');
-    expect(staticFallbackText).toMatch(
-      /\n\n\| Feishu（主线）\| 飞书 \| \d{2}:\d{2} \|$/,
-    );
+    expect(staticFallbackText).not.toMatch(/\n\nFeishu（主线） \| 飞书/);
     expect(imMocks.sendMessage).toHaveBeenCalledWith(
       'feishu:oc_test',
       expect.stringContaining('已触发并完成重启。'),
@@ -1728,6 +1726,9 @@ describe('restart recovery cursor handling', () => {
       expect.objectContaining({
         sourceKind: 'sdk_final',
         finalizationReason: 'completed',
+        routeFooter: expect.stringMatching(
+          /^Feishu（主线） \| 飞书 \| \d{2}:\d{2}$/,
+        ),
       }),
     );
   });
