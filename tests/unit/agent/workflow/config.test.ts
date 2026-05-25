@@ -771,10 +771,14 @@ describe('workflow config discovery', () => {
 
     const control = loadWorkflow('stock-strategy-control-loop.json');
     const paper = loadWorkflow('stock-strategy-paper-validation.json');
+    const paperSetup = loadWorkflow('stock-strategy-paper-setup.json');
     const controlPrompts = control.nodes
       .map((node) => `${node.id}: ${node.prompt ?? ''}`)
       .join('\n');
     const paperPrompts = paper.nodes
+      .map((node) => `${node.id}: ${node.prompt ?? ''}`)
+      .join('\n');
+    const paperSetupPrompts = paperSetup.nodes
       .map((node) => `${node.id}: ${node.prompt ?? ''}`)
       .join('\n');
 
@@ -837,6 +841,31 @@ describe('workflow config discovery', () => {
     expect(paperPrompts).toContain('paper/live ledger');
     expect(paperPrompts).toContain('reconciliation');
     expect(paperPrompts).toContain('human_review_ready');
+    expect(paperSetup).toMatchObject({
+      id: 'stock-strategy-paper-setup',
+      roles: [
+        'stock-strategy-quality-reviewer',
+        'stock-strategy-chief-orchestrator',
+      ],
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'collect_results',
+          taskId: 'stock.strategy.collect_results',
+        }),
+        expect.objectContaining({
+          id: 'quality_review',
+          roleId: 'stock-strategy-quality-reviewer',
+        }),
+        expect.objectContaining({
+          id: 'coordinate_next_work',
+          roleId: 'stock-strategy-chief-orchestrator',
+        }),
+      ]),
+    });
+    expect(paperSetupPrompts).toContain('simulated trading');
+    expect(paperSetupPrompts).toContain('watch');
+    expect(paperSetupPrompts).toContain('paper ledger');
+    expect(paperSetupPrompts).toContain('stock-strategy-paper-validation');
 
     for (const roleId of [
       'stock-strategy-quality-reviewer',

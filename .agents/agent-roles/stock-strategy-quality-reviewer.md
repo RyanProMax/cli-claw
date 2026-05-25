@@ -21,7 +21,7 @@ permissionMode: readonly
 
 - 检查 mandatory artifacts 是否完整且不是 degraded。
 - 检查 OOS 分段表现、champion/challenger 同口径对比、行业/主题集中度、流动性字段、回撤、换手、成本敏感性和样本可解释性。
-- 对 paper/live ledger 做准备度验收：是否有实时数据、虚拟成交、费用/滑点/成交偏差和 reconciliation evidence。
+- 对 simulated trading 准备度做验收：是否有 watch 列表、paper ledger、实时数据、虚拟成交、费用/滑点/成交偏差和 reconciliation evidence。
 - 如果证据不足，明确列出 failed_checks、missing_checks、defects，并给主控 Agent 可执行的补证建议。
 - 若质量不足，必须阻止 `pause`、`human_review_ready` 或实盘审批；主控只能继续补证、降级或安排 worker。
 

@@ -23,6 +23,21 @@ export interface StockStrategyPlannerDecision {
   work_budget?: StockStrategyWorkBudget;
 }
 
+export type StockStrategyPlannerDecisionParseErrorCode =
+  | 'invalid_json'
+  | 'missing_action'
+  | 'invalid_action';
+
+export interface StockStrategyPlannerDecisionParseError {
+  code: StockStrategyPlannerDecisionParseErrorCode;
+  message: string;
+  action?: string;
+}
+
+export type StockStrategyPlannerDecisionParseResult =
+  | { ok: true; decision: StockStrategyPlannerDecision }
+  | { ok: false; error: StockStrategyPlannerDecisionParseError };
+
 export type StockStrategyUsabilityStatus = 'passed' | 'failed' | 'unknown';
 
 export interface StockStrategyUsabilityGate {
@@ -345,23 +360,83 @@ function normalizeDecision(
   return decision;
 }
 
+function normalizeDecisionResult(
+  value: Record<string, unknown>,
+): StockStrategyPlannerDecisionParseResult {
+  const rawAction = readString(value.action);
+  if (!rawAction) {
+    return {
+      ok: false,
+      error: {
+        code: 'missing_action',
+        message: 'Missing stock strategy scheduler action',
+      },
+    };
+  }
+  const action = normalizeAction(rawAction);
+  if (!action) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid_action',
+        message: `Invalid stock strategy scheduler action: ${rawAction}`,
+        action: rawAction,
+      },
+    };
+  }
+  const decision = normalizeDecision(value);
+  if (!decision) {
+    return {
+      ok: false,
+      error: {
+        code: 'missing_action',
+        message: 'Missing stock strategy scheduler action',
+      },
+    };
+  }
+  return { ok: true, decision };
+}
+
 export function parseStockStrategyPlannerDecision(
   result: string | null | undefined,
 ): StockStrategyPlannerDecision | null {
-  if (!result) return null;
-  const parsed = parseJsonObjectLike(result);
-  if (!parsed) return null;
+  const parsed = parseStockStrategyPlannerDecisionResult(result);
+  return parsed.ok ? parsed.decision : null;
+}
 
-  const direct = normalizeDecision(parsed);
-  if (direct) return direct;
+export function parseStockStrategyPlannerDecisionResult(
+  result: string | null | undefined,
+): StockStrategyPlannerDecisionParseResult {
+  if (!result) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid_json',
+        message: 'Stock strategy scheduler decision JSON is empty',
+      },
+    };
+  }
+  const parsed = parseJsonObjectLike(result);
+  if (!parsed) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid_json',
+        message: 'Stock strategy scheduler decision JSON was not found',
+      },
+    };
+  }
+
+  const direct = normalizeDecisionResult(parsed);
+  if (direct.ok || direct.error.code === 'invalid_action') return direct;
 
   if (isRecord(parsed.scheduler_decision)) {
-    return normalizeDecision(parsed.scheduler_decision);
+    return normalizeDecisionResult(parsed.scheduler_decision);
   }
   if (isRecord(parsed.decision)) {
-    return normalizeDecision(parsed.decision);
+    return normalizeDecisionResult(parsed.decision);
   }
-  return null;
+  return direct;
 }
 
 export function parseCadenceToIntervalMs(

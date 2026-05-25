@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   parseCadenceToIntervalMs,
   parseStockStrategyPlannerDecision,
+  parseStockStrategyPlannerDecisionResult,
 } from '../../../../src/agent/scheduler/stock-strategy-decision.ts';
 
 describe('stock strategy scheduler decision parsing', () => {
@@ -186,6 +187,28 @@ describe('stock strategy scheduler decision parsing', () => {
           reason: '读取 paper/live ledger 做 reconciliation。',
         },
       ],
+    });
+  });
+
+  test('rejects invented scheduler actions with a structured error', () => {
+    const result = JSON.stringify({
+      action: 'dispatch_failed_gate_remediation',
+      next_workflow: 'stock-strategy-paper-validation',
+      cadence: '30m',
+      reason: 'The planner invented an action name.',
+      evidence_signature: 'control:bad-action:20260525',
+      requires_human: false,
+    });
+
+    expect(parseStockStrategyPlannerDecision(result)).toBeNull();
+    expect(parseStockStrategyPlannerDecisionResult(result)).toEqual({
+      ok: false,
+      error: {
+        code: 'invalid_action',
+        message:
+          'Invalid stock strategy scheduler action: dispatch_failed_gate_remediation',
+        action: 'dispatch_failed_gate_remediation',
+      },
     });
   });
 });

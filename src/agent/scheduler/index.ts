@@ -7,7 +7,7 @@ import { resolveEffectiveRuntimeIdentity } from '../../core/runtime/group-runtim
 import { logger } from '../../core/logger.js';
 import {
   cleanupOldTaskRunLogs,
-  cleanupStaleRunningLogs,
+  cleanupStaleRunningTaskAndWorkflowRuns,
   createTask,
   getAllTasks,
   getDueTasks,
@@ -30,6 +30,7 @@ import { evaluateScheduledTaskUsageGuard } from './usage-guard.js';
 import {
   parseCadenceToIntervalMs,
   parseStockStrategyPlannerDecision,
+  parseStockStrategyPlannerDecisionResult,
   type StockStrategyPlannerDecision,
   type StockStrategyWorkflowAssignment,
 } from './stock-strategy-decision.js';
@@ -56,9 +57,14 @@ export interface SchedulerDependencies {
 const runningTaskIds = new Set<string>();
 const DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT = 30;
 const DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS = 30 * 60 * 1000;
+const DEFAULT_WORKFLOW_TASK_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_STALE_RUNNING_TIMEOUT_MS = 30 * 60 * 1000;
+const STALE_RUNNING_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const STOCK_STRATEGY_DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS = 30 * 60 * 1000;
 const STOCK_STRATEGY_CONTROL_LOOP_WORKFLOW_ID = 'stock-strategy-control-loop';
+const STOCK_STRATEGY_DAILY_PROGRESS_WORKFLOW_ID =
+  'stock-strategy-daily-progress-summary';
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
@@ -149,6 +155,33 @@ function positiveNumberFromEnv(name: string, fallback: number): number {
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function staleRunningTimeoutMs(): number {
+  return positiveNumberFromEnv(
+    'CLI_CLAW_SCHEDULED_WORKFLOW_STALE_TIMEOUT_MS',
+    DEFAULT_STALE_RUNNING_TIMEOUT_MS,
+  );
+}
+
+async function runWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function deferScheduledTaskIfUsageLow(
@@ -366,7 +399,20 @@ function defaultStockStrategyWorkflowIntervalMs(
   if (workflowId === 'stock-strategy-paper-validation') {
     return 60 * 60 * 1000;
   }
+  if (workflowId === 'stock-strategy-paper-setup') {
+    return 60 * 60 * 1000;
+  }
   return STOCK_STRATEGY_DEFAULT_COOLDOWN_MS;
+}
+
+function requiresStockStrategySchedulerDecision(task: ScheduledTask): boolean {
+  const workflowId = taskWorkflowId(task);
+  return (
+    typeof workflowId === 'string' &&
+    workflowId.startsWith('stock-strategy-') &&
+    workflowId !== 'stock-strategy-loop' &&
+    workflowId !== STOCK_STRATEGY_DAILY_PROGRESS_WORKFLOW_ID
+  );
 }
 
 function workflowRunBelongsToTask(
@@ -496,14 +542,25 @@ function nextRunFromInterval(intervalMs: number | null): string | null {
   return new Date(Date.now() + intervalMs).toISOString();
 }
 
+function nextRunInFutureOrFallback(
+  explicitNextRun: string | null,
+  fallbackNextRun: string | null,
+): string | null {
+  if (!explicitNextRun) return fallbackNextRun;
+  const parsed = Date.parse(explicitNextRun);
+  if (Number.isFinite(parsed) && parsed >= Date.now()) return explicitNextRun;
+  return fallbackNextRun;
+}
+
 function resolveCurrentTaskNextRunOverride(
   decision: StockStrategyPlannerDecision,
   currentTaskIntervalMs: number | null,
 ): string | null {
-  return (
+  const fallback = nextRunFromInterval(currentTaskIntervalMs);
+  return nextRunInFutureOrFallback(
     parseNextRunAt(decision.current_next_run_at) ??
-    parseNextRunAt(decision.next_run_at) ??
-    nextRunFromInterval(currentTaskIntervalMs)
+      parseNextRunAt(decision.next_run_at),
+    fallback,
   );
 }
 
@@ -551,14 +608,20 @@ function resolveAssignmentSchedule(
     return {
       scheduleType: 'interval',
       scheduleValue: String(intervalMs),
-      nextRun: explicitNextRun ?? nextRunFromInterval(intervalMs),
+      nextRun: nextRunInFutureOrFallback(
+        explicitNextRun,
+        nextRunFromInterval(intervalMs),
+      ),
     };
   }
   if (explicitNextRun) {
     return {
       scheduleType: 'once',
       scheduleValue: '',
-      nextRun: explicitNextRun,
+      nextRun: nextRunInFutureOrFallback(
+        explicitNextRun,
+        new Date(Date.now()).toISOString(),
+      ),
     };
   }
   return null;
@@ -760,18 +823,33 @@ export async function runWorkflowTask(
       'Running workflow task',
     );
 
-    result = await deps.runWorkflowCommand(groupJid, workflowArgs, {
-      source: 'scheduled_task',
-      scheduledTaskId: task.id,
-      scheduleType: task.schedule_type,
-      scheduleValue: task.schedule_value,
-    });
+    result = await runWithTimeout(
+      deps.runWorkflowCommand(groupJid, workflowArgs, {
+        source: 'scheduled_task',
+        scheduledTaskId: task.id,
+        scheduleType: task.schedule_type,
+        scheduleValue: task.schedule_value,
+      }),
+      positiveNumberFromEnv(
+        'CLI_CLAW_SCHEDULED_WORKFLOW_TASK_TIMEOUT_MS',
+        DEFAULT_WORKFLOW_TASK_TIMEOUT_MS,
+      ),
+      `Scheduled workflow task ${task.id}`,
+    );
     const workflowFailure = extractWorkflowCommandFailure(result);
     if (workflowFailure) error = workflowFailure;
 
-    const stockStrategyDecision = !error
-      ? parseStockStrategyPlannerDecision(result)
-      : null;
+    let stockStrategyDecision: StockStrategyPlannerDecision | null = null;
+    if (!error && requiresStockStrategySchedulerDecision(task)) {
+      const parseResult = parseStockStrategyPlannerDecisionResult(result);
+      if (parseResult.ok) {
+        stockStrategyDecision = parseResult.decision;
+      } else {
+        error = parseResult.error.message;
+      }
+    } else if (!error) {
+      stockStrategyDecision = parseStockStrategyPlannerDecision(result);
+    }
     stockStrategyApplyResult = stockStrategyDecision
       ? applyStockStrategyPlannerDecision(task, stockStrategyDecision)
       : null;
@@ -827,6 +905,7 @@ export async function runWorkflowTask(
 let schedulerRunning = false;
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let lastCleanupTime = 0;
+let lastStaleRunningCleanupTime = 0;
 
 export function startSchedulerLoop(deps: SchedulerDependencies): void {
   if (schedulerRunning) {
@@ -837,13 +916,16 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
 
   runningTaskIds.clear();
   try {
-    const cleaned = cleanupStaleRunningLogs();
-    if (cleaned > 0) {
-      logger.info({ cleaned }, 'Cleaned up stale running task logs');
+    const cleaned = cleanupStaleRunningTaskAndWorkflowRuns({
+      olderThanMs: 0,
+    });
+    if (cleaned.taskLogs > 0 || cleaned.workflowRuns > 0) {
+      logger.info({ cleaned }, 'Cleaned up stale scheduled workflow runs');
     }
   } catch (err) {
-    logger.error({ err }, 'Failed to cleanup stale running task logs');
+    logger.error({ err }, 'Failed to cleanup stale scheduled workflow runs');
   }
+  lastStaleRunningCleanupTime = Date.now();
 
   logger.info('Workflow scheduler loop started');
 
@@ -859,6 +941,30 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
           }
         } catch (err) {
           logger.error({ err }, 'Failed to cleanup old task run logs');
+        }
+      }
+
+      if (
+        now - lastStaleRunningCleanupTime >=
+        STALE_RUNNING_CLEANUP_INTERVAL_MS
+      ) {
+        lastStaleRunningCleanupTime = now;
+        try {
+          const cleaned = cleanupStaleRunningTaskAndWorkflowRuns({
+            olderThanMs: staleRunningTimeoutMs(),
+          });
+          if (cleaned.taskLogs > 0 || cleaned.workflowRuns > 0) {
+            logger.info(
+              { cleaned },
+              'Cleaned up stale scheduled workflow runs',
+            );
+            runningTaskIds.clear();
+          }
+        } catch (err) {
+          logger.error(
+            { err },
+            'Failed to cleanup stale scheduled workflow runs',
+          );
         }
       }
 

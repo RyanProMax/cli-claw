@@ -407,3 +407,56 @@ Suspected cause:
 
 Next step:
 - 后续真实策略推进应由 `stock-strategy-control-loop` 派发：优先 US candidate validation 与 paper validation 缺口补证；HK 只在设计或数据变化时复盘；CN 只做覆盖恢复检查。任何进入实盘审批前仍必须经过人工确认，Agent 不自动 approve、activate 或下单。
+
+### Milestone 9：调度闭环硬化与 E2E 自测
+
+Objective:
+- 把 2026-05-25 复盘发现的执行层缺口补成硬机制：Agent 不能输出调度器听不懂的动作而被静默忽略；卡住的 scheduled task / workflow run 必须能自动识别并恢复；模拟盘验证缺口必须拆成真正可派发的准备/补证 workflow；每日总结卡住或无新进展时仍要给出可见诊断；最终用 E2E 自测证明主控能派工、失败能暴露、卡死能恢复、日报能完成。
+
+Allowed scope:
+- `src/agent/scheduler/stock-strategy-decision.ts`
+- `src/agent/scheduler/index.ts`
+- `src/storage/db.ts`
+- `src/agent/workflow/command.ts`
+- `src/agent/workflow/engine.ts`
+- `.agents/agent-roles/stock-strategy-*.md`
+- `.agents/workflows/stock-strategy-*.json`
+- `tests/unit/agent/scheduler/stock-strategy-decision.test.ts`
+- `tests/unit/agent/scheduler/workflow-task.test.ts`
+- `tests/unit/storage/stock-strategy-workspace.test.ts`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/e2e/**`
+- `docs/ARCHITECTURE.md`
+- `docs/RUNTIME.md`
+- `docs/COMMAND.md`
+- `docs/E2E.md`
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+
+Validation:
+- `npm test -- tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/storage/stock-strategy-workspace.test.ts tests/unit/agent/workflow/config.test.ts`
+- `npm test -- tests/e2e/stock-strategy-scheduler.e2e.test.ts`
+- `npm run typecheck:backend`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+- 安全重启后检查真实 DB：旧 running task log 不再挂住；`stock-strategy-control-loop` 能 active 续跑；paper validation / setup worker 能被合法决策派发；日报没有长期 stale running。
+
+Status:
+- done
+
+Validation status:
+- Targeted scheduler/storage/workflow config/E2E tests 已通过：`npm test -- tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/storage/stock-strategy-workspace.test.ts tests/unit/agent/workflow/config.test.ts tests/e2e/stock-strategy-scheduler.e2e.test.ts`（41 passed）。
+- `npm run typecheck:backend` 已通过。
+- `./scripts/validate.sh` 已通过：77 files passed / 1 skipped，537 tests passed / 1 skipped，并完成 backend、web、agent-runner build。
+- `./scripts/review.sh` 已通过格式和 diff hygiene；语义 review 按 `RUNBOOKS/Review.md` 检查 scope、目标、模式、验证、文档和回归风险，结论 passed。
+- 安全重启已完成：`restart-2026-05-25T15-56-53-402Z-a731c807` status passed，当前 backend pid `84021`，`/api/health` healthy。
+- 真实 DB 检查通过：旧 `stock-strategy-control-loop` 与 `stock-strategy-daily-progress-summary` running task log 已被 watchdog 标成 error；旧 running `stock-strategy-discovery-loop` workflow run 已被标成 watchdog error；当前无股票策略 running task log / workflow run 残留；`stock-strategy-control-loop` 与 `stock-strategy-daily-progress-summary` 均 active，因 OpenAI usage snapshot 临时不可读按 Deferred 续跑到 2026-05-25T16:26:55Z 左右。
+
+Review status:
+- passed
+
+Risks / Notes / Handoff:
+- 当前真实问题：2026-05-25 看到 `stock-strategy-control-loop` 与 `stock-strategy-daily-progress-summary` 有 stale running task log，但无对应 runner 进程；主控输出了 `dispatch_failed_gate_remediation` 等调度器不认识的 action，导致下游 worker 没被稳定物化。
+- 本 milestone 的完成标准不是“测试里能解析 JSON”，而是 E2E 证明：非法动作会变成明确失败/修正请求；合法动作会创建下游任务；过去时间不会让任务立刻反复 due；卡住任务能被 watchdog 标错并恢复 next_run；模拟盘缺口能进入真实 setup/validation 任务；日报在无新进展时也能输出诊断。
+- 已实现第一轮硬化：股票策略新调度工作流必须输出白名单 action；非法 action 直接记 task error；past `current_next_run_at` 会回退到未来时间；新增 scheduled workflow timeout 与 stale running watchdog；新增 `stock-strategy-paper-setup`，让 simulated trading / watch / paper ledger 准备与 `stock-strategy-paper-validation` 拆开。
+- Handoff：当前不是策略研究本身被证明有效，而是控制面被硬化。下一轮真实推进取决于 OpenAI usage snapshot 恢复后 `stock-strategy-control-loop` 的合法 JSON 输出；若 usage API 继续不可读，scheduler 会继续 Deferred，不会启动重任务或刷外部通知。

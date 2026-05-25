@@ -34,7 +34,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-chief-orchestrator",
       "outputArtifact": "control_loop_decision",
-      "prompt": "你是主控 Agent。基于 strategy_task_results、strategy_value_evidence 和 strategy_quality_gate 输出 scheduler JSON。固定 30 分钟只是 control heartbeat；不要把固定间隔当策略推导周期。必须包含 action、next_workflow、cadence、reason、evidence_signature、requires_human、strategy_usability、quality_gate、current_next_run_at、next_workflows、work_budget。next_workflows 可并行派 stock-strategy-us-candidate-validation、stock-strategy-hk-design-review、stock-strategy-cn-coverage-check、stock-strategy-discovery-loop 或 stock-strategy-paper-validation。若质量门未通过，安排补证或 cooldown；若回测通过但缺模拟盘，优先派 stock-strategy-paper-validation。禁止自动 approve、activate 或真实交易。"
+      "prompt": "你是主控 Agent。基于 strategy_task_results、strategy_value_evidence 和 strategy_quality_gate 输出 scheduler JSON。固定 30 分钟只是 control heartbeat；不要把固定间隔当策略推导周期。action 只能是 continue、pause、pause_discovery、slow_down、switch_workflow、ask_human，不允许自造 action。必须包含 action、next_workflow、cadence、reason、evidence_signature、requires_human、strategy_usability、quality_gate、current_next_run_at、next_workflows、work_budget。next_workflows 可并行派 stock-strategy-us-candidate-validation、stock-strategy-hk-design-review、stock-strategy-cn-coverage-check、stock-strategy-discovery-loop、stock-strategy-paper-setup 或 stock-strategy-paper-validation。若质量门未通过，安排补证或 cooldown；若回测通过但缺 watch、paper ledger 或 simulated trading 基础证据，先派 stock-strategy-paper-setup；若基础证据已齐，再派 stock-strategy-paper-validation。禁止自动 approve、activate 或真实交易。"
     }
   ],
   "edges": [

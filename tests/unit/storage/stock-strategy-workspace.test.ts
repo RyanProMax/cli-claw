@@ -24,7 +24,10 @@ async function loadStorage() {
   const home = tempDir('cli-claw-stock-workspace-home-');
   const stockApiRoot = tempDir('cli-claw-stock-api-');
   fs.mkdirSync(path.join(stockApiRoot, 'scripts'), { recursive: true });
-  fs.writeFileSync(path.join(stockApiRoot, 'scripts', 'futu_market_data.py'), '');
+  fs.writeFileSync(
+    path.join(stockApiRoot, 'scripts', 'futu_market_data.py'),
+    '',
+  );
   vi.stubEnv('HOME', home);
   vi.stubEnv('STOCK_ANALYSIS_API_ROOT', stockApiRoot);
   const db = await import('../../../src/storage/db.ts');
@@ -103,20 +106,22 @@ describe('stock strategy workspace migration', () => {
       workspace_folder: 'stock-strategy',
       notify_channels: ['feishu:private'],
     });
-    expect(db.getTaskById('stock-strategy-daily-progress-summary')).toMatchObject(
-      {
-        group_folder: 'stock-strategy',
-        chat_jid: 'web:stock-strategy',
-        script_command: 'stock-strategy-daily-progress-summary',
-        schedule_type: 'interval',
-        schedule_value: String(24 * 60 * 60 * 1000),
-        status: 'active',
-        workspace_jid: 'web:stock-strategy',
-        workspace_folder: 'stock-strategy',
-        notify_channels: ['feishu:private'],
-      },
-    );
-    expect(db.getTaskById('stock-strategy-us-candidate-validation')).toBeUndefined();
+    expect(
+      db.getTaskById('stock-strategy-daily-progress-summary'),
+    ).toMatchObject({
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-daily-progress-summary',
+      schedule_type: 'interval',
+      schedule_value: String(24 * 60 * 60 * 1000),
+      status: 'active',
+      workspace_jid: 'web:stock-strategy',
+      workspace_folder: 'stock-strategy',
+      notify_channels: ['feishu:private'],
+    });
+    expect(
+      db.getTaskById('stock-strategy-us-candidate-validation'),
+    ).toBeUndefined();
     expect(db.getTaskById('stock-strategy-hk-design-review')).toBeUndefined();
     expect(db.getTaskById('stock-strategy-cn-coverage-check')).toBeUndefined();
     expect(db.getTaskById('stock-strategy-paper-validation')).toBeUndefined();
@@ -301,12 +306,12 @@ describe('stock strategy workspace migration', () => {
       now: '2026-05-24T00:10:00.000Z',
     });
 
-    expect(db.getTaskById('stock-strategy-us-candidate-validation')).toMatchObject(
-      {
-        status: 'paused',
-        next_run: null,
-      },
-    );
+    expect(
+      db.getTaskById('stock-strategy-us-candidate-validation'),
+    ).toMatchObject({
+      status: 'paused',
+      next_run: null,
+    });
     expect(db.getTaskById('stock-strategy-cn-coverage-check')).toMatchObject({
       status: 'paused',
       next_run: null,
@@ -327,6 +332,88 @@ describe('stock strategy workspace migration', () => {
         workspace_jid: 'web:stock-strategy',
       },
     );
+
+    db.closeDatabase();
+  });
+
+  test('marks only stale scheduled task and workflow runs as failed during watchdog cleanup', async () => {
+    const { db } = await loadStorage();
+
+    const staleTaskLogId = db.logTaskRunStart(
+      'stock-strategy-control-loop',
+      '2026-05-25T03:47:27.876Z',
+    );
+    const freshTaskLogId = db.logTaskRunStart(
+      'stock-strategy-daily-progress-summary',
+      '2026-05-25T14:22:29.732Z',
+    );
+    db.upsertWorkflowContext({
+      id: 'ctx-stock-stale',
+      folder: 'stock-strategy',
+      workflowId: 'stock-strategy-control-loop',
+      threadId: 'thread-stock-stale',
+      runtimeAgentId: 'runtime-stock-strategy-control',
+    });
+    db.upsertWorkflowContext({
+      id: 'ctx-stock-fresh',
+      folder: 'stock-strategy',
+      workflowId: 'stock-strategy-daily-progress-summary',
+      threadId: 'thread-stock-fresh',
+      runtimeAgentId: 'runtime-stock-strategy-daily',
+    });
+    db.insertWorkflowRun({
+      id: 'stale-stock-run',
+      contextId: 'ctx-stock-stale',
+      folder: 'stock-strategy',
+      workflowId: 'stock-strategy-control-loop',
+      threadId: 'thread-stock-stale',
+      triggerChatJid: 'web:stock-strategy',
+      prompt: 'Run stock control loop',
+      status: 'running',
+      startedAt: '2026-05-25T03:47:34.000Z',
+      createdAt: '2026-05-25T03:47:34.000Z',
+      updatedAt: '2026-05-25T03:47:34.000Z',
+    });
+    db.insertWorkflowRun({
+      id: 'fresh-stock-run',
+      contextId: 'ctx-stock-fresh',
+      folder: 'stock-strategy',
+      workflowId: 'stock-strategy-daily-progress-summary',
+      threadId: 'thread-stock-fresh',
+      triggerChatJid: 'web:stock-strategy',
+      prompt: 'Summarize stock progress',
+      status: 'running',
+      startedAt: '2026-05-25T14:22:30.000Z',
+      createdAt: '2026-05-25T14:22:30.000Z',
+      updatedAt: '2026-05-25T14:22:30.000Z',
+    });
+
+    expect(
+      db.cleanupStaleRunningTaskAndWorkflowRuns({
+        now: '2026-05-25T15:30:00.000Z',
+        olderThanMs: 2 * 60 * 60 * 1000,
+      }),
+    ).toEqual({
+      taskLogs: 1,
+      workflowRuns: 1,
+    });
+
+    expect(db.getTaskRunLogById(staleTaskLogId)).toMatchObject({
+      status: 'error',
+      error: 'Process exceeded scheduled workflow watchdog timeout',
+    });
+    expect(db.getTaskRunLogById(freshTaskLogId)).toMatchObject({
+      status: 'running',
+      error: null,
+    });
+    expect(db.getWorkflowRunById('stale-stock-run')).toMatchObject({
+      status: 'error',
+      error: 'Process exceeded scheduled workflow watchdog timeout',
+    });
+    expect(db.getWorkflowRunById('fresh-stock-run')).toMatchObject({
+      status: 'running',
+      error: null,
+    });
 
     db.closeDatabase();
   });

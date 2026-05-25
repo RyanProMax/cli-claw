@@ -48,13 +48,14 @@
   - 2026-05-24 已新增 `stock-strategy-daily-progress-summary` 和 `stock-strategy-progress-reporter`，每天输出股票策略进度，覆盖策略挖掘、回测/OOS、模拟盘或 paper ledger、阻塞项、下一步节奏和是否需要人工。
   - 2026-05-24 已进一步修正固定 30 分钟 discovery 设计：固定时间只保留给 `stock-strategy-control-loop` 主控心跳；新增 `stock-strategy-chief-orchestrator` 与 `stock-strategy-quality-reviewer`，planner JSON 支持 `current_next_run_at`、`next_workflows[]`、`quality_gate`、`work_budget`。scheduler 可一次派发多个 worker、精确设置当前任务 next_run，并在 quality gate failed 时阻止 pause / 人审推进。
   - 2026-05-24 已新增 `stock-strategy-paper-validation`，候选通过回测/OOS 后可尽快进入 paper/live ledger 与 reconciliation 验证；只有质量门通过才允许 `human_review_ready` / `ask_human`，仍禁止自动 approve、activate 或真实交易。
+  - 2026-05-25 已补调度闭环硬化：股票策略新调度 workflow 的 `action` 必须来自 scheduler 白名单，非法动作会把本轮 task run 记为 error，不再静默忽略；scheduler 会把过去的 `current_next_run_at` 回退到未来时间，并通过 watchdog 清理 stale running task log / workflow run。新增 `stock-strategy-paper-setup`，先验收 watch、paper ledger、simulated trading 和对账入口，再派 `stock-strategy-paper-validation`。
   - 第一轮真实 `stock-strategy-discovery-loop` 已于 2026-05-20T16:30:52Z 成功完成，下一轮排到 2026-05-20T17:00:00Z；继续观察后续 discovery 是否稳定区分新候选、重复候选、样本不足和 OOS 未成熟，且没有交易/approve/activate 越界。
   - 2026-05-21 已新增股票策略 workflow 飞书摘要层并完成卡片精修：用户可见消息固定展示阶段目标、本轮完成、策略效果和后续规划；要点使用加粗标题与空行；完整 JSON 只留在 workflow 审计中。
   - 2026-05-21 已收紧 planner 契约：`stock-strategy-iteration-planner` 必须输出 `change_summary` 与 `repeat_decision`，连续无新增时要明确写重复判断、等待、降频、补证或转候选验证，避免把同一 discovery 结果包装成新结论。
   - 2026-05-21 定时任务失败复盘：真实 workflow 错误集中在最终 `plan_next_iteration` 遇到 OpenAI `server_is_overloaded` / `ECONNRESET` / `server_error`，上游 local task 与 review artifact 多数已完成；usage guard 不可读曾被误记为 task error。已将 usage guard 延期改成 `Deferred` 非失败、识别 workflow 失败文本、扩大 transient runtime retry 识别，并为股票策略 planner 增加基于已完成 artifact 的 `status=degraded` fallback plan。
   - 后续观察 `stock-strategy-loop-review` 是否只承担成熟/候选复盘；若 planner 连续输出相同 evidence signature，scheduler 应保持 cooldown / 降频，不再向外部 IM 刷重复发现。
   - 后续可把 state machine 持久化为显式 registry 表，而不是仅从 planner decision、workflow artifact 和 scheduled task 聚合恢复状态；若接入真实候选审批，再补 `approved` / `rejected` 的人工按钮与审计字段。
-  - 后续观察第一批 `stock-strategy-control-loop` 真实运行是否能按证据成熟度动态派 US 验证 / paper validation，而不是恢复旧固定 worker 空跑；若控制面足够稳定，再把市场状态持久化为显式 registry 表。
+  - 后续观察第一批 `stock-strategy-control-loop` 在 OpenAI usage snapshot 恢复后是否能按证据成熟度动态派 US 验证 / paper setup / paper validation，而不是恢复旧固定 worker 空跑；若控制面足够稳定，再把市场状态持久化为显式 registry 表。
   - 后续可增加 golden dataset / semantic eval，评价 planner 是否持续提出可验证、不过拟合、只读、且具备真实增量的下一轮迭代任务。
 
 ### P1 RM-2026-05-18-03 HKIPO Official Document Parser

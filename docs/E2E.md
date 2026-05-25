@@ -7,6 +7,14 @@
 - in-process E2E：仓库内模拟外部 provider / runner 的完整链路，例如 `tests/integration/messaging/feishu/e2e.test.ts`。这类测试不需要真实飞书凭据。
 - live smoke：真实调用外部平台 API，例如 `tests/live/feishu/message-smoke.test.ts`。这类测试会真的发送消息，消息必须统一带 `[e2e]` 前缀。
 
+股票策略 scheduler 的 in-process E2E 使用真实 SQLite 存储和真实 scheduler，但 mock OpenAI usage snapshot 与 workflow runner，不触发外部 Agent 或券商接口。入口：
+
+```bash
+npm test -- tests/e2e/stock-strategy-scheduler.e2e.test.ts
+```
+
+该测试覆盖主控合法 JSON 派发 `stock-strategy-paper-setup` / `stock-strategy-paper-validation`、过去时间回退到未来 next_run，以及 watchdog 把 stale running task log / workflow run 标成可见 error。
+
 ## 飞书 Live Smoke
 
 飞书 live smoke 会执行两步：

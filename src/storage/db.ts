@@ -52,6 +52,7 @@ const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
   'stock-strategy-us-candidate-validation',
   'stock-strategy-hk-design-review',
   'stock-strategy-cn-coverage-check',
+  'stock-strategy-paper-setup',
   'stock-strategy-paper-validation',
   'stock-strategy-daily-progress-summary',
 ]);
@@ -61,8 +62,11 @@ const STOCK_STRATEGY_DYNAMIC_WORKER_IDS = new Set([
   'stock-strategy-us-candidate-validation',
   'stock-strategy-hk-design-review',
   'stock-strategy-cn-coverage-check',
+  'stock-strategy-paper-setup',
   'stock-strategy-paper-validation',
 ]);
+const SCHEDULED_WORKFLOW_WATCHDOG_ERROR =
+  'Process exceeded scheduled workflow watchdog timeout';
 const STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS = new Set([
   'stock-strategy-loop-review',
   'stock-strategy-candidate-validation',
@@ -2077,7 +2081,7 @@ export function logTaskRun(log: TaskRunLog): void {
   );
 }
 
-export function logTaskRunStart(taskId: string): number {
+export function logTaskRunStart(taskId: string, runAt?: string): number {
   const result = db
     .prepare(
       `
@@ -2085,8 +2089,22 @@ export function logTaskRunStart(taskId: string): number {
     VALUES (?, ?, 0, 'running', NULL, NULL)
   `,
     )
-    .run(taskId, new Date().toISOString());
+    .run(taskId, runAt ?? new Date().toISOString());
   return Number(result.lastInsertRowid);
+}
+
+export function getTaskRunLogById(
+  id: number,
+): (TaskRunLog & { id: number }) | undefined {
+  return db
+    .prepare(
+      `
+    SELECT id, task_id, run_at, duration_ms, status, result, error
+    FROM task_run_logs
+    WHERE id = ?
+  `,
+    )
+    .get(id) as (TaskRunLog & { id: number }) | undefined;
 }
 
 export function updateTaskRunLog(
@@ -2107,15 +2125,89 @@ export function updateTaskRunLog(
 }
 
 export function cleanupStaleRunningLogs(): number {
-  const result = db
+  return cleanupStaleRunningTaskAndWorkflowRuns({ olderThanMs: 0 }).taskLogs;
+}
+
+export function cleanupStaleRunningTaskAndWorkflowRuns(options?: {
+  now?: string;
+  olderThanMs?: number;
+}): { taskLogs: number; workflowRuns: number } {
+  const rawNow = options?.now ?? new Date().toISOString();
+  const rawNowMs = Date.parse(rawNow);
+  const nowMs = Number.isFinite(rawNowMs) ? rawNowMs : Date.now();
+  const now = new Date(nowMs).toISOString();
+  const olderThanMs =
+    typeof options?.olderThanMs === 'number' &&
+    Number.isFinite(options.olderThanMs) &&
+    options.olderThanMs >= 0
+      ? options.olderThanMs
+      : 30 * 60 * 1000;
+  const cutoff = new Date(nowMs - olderThanMs).toISOString();
+
+  const staleTaskLogs = db
     .prepare(
       `
-    UPDATE task_run_logs SET status = 'error', error = 'Process crashed before completion'
-    WHERE status = 'running'
+    SELECT id, run_at
+    FROM task_run_logs
+    WHERE status = 'running' AND run_at <= ?
   `,
     )
-    .run();
-  return result.changes;
+    .all(cutoff) as Array<{ id: number; run_at: string }>;
+
+  const updateTaskLog = db.prepare(
+    `
+    UPDATE task_run_logs
+    SET duration_ms = ?, status = 'error', error = ?
+    WHERE id = ?
+  `,
+  );
+  for (const row of staleTaskLogs) {
+    const runAtMs = Date.parse(row.run_at);
+    const durationMs =
+      Number.isFinite(nowMs) && Number.isFinite(runAtMs)
+        ? Math.max(0, nowMs - runAtMs)
+        : 0;
+    updateTaskLog.run(durationMs, SCHEDULED_WORKFLOW_WATCHDOG_ERROR, row.id);
+  }
+
+  const staleWorkflowRuns = db
+    .prepare(
+      `
+    SELECT id
+    FROM workflow_runs
+    WHERE status = 'running'
+      AND COALESCE(started_at, updated_at, created_at) <= ?
+  `,
+    )
+    .all(cutoff) as Array<{ id: string }>;
+
+  if (staleWorkflowRuns.length > 0) {
+    const ids = staleWorkflowRuns.map((row) => row.id);
+    const placeholders = ids.map(() => '?').join(', ');
+    db.prepare(
+      `
+      UPDATE workflow_runs
+      SET status = 'error',
+          error = ?,
+          completed_at = COALESCE(completed_at, ?),
+          updated_at = ?
+      WHERE id IN (${placeholders})
+    `,
+    ).run(SCHEDULED_WORKFLOW_WATCHDOG_ERROR, now, now, ...ids);
+    db.prepare(
+      `
+      UPDATE workflow_contexts
+      SET active_run_id = NULL,
+          updated_at = ?
+      WHERE active_run_id IN (${placeholders})
+    `,
+    ).run(now, ...ids);
+  }
+
+  return {
+    taskLogs: staleTaskLogs.length,
+    workflowRuns: staleWorkflowRuns.length,
+  };
 }
 
 export function cleanupOldTaskRunLogs(retentionDays = 30): number {

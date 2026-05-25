@@ -28,6 +28,10 @@ vi.mock('../../../../src/core/runtime/usage.js', () => ({
 
 vi.mock('../../../../src/storage/db.js', () => ({
   cleanupOldTaskRunLogs: vi.fn(),
+  cleanupStaleRunningTaskAndWorkflowRuns: vi.fn(() => ({
+    taskLogs: 0,
+    workflowRuns: 0,
+  })),
   cleanupStaleRunningLogs: vi.fn(),
   createTask: createTaskMock,
   getAllTasks: vi.fn(() => []),
@@ -508,8 +512,7 @@ describe('scheduled workflow task helpers', () => {
         cadence: 'dynamic',
         current_next_run_at: '2026-05-24T14:45:00.000Z',
         reason: 'US validation and paper-readiness can run in parallel.',
-        evidence_signature:
-          'control:portfolio:all:default_cost:mixed:20260524',
+        evidence_signature: 'control:portfolio:all:default_cost:mixed:20260524',
         requires_human: false,
         quality_gate: {
           status: 'failed',
@@ -614,6 +617,139 @@ describe('scheduled workflow task helpers', () => {
         'feishu:private',
         expect.any(String),
         expect.anything(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('records an error instead of silently accepting invented stock strategy actions', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-control-loop',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-control-loop',
+      prompt: 'Coordinate stock strategy research by state.',
+      schedule_value: String(30 * 60 * 1000),
+      next_run: '2026-05-25T03:00:00.000Z',
+      workspace_jid: 'web:stock-strategy',
+      workspace_folder: 'stock-strategy',
+    });
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const runWorkflowCommand = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        action: 'dispatch_failed_gate_remediation',
+        next_workflow: 'stock-strategy-paper-validation',
+        cadence: '30m',
+        reason: 'paper validation is needed',
+        evidence_signature: 'control:bad-action:20260525',
+        requires_human: false,
+      }),
+    );
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(createTaskMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'stock-strategy-paper-validation' }),
+    );
+    expect(updateTaskRunLogMock).toHaveBeenCalledWith(
+      1001,
+      expect.objectContaining({
+        status: 'error',
+        result: expect.stringContaining('dispatch_failed_gate_remediation'),
+        error: expect.stringContaining(
+          'Invalid stock strategy scheduler action',
+        ),
+      }),
+    );
+    expect(updateTaskAfterRunMock).toHaveBeenCalledWith(
+      'stock-strategy-control-loop',
+      expect.any(String),
+      expect.stringContaining('Invalid stock strategy scheduler action'),
+    );
+  });
+
+  test('does not schedule the current control task in the past when planner emits an old timezone timestamp', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T03:00:00.000Z'));
+    try {
+      const scheduledTask = task({
+        id: 'stock-strategy-control-loop',
+        group_folder: 'stock-strategy',
+        chat_jid: 'web:stock-strategy',
+        script_command: 'stock-strategy-control-loop',
+        prompt: 'Coordinate stock strategy research by state.',
+        schedule_value: String(30 * 60 * 1000),
+        next_run: '2026-05-25T03:00:00.000Z',
+        workspace_jid: 'web:stock-strategy',
+        workspace_folder: 'stock-strategy',
+      });
+      getTaskByIdMock.mockReturnValue(scheduledTask);
+      const runWorkflowCommand = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          action: 'continue',
+          next_workflow: null,
+          cadence: '30m',
+          current_next_run_at: '2026-05-25T10:47:35+08:00',
+          reason: 'timezone timestamp is already in the past in UTC',
+          evidence_signature: 'control:past-next-run:20260525',
+          requires_human: false,
+        }),
+      );
+      const sendMessage = vi.fn();
+
+      await runWorkflowTask(
+        scheduledTask,
+        {
+          registeredGroups: () => ({
+            'web:stock-strategy': {
+              name: '股票策略',
+              folder: 'stock-strategy',
+              added_at: '2026-05-24T00:00:00.000Z',
+              agentType: 'openai',
+              is_home: true,
+            },
+          }),
+          getSessions: () => ({}),
+          queue: {} as never,
+          sendMessage,
+          runWorkflowCommand,
+          assistantName: 'cli-claw',
+        },
+        'web:stock-strategy',
+      );
+
+      expect(updateTaskAfterRunMock).toHaveBeenCalledWith(
+        'stock-strategy-control-loop',
+        '2026-05-25T03:30:00.000Z',
+        expect.any(String),
+      );
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        'stock-strategy-control-loop',
+        expect.objectContaining({
+          next_run: '2026-05-25T03:30:00.000Z',
+          status: 'active',
+        }),
       );
     } finally {
       vi.useRealTimers();

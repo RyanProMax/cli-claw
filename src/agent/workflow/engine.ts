@@ -126,6 +126,7 @@ const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
   'stock-strategy-us-candidate-validation',
   'stock-strategy-hk-design-review',
   'stock-strategy-cn-coverage-check',
+  'stock-strategy-paper-setup',
   'stock-strategy-paper-validation',
 ]);
 

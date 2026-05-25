@@ -1,5 +1,6 @@
 export {
   cleanupOldTaskRunLogs,
+  cleanupStaleRunningTaskAndWorkflowRuns,
   cleanupStaleRunningLogs,
   createTask,
   deleteTask,
@@ -7,6 +8,7 @@ export {
   getAllTasks,
   getDueTasks,
   getTaskById,
+  getTaskRunLogById,
   getTaskRunLogs,
   getTaskRunLogsForTaskIdsInRange,
   getTasksForGroup,
