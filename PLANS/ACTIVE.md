@@ -363,7 +363,7 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 8
+- Milestone 10
 
 Current status:
 - done
@@ -400,13 +400,13 @@ Changed files:
 - `tests/unit/storage/stock-strategy-workspace.test.ts`
 
 Last failure summary:
-- Milestone 8 初次语义 review 发现旧 runtime prompt 仍残留 discovery 30m 表述，已改为 control-loop 主控心跳；真实 DB 重启检查又发现旧 `stock-strategy-loop-review` 与 `stock-strategy-candidate-validation` 仍 active，已补 legacy task ID 迁移并加 storage 回归测试。最终 targeted tests、全量 validate、review gate、安全重启与 DB 实态检查均通过。
+- Milestone 10 真实复盘发现 `stock-strategy-paper-setup` 多次派发不存在的 `stock-strategy-design-review`，并且新股票策略 workflow 的外部投递可能带出 `[Scheduler Decision]` / 原始 JSON。已补 alias / allowlist、外部投递剥离、日报 21:00 cron 与精简日报提示。最终 targeted tests、全量 validate、review gate、安全重启与 DB 实态检查均通过。
 
 Suspected cause:
-- 已确认并修复：原设计把固定 cadence 当作策略推进节奏，且历史 task id 没有全部纳入迁移规则。现在固定 30m 只属于 `stock-strategy-control-loop`；worker 由 `current_next_run_at` / `next_workflows[]` 动态派发，pause 必须同时通过 `strategy_usability` 与 `quality_gate`。
+- 已确认并修复：planner 输出的下游 workflow id 没有经过 scheduler 侧校验，外部投递复用了内部 scheduler-readable 结果，日报仍是 24h interval 而不是固定晚 9 点总结。现在未知下游不会建任务，旧 HK 设计复盘 id 会归一，外部只看短摘要，内部审计保留 JSON。
 
 Next step:
-- 后续真实策略推进应由 `stock-strategy-control-loop` 派发：优先 US candidate validation 与 paper validation 缺口补证；HK 只在设计或数据变化时复盘；CN 只做覆盖恢复检查。任何进入实盘审批前仍必须经过人工确认，Agent 不自动 approve、activate 或下单。
+- 后续真实策略推进应由 `stock-strategy-control-loop` 派发；日报只在本地 21:00 推送关键进展。若 `paper-setup` 仍缺 watch / paper ledger / simulated trading 基础证据，应继续补这些输入，不再重复 discovery 或刷过程。
 
 ### Milestone 9：调度闭环硬化与 E2E 自测
 
@@ -460,3 +460,46 @@ Risks / Notes / Handoff:
 - 本 milestone 的完成标准不是“测试里能解析 JSON”，而是 E2E 证明：非法动作会变成明确失败/修正请求；合法动作会创建下游任务；过去时间不会让任务立刻反复 due；卡住任务能被 watchdog 标错并恢复 next_run；模拟盘缺口能进入真实 setup/validation 任务；日报在无新进展时也能输出诊断。
 - 已实现第一轮硬化：股票策略新调度工作流必须输出白名单 action；非法 action 直接记 task error；past `current_next_run_at` 会回退到未来时间；新增 scheduled workflow timeout 与 stale running watchdog；新增 `stock-strategy-paper-setup`，让 simulated trading / watch / paper ledger 准备与 `stock-strategy-paper-validation` 拆开。
 - Handoff：当前不是策略研究本身被证明有效，而是控制面被硬化。下一轮真实推进取决于 OpenAI usage snapshot 恢复后 `stock-strategy-control-loop` 的合法 JSON 输出；若 usage API 继续不可读，scheduler 会继续 Deferred，不会启动重任务或刷外部通知。
+
+### Milestone 10：飞书输出收敛、9 点日报与真实进度复盘
+
+Objective:
+- 按 2026-05-26 真实运行复盘修正股票策略闭环的用户可见面：飞书/微信不再推送内部调度 JSON、长过程和原始数据结构；股票策略日报固定每天 21:00 推送关键进展；scheduler 不再创建错误 workflow id 导致空转；同时输出昨天与今天的简明进展结论。
+
+Allowed scope:
+- `src/agent/scheduler/index.ts`
+- `src/agent/scheduler/stock-strategy-decision.ts`
+- `src/agent/workflow/command.ts`
+- `src/storage/db.ts`
+- `.agents/agent-roles/stock-strategy-progress-reporter.md`
+- `.agents/workflows/stock-strategy-daily-progress-summary.json`
+- `tests/unit/agent/scheduler/workflow-task.test.ts`
+- `tests/unit/agent/scheduler/stock-strategy-decision.test.ts`
+- `tests/unit/agent/workflow/command.test.ts`
+- `tests/unit/storage/stock-strategy-workspace.test.ts`
+- `docs/RUNTIME.md`
+- `docs/COMMAND.md`
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+
+Validation:
+- `npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/storage/stock-strategy-workspace.test.ts`
+- `npm run typecheck:backend`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+- 安全重启后检查真实 DB：`stock-strategy-design-review` 不再 active；`stock-strategy-daily-progress-summary` 为每天 21:00；外部通知不会包含 `[Scheduler Decision]` 或调度 JSON。
+
+Status:
+- done
+
+Validation status:
+- passed：`npm test -- tests/unit/agent/scheduler/workflow-task.test.ts tests/unit/agent/scheduler/stock-strategy-decision.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/storage/stock-strategy-workspace.test.ts`、`npm run typecheck:backend`、`./scripts/validate.sh` 均通过；`./scripts/validate.sh` 结果为 543 passed / 1 skipped，并完成 backend、web、agent-runner build。
+
+Review status:
+- passed：`./scripts/review.sh` 通过格式和 diff hygiene；语义 review 按 scope、目标、模式、验证、文档和回归风险检查，未发现阻塞问题。
+
+Risks / Notes / Handoff:
+- 真实复盘发现：`stock-strategy-paper-setup` 曾派发不存在的 `stock-strategy-design-review`，导致 2026-05-25 与 2026-05-26 多次 `workflow not found`。本轮需要把错误 id 纠正到 `stock-strategy-hk-design-review`，并禁止未知 `stock-strategy-*` workflow 被创建成 scheduled task。
+- 真实复盘发现：新股票策略 workflow 的结果没有全部走摘要层，飞书可能看到 `[Scheduler Decision]` 与内部 JSON。本轮要保留内部审计和 scheduler 解析能力，但外部 IM 只看短摘要。
+- 日报不是高频过程播报；默认每天 21:00 只推“今天做了什么、卡在哪、下一步、是否需要人”。重复 discovery、无新增证据、内部调度字段不外推。
+- 已完成并安全重启：`restart-2026-05-26T16-21-39-169Z-4503edef` passed，`/api/health` healthy。真实 DB 当前 `stock-strategy-daily-progress-summary` 为 `cron 0 21 * * *`，next_run=`2026-05-27T01:00:00.000Z`；`stock-strategy-design-review` 已 paused，当前无股票策略 running task log / workflow run 残留。

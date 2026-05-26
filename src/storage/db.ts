@@ -1,9 +1,10 @@
 import Database from './sqlite-compat.js';
+import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 import path from 'path';
 
 import { APP_ROOT } from '../core/app-root.js';
-import { DATA_DIR, STORE_DIR } from '../core/config.js';
+import { DATA_DIR, STORE_DIR, TIMEZONE } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import {
   AgentKind,
@@ -70,6 +71,7 @@ const SCHEDULED_WORKFLOW_WATCHDOG_ERROR =
 const STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS = new Set([
   'stock-strategy-loop-review',
   'stock-strategy-candidate-validation',
+  'stock-strategy-design-review',
 ]);
 const STOCK_STRATEGY_DEFAULT_SCHEDULES = [
   {
@@ -77,14 +79,19 @@ const STOCK_STRATEGY_DEFAULT_SCHEDULES = [
     workflowId: 'stock-strategy-control-loop',
     prompt:
       'Coordinate stock strategy research by state. This is the only fixed heartbeat: inspect new data, evidence signatures, quality gaps, candidate maturity, paper/live ledger, and human feedback before scheduling heavy worker workflows.',
-    intervalMs: STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS,
+    scheduleType: 'interval',
+    scheduleValue: String(STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS),
+    nextRun: (now: string) =>
+      addMsToIso(now, STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS),
   },
   {
     id: 'stock-strategy-daily-progress-summary',
     workflowId: 'stock-strategy-daily-progress-summary',
     prompt:
-      'Summarize today stock strategy progress across discovery, backtesting, paper trading, blockers, next steps, and human-review needs. Keep readonly and do not approve, activate, or trade.',
-    intervalMs: 24 * 60 * 60 * 1000,
+      'At 21:00 local time, send a concise stock strategy daily progress summary: today done, blockers, next step, and human-review need only. Keep readonly and do not approve, activate, or trade.',
+    scheduleType: 'cron',
+    scheduleValue: '0 21 * * *',
+    nextRun: (now: string) => nextCronRunIso('0 21 * * *', now),
   },
 ] as const;
 
@@ -1645,6 +1652,21 @@ function addMsToIso(value: string, intervalMs: number): string {
   return new Date(base + intervalMs).toISOString();
 }
 
+function nextCronRunIso(expression: string, now: string): string {
+  try {
+    const interval = CronExpressionParser.parse(expression, {
+      currentDate: now,
+      tz: TIMEZONE,
+    });
+    return (
+      interval.next().toISOString() ?? addMsToIso(now, 24 * 60 * 60 * 1000)
+    );
+  } catch (err) {
+    logger.warn({ err, expression, now }, 'Failed to compute cron next run');
+    return addMsToIso(now, 24 * 60 * 60 * 1000);
+  }
+}
+
 function isStockStrategyWorkflowId(value: unknown): boolean {
   return typeof value === 'string' && STOCK_STRATEGY_WORKFLOW_IDS.has(value);
 }
@@ -1810,7 +1832,7 @@ export function ensureStockStrategyWorkspaceAndSchedules(
       last_result, status, created_at, created_by, notify_channels,
       workspace_jid, workspace_folder
     )
-    VALUES (?, ?, ?, ?, 'interval', ?, 'isolated', 'workflow', ?, ?, NULL,
+    VALUES (?, ?, ?, ?, ?, ?, 'isolated', 'workflow', ?, ?, NULL,
       NULL, 'active', ?, NULL, ?, ?, ?)`,
   );
   const normalizeDefaultTaskWorkspace = db.prepare(
@@ -1822,15 +1844,32 @@ export function ensureStockStrategyWorkspaceAndSchedules(
          notify_channels = COALESCE(notify_channels, ?)
      WHERE id = ?`,
   );
+  const readDefaultTaskSchedule = db.prepare(
+    `SELECT id, prompt, schedule_type, schedule_value, script_command
+     FROM scheduled_tasks
+     WHERE id = ?`,
+  );
+  const updateDefaultTaskSchedule = db.prepare(
+    `UPDATE scheduled_tasks
+     SET prompt = ?,
+         schedule_type = ?,
+         schedule_value = ?,
+         script_command = ?,
+         next_run = ?,
+         status = 'active'
+     WHERE id = ?`,
+  );
   for (const schedule of STOCK_STRATEGY_DEFAULT_SCHEDULES) {
+    const nextRun = schedule.nextRun(now);
     insertDefaultTask.run(
       schedule.id,
       STOCK_STRATEGY_WORKSPACE_FOLDER,
       STOCK_STRATEGY_WORKSPACE_JID,
       schedule.prompt,
-      String(schedule.intervalMs),
+      schedule.scheduleType,
+      schedule.scheduleValue,
       schedule.workflowId,
-      addMsToIso(now, schedule.intervalMs),
+      nextRun,
       now,
       defaultNotifyChannelsJson,
       STOCK_STRATEGY_WORKSPACE_JID,
@@ -1844,6 +1883,30 @@ export function ensureStockStrategyWorkspaceAndSchedules(
       defaultNotifyChannelsJson,
       schedule.id,
     );
+    const currentSchedule = readDefaultTaskSchedule.get(schedule.id) as
+      | {
+          prompt: string;
+          schedule_type: string;
+          schedule_value: string;
+          script_command: string | null;
+        }
+      | undefined;
+    if (
+      currentSchedule &&
+      (currentSchedule.prompt !== schedule.prompt ||
+        currentSchedule.schedule_type !== schedule.scheduleType ||
+        currentSchedule.schedule_value !== schedule.scheduleValue ||
+        currentSchedule.script_command !== schedule.workflowId)
+    ) {
+      updateDefaultTaskSchedule.run(
+        schedule.prompt,
+        schedule.scheduleType,
+        schedule.scheduleValue,
+        schedule.workflowId,
+        nextRun,
+        schedule.id,
+      );
+    }
   }
 
   type StockStrategyTaskCadenceRow =

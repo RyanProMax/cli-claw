@@ -65,6 +65,24 @@ const STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS = 30 * 60 * 1000;
 const STOCK_STRATEGY_CONTROL_LOOP_WORKFLOW_ID = 'stock-strategy-control-loop';
 const STOCK_STRATEGY_DAILY_PROGRESS_WORKFLOW_ID =
   'stock-strategy-daily-progress-summary';
+const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
+  STOCK_STRATEGY_CONTROL_LOOP_WORKFLOW_ID,
+  STOCK_STRATEGY_DAILY_PROGRESS_WORKFLOW_ID,
+  'stock-strategy-discovery-loop',
+  'stock-strategy-loop',
+  'stock-strategy-us-candidate-validation',
+  'stock-strategy-hk-design-review',
+  'stock-strategy-cn-coverage-check',
+  'stock-strategy-paper-setup',
+  'stock-strategy-paper-validation',
+]);
+const STOCK_STRATEGY_WORKFLOW_ALIASES = new Map<string, string>([
+  ['stock-strategy-design-review', 'stock-strategy-hk-design-review'],
+  [
+    'stock-strategy-candidate-validation',
+    'stock-strategy-us-candidate-validation',
+  ],
+]);
 
 export function getRunningTaskIds(): string[] {
   return [...runningTaskIds];
@@ -287,6 +305,58 @@ function shouldNotifyExternalChannels(
 ): boolean {
   if (!decision) return true;
   return decision.requires_human || decision.action === 'ask_human';
+}
+
+function isStockStrategyWorkflowTask(task: ScheduledTask): boolean {
+  const workflowId = taskWorkflowId(task);
+  return (
+    task.id.startsWith('stock-strategy-') ||
+    Boolean(workflowId?.startsWith('stock-strategy-'))
+  );
+}
+
+function stripStockStrategySchedulerDecisionBlock(result: string): string {
+  const marker = '[Scheduler Decision]';
+  const markerIndex = result.indexOf(marker);
+  if (markerIndex < 0) return result;
+  return result.slice(0, markerIndex).trimEnd();
+}
+
+function formatStockStrategyDecisionSummaryForDelivery(
+  decision: StockStrategyPlannerDecision,
+): string {
+  const nextWorkflow = decision.next_workflow || '暂无下游任务';
+  return [
+    '股票策略进展',
+    '',
+    `- 结论：${decision.reason || '已完成本轮状态判断。'}`,
+    `- 动作：${decision.action}；下一步：${nextWorkflow}；节奏：${
+      decision.cadence || '按状态触发'
+    }`,
+    `- 人工：${decision.requires_human ? '需要你确认' : '暂不需要'}`,
+  ].join('\n');
+}
+
+function formatWorkflowResultForScheduledDelivery(
+  task: ScheduledTask,
+  result: string,
+  decision: StockStrategyPlannerDecision | null,
+): string {
+  if (!isStockStrategyWorkflowTask(task)) return result;
+  const stripped = stripStockStrategySchedulerDecisionBlock(result).trim();
+  if (decision && /^\s*(?:```json\s*)?\{/.test(stripped)) {
+    return formatStockStrategyDecisionSummaryForDelivery(decision);
+  }
+  return (
+    stripped ||
+    (decision
+      ? formatStockStrategyDecisionSummaryForDelivery(decision)
+      : result)
+  );
+}
+
+function shouldAppendPlannerNoticeToDelivery(task: ScheduledTask): boolean {
+  return !isStockStrategyWorkflowTask(task);
 }
 
 function formatStockStrategyDecisionNotice(
@@ -567,21 +637,40 @@ function resolveCurrentTaskNextRunOverride(
 function downstreamAssignmentsFromDecision(
   decision: StockStrategyPlannerDecision,
 ): StockStrategyWorkflowAssignment[] {
-  const assignments = [...(decision.next_workflows ?? [])];
-  if (decision.next_workflow) {
-    const exists = assignments.some(
-      (assignment) => assignment.workflow_id === decision.next_workflow,
+  const assignments: StockStrategyWorkflowAssignment[] = [];
+  const seenWorkflowIds = new Set<string>();
+  const addAssignment = (assignment: StockStrategyWorkflowAssignment): void => {
+    const normalizedWorkflowId = normalizeStockStrategyWorkflowId(
+      assignment.workflow_id,
     );
-    if (!exists) {
-      assignments.push({
-        workflow_id: decision.next_workflow,
-        cadence: decision.next_cadence ?? decision.cadence,
-        next_run_at: decision.next_run_at,
-        reason: decision.reason,
-      });
+    if (!normalizedWorkflowId || seenWorkflowIds.has(normalizedWorkflowId)) {
+      return;
     }
+    seenWorkflowIds.add(normalizedWorkflowId);
+    assignments.push({
+      ...assignment,
+      workflow_id: normalizedWorkflowId,
+    });
+  };
+  for (const assignment of decision.next_workflows ?? []) {
+    addAssignment(assignment);
+  }
+  if (decision.next_workflow) {
+    addAssignment({
+      workflow_id: decision.next_workflow,
+      cadence: decision.next_cadence ?? decision.cadence,
+      next_run_at: decision.next_run_at,
+      reason: decision.reason,
+    });
   }
   return assignments;
+}
+
+function normalizeStockStrategyWorkflowId(workflowId: string): string | null {
+  const trimmed = workflowId.trim();
+  if (!trimmed) return null;
+  const normalized = STOCK_STRATEGY_WORKFLOW_ALIASES.get(trimmed) ?? trimmed;
+  return STOCK_STRATEGY_WORKFLOW_IDS.has(normalized) ? normalized : null;
 }
 
 function resolveAssignmentIntervalMs(
@@ -855,9 +944,16 @@ export async function runWorkflowTask(
       : null;
 
     if (result) {
-      const message = `${deps.assistantName}: ${[
+      const deliveryResult = formatWorkflowResultForScheduledDelivery(
+        task,
         result,
-        stockStrategyApplyResult?.notice,
+        stockStrategyDecision,
+      );
+      const message = `${deps.assistantName}: ${[
+        deliveryResult,
+        shouldAppendPlannerNoticeToDelivery(task)
+          ? stockStrategyApplyResult?.notice
+          : null,
       ]
         .filter(Boolean)
         .join('\n\n')

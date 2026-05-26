@@ -515,4 +515,53 @@ describe('workflow command execution', () => {
 
     db.closeDatabase();
   });
+
+  test('formats stock strategy paper setup results without exposing raw structures', async () => {
+    const workspaceRoot = tempDir(
+      'cli-claw-workflow-command-stock-strategy-paper-setup-',
+    );
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: 'Check paper setup.',
+      result: JSON.stringify(
+        {
+          change_summary:
+            'watch 列表和 paper ledger 还没接上，不能进入模拟盘验证。',
+          repeat_decision: '继续补基础证据，不重复 discovery。',
+          candidate_tasks: [
+            {
+              task_name: 'raw task should stay out of delivery',
+              goal: 'raw goal should stay out of delivery',
+            },
+          ],
+          validation_plan: ['补 watch list', '补 paper ledger'],
+        },
+        null,
+        2,
+      ),
+      stepResults: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: '股票策略',
+        folder: 'stock-strategy',
+        added_at: '2026-05-24T10:00:00.000Z',
+      },
+      chatJid: 'web:stock-strategy',
+      argsText: 'stock-strategy-paper-setup Check paper setup.',
+      workspaceRoot,
+      runGraph,
+    });
+
+    expect(reply).toContain('✅ 工作流 股票策略模拟盘准备工作流');
+    expect(reply).toContain('🎯 阶段目标');
+    expect(reply).toContain('watch 列表和 paper ledger 还没接上');
+    expect(reply).toContain('继续补基础证据');
+    expect(reply).not.toContain('candidate_tasks');
+    expect(reply).not.toContain('raw task should stay out of delivery');
+    expect(reply).not.toContain('{\n');
+
+    db.closeDatabase();
+  });
 });

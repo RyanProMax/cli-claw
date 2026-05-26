@@ -112,8 +112,9 @@ describe('stock strategy workspace migration', () => {
       group_folder: 'stock-strategy',
       chat_jid: 'web:stock-strategy',
       script_command: 'stock-strategy-daily-progress-summary',
-      schedule_type: 'interval',
-      schedule_value: String(24 * 60 * 60 * 1000),
+      schedule_type: 'cron',
+      schedule_value: '0 21 * * *',
+      next_run: expect.any(String),
       status: 'active',
       workspace_jid: 'web:stock-strategy',
       workspace_folder: 'stock-strategy',
@@ -125,6 +126,68 @@ describe('stock strategy workspace migration', () => {
     expect(db.getTaskById('stock-strategy-hk-design-review')).toBeUndefined();
     expect(db.getTaskById('stock-strategy-cn-coverage-check')).toBeUndefined();
     expect(db.getTaskById('stock-strategy-paper-validation')).toBeUndefined();
+
+    db.closeDatabase();
+  });
+
+  test('migrates an existing daily progress task to the 21:00 cron schedule', async () => {
+    const { db } = await loadStorage();
+
+    db.updateTask('stock-strategy-daily-progress-summary', {
+      schedule_type: 'interval',
+      schedule_value: String(24 * 60 * 60 * 1000),
+      next_run: '2026-05-24T12:00:00.000Z',
+    });
+
+    db.ensureStockStrategyWorkspaceAndSchedules({
+      now: '2026-05-24T00:10:00.000Z',
+    });
+
+    expect(
+      db.getTaskById('stock-strategy-daily-progress-summary'),
+    ).toMatchObject({
+      schedule_type: 'cron',
+      schedule_value: '0 21 * * *',
+      next_run: '2026-05-24T01:00:00.000Z',
+      status: 'active',
+    });
+
+    db.closeDatabase();
+  });
+
+  test('pauses legacy invalid stock strategy workflow tasks instead of letting them rerun', async () => {
+    const { db } = await loadStorage();
+
+    db.deleteTask('stock-strategy-design-review');
+    db.createTask({
+      id: 'stock-strategy-design-review',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      prompt: 'Review HK design.',
+      schedule_type: 'interval',
+      schedule_value: String(2 * 60 * 60 * 1000),
+      context_mode: 'isolated',
+      execution_type: 'workflow',
+      script_command: 'stock-strategy-design-review',
+      next_run: '2026-05-26T16:00:00.000Z',
+      last_result: 'workflow stock-strategy-design-review not found',
+      status: 'active',
+      created_at: '2026-05-26T15:00:00.000Z',
+      created_by: 'instance-1',
+      notify_channels: ['feishu:private'],
+    });
+
+    db.ensureStockStrategyWorkspaceAndSchedules({
+      now: '2026-05-26T15:10:00.000Z',
+    });
+
+    expect(db.getTaskById('stock-strategy-design-review')).toMatchObject({
+      status: 'paused',
+      next_run: null,
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      workspace_jid: 'web:stock-strategy',
+    });
 
     db.closeDatabase();
   });

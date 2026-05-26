@@ -570,10 +570,7 @@ function formatStockStrategyDecisionForDelivery(
   decision: StockStrategyPlannerDecision,
 ): string {
   const data = parseJsonObjectLike(result) ?? {};
-  const isDiscovery = workflowId === 'stock-strategy-discovery-loop';
-  const title = isDiscovery
-    ? '🔎 股票策略发现｜状态路由'
-    : '🧪 股票策略复盘｜状态路由';
+  const { title } = describeStockStrategyWorkflow(workflowId);
   const changeSummary =
     readChangeSummary(data) ||
     '本轮只生成调度决策；完整 planner 结果保留在 workflow run 审计中。';
@@ -631,6 +628,64 @@ function formatStockStrategyDecisionForDelivery(
     .join('\n');
 }
 
+function describeStockStrategyWorkflow(workflowId: string): {
+  title: string;
+  goal: string;
+} {
+  if (workflowId === 'stock-strategy-control-loop') {
+    return {
+      title: '🧭 股票策略主控｜状态路由',
+      goal: '判断是否有新数据、新证据或质量门变化，再决定派工、降频或等待。',
+    };
+  }
+  if (workflowId === 'stock-strategy-discovery-loop') {
+    return {
+      title: '🔎 股票策略发现｜按需执行',
+      goal: '只在主控判断值得挖掘时寻找新候选；重复证据不原样重跑。',
+    };
+  }
+  if (workflowId === 'stock-strategy-us-candidate-validation') {
+    return {
+      title: '🧪 股票策略 US 验证',
+      goal: '验证候选是否经得住 OOS、对照、流动性、回撤和成本检查。',
+    };
+  }
+  if (workflowId === 'stock-strategy-hk-design-review') {
+    return {
+      title: '🧩 股票策略 HK 设计复盘',
+      goal: '只检查设计和数据缺口，不重复同参数挖掘。',
+    };
+  }
+  if (workflowId === 'stock-strategy-cn-coverage-check') {
+    return {
+      title: '🛠️ 股票策略 CN 覆盖检查',
+      goal: '先修复 universe 与扫描覆盖，覆盖为空时不做空 discovery。',
+    };
+  }
+  if (workflowId === 'stock-strategy-paper-setup') {
+    return {
+      title: '📋 股票策略模拟盘准备',
+      goal: '确认 watch 列表、paper ledger、候选映射和对账入口是否齐备。',
+    };
+  }
+  if (workflowId === 'stock-strategy-paper-validation') {
+    return {
+      title: '📈 股票策略模拟盘验证',
+      goal: '用模拟盘和对账证据检验回测是否能继续推进到人工审批。',
+    };
+  }
+  if (workflowId === 'stock-strategy-daily-progress-summary') {
+    return {
+      title: '📌 股票策略日报',
+      goal: '每天 21:00 汇总关键进展、阻塞、下一步和是否需要人工。',
+    };
+  }
+  return {
+    title: '📌 股票策略进展',
+    goal: '汇总本轮股票策略工作结果，完整细节保留在 workflow 审计中。',
+  };
+}
+
 function formatStockStrategyResultForDelivery(
   workflowId: string,
   result: string,
@@ -647,13 +702,7 @@ function formatStockStrategyResultForDelivery(
   const data = parseJsonObjectLike(result);
   if (!data) return formatStockStrategyFallback(result);
 
-  const isDiscovery = workflowId === 'stock-strategy-discovery-loop';
-  const title = isDiscovery
-    ? '🔎 股票策略发现｜30m 探索'
-    : '🧪 股票策略复盘｜6h 成熟/候选';
-  const goal = isDiscovery
-    ? '短间隔挖掘候选，先补证再候选验证；不自动上线。'
-    : '复盘成熟/候选策略价值，决定继续、降频或停止。';
+  const { title, goal } = describeStockStrategyWorkflow(workflowId);
   const completionBullets = formatCompletionBullets(data);
   const metricLines = collectMetricLines(data, 3);
   const planningLines = formatPlanningLines(data);
@@ -707,7 +756,8 @@ function normalizeWorkflowResultForDelivery(
   if (workflowId === 'hkipo') return normalizeHkipoFinalReport(result);
   if (
     workflowId === 'stock-strategy-discovery-loop' ||
-    workflowId === 'stock-strategy-loop'
+    workflowId === 'stock-strategy-loop' ||
+    workflowId.startsWith('stock-strategy-')
   ) {
     return formatStockStrategyResultForDelivery(workflowId, result);
   }

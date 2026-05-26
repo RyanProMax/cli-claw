@@ -1,7 +1,7 @@
 {
   "id": "stock-strategy-daily-progress-summary",
   "name": "股票策略当日进度总结工作流",
-  "description": "每天汇总股票策略发现、回测、模拟盘验证、阻塞项和下一步节奏。",
+  "description": "每天 21:00 汇总股票策略关键进展、阻塞项和下一步节奏。",
   "roles": ["stock-strategy-progress-reporter"],
   "start": "collect_results",
   "nodes": [
@@ -24,7 +24,7 @@
       "type": "role_task",
       "roleId": "stock-strategy-progress-reporter",
       "outputArtifact": "daily_progress_summary",
-      "prompt": "基于 strategy_task_results 和 strategy_value_evidence 输出人类可读的当日完成进度。必须覆盖策略挖掘、回测/OOS、模拟盘/paper ledger、阻塞项、下一步节奏和是否需要人工；不要输出 scheduler JSON，不要 approve、activate 或交易。"
+      "prompt": "基于 strategy_task_results 和 strategy_value_evidence 输出人类可读的当日完成进度。最多 8 行，只保留今日完成、当前状态、阻塞项、下一步、是否需要人工；不要输出过程流水账、原始 JSON、scheduler JSON、approve、activate 或交易。"
     }
   ],
   "edges": [

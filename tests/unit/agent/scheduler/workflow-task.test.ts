@@ -812,6 +812,181 @@ describe('scheduled workflow task helpers', () => {
     );
   });
 
+  test('strips scheduler JSON from scheduled stock strategy delivery while keeping it in the run log', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-us-candidate-validation',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-us-candidate-validation',
+      prompt: 'Validate US candidate.',
+      notify_channels: ['feishu:private'],
+    });
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const schedulerJson = JSON.stringify({
+      action: 'ask_human',
+      next_workflow: null,
+      cadence: 'manual',
+      reason: 'candidate passed validation and needs approval',
+      evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
+      requires_human: true,
+    });
+    const workflowResult = [
+      '✅ 工作流 股票策略 US 候选验证完成：',
+      'US 候选验证通过，等待人工确认。',
+      '',
+      '[Scheduler Decision]',
+      schedulerJson,
+    ].join('\n');
+    const runWorkflowCommand = vi.fn().mockResolvedValue(workflowResult);
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(updateTaskRunLogMock).toHaveBeenCalledWith(
+      1001,
+      expect.objectContaining({
+        status: 'success',
+        result: workflowResult,
+        error: null,
+      }),
+    );
+    for (const [, text] of sendMessage.mock.calls) {
+      expect(String(text)).toContain('US 候选验证通过');
+      expect(String(text)).not.toContain('[Scheduler Decision]');
+      expect(String(text)).not.toContain('"evidence_signature"');
+    }
+  });
+
+  test('normalizes the old HK design review workflow id instead of creating a broken task', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-control-loop',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-control-loop',
+      prompt: 'Coordinate stock strategy research by state.',
+      schedule_value: String(30 * 60 * 1000),
+      workspace_jid: 'web:stock-strategy',
+      workspace_folder: 'stock-strategy',
+    });
+    getTaskByIdMock.mockImplementation((id: string) =>
+      id === scheduledTask.id ? scheduledTask : undefined,
+    );
+    const runWorkflowCommand = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        action: 'switch_workflow',
+        next_workflow: 'stock-strategy-design-review',
+        cadence: '6h',
+        reason: 'HK blocked factors need design review',
+        evidence_signature: 'hk:blocked_factors:all:cost:5d:20260526',
+        requires_human: false,
+      }),
+    );
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(createTaskMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'stock-strategy-design-review' }),
+    );
+    expect(createTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'stock-strategy-hk-design-review',
+        script_command: 'stock-strategy-hk-design-review',
+        schedule_type: 'interval',
+        schedule_value: String(6 * 60 * 60 * 1000),
+        status: 'active',
+      }),
+    );
+  });
+
+  test('does not create unknown stock strategy downstream workflow tasks', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-control-loop',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-control-loop',
+      prompt: 'Coordinate stock strategy research by state.',
+      schedule_value: String(30 * 60 * 1000),
+      workspace_jid: 'web:stock-strategy',
+      workspace_folder: 'stock-strategy',
+    });
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const runWorkflowCommand = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        action: 'switch_workflow',
+        next_workflow: 'stock-strategy-nonexistent-worker',
+        cadence: '1h',
+        reason: 'planner emitted an unknown workflow id',
+        evidence_signature: 'control:unknown-worker:20260526',
+        requires_human: false,
+      }),
+    );
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(createTaskMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'stock-strategy-nonexistent-worker' }),
+    );
+  });
+
   test('short-circuits repeated stock discovery evidence before running the workflow command', async () => {
     const scheduledTask = task({
       id: 'stock-strategy-discovery-loop',
