@@ -8,9 +8,8 @@ describe('task schemas', () => {
       schedule_type: 'interval',
       schedule_value: String(6 * 60 * 60 * 1000),
       execution_type: 'workflow',
-      script_command: 'stock-strategy-loop',
-      prompt:
-        'Review recent stock strategy results and plan the next iteration.',
+      script_command: 'hkipo',
+      prompt: 'Scan the latest HK IPO pool.',
     });
 
     expect(result.success).toBe(true);
@@ -21,7 +20,7 @@ describe('task schemas', () => {
       schedule_type: 'interval',
       schedule_value: String(6 * 60 * 60 * 1000),
       execution_type: 'workflow',
-      prompt: 'Review recent stock strategy results.',
+      prompt: 'Scan the latest HK IPO pool.',
     });
 
     expect(result.success).toBe(false);

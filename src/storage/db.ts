@@ -1,10 +1,8 @@
 import Database from './sqlite-compat.js';
-import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 import path from 'path';
 
-import { APP_ROOT } from '../core/app-root.js';
-import { DATA_DIR, STORE_DIR, TIMEZONE } from '../core/config.js';
+import { DATA_DIR, STORE_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import {
   AgentKind,
@@ -41,59 +39,8 @@ import {
 
 let db: InstanceType<typeof Database>;
 
-const STOCK_STRATEGY_WORKSPACE_JID = 'web:stock-strategy';
-const STOCK_STRATEGY_WORKSPACE_FOLDER = 'stock-strategy';
-const STOCK_STRATEGY_WORKSPACE_NAME = '股票策略';
-const STOCK_STRATEGY_MAIN_THREAD_ID = 'thread-stock-strategy-main';
-const STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS = 30 * 60 * 1000;
-const STOCK_STRATEGY_WORKFLOW_IDS = new Set([
-  'stock-strategy-control-loop',
-  'stock-strategy-discovery-loop',
-  'stock-strategy-loop',
-  'stock-strategy-us-candidate-validation',
-  'stock-strategy-hk-design-review',
-  'stock-strategy-cn-coverage-check',
-  'stock-strategy-paper-setup',
-  'stock-strategy-paper-validation',
-  'stock-strategy-daily-progress-summary',
-]);
-const STOCK_STRATEGY_DYNAMIC_WORKER_IDS = new Set([
-  'stock-strategy-discovery-loop',
-  'stock-strategy-loop',
-  'stock-strategy-us-candidate-validation',
-  'stock-strategy-hk-design-review',
-  'stock-strategy-cn-coverage-check',
-  'stock-strategy-paper-setup',
-  'stock-strategy-paper-validation',
-]);
 const SCHEDULED_WORKFLOW_WATCHDOG_ERROR =
   'Process exceeded scheduled workflow watchdog timeout';
-const STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS = new Set([
-  'stock-strategy-loop-review',
-  'stock-strategy-candidate-validation',
-  'stock-strategy-design-review',
-]);
-const STOCK_STRATEGY_DEFAULT_SCHEDULES = [
-  {
-    id: 'stock-strategy-control-loop',
-    workflowId: 'stock-strategy-control-loop',
-    prompt:
-      'Coordinate stock strategy research by state. This is the only fixed heartbeat: inspect new data, evidence signatures, quality gaps, candidate maturity, paper/live ledger, and human feedback before scheduling heavy worker workflows.',
-    scheduleType: 'interval',
-    scheduleValue: String(STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS),
-    nextRun: (now: string) =>
-      addMsToIso(now, STOCK_STRATEGY_ORCHESTRATOR_INTERVAL_MS),
-  },
-  {
-    id: 'stock-strategy-daily-progress-summary',
-    workflowId: 'stock-strategy-daily-progress-summary',
-    prompt:
-      'At 21:00 local time, send a concise stock strategy daily progress summary: today done, blockers, next step, and human-review need only. Keep readonly and do not approve, activate, or trade.',
-    scheduleType: 'cron',
-    scheduleValue: '0 21 * * *',
-    nextRun: (now: string) => nextCronRunIso('0 21 * * *', now),
-  },
-] as const;
 
 // Prepared statement cache — lazy-initialized on first use after initDatabase()
 let _stmts: {
@@ -1223,7 +1170,7 @@ export function initDatabase(): void {
     })();
   }
 
-  ensureStockStrategyWorkspaceAndSchedules();
+  cleanupRetiredStockStrategySchedules();
 
   const SCHEMA_VERSION = '36';
   db.prepare(
@@ -1613,367 +1560,26 @@ function mapTaskRow(row: unknown): ScheduledTask {
   return r as ScheduledTask;
 }
 
-function resolveStockStrategyWorkspaceCwd(): string {
-  const candidates = [
-    process.env.STOCK_ANALYSIS_API_ROOT,
-    path.join(APP_ROOT, '..', 'stock-analysis-api'),
-    path.join(APP_ROOT, '..', '..', 'stock-analysis-api'),
-    APP_ROOT,
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const resolved = path.resolve(candidate);
-    if (fs.existsSync(path.join(resolved, 'scripts', 'futu_market_data.py'))) {
-      return fs.realpathSync(resolved);
-    }
-  }
-  return fs.realpathSync(APP_ROOT);
-}
-
-function parseNotifyChannelsValue(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === 'string');
-  }
-  if (typeof value !== 'string' || !value.trim()) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string')
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function addMsToIso(value: string, intervalMs: number): string {
-  const anchor = Date.parse(value);
-  const base = Number.isFinite(anchor) ? anchor : Date.now();
-  return new Date(base + intervalMs).toISOString();
-}
-
-function nextCronRunIso(expression: string, now: string): string {
-  try {
-    const interval = CronExpressionParser.parse(expression, {
-      currentDate: now,
-      tz: TIMEZONE,
-    });
-    return (
-      interval.next().toISOString() ?? addMsToIso(now, 24 * 60 * 60 * 1000)
+export function cleanupRetiredStockStrategySchedules(): number {
+  return db.transaction(() => {
+    const rows = db
+      .prepare(
+        `SELECT id
+         FROM scheduled_tasks
+         WHERE id LIKE 'stock-strategy-%'
+            OR COALESCE(script_command, '') LIKE 'stock-strategy-%'`,
+      )
+      .all() as Array<{ id: string }>;
+    const deleteLogs = db.prepare(
+      'DELETE FROM task_run_logs WHERE task_id = ?',
     );
-  } catch (err) {
-    logger.warn({ err, expression, now }, 'Failed to compute cron next run');
-    return addMsToIso(now, 24 * 60 * 60 * 1000);
-  }
-}
-
-function isStockStrategyWorkflowId(value: unknown): boolean {
-  return typeof value === 'string' && STOCK_STRATEGY_WORKFLOW_IDS.has(value);
-}
-
-function isStockStrategyTaskOrWorkflowId(value: unknown): boolean {
-  return (
-    isStockStrategyWorkflowId(value) ||
-    (typeof value === 'string' &&
-      STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS.has(value))
-  );
-}
-
-function stockStrategyResultHasPassedUsability(value: string | null): boolean {
-  if (!value) return false;
-  return (
-    /\busability=passed\b/.test(value) ||
-    /"strategy_usability"\s*:\s*\{[\s\S]*?"status"\s*:\s*"passed"/.test(value)
-  );
-}
-
-function stockStrategyResultHasDynamicControl(value: string | null): boolean {
-  if (!value) return false;
-  return (
-    /"current_next_run_at"\s*:/.test(value) ||
-    /"next_workflows"\s*:/.test(value) ||
-    /"quality_gate"\s*:/.test(value)
-  );
-}
-
-function isLegacyNonUsableStockPauseResult(value: string | null): boolean {
-  if (!value) return false;
-  return (
-    value.includes('No new evidence') ||
-    value.includes('pause_discovery') ||
-    value.includes('same evidence_signature') ||
-    value.includes('usability=unknown') ||
-    value.includes('usability=failed') ||
-    value.includes('pause_blocked=usability_gate_not_passed') ||
-    value.includes('stock strategy discovery is being migrated')
-  );
-}
-
-export function ensureStockStrategyWorkspaceAndSchedules(
-  options: { now?: string } = {},
-): {
-  workspaceJid: string;
-  workspaceFolder: string;
-  migratedTaskIds: string[];
-} {
-  const now = options.now ?? new Date().toISOString();
-  const customCwd = resolveStockStrategyWorkspaceCwd();
-
-  db.prepare(
-    'INSERT OR IGNORE INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)',
-  ).run(STOCK_STRATEGY_WORKSPACE_JID, STOCK_STRATEGY_WORKSPACE_NAME, now);
-  db.prepare(
-    `INSERT INTO registered_groups (
-      jid, name, folder, added_at, agent_type, custom_cwd, created_by, is_home,
-      reply_policy, require_mention, activation_mode
-    )
-    VALUES (?, ?, ?, ?, 'openai', ?, NULL, 1, 'source_only', 0, 'auto')
-    ON CONFLICT(jid) DO UPDATE SET
-      name = excluded.name,
-      folder = excluded.folder,
-      custom_cwd = excluded.custom_cwd,
-      is_home = 1,
-      agent_type = COALESCE(registered_groups.agent_type, 'openai')`,
-  ).run(
-    STOCK_STRATEGY_WORKSPACE_JID,
-    STOCK_STRATEGY_WORKSPACE_NAME,
-    STOCK_STRATEGY_WORKSPACE_FOLDER,
-    now,
-    customCwd,
-  );
-  db.prepare(
-    `INSERT INTO threads (
-      id, workspace_jid, kind, title, runtime_agent_id, source_run_id, status,
-      created_at, updated_at, last_active_at, archived_at
-    )
-    VALUES (?, ?, 'main', '主线', NULL, NULL, 'active', ?, ?, ?, NULL)
-    ON CONFLICT(id) DO UPDATE SET
-      workspace_jid = excluded.workspace_jid,
-      kind = excluded.kind,
-      title = excluded.title,
-      status = 'active',
-      updated_at = excluded.updated_at,
-      archived_at = NULL`,
-  ).run(
-    STOCK_STRATEGY_MAIN_THREAD_ID,
-    STOCK_STRATEGY_WORKSPACE_JID,
-    now,
-    now,
-    now,
-  );
-
-  const rows = db
-    .prepare(
-      `SELECT id, chat_jid, notify_channels, script_command
-       FROM scheduled_tasks
-       WHERE execution_type = 'workflow'
-         AND (
-           id LIKE 'stock-strategy-%'
-           OR script_command LIKE 'stock-strategy-%'
-         )`,
-    )
-    .all() as Array<{
-    id: string;
-    chat_jid: string;
-    notify_channels: string | null;
-    script_command: string | null;
-  }>;
-
-  const migratedTaskIds: string[] = [];
-  const defaultNotifyChannels = new Set<string>();
-  const update = db.prepare(
-    `UPDATE scheduled_tasks
-     SET group_folder = ?,
-         chat_jid = ?,
-         workspace_jid = ?,
-         workspace_folder = ?,
-         notify_channels = ?
-     WHERE id = ?`,
-  );
-  for (const row of rows) {
-    if (
-      !isStockStrategyTaskOrWorkflowId(row.id) &&
-      !isStockStrategyWorkflowId(row.script_command)
-    ) {
-      continue;
+    const deleteTask = db.prepare('DELETE FROM scheduled_tasks WHERE id = ?');
+    for (const row of rows) {
+      deleteLogs.run(row.id);
+      deleteTask.run(row.id);
     }
-    const notifyChannels = new Set(
-      parseNotifyChannelsValue(row.notify_channels),
-    );
-    if (
-      row.chat_jid &&
-      row.chat_jid !== STOCK_STRATEGY_WORKSPACE_JID &&
-      !row.chat_jid.startsWith('web:')
-    ) {
-      notifyChannels.add(row.chat_jid);
-    }
-    for (const channel of notifyChannels) {
-      defaultNotifyChannels.add(channel);
-    }
-    update.run(
-      STOCK_STRATEGY_WORKSPACE_FOLDER,
-      STOCK_STRATEGY_WORKSPACE_JID,
-      STOCK_STRATEGY_WORKSPACE_JID,
-      STOCK_STRATEGY_WORKSPACE_FOLDER,
-      notifyChannels.size > 0 ? JSON.stringify([...notifyChannels]) : null,
-      row.id,
-    );
-    migratedTaskIds.push(row.id);
-  }
-
-  const defaultNotifyChannelsJson =
-    defaultNotifyChannels.size > 0
-      ? JSON.stringify([...defaultNotifyChannels])
-      : null;
-  const insertDefaultTask = db.prepare(
-    `INSERT OR IGNORE INTO scheduled_tasks (
-      id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
-      context_mode, execution_type, script_command, next_run, last_run,
-      last_result, status, created_at, created_by, notify_channels,
-      workspace_jid, workspace_folder
-    )
-    VALUES (?, ?, ?, ?, ?, ?, 'isolated', 'workflow', ?, ?, NULL,
-      NULL, 'active', ?, NULL, ?, ?, ?)`,
-  );
-  const normalizeDefaultTaskWorkspace = db.prepare(
-    `UPDATE scheduled_tasks
-     SET group_folder = ?,
-         chat_jid = ?,
-         workspace_jid = ?,
-         workspace_folder = ?,
-         notify_channels = COALESCE(notify_channels, ?)
-     WHERE id = ?`,
-  );
-  const readDefaultTaskSchedule = db.prepare(
-    `SELECT id, prompt, schedule_type, schedule_value, script_command
-     FROM scheduled_tasks
-     WHERE id = ?`,
-  );
-  const updateDefaultTaskSchedule = db.prepare(
-    `UPDATE scheduled_tasks
-     SET prompt = ?,
-         schedule_type = ?,
-         schedule_value = ?,
-         script_command = ?,
-         next_run = ?,
-         status = 'active'
-     WHERE id = ?`,
-  );
-  for (const schedule of STOCK_STRATEGY_DEFAULT_SCHEDULES) {
-    const nextRun = schedule.nextRun(now);
-    insertDefaultTask.run(
-      schedule.id,
-      STOCK_STRATEGY_WORKSPACE_FOLDER,
-      STOCK_STRATEGY_WORKSPACE_JID,
-      schedule.prompt,
-      schedule.scheduleType,
-      schedule.scheduleValue,
-      schedule.workflowId,
-      nextRun,
-      now,
-      defaultNotifyChannelsJson,
-      STOCK_STRATEGY_WORKSPACE_JID,
-      STOCK_STRATEGY_WORKSPACE_FOLDER,
-    );
-    normalizeDefaultTaskWorkspace.run(
-      STOCK_STRATEGY_WORKSPACE_FOLDER,
-      STOCK_STRATEGY_WORKSPACE_JID,
-      STOCK_STRATEGY_WORKSPACE_JID,
-      STOCK_STRATEGY_WORKSPACE_FOLDER,
-      defaultNotifyChannelsJson,
-      schedule.id,
-    );
-    const currentSchedule = readDefaultTaskSchedule.get(schedule.id) as
-      | {
-          prompt: string;
-          schedule_type: string;
-          schedule_value: string;
-          script_command: string | null;
-        }
-      | undefined;
-    if (
-      currentSchedule &&
-      (currentSchedule.prompt !== schedule.prompt ||
-        currentSchedule.schedule_type !== schedule.scheduleType ||
-        currentSchedule.schedule_value !== schedule.scheduleValue ||
-        currentSchedule.script_command !== schedule.workflowId)
-    ) {
-      updateDefaultTaskSchedule.run(
-        schedule.prompt,
-        schedule.scheduleType,
-        schedule.scheduleValue,
-        schedule.workflowId,
-        nextRun,
-        schedule.id,
-      );
-    }
-  }
-
-  type StockStrategyTaskCadenceRow =
-    | {
-        id: string;
-        script_command: string | null;
-        status: string;
-        schedule_type: string;
-        schedule_value: string;
-        last_result: string | null;
-      }
-    | undefined;
-
-  const readTaskCadence = db.prepare(
-    `SELECT id, script_command, status, schedule_type, schedule_value, last_result
-     FROM scheduled_tasks
-     WHERE id = ?`,
-  );
-  const pauseWorkerTask = db.prepare(
-    `UPDATE scheduled_tasks
-     SET status = 'paused',
-         next_run = NULL
-     WHERE id = ?`,
-  );
-  const pauseLegacyFixedWorker = (taskId: string): void => {
-    const row = readTaskCadence.get(taskId) as StockStrategyTaskCadenceRow;
-    if (
-      row &&
-      (STOCK_STRATEGY_DYNAMIC_WORKER_IDS.has(row.id) ||
-        STOCK_STRATEGY_DYNAMIC_WORKER_IDS.has(row.script_command ?? '') ||
-        STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS.has(row.id)) &&
-      !stockStrategyResultHasPassedUsability(row.last_result) &&
-      !stockStrategyResultHasDynamicControl(row.last_result)
-    ) {
-      pauseWorkerTask.run(row.id);
-    }
-  };
-
-  const discoveryTaskRow = db
-    .prepare(
-      `SELECT id, script_command, status, schedule_type, schedule_value, last_result
-       FROM scheduled_tasks
-       WHERE id = 'stock-strategy-discovery-loop'`,
-    )
-    .get() as StockStrategyTaskCadenceRow;
-  if (
-    discoveryTaskRow &&
-    !stockStrategyResultHasPassedUsability(discoveryTaskRow.last_result) &&
-    (discoveryTaskRow.status === 'active' ||
-      isLegacyNonUsableStockPauseResult(discoveryTaskRow.last_result))
-  ) {
-    pauseWorkerTask.run(discoveryTaskRow.id);
-  }
-
-  for (const workerId of STOCK_STRATEGY_DYNAMIC_WORKER_IDS) {
-    if (workerId === 'stock-strategy-discovery-loop') continue;
-    pauseLegacyFixedWorker(workerId);
-  }
-  for (const workerId of STOCK_STRATEGY_LEGACY_FIXED_WORKER_TASK_IDS) {
-    pauseLegacyFixedWorker(workerId);
-  }
-
-  return {
-    workspaceJid: STOCK_STRATEGY_WORKSPACE_JID,
-    workspaceFolder: STOCK_STRATEGY_WORKSPACE_FOLDER,
-    migratedTaskIds,
-  };
+    return rows.length;
+  })();
 }
 
 export function getTaskById(id: string): ScheduledTask | undefined {

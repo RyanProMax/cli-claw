@@ -98,53 +98,6 @@ export interface WorkflowDashboardSummary {
   failedTaskRuns: number;
 }
 
-export type WorkflowDashboardStockStrategyState =
-  | 'discovering'
-  | 'validating'
-  | 'blocked'
-  | 'cooldown'
-  | 'human_review_ready'
-  | 'approved'
-  | 'rejected';
-
-export interface WorkflowDashboardStockStrategyDecision {
-  action:
-    | 'continue'
-    | 'pause'
-    | 'pause_discovery'
-    | 'slow_down'
-    | 'switch_workflow'
-    | 'ask_human';
-  nextWorkflow: string | null;
-  cadence: string | null;
-  reason: string;
-  evidenceSignature: string;
-  requiresHuman: boolean;
-  workflowId: string;
-  updatedAt: string;
-}
-
-export interface WorkflowDashboardStockStrategyMarket {
-  market: 'US' | 'HK' | 'CN';
-  state: WorkflowDashboardStockStrategyState;
-  source: 'planner_decision' | 'local_artifact' | 'scheduled_task';
-  workflowId: string | null;
-  action: WorkflowDashboardStockStrategyDecision['action'] | null;
-  nextWorkflow: string | null;
-  cadence: string | null;
-  reason: string | null;
-  evidenceSignature: string | null;
-  requiresHuman: boolean;
-  updatedAt: string | null;
-}
-
-export interface WorkflowDashboardStockStrategy {
-  workspaceJid: 'web:stock-strategy';
-  workspaceFolder: 'stock-strategy';
-  globalDecision: WorkflowDashboardStockStrategyDecision | null;
-  markets: WorkflowDashboardStockStrategyMarket[];
-}
-
 export interface WorkflowDashboardData {
   dayStart: string;
   dayEnd: string;
@@ -155,7 +108,6 @@ export interface WorkflowDashboardData {
   runningRuns: WorkflowDashboardRun[];
   todayRuns: WorkflowDashboardRun[];
   scheduledTasks: WorkflowDashboardScheduledTask[];
-  stockStrategy: WorkflowDashboardStockStrategy | null;
 }
 
 interface WorkflowsState {

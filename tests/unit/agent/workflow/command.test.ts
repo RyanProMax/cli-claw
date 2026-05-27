@@ -362,206 +362,23 @@ describe('workflow command execution', () => {
     db.closeDatabase();
   });
 
-  test('formats stock strategy workflow results as a concise Feishu summary', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-stock-strategy-');
+  test('does not expose retired stock strategy built-in workflows', async () => {
     const { command, db } = await loadWorkflowCommand();
-    const runGraph = vi.fn().mockResolvedValue({
-      prompt: 'Run stock strategy discovery.',
-      result: JSON.stringify(
-        {
-          change_summary:
-            '本轮无新增可上线策略，只确认 US momentum_5d 仍是唯一可补证候选。',
-          repeat_decision: {
-            verdict: 'HK 与 CN 仍是重复阻断',
-            action: '暂停同配置原样重跑，转向 US 候选补证与 CN universe 修复。',
-          },
-          next_iteration_objective: {
-            summary:
-              '下一轮采取最小有价值迭代：以 US momentum_5d 候选做补证验证；HK 暂停相同三因子原样重跑；CN 先补 universe/扫描链路证据。',
-            priority_order: ['US 候选验证与补证', 'HK 失败原因拆解'],
-            cadence_decision: {
-              us: '进入 2 小时候选验证前的补证阶段',
-              hk: '仅限修改研究设计后的单轮验证',
-            },
-          },
-          candidate_tasks: [
-            {
-              task_name: 'US_momentum_5d_候选补证验证',
-              market: 'us',
-              goal: '验证 alpha_topn_momentum_5d 是否具备进入候选验证的最低证据完整性。',
-              input_evidence: [
-                '已知指标：rank_ic_mean=0.05800525，rank_ic_tstat=2.81729218，cost_adjusted_quantile_spread=0.00359111，turnover=0.28063241，observations=1252',
-              ],
-            },
-          ],
-          validation_plan: ['补齐 OOS 明细', '补 champion/challenger 对比'],
-          stop_conditions: ['不自动 approve', '不自动 activate'],
-        },
-        null,
-        2,
-      ),
-      stepResults: {},
-    });
 
     const reply = await command.executeWorkflowCommand({
       group: {
-        name: 'Workspace A',
-        folder: 'workspace-a',
-        added_at: '2026-05-17T10:00:00.000Z',
+        name: '主工作区',
+        folder: 'main',
+        added_at: '2026-05-27T10:00:00.000Z',
       },
-      chatJid: 'web:workspace-a',
-      argsText: 'stock-strategy-discovery-loop Run stock strategy discovery.',
-      workspaceRoot,
-      runGraph,
+      chatJid: 'web:main',
+      argsText: 'stock-strategy-control-loop Route by state.',
+      workspaceRoot: process.cwd(),
     });
 
-    expect(reply).toContain('✅ 工作流 股票策略短间隔发现工作流');
-    expect(reply).toContain('🎯 阶段目标');
-    expect(reply).toContain('📍 本轮完成');
-    expect(reply).toContain('📈 策略效果');
-    expect(reply).toContain('🧭 后续规划');
-    expect(reply).toContain('🎯 阶段目标\n\n- **目标：**');
-    expect(reply).toContain('📍 本轮完成\n\n- **本轮：**');
-    expect(reply).toContain(
-      '- **重复判断：** HK 与 CN 仍是重复阻断；暂停同配置原样重跑',
-    );
-    expect(reply).toContain('US_momentum_5d');
-    expect(reply).toContain('rank IC 0.058');
-    expect(reply).not.toContain('📍 当前进展');
-    expect(reply).not.toContain('next_iteration_objective');
-    expect(reply).not.toContain('candidate_tasks');
-    expect(reply).not.toContain('change_summary');
-    expect(reply).not.toContain('repeat_decision');
-    expect(reply).not.toContain('{\n');
+    expect(reply).toContain('workflow stock-strategy-control-loop not found');
 
     db.closeDatabase();
   });
 
-  test('keeps only the scheduler decision JSON when stock planner emits the fixed decision schema', async () => {
-    const workspaceRoot = tempDir(
-      'cli-claw-workflow-command-stock-strategy-decision-',
-    );
-    const { command, db } = await loadWorkflowCommand();
-    const runGraph = vi.fn().mockResolvedValue({
-      prompt: 'Run stock strategy orchestrator.',
-      result: JSON.stringify({
-        action: 'pause_discovery',
-        next_workflow: 'stock-strategy-us-candidate-validation',
-        cadence: '2h',
-        current_cadence: '30m',
-        next_cadence: '2h',
-        current_next_run_at: '2026-05-24T14:45:00.000Z',
-        reason: 'same evidence signature, candidate requires validation',
-        evidence_signature: 'us:momentum_5d:all:default_cost:5d:20260524',
-        requires_human: false,
-        quality_gate: {
-          status: 'failed',
-          standard_version: 'stock_strategy_quality_gate_v1',
-          stage: 'backtest_validation',
-          passed_checks: ['artifact_integrity'],
-          failed_checks: ['oos_segment_performance'],
-          missing_checks: ['paper_reconciliation'],
-          summary: 'OOS evidence still missing.',
-        },
-        next_workflows: [
-          {
-            workflow_id: 'stock-strategy-us-candidate-validation',
-            next_run_at: 'immediate',
-            cadence: '2h',
-            priority: 'high',
-            reason: '补齐 OOS 与 champion/challenger 对比。',
-          },
-          {
-            workflow_id: 'stock-strategy-paper-validation',
-            next_run_at: '2026-05-24T15:00:00.000Z',
-            cadence: '1h',
-            priority: 'normal',
-            reason: '读取 paper/live ledger 做 reconciliation。',
-          },
-        ],
-        change_summary: '本轮无新增发现，只做路由判断。',
-        candidate_tasks: [{ name: 'raw task should stay out of delivery' }],
-      }),
-      stepResults: {},
-    });
-
-    const reply = await command.executeWorkflowCommand({
-      group: {
-        name: '股票策略',
-        folder: 'stock-strategy',
-        added_at: '2026-05-24T10:00:00.000Z',
-      },
-      chatJid: 'web:stock-strategy',
-      argsText: 'stock-strategy-discovery-loop Route by state.',
-      workspaceRoot,
-      runGraph,
-    });
-
-    expect(reply).toContain('[Scheduler Decision]');
-    expect(reply).toContain('"action":"pause_discovery"');
-    expect(reply).toContain(
-      '"next_workflow":"stock-strategy-us-candidate-validation"',
-    );
-    expect(reply).toContain('"current_cadence":"30m"');
-    expect(reply).toContain('"next_cadence":"2h"');
-    expect(reply).toContain('"current_next_run_at":"2026-05-24T14:45:00.000Z"');
-    expect(reply).toContain('"next_workflows"');
-    expect(reply).toContain('"workflow_id":"stock-strategy-paper-validation"');
-    expect(reply).toContain('"quality_gate"');
-    expect(reply).toContain('"status":"failed"');
-    expect(reply).not.toContain('raw task should stay out of delivery');
-    expect(reply).not.toContain('"change_summary"');
-    expect(reply).not.toContain('"candidate_tasks"');
-
-    db.closeDatabase();
-  });
-
-  test('formats stock strategy paper setup results without exposing raw structures', async () => {
-    const workspaceRoot = tempDir(
-      'cli-claw-workflow-command-stock-strategy-paper-setup-',
-    );
-    const { command, db } = await loadWorkflowCommand();
-    const runGraph = vi.fn().mockResolvedValue({
-      prompt: 'Check paper setup.',
-      result: JSON.stringify(
-        {
-          change_summary:
-            'watch 列表和 paper ledger 还没接上，不能进入模拟盘验证。',
-          repeat_decision: '继续补基础证据，不重复 discovery。',
-          candidate_tasks: [
-            {
-              task_name: 'raw task should stay out of delivery',
-              goal: 'raw goal should stay out of delivery',
-            },
-          ],
-          validation_plan: ['补 watch list', '补 paper ledger'],
-        },
-        null,
-        2,
-      ),
-      stepResults: {},
-    });
-
-    const reply = await command.executeWorkflowCommand({
-      group: {
-        name: '股票策略',
-        folder: 'stock-strategy',
-        added_at: '2026-05-24T10:00:00.000Z',
-      },
-      chatJid: 'web:stock-strategy',
-      argsText: 'stock-strategy-paper-setup Check paper setup.',
-      workspaceRoot,
-      runGraph,
-    });
-
-    expect(reply).toContain('✅ 工作流 股票策略模拟盘准备工作流');
-    expect(reply).toContain('🎯 阶段目标');
-    expect(reply).toContain('watch 列表和 paper ledger 还没接上');
-    expect(reply).toContain('继续补基础证据');
-    expect(reply).not.toContain('candidate_tasks');
-    expect(reply).not.toContain('raw task should stay out of delivery');
-    expect(reply).not.toContain('{\n');
-
-    db.closeDatabase();
-  });
 });
