@@ -301,8 +301,15 @@ function resolveTaskDeliveryJids(
 }
 
 function shouldNotifyExternalChannels(
+  task: ScheduledTask,
   decision: StockStrategyPlannerDecision | null,
 ): boolean {
+  if (isStockStrategyWorkflowTask(task)) {
+    if (isStockStrategyDailyProgressTask(task)) return true;
+    return Boolean(
+      decision && (decision.requires_human || decision.action === 'ask_human'),
+    );
+  }
   if (!decision) return true;
   return decision.requires_human || decision.action === 'ask_human';
 }
@@ -312,6 +319,14 @@ function isStockStrategyWorkflowTask(task: ScheduledTask): boolean {
   return (
     task.id.startsWith('stock-strategy-') ||
     Boolean(workflowId?.startsWith('stock-strategy-'))
+  );
+}
+
+function isStockStrategyDailyProgressTask(task: ScheduledTask): boolean {
+  const workflowId = taskWorkflowId(task);
+  return (
+    task.id === STOCK_STRATEGY_DAILY_PROGRESS_WORKFLOW_ID ||
+    workflowId === STOCK_STRATEGY_DAILY_PROGRESS_WORKFLOW_ID
   );
 }
 
@@ -337,12 +352,87 @@ function formatStockStrategyDecisionSummaryForDelivery(
   ].join('\n');
 }
 
+function formatStockStrategyDailyFailureSummary(): string {
+  return [
+    '股票策略日报',
+    '- 今日：日报生成未完成，细节已留在 Web 审计。',
+    '- 当前：没有新的可上线策略结论。',
+    '- 阻塞：运行时中断。',
+    '- 下一步：下一轮继续按状态补证。',
+    '- 人工：暂不需要。',
+  ].join('\n');
+}
+
+function stripWorkflowCompletionHeading(result: string): string {
+  return result
+    .replace(/^✅\s*工作流\s+.+?完成[：:]\s*/u, '')
+    .replace(/^❌\s*工作流\s+.+?失败[：:]\s*[\s\S]*$/u, '')
+    .trim();
+}
+
+function normalizeStockStrategyDailyLine(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (trimmed === '[Scheduler Decision]') return null;
+  if (/^[{}\[\],"]+$/u.test(trimmed)) return null;
+  if (/^"[\w.-]+"\s*:/u.test(trimmed)) return null;
+  if (/^(🎯|📍|📈|🧭|🛡️)/u.test(trimmed)) return null;
+  if (trimmed.includes('以上仅为研究证据')) return null;
+  if (trimmed.includes('不自动 approve')) return null;
+
+  const plain = trimmed
+    .replace(/^-\s*\*\*([^*]+)：\*\*\s*/u, '- $1：')
+    .replace(/^\*\*([^*]+)：\*\*\s*/u, '- $1：');
+  return plain.startsWith('- ') ? plain : `- ${plain.replace(/^-\s*/u, '')}`;
+}
+
+function formatStockStrategyDailyProgressForExternalDelivery(
+  result: string,
+): string {
+  if (extractWorkflowCommandFailure(result)) {
+    return formatStockStrategyDailyFailureSummary();
+  }
+
+  const stripped = stripWorkflowCompletionHeading(
+    stripStockStrategySchedulerDecisionBlock(result),
+  );
+  const lines = stripped
+    .split('\n')
+    .map(normalizeStockStrategyDailyLine)
+    .filter((line): line is string => Boolean(line))
+    .slice(0, 8);
+
+  if (lines.length === 0) {
+    return [
+      '股票策略日报',
+      '- 今日：暂无新的可展示进展。',
+      '- 当前：没有新的可上线策略结论。',
+      '- 下一步：等待新证据后再推进。',
+      '- 人工：暂不需要。',
+    ].join('\n');
+  }
+
+  const [first, ...rest] = lines;
+  if (first.replace(/^-\s*/u, '').startsWith('股票策略日报')) {
+    return [first.replace(/^-\s*/u, ''), ...rest].join('\n');
+  }
+  return ['股票策略日报', ...lines].join('\n');
+}
+
 function formatWorkflowResultForScheduledDelivery(
   task: ScheduledTask,
   result: string,
   decision: StockStrategyPlannerDecision | null,
+  options: { external?: boolean } = {},
 ): string {
   if (!isStockStrategyWorkflowTask(task)) return result;
+  if (options.external) {
+    if (decision)
+      return formatStockStrategyDecisionSummaryForDelivery(decision);
+    if (isStockStrategyDailyProgressTask(task)) {
+      return formatStockStrategyDailyProgressForExternalDelivery(result);
+    }
+  }
   const stripped = stripStockStrategySchedulerDecisionBlock(result).trim();
   if (decision && /^\s*(?:```json\s*)?\{/.test(stripped)) {
     return formatStockStrategyDecisionSummaryForDelivery(decision);
@@ -944,13 +1034,16 @@ export async function runWorkflowTask(
       : null;
 
     if (result) {
-      const deliveryResult = formatWorkflowResultForScheduledDelivery(
+      const primaryJids = resolveTaskDeliveryJids(task, groupJid, {
+        includeNotifyChannels: false,
+      });
+      const primaryDeliveryResult = formatWorkflowResultForScheduledDelivery(
         task,
         result,
         stockStrategyDecision,
       );
-      const message = `${deps.assistantName}: ${[
-        deliveryResult,
+      const primaryMessage = `${deps.assistantName}: ${[
+        primaryDeliveryResult,
         shouldAppendPlannerNoticeToDelivery(task)
           ? stockStrategyApplyResult?.notice
           : null,
@@ -958,12 +1051,34 @@ export async function runWorkflowTask(
         .filter(Boolean)
         .join('\n\n')
         .slice(0, 4000)}`;
-      for (const jid of resolveTaskDeliveryJids(task, groupJid, {
-        includeNotifyChannels: shouldNotifyExternalChannels(
+      for (const jid of primaryJids) {
+        await deps.sendMessage(jid, primaryMessage, {
+          source: 'scheduled_task',
+        });
+      }
+
+      if (shouldNotifyExternalChannels(task, stockStrategyDecision)) {
+        const externalDeliveryResult = formatWorkflowResultForScheduledDelivery(
+          task,
+          result,
           stockStrategyDecision,
-        ),
-      })) {
-        await deps.sendMessage(jid, message, { source: 'scheduled_task' });
+          { external: true },
+        );
+        const externalMessage = `${deps.assistantName}: ${[
+          externalDeliveryResult,
+          shouldAppendPlannerNoticeToDelivery(task)
+            ? stockStrategyApplyResult?.notice
+            : null,
+        ]
+          .filter(Boolean)
+          .join('\n\n')
+          .slice(0, 4000)}`;
+        for (const jid of task.notify_channels ?? []) {
+          if (!jid || primaryJids.includes(jid)) continue;
+          await deps.sendMessage(jid, externalMessage, {
+            source: 'scheduled_task',
+          });
+        }
       }
     }
 

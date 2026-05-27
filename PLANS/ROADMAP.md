@@ -50,6 +50,7 @@
   - 2026-05-24 已新增 `stock-strategy-paper-validation`，候选通过回测/OOS 后可尽快进入 paper/live ledger 与 reconciliation 验证；只有质量门通过才允许 `human_review_ready` / `ask_human`，仍禁止自动 approve、activate 或真实交易。
   - 2026-05-25 已补调度闭环硬化：股票策略新调度 workflow 的 `action` 必须来自 scheduler 白名单，非法动作会把本轮 task run 记为 error，不再静默忽略；scheduler 会把过去的 `current_next_run_at` 回退到未来时间，并通过 watchdog 清理 stale running task log / workflow run。新增 `stock-strategy-paper-setup`，先验收 watch、paper ledger、simulated trading 和对账入口，再派 `stock-strategy-paper-validation`。
   - 2026-05-26 已按真实运行复盘收敛飞书输出和日报节奏：`stock-strategy-daily-progress-summary` 改为本地 21:00 cron，只推最多 8 行关键进展；scheduled task 对外发送前会剥离 `[Scheduler Decision]` 与调度 JSON，但内部审计仍保留；旧错误 id `stock-strategy-design-review` 会暂停或归一到 `stock-strategy-hk-design-review`，未知下游 workflow 不再创建成空转任务。
+  - 2026-05-27 已复盘飞书刷屏根因并收紧外部通知闸门：股票策略 worker 的普通成功、失败、缺少 scheduler decision JSON、runtime 堆栈和重复无新增结论只回 Web / 审计；飞书/微信只收每日 21:00 简报或 `requires_human=true` / `ask_human` 的短结论。若日报 workflow 自身失败，外部只收到不含堆栈的短 fallback。
   - 第一轮真实 `stock-strategy-discovery-loop` 已于 2026-05-20T16:30:52Z 成功完成，下一轮排到 2026-05-20T17:00:00Z；继续观察后续 discovery 是否稳定区分新候选、重复候选、样本不足和 OOS 未成熟，且没有交易/approve/activate 越界。
   - 2026-05-21 已新增股票策略 workflow 飞书摘要层并完成卡片精修：用户可见消息固定展示阶段目标、本轮完成、策略效果和后续规划；要点使用加粗标题与空行；完整 JSON 只留在 workflow 审计中。
   - 2026-05-21 已收紧 planner 契约：`stock-strategy-iteration-planner` 必须输出 `change_summary` 与 `repeat_decision`，连续无新增时要明确写重复判断、等待、降频、补证或转候选验证，避免把同一 discovery 结果包装成新结论。

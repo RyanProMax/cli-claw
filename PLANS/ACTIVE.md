@@ -503,3 +503,38 @@ Risks / Notes / Handoff:
 - 真实复盘发现：新股票策略 workflow 的结果没有全部走摘要层，飞书可能看到 `[Scheduler Decision]` 与内部 JSON。本轮要保留内部审计和 scheduler 解析能力，但外部 IM 只看短摘要。
 - 日报不是高频过程播报；默认每天 21:00 只推“今天做了什么、卡在哪、下一步、是否需要人”。重复 discovery、无新增证据、内部调度字段不外推。
 - 已完成并安全重启：`restart-2026-05-26T16-21-39-169Z-4503edef` passed，`/api/health` healthy。真实 DB 当前 `stock-strategy-daily-progress-summary` 为 `cron 0 21 * * *`，next_run=`2026-05-27T01:00:00.000Z`；`stock-strategy-design-review` 已 paused，当前无股票策略 running task log / workflow run 残留。
+
+### Milestone 11：飞书错误刷屏复盘与外部通知降噪
+
+Objective:
+- 复盘 2026-05-27 股票策略飞书刷屏根因，并把调度器改成：股票策略 worker 的普通成功、失败、无新增证据和运行时异常只进 Web / 审计；飞书/微信只接收每日 21:00 简报，或真正需要人工处理的短结论，且不输出堆栈、原始 JSON、长过程。
+
+Allowed scope:
+- `src/agent/scheduler/index.ts`
+- `tests/unit/agent/scheduler/workflow-task.test.ts`
+- `docs/RUNTIME.md`
+- `docs/COMMAND.md`
+- `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`
+
+Validation:
+- `npm test -- tests/unit/agent/scheduler/workflow-task.test.ts`
+- `npm run typecheck:backend`
+- `./scripts/validate.sh`
+- `./scripts/review.sh`
+- 安全重启后检查真实 DB：`stock-strategy-daily-progress-summary` 仍为每天 21:00；非日报、非人工确认的股票策略任务即使失败也不再外推飞书；当前噪声 worker 不再继续刷外部 IM。
+
+Status:
+- done
+
+Validation status:
+- passed：新增回归先红后绿；`npm test -- tests/unit/agent/scheduler/workflow-task.test.ts` 通过 19 tests；`npm run typecheck:backend` 通过；格式修正后重新跑 `./scripts/validate.sh` 通过，结果为 545 passed / 1 skipped，并完成 backend、web、agent-runner build。
+
+Review status:
+- passed：`./scripts/review.sh` 通过 diff hygiene 与格式检查；语义 review 按 scope、目标、模式、验证、文档和回归风险检查，结论 passed。
+
+Risks / Notes / Handoff:
+- 今日真实日志显示：2026-05-27 本地日内 `stock-strategy-us-candidate-validation` 4 次失败、`stock-strategy-paper-setup` 4 次失败、`stock-strategy-control-loop` 2 次失败；外部飞书收到的不是策略结论，而是 runtime 中断、缺少 scheduler decision JSON 和重复的非人工阶段总结。
+- 当前代码的核心风险是 `decision=null` 时默认外推 `notify_channels`，这对普通 scheduled task 合理，但对股票策略自迭代不合理。股票策略应该默认内部可见、外部静默，只有日报或人工确认才出现在飞书/微信。
+- 已修复：股票策略 scheduled task 现在把 Web 主投递与外部 `notify_channels` 分开；worker 普通成功/失败、无新增证据、runtime 堆栈和缺 scheduler decision JSON 不再外推飞书/微信；人工确认和日报才走外部短消息。日报 workflow 如果自身失败，外部收到不含堆栈的短 fallback，原始错误留在 Web 与 task run log。
+- 安全重启已完成：PATH 中无安装版 `cli-claw`，按 `docs/COMMAND.md` 使用 repo-local fallback `bun src/cli.ts restart`；restart `restart-2026-05-27T12-20-35-530Z-2b27a773` passed，`/api/health` healthy，当前 backend pid `29819`。真实 DB 检查：`stock-strategy-daily-progress-summary` 仍为 `cron 0 21 * * *`，next_run=`2026-05-28T01:00:00.000Z`；`stock-strategy-paper-setup` 与 `stock-strategy-us-candidate-validation` 已 paused；当前无股票策略 running task log。

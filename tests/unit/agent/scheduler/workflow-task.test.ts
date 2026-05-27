@@ -869,11 +869,128 @@ describe('scheduled workflow task helpers', () => {
         error: null,
       }),
     );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'web:stock-strategy',
+      expect.stringContaining('US 候选验证通过'),
+      { source: 'scheduled_task' },
+    );
     for (const [, text] of sendMessage.mock.calls) {
-      expect(String(text)).toContain('US 候选验证通过');
       expect(String(text)).not.toContain('[Scheduler Decision]');
       expect(String(text)).not.toContain('"evidence_signature"');
     }
+  });
+
+  test('keeps stock strategy worker runtime failures out of external notify channels', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-paper-setup',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-paper-setup',
+      prompt: 'Check paper-trading readiness.',
+      notify_channels: ['feishu:private'],
+    });
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const runWorkflowCommand = vi
+      .fn()
+      .mockResolvedValue(
+        [
+          '❌ 工作流 股票策略模拟盘准备工作流 (stock-strategy-paper-setup) 失败：Agent process exited with code 1: modelRetry.mjs:529:30)',
+          '    at async #runStreamLoop (dist/run.mjs:736:42)',
+        ].join('\n'),
+      );
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'web:stock-strategy',
+      expect.stringContaining('Agent process exited'),
+      { source: 'scheduled_task' },
+    );
+    expect(sendMessage).not.toHaveBeenCalledWith(
+      'feishu:private',
+      expect.any(String),
+      expect.anything(),
+    );
+    expect(updateTaskRunLogMock).toHaveBeenCalledWith(
+      1001,
+      expect.objectContaining({
+        status: 'error',
+        error: expect.stringContaining('Agent process exited'),
+      }),
+    );
+  });
+
+  test('sends a concise daily stock strategy fallback instead of runtime stack traces', async () => {
+    const scheduledTask = task({
+      id: 'stock-strategy-daily-progress-summary',
+      group_folder: 'stock-strategy',
+      chat_jid: 'web:stock-strategy',
+      script_command: 'stock-strategy-daily-progress-summary',
+      prompt: 'Summarize today at 21:00.',
+      schedule_type: 'cron',
+      schedule_value: '0 21 * * *',
+      notify_channels: ['feishu:private'],
+    });
+    getTaskByIdMock.mockReturnValue(scheduledTask);
+    const runWorkflowCommand = vi
+      .fn()
+      .mockResolvedValue(
+        [
+          '❌ 工作流 股票策略当日进度总结工作流 (stock-strategy-daily-progress-summary) 失败：Agent process exited with code 1: modelRetry.mjs:529:30)',
+          '    at async #runStreamLoop (dist/run.mjs:736:42)',
+        ].join('\n'),
+      );
+    const sendMessage = vi.fn();
+
+    await runWorkflowTask(
+      scheduledTask,
+      {
+        registeredGroups: () => ({
+          'web:stock-strategy': {
+            name: '股票策略',
+            folder: 'stock-strategy',
+            added_at: '2026-05-24T00:00:00.000Z',
+            agentType: 'openai',
+            is_home: true,
+          },
+        }),
+        getSessions: () => ({}),
+        queue: {} as never,
+        sendMessage,
+        runWorkflowCommand,
+        assistantName: 'cli-claw',
+      },
+      'web:stock-strategy',
+    );
+
+    const feishuCall = sendMessage.mock.calls.find(
+      ([jid]) => jid === 'feishu:private',
+    );
+    expect(feishuCall).toBeTruthy();
+    expect(String(feishuCall?.[1])).toContain('股票策略日报');
+    expect(String(feishuCall?.[1])).not.toContain('Agent process exited');
+    expect(String(feishuCall?.[1])).not.toContain('modelRetry');
+    expect(String(feishuCall?.[1])).not.toContain('dist/run.mjs');
   });
 
   test('normalizes the old HK design review workflow id instead of creating a broken task', async () => {
