@@ -10,6 +10,7 @@ import {
   StreamingCardController,
   unregisterStreamingSession,
 } from '../../../../src/messaging/providers/feishu/streaming-card.ts';
+import { logger } from '../../../../src/core/logger.ts';
 import { resolveVisibleReplyParts } from '../../../../src/presentation/reply-visibility.ts';
 import { formatToolStepLine } from '../../../../src/presentation/tool-step-display.ts';
 
@@ -64,6 +65,30 @@ function createStreamingModeClient() {
   } as any;
 
   return { client, createdCards, updatedCards, streamedContents };
+}
+
+function createLegacyModeClient() {
+  const createdCards: Array<Record<string, any>> = [];
+  const patchedCards: Array<Record<string, any>> = [];
+
+  const client = {
+    im: {
+      v1: {
+        message: {
+          create: vi.fn(async ({ data }: any) => {
+            createdCards.push(JSON.parse(data.content));
+            return { data: { message_id: 'msg-legacy-1' } };
+          }),
+          patch: vi.fn(async ({ data }: any) => {
+            patchedCards.push(JSON.parse(data.content));
+            return { data: {} };
+          }),
+        },
+      },
+    },
+  } as any;
+
+  return { client, createdCards, patchedCards };
 }
 
 describe('StreamingCardController footer caching', () => {
@@ -127,20 +152,51 @@ describe('StreamingCardController footer caching', () => {
     controller.dispose();
   });
 
-  test('retains thinking transcript after text arrives so final cards can render it', () => {
+  test('retains thinking transcript after text arrives so final cards can render it', async () => {
+    const { client, createdCards } = createLegacyModeClient();
     const controller = new StreamingCardController({
-      client: {} as any,
+      client,
       chatId: 'chat-test',
     });
 
     controller.appendThinking('first thought');
-    (controller as any).state = 'streaming';
+
+    await vi.waitFor(() => {
+      expect(createdCards).toHaveLength(1);
+      expect((controller as any).state).toBe('streaming');
+    });
 
     controller.append('final answer');
 
     expect((controller as any).thinkingText).toBe('first thought');
 
     controller.dispose();
+  });
+
+  test('uses legacy card delivery without logging CardKit fallback when v1 is unavailable', async () => {
+    const { client, createdCards } = createLegacyModeClient();
+    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const controller = new StreamingCardController({
+      client,
+      chatId: 'chat-test',
+    });
+
+    try {
+      controller.append('hello from legacy');
+
+      await vi.waitFor(() => {
+        expect(createdCards).toHaveLength(1);
+        expect((controller as any).state).toBe('streaming');
+      });
+
+      expect(infoSpy).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'CardKit full-update unavailable, falling back to message.patch',
+      );
+    } finally {
+      controller.dispose();
+      infoSpy.mockRestore();
+    }
   });
 
   test('patches aborted cards when late usage arrives so interrupted footers can show time', async () => {

@@ -1228,6 +1228,19 @@ function quickHash(data: string): string {
   return createHash('md5').update(data).digest('hex');
 }
 
+function hasCardKitV1(client: lark.Client): boolean {
+  const v1 = (client as any).cardkit?.v1;
+  return (
+    typeof v1?.card?.create === 'function' &&
+    typeof v1?.card?.update === 'function' &&
+    hasLegacyInteractiveMessageCreate(client)
+  );
+}
+
+function hasLegacyInteractiveMessageCreate(client: lark.Client): boolean {
+  return typeof (client as any).im?.v1?.message?.create === 'function';
+}
+
 class CardKitBackend {
   private cardId: string | null = null;
   private _messageId: string | null = null;
@@ -2279,37 +2292,47 @@ export class StreamingCardController {
     const initialText = this.accumulatedText;
     // Prefer full-card updates so the Feishu card structure matches runclaw's
     // collapsible thinking/tool panels during streaming.
-    try {
-      this.multiCard = new MultiCardManager(
-        this.client,
-        this.chatId,
-        this.replyToMsgId,
-        this.onCardCreated,
-      );
-      const messageId = await this.multiCard.initialize(
-        initialText,
-        this.getAuxiliaryState(),
-        this.footerRuntimeIdentity,
-      );
+    if (hasCardKitV1(this.client)) {
+      try {
+        this.multiCard = new MultiCardManager(
+          this.client,
+          this.chatId,
+          this.replyToMsgId,
+          this.onCardCreated,
+        );
+        const messageId = await this.multiCard.initialize(
+          initialText,
+          this.getAuxiliaryState(),
+          this.footerRuntimeIdentity,
+        );
 
-      this.messageId = messageId;
-      this.backendMode = 'v1';
-      this.useCardKit = true;
-      this.startTime = Date.now();
-      // CardKit v1 mode: 1000ms interval, bump failure tolerance
-      this.flushCtrl.dispose();
-      this.flushCtrl = new FlushController(1000, 50);
-      this.maxPatchFailures = 3;
+        this.messageId = messageId;
+        this.backendMode = 'v1';
+        this.useCardKit = true;
+        this.startTime = Date.now();
+        // CardKit v1 mode: 1000ms interval, bump failure tolerance
+        this.flushCtrl.dispose();
+        this.flushCtrl = new FlushController(1000, 50);
+        this.maxPatchFailures = 3;
 
-      logger.debug(
-        { chatId: this.chatId, messageId, mode: 'cardkit-v1' },
-        'Streaming card created via CardKit v1',
-      );
-    } catch (v1Err) {
-      logger.info(
-        { err: v1Err, chatId: this.chatId },
-        'CardKit full-update unavailable, falling back to message.patch',
-      );
+        logger.debug(
+          { chatId: this.chatId, messageId, mode: 'cardkit-v1' },
+          'Streaming card created via CardKit v1',
+        );
+      } catch (v1Err) {
+        logger.info(
+          { err: v1Err, chatId: this.chatId },
+          'CardKit full-update unavailable, falling back to message.patch',
+        );
+        this.multiCard = null;
+        this.useCardKit = false;
+        this.backendMode = 'legacy';
+        this.startTime = Date.now();
+
+        await this.createLegacyCard(initialText);
+        return;
+      }
+    } else {
       this.multiCard = null;
       this.useCardKit = false;
       this.backendMode = 'legacy';
@@ -2336,6 +2359,12 @@ export class StreamingCardController {
     const content = JSON.stringify(card);
 
     try {
+      if (!hasLegacyInteractiveMessageCreate(this.client)) {
+        throw new Error(
+          'Feishu im.v1.message.create client is unavailable for legacy interactive card delivery',
+        );
+      }
+
       const resp = await this.client.im.v1.message.create({
         params: { receive_id_type: 'chat_id' },
         data: {
