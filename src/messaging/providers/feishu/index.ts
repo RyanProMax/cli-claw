@@ -3,6 +3,8 @@ import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import * as lark from '@larksuiteoapi/node-sdk';
 import {
+  getImMessageLifecycleEvents,
+  getMessage,
   recordImMessageLifecycleEvent,
   setLastGroupSync,
   storeChatMetadata,
@@ -990,6 +992,27 @@ export function createFeishuConnection(
     }
   }
 
+  function hasPersistedBackfillDisposition(
+    chatJid: string,
+    messageId: string,
+  ): boolean {
+    try {
+      if (getMessage(chatJid, messageId)) return true;
+      return getImMessageLifecycleEvents({
+        provider: 'feishu',
+        chatJid,
+        messageId,
+        limit: 50,
+      }).some((event) => event.stage !== 'received');
+    } catch (err) {
+      logger.warn(
+        { err, chatJid, messageId },
+        'Failed to inspect persisted Feishu backfill disposition',
+      );
+      return false;
+    }
+  }
+
   async function handleIncomingMessage(
     payload: IncomingMessagePayload,
     source: 'ws' | 'backfill',
@@ -1018,6 +1041,27 @@ export function createFeishuConnection(
     } = payload;
     if (!chatId || !messageId) return;
     const chatJid = `feishu:${chatId}`;
+
+    if (
+      source === 'backfill' &&
+      hasPersistedBackfillDisposition(chatJid, messageId)
+    ) {
+      markSeen(messageId);
+      recordLifecycleEvent({
+        chatJid,
+        sourceJid: chatJid,
+        messageId,
+        stage: 'skipped',
+        status: 'skipped',
+        reason: 'persistent_duplicate',
+        details: { source },
+      });
+      logger.debug(
+        { chatJid, messageId },
+        'Persisted backfill duplicate, skipping',
+      );
+      return;
+    }
 
     recordLifecycleEvent({
       chatJid,
@@ -1257,6 +1301,19 @@ export function createFeishuConnection(
           onCommand,
         );
         if (reply.kind === 'reply') {
+          recordLifecycleEvent({
+            chatJid,
+            sourceJid: chatJid,
+            messageId,
+            stage: 'skipped',
+            status: 'skipped',
+            reason: 'slash_command',
+            details: {
+              source,
+              cmd: slashMatch[1],
+              replyKind: reply.kind,
+            },
+          });
           logger.info(
             {
               chatJid,
@@ -1313,6 +1370,18 @@ export function createFeishuConnection(
         if (reply) {
           await sendTextToChat(chatId, reply);
         }
+        recordLifecycleEvent({
+          chatJid,
+          sourceJid: chatJid,
+          messageId,
+          stage: 'skipped',
+          status: 'skipped',
+          reason: 'managed_command',
+          details: {
+            source,
+            managedCommandText,
+          },
+        });
         return;
       } catch (err) {
         logger.error(

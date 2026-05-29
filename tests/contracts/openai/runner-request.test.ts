@@ -198,6 +198,7 @@ function writeSuccessfulResponsesStream(
   finalText: string,
   options: {
     emptyTerminalOutput?: boolean;
+    malformedTerminalOutput?: boolean;
     messageId?: string;
     reasoningId?: string;
   } = {},
@@ -288,10 +289,26 @@ function writeSuccessfulResponsesStream(
   res.write(
     sse('response.completed', {
       type: 'response.completed',
-      response: responseSnapshot(
-        options.emptyTerminalOutput ? '' : finalText,
-        'completed',
-      ),
+      response: options.malformedTerminalOutput
+        ? {
+            ...responseSnapshot('', 'completed'),
+            output: [
+              {
+                id: options.reasoningId ?? 'rs_1',
+                type: 'reasoning',
+              },
+              {
+                id: messageId,
+                type: 'message',
+                status: 'completed',
+                role: 'assistant',
+              },
+            ],
+          }
+        : responseSnapshot(
+            options.emptyTerminalOutput ? '' : finalText,
+            'completed',
+          ),
     }),
   );
   res.end('data: [DONE]\n\n');
@@ -639,6 +656,58 @@ describe('P0 OpenAI runner request contract', () => {
       (_req, res) =>
         writeSuccessfulResponsesStream(res, finalText, {
           emptyTerminalOutput: true,
+        }),
+    );
+  });
+
+  test('normalizes malformed Codex terminal response output before SDK conversion', async () => {
+    const finalText = 'CODEX_MALFORMED_TERMINAL_OK';
+    await withCaptureServer(
+      async ({ baseUrl }) => {
+        const tempRoot = makeTempDir('cli-claw-p0-openai-codex-malformed-');
+        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        vi.stubEnv(
+          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          path.join(tempRoot, 'sessions'),
+        );
+        vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
+        vi.stubEnv('no_proxy', '127.0.0.1,localhost');
+
+        const { runOpenAiAgentLoop } =
+          await import('../../../container/agent-runner/src/openai-agent-runtime.ts');
+        const { outputs, deps } = buildRunnerDeps(tempRoot);
+
+        await runOpenAiAgentLoop(
+          {
+            prompt: 'handle malformed terminal response',
+            groupFolder: 'main',
+            chatJid: 'feishu:oc_p0_codex_malformed',
+            agentType: 'openai',
+            model: 'gpt-5.5',
+            reasoningEffort: 'xhigh',
+            speedTier: 'fast',
+            turnId: 'om_p0_codex_malformed',
+            messageCursor: {
+              timestamp: '1778942000000',
+              id: 'om_p0_codex_malformed',
+            },
+          },
+          deps,
+        );
+
+        expect(outputs).toContainEqual(
+          expect.objectContaining({
+            status: 'success',
+            result: finalText,
+            sourceKind: 'sdk_final',
+            finalizationReason: 'completed',
+          }),
+        );
+      },
+      (_req, res) =>
+        writeSuccessfulResponsesStream(res, finalText, {
+          malformedTerminalOutput: true,
         }),
     );
   });

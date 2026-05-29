@@ -103,6 +103,8 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
 });
 
 vi.mock('../../../../src/storage/db.js', () => ({
+  getImMessageLifecycleEvents: vi.fn(() => []),
+  getMessage: vi.fn(() => null),
   recordImMessageLifecycleEvent: vi.fn(),
   setLastGroupSync: vi.fn(),
   storeChatMetadata: vi.fn(),
@@ -150,6 +152,8 @@ vi.mock('../../../../src/messaging/providers/feishu/markdown-style.js', () => ({
 import { createFeishuConnection } from '../../../../src/messaging/providers/feishu/index.ts';
 import { buildStaticReplyCard } from '../../../../src/messaging/providers/feishu/streaming-card.js';
 import {
+  getImMessageLifecycleEvents,
+  getMessage,
   recordImMessageLifecycleEvent,
   storeMessageDirect,
 } from '../../../../src/storage/db.js';
@@ -196,6 +200,10 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.onReadySpy.mockClear();
     hoisted.resolveImSlashCommandReplySpy.mockClear();
     vi.mocked(buildStaticReplyCard).mockClear();
+    vi.mocked(getImMessageLifecycleEvents).mockReset();
+    vi.mocked(getImMessageLifecycleEvents).mockReturnValue([]);
+    vi.mocked(getMessage).mockReset();
+    vi.mocked(getMessage).mockReturnValue(null);
     vi.mocked(recordImMessageLifecycleEvent).mockClear();
     vi.mocked(storeMessageDirect).mockClear();
     vi.mocked(notifyNewImMessage).mockClear();
@@ -962,6 +970,62 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(notifyNewImMessage).toHaveBeenCalledTimes(1);
     expect(broadcastNewMessage).toHaveBeenCalledTimes(1);
     expect(hoisted.reactionCreateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('skips persisted backfill duplicates before invoking slash commands', async () => {
+    const startupThreshold = Date.now() - 5_000;
+    hoisted.messageListSpy.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            message_id: 'msg-backfill-duplicate-slash',
+            create_time: String(startupThreshold + 1_000),
+            msg_type: 'text',
+            body: {
+              content: JSON.stringify({ text: '/hkipo' }),
+            },
+            chat_type: 'p2p',
+            sender: {
+              sender_id: {
+                open_id: 'user-open-id',
+              },
+            },
+          },
+        ],
+      },
+    });
+    vi.mocked(getImMessageLifecycleEvents).mockReturnValue([
+      {
+        id: 1,
+        provider: 'feishu',
+        chatJid: 'feishu:startup-chat',
+        sourceJid: 'feishu:startup-chat',
+        messageId: 'msg-backfill-duplicate-slash',
+        stage: 'skipped',
+        status: 'skipped',
+        reason: 'duplicate',
+        details: { source: 'backfill' },
+        createdAt: new Date(startupThreshold).toISOString(),
+      },
+    ] as any);
+    const onCommand = vi.fn().mockResolvedValue('ack');
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCommand,
+      startupBackfillIgnoreMessagesBefore: startupThreshold,
+      startupBackfillChatIds: ['startup-chat'] as any,
+    } as any);
+
+    expect(onCommand).not.toHaveBeenCalled();
+    expect(hoisted.createSpy).not.toHaveBeenCalled();
+    expect(storeMessageDirect).not.toHaveBeenCalled();
+    expect(notifyNewImMessage).not.toHaveBeenCalled();
   });
 
   test('clears every pending ack reaction when multiple requests arrive before reply delivery', async () => {

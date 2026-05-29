@@ -114,6 +114,59 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+const TERMINAL_RESPONSES_STREAM_EVENT_TYPES = new Set([
+  'response.completed',
+  'response.failed',
+  'response.incomplete',
+  'response.error',
+]);
+
+function isTerminalResponsesStreamEvent(value: unknown): boolean {
+  const eventType = asRecord(value)?.type;
+  return (
+    typeof eventType === 'string' &&
+    TERMINAL_RESPONSES_STREAM_EVENT_TYPES.has(eventType)
+  );
+}
+
+function sanitizeCodexResponseOutputItem(item: unknown): unknown {
+  const record = asRecord(item);
+  if (!record || typeof record.type !== 'string') return item;
+
+  if (record.type === 'message' && !Array.isArray(record.content)) {
+    return { ...record, content: [] };
+  }
+  if (record.type === 'reasoning' && !Array.isArray(record.summary)) {
+    return { ...record, summary: [] };
+  }
+  return item;
+}
+
+function sanitizeCodexResponse(response: unknown): unknown {
+  const record = asRecord(response);
+  if (!record) return response;
+  const output = Array.isArray(record.output)
+    ? record.output.map(sanitizeCodexResponseOutputItem)
+    : [];
+  return { ...record, output };
+}
+
+async function* sanitizeCodexResponseStream(
+  stream: AsyncIterable<unknown>,
+): AsyncIterable<unknown> {
+  for await (const event of stream) {
+    const record = asRecord(event);
+    if (record && isTerminalResponsesStreamEvent(record)) {
+      yield {
+        ...record,
+        response: sanitizeCodexResponse(record.response),
+      };
+      continue;
+    }
+    yield event;
+  }
+}
+
 function convertMessageContentItem(
   item: Record<string, unknown>,
 ): Record<string, unknown> | null {
@@ -217,13 +270,24 @@ function collectCompletedOutputItem(
   if (outputItem) completedItems.push(outputItem);
 }
 
+function hasUsableResponseOutput(output: AgentOutputItem[]): boolean {
+  return output.some((item) => {
+    const record = asRecord(item);
+    if (record?.type === 'reasoning') return false;
+    if (record?.type === 'message') {
+      return Array.isArray(record.content) && record.content.length > 0;
+    }
+    return true;
+  });
+}
+
 function withCodexCompletedOutputFallback(
   event: StreamEvent,
   completedItems: AgentOutputItem[],
 ): StreamEvent {
   if (
     event.type !== 'response_done' ||
-    event.response.output.length > 0 ||
+    hasUsableResponseOutput(event.response.output) ||
     completedItems.length === 0
   ) {
     return event;
@@ -238,6 +302,23 @@ function withCodexCompletedOutputFallback(
 }
 
 class CodexResponsesModel extends OpenAIResponsesModel {
+  protected override async _fetchResponse(
+    request: ModelRequest,
+    stream: false,
+  ): Promise<OpenAI.Responses.Response>;
+  protected override async _fetchResponse(
+    request: ModelRequest,
+    stream: boolean,
+  ): Promise<unknown> {
+    const response = await super._fetchResponse(request, stream as false);
+    if (!stream) {
+      return sanitizeCodexResponse(response);
+    }
+    return sanitizeCodexResponseStream(
+      response as unknown as AsyncIterable<unknown>,
+    );
+  }
+
   override async *getStreamedResponse(
     request: ModelRequest,
   ): AsyncIterable<StreamEvent> {
