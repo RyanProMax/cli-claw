@@ -133,6 +133,7 @@ describe('workflow command execution', () => {
       chatJid: 'web:workspace-a',
       argsText: 'research 分析英伟达',
       triggerUserId: 'user-1',
+      triggerMessageId: 'msg-trigger-1',
       workspaceRoot,
       runGraph,
     });
@@ -151,6 +152,7 @@ describe('workflow command execution', () => {
           folder: 'workspace-a',
           workflow_id: 'research',
           trigger_chat_jid: 'web:workspace-a',
+          trigger_message_id: 'msg-trigger-1',
           trigger_user_id: 'user-1',
         }),
         checkpointer: expect.any(Object),

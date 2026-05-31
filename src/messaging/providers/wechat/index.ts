@@ -22,7 +22,10 @@ import { broadcastNewMessage } from '../../../web/app.js';
 import { logger } from '../../../core/logger.js';
 import { saveDownloadedFile, MAX_FILE_SIZE } from '../../downloader.js';
 import { detectImageMimeType } from '../../image-detector.js';
-import { resolveImSlashCommandReply } from '../../slash-command.js';
+import {
+  resolveImSlashCommandReply,
+  type IMCommandContext,
+} from '../../slash-command.js';
 import { downloadAndDecryptMedia } from './crypto.js';
 import { markdownToPlainText, splitTextChunks } from '../../utils.js';
 import type { MessageSourceKind } from '../../../domain/types.js';
@@ -79,7 +82,11 @@ export interface WeChatConnectOpts {
   onReady?: () => void;
   onNewChat: (jid: string, name: string) => void;
   ignoreMessagesBefore?: number;
-  onCommand?: (chatJid: string, command: string) => Promise<string | null>;
+  onCommand?: (
+    chatJid: string,
+    command: string,
+    context?: IMCommandContext,
+  ) => Promise<string | null>;
   resolveGroupFolder?: (jid: string) => string | undefined;
   resolveEffectiveChatJid?: (
     chatJid: string,

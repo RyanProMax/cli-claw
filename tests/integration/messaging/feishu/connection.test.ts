@@ -6,10 +6,15 @@ const hoisted = vi.hoisted(() => {
     async (
       chatJid: string,
       command: string,
-      onCommand?: (chatJid: string, command: string) => Promise<string | null>,
+      onCommand?: (
+        chatJid: string,
+        command: string,
+        context?: { triggerMessageId?: string | null },
+      ) => Promise<string | null>,
+      context?: { triggerMessageId?: string | null },
     ) => ({
       kind: 'reply',
-      content: (await onCommand?.(chatJid, command)) ?? '',
+      content: (await onCommand?.(chatJid, command, context)) ?? '',
     }),
   );
   return {
@@ -476,6 +481,90 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(broadcastNewMessage).toHaveBeenCalledWith(
       'feishu:oc_command_chat',
       expect.objectContaining({ source_kind: 'assistant_prompt' }),
+      undefined,
+    );
+  });
+
+  test('persists Feishu slash commands and immediate replies for web history', async () => {
+    const onCommand = vi.fn().mockResolvedValue('🚀 已启动工作流 hkipo');
+    hoisted.createSpy.mockResolvedValueOnce({
+      data: { message_id: 'msg-hkipo-reply' },
+    });
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCommand,
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_command_chat',
+        message_id: 'msg-hkipo-command',
+        create_time: '1780232946873',
+        message_type: 'text',
+        content: JSON.stringify({ text: '/hkipo' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    expect(onCommand).toHaveBeenCalledWith(
+      'feishu:oc_command_chat',
+      'hkipo',
+      expect.objectContaining({
+        triggerMessageId: 'msg-hkipo-command',
+      }),
+    );
+    expect(storeMessageDirect).toHaveBeenCalledWith(
+      'msg-hkipo-command',
+      'feishu:oc_command_chat',
+      'user-open-id',
+      'user-open-id',
+      '/hkipo',
+      '2026-05-31T13:09:06.873Z',
+      false,
+      {
+        attachments: undefined,
+        sourceJid: 'feishu:oc_command_chat',
+        meta: { sourceKind: 'user_command' },
+      },
+    );
+    expect(broadcastNewMessage).toHaveBeenCalledWith(
+      'feishu:oc_command_chat',
+      expect.objectContaining({
+        id: 'msg-hkipo-command',
+        content: '/hkipo',
+        source_kind: 'user_command',
+      }),
+      undefined,
+    );
+    expect(storeMessageDirect).toHaveBeenCalledWith(
+      'msg-hkipo-reply',
+      'feishu:oc_command_chat',
+      'cli-claw-agent',
+      expect.any(String),
+      '🚀 已启动工作流 hkipo',
+      expect.any(String),
+      true,
+      {
+        sourceJid: 'feishu:oc_command_chat',
+      },
+    );
+    expect(broadcastNewMessage).toHaveBeenCalledWith(
+      'feishu:oc_command_chat',
+      expect.objectContaining({
+        id: 'msg-hkipo-reply',
+        content: '🚀 已启动工作流 hkipo',
+        is_from_me: true,
+      }),
       undefined,
     );
   });

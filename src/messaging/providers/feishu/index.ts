@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'fs';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
@@ -12,6 +13,7 @@ import {
   updateChatName,
 } from '../../../storage/messages.js';
 import { logger } from '../../../core/logger.js';
+import { ASSISTANT_NAME } from '../../../core/config.js';
 import {
   saveDownloadedFile,
   MAX_FILE_SIZE,
@@ -20,7 +22,10 @@ import {
 import { notifyNewImMessage } from '../../notifier.js';
 import { broadcastNewMessage } from '../../../web/app.js';
 import { detectImageMimeType } from '../../image-detector.js';
-import { resolveImSlashCommandReply } from '../../slash-command.js';
+import {
+  resolveImSlashCommandReply,
+  type IMCommandContext,
+} from '../../slash-command.js';
 import {
   abortStreamingSessionsForChatJid,
   buildStaticReplyCard,
@@ -79,7 +84,11 @@ export interface ConnectOptions {
   /** 初始启动 backfill 的时间下界，可早于当前 live WS 的 ignoreMessagesBefore */
   startupBackfillIgnoreMessagesBefore?: number;
   /** 斜杠指令回调（如 /clear），返回回复文本或 null */
-  onCommand?: (chatJid: string, command: string) => Promise<string | null>;
+  onCommand?: (
+    chatJid: string,
+    command: string,
+    context?: IMCommandContext,
+  ) => Promise<string | null>;
   /** 显式运维短语改写成受管命令（如“重启服务” -> self-restart） */
   resolveManagedCommandText?: (chatJid: string, text: string) => string | null;
   /** 根据 chatJid 解析群组 folder，用于下载文件/图片到工作区 */
@@ -954,8 +963,11 @@ export function createFeishuConnection(
     registerMessageIdMapping(messageId, `feishu:${chatId}`);
   }
 
-  async function sendTextToChat(chatId: string, text: string): Promise<void> {
-    if (!client) return;
+  async function sendTextToChat(
+    chatId: string,
+    text: string,
+  ): Promise<{ ok: boolean; messageId: string | null }> {
+    if (!client) return { ok: false, messageId: null };
     try {
       const receive_id_type = chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
       const prebuiltInteractiveContent =
@@ -968,12 +980,122 @@ export function createFeishuConnection(
           content: prebuiltInteractiveContent ?? JSON.stringify({ text }),
         },
       });
+      const sentMessageId = extractSentMessageId(resp);
       if (prebuiltInteractiveContent) {
         registerSentMessageMapping(resp, chatId);
       }
+      return { ok: true, messageId: sentMessageId };
     } catch (err) {
       logger.error({ chatId, err }, 'Failed to send Feishu text reply');
+      return { ok: false, messageId: null };
     }
+  }
+
+  function persistSlashCommandForWebHistory(input: {
+    chatJid: string;
+    messageId: string;
+    senderOpenId: string;
+    senderName: string;
+    content: string;
+    timestamp: string;
+    attachments?: string;
+    source: string;
+  }): void {
+    storeChatMetadata(input.chatJid, input.timestamp);
+    storeMessageDirect(
+      input.messageId,
+      input.chatJid,
+      input.senderOpenId,
+      input.senderName,
+      input.content,
+      input.timestamp,
+      false,
+      {
+        attachments: input.attachments,
+        sourceJid: input.chatJid,
+        meta: { sourceKind: 'user_command' },
+      },
+    );
+    recordLifecycleEvent({
+      chatJid: input.chatJid,
+      sourceJid: input.chatJid,
+      messageId: input.messageId,
+      stage: 'stored',
+      status: 'ok',
+      details: {
+        source: input.source,
+        command: true,
+        sourceKind: 'user_command',
+      },
+    });
+    broadcastNewMessage(
+      input.chatJid,
+      {
+        id: input.messageId,
+        chat_jid: input.chatJid,
+        source_jid: input.chatJid,
+        sender: input.senderOpenId,
+        sender_name: input.senderName,
+        content: input.content,
+        timestamp: input.timestamp,
+        is_from_me: false,
+        attachments: input.attachments,
+        source_kind: 'user_command',
+      },
+      undefined,
+    );
+  }
+
+  function commandReplyHistoryContent(text: string): string {
+    if (!extractPrebuiltInteractiveCardContent(text)) return text;
+    try {
+      const parsed = JSON.parse(text) as {
+        card?: { config?: { summary?: { content?: string } } };
+      };
+      const summary = parsed.card?.config?.summary?.content?.trim();
+      return summary || '已发送交互卡片';
+    } catch {
+      return '已发送交互卡片';
+    }
+  }
+
+  async function sendAndPersistCommandReply(
+    chatId: string,
+    chatJid: string,
+    text: string,
+  ): Promise<void> {
+    const sent = await sendTextToChat(chatId, text);
+    if (!sent.ok) return;
+    const timestamp = new Date().toISOString();
+    const messageId = sent.messageId || crypto.randomUUID();
+    const content = commandReplyHistoryContent(text);
+    storeChatMetadata(chatJid, timestamp);
+    storeMessageDirect(
+      messageId,
+      chatJid,
+      'cli-claw-agent',
+      ASSISTANT_NAME,
+      content,
+      timestamp,
+      true,
+      {
+        sourceJid: chatJid,
+      },
+    );
+    broadcastNewMessage(
+      chatJid,
+      {
+        id: messageId,
+        chat_jid: chatJid,
+        source_jid: chatJid,
+        sender: 'cli-claw-agent',
+        sender_name: ASSISTANT_NAME,
+        content,
+        timestamp,
+        is_from_me: true,
+      },
+      undefined,
+    );
   }
 
   function recordLifecycleEvent(input: FeishuLifecycleEventInput): void {
@@ -1299,8 +1421,19 @@ export function createFeishuConnection(
           chatJid,
           cmdBody,
           onCommand,
+          { triggerMessageId: messageId },
         );
         if (reply.kind === 'reply') {
+          persistSlashCommandForWebHistory({
+            chatJid,
+            messageId,
+            senderOpenId,
+            senderName: resolvedSenderName,
+            content: textForSlash,
+            timestamp,
+            attachments: attachmentsJson,
+            source,
+          });
           recordLifecycleEvent({
             chatJid,
             sourceJid: chatJid,
@@ -1323,18 +1456,32 @@ export function createFeishuConnection(
             },
             'Feishu slash command processed',
           );
-          await sendTextToChat(chatId, reply.content);
+          await sendAndPersistCommandReply(chatId, chatJid, reply.content);
           return;
         }
         text = reply.content;
         sourceKind = reply.sourceKind ?? null;
       } catch (err) {
+        persistSlashCommandForWebHistory({
+          chatJid,
+          messageId,
+          senderOpenId,
+          senderName: resolvedSenderName,
+          content: textForSlash,
+          timestamp,
+          attachments: attachmentsJson,
+          source,
+        });
         logger.error(
           { chatJid, cmd: slashMatch[1], err },
           'Feishu slash command failed',
         );
         try {
-          await sendTextToChat(chatId, '⚠️ 命令执行失败，请稍后重试');
+          await sendAndPersistCommandReply(
+            chatId,
+            chatJid,
+            '⚠️ 命令执行失败，请稍后重试',
+          );
         } catch (sendErr) {
           logger.error(
             { chatJid, sendErr },

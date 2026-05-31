@@ -166,7 +166,10 @@ import {
 } from './skills/command-dispatch.js';
 import { executeWorkflowCommand } from './agent/workflow/command.js';
 import { listWorkflowRuns } from './agent/workflow/context.js';
-import { encodeImSlashRewriteMessage } from './messaging/slash-command.js';
+import {
+  encodeImSlashRewriteMessage,
+  type IMCommandContext,
+} from './messaging/slash-command.js';
 import {
   formatUnknownRuntimeCommandReply,
   parseRuntimeCommand,
@@ -1837,6 +1840,7 @@ async function clearSessionRuntimeFiles(
 async function handleCommand(
   chatJid: string,
   command: string,
+  context?: IMCommandContext,
 ): Promise<string | null> {
   const normalizedCommand = command.trim().startsWith('/')
     ? command.trim()
@@ -1857,6 +1861,7 @@ async function handleCommand(
       chatJid,
       slashCandidate,
       target,
+      context,
     });
     if (skillReply) {
       return skillReply;
@@ -1966,6 +1971,7 @@ async function handleCommand(
     case 'workflow':
       return handleWorkflowSlashCommand(chatJid, rawArgs, undefined, {
         background: true,
+        triggerMessageId: context?.triggerMessageId ?? null,
       });
     default:
       return null;
@@ -1975,6 +1981,7 @@ async function handleCommand(
 interface WorkflowCommandLifecycle {
   background?: boolean;
   onBackgroundResult?: (message: string) => Promise<void> | void;
+  triggerMessageId?: string | null;
 }
 
 function resolveWorkflowCommandLifecycle(
@@ -2011,6 +2018,7 @@ async function handleWorkflowSlashCommand(
     chatJid,
     argsText: rawArgs,
     triggerUserId: null,
+    triggerMessageId: resolvedLifecycle?.triggerMessageId ?? null,
     initialInput,
     background: resolvedLifecycle?.background,
     onBackgroundResult: resolvedLifecycle?.onBackgroundResult,
@@ -2058,6 +2066,7 @@ async function maybeHandleImSkillCommand(options: {
   chatJid: string;
   slashCandidate: NonNullable<ReturnType<typeof parseSlashCommandCandidate>>;
   target: ResolvedRuntimeWorkspaceTarget | null;
+  context?: IMCommandContext;
 }): Promise<string | null> {
   if (!options.target) return null;
 
@@ -2106,7 +2115,10 @@ async function maybeHandleImSkillCommand(options: {
         argsText: options.slashCandidate.argsText,
         input: result.input,
       },
-      { background: true },
+      {
+        background: true,
+        triggerMessageId: options.context?.triggerMessageId ?? null,
+      },
     );
   }
 

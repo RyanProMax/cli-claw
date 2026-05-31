@@ -35,6 +35,7 @@ export interface WorkflowCommandOptions {
   runGraph?: typeof runWorkflowGraph;
   background?: boolean;
   onBackgroundResult?: (message: string) => Promise<void> | void;
+  triggerMessageId?: string | null;
 }
 
 function splitWorkflowArgs(argsText: string): {
@@ -261,6 +262,7 @@ export async function executeWorkflowCommand(
     folder: options.group.folder,
     workflowId: workflow.id,
     triggerChatJid: options.chatJid,
+    triggerMessageId: options.triggerMessageId ?? null,
     triggerUserId: options.triggerUserId ?? null,
     prompt,
     metadata: {

@@ -7,7 +7,12 @@ import type { MessageSourceKind } from '../domain/types.js';
 export type IMCommandHandler = (
   chatJid: string,
   command: string,
+  context?: IMCommandContext,
 ) => Promise<string | null>;
+
+export interface IMCommandContext {
+  triggerMessageId?: string | null;
+}
 
 const IM_SLASH_REWRITE_PREFIX = '__CLI_CLAW_REWRITE__\n';
 
@@ -31,9 +36,13 @@ export async function resolveImSlashCommandReply(
   chatJid: string,
   cmdBody: string,
   onCommand: IMCommandHandler,
+  context?: IMCommandContext,
 ): Promise<ResolvedImSlashCommand> {
   const trimmed = cmdBody.trim();
-  const reply = await onCommand(chatJid, trimmed);
+  const reply =
+    context === undefined
+      ? await onCommand(chatJid, trimmed)
+      : await onCommand(chatJid, trimmed, context);
   if (reply !== null) {
     const rewritten = decodeImSlashRewriteMessage(reply);
     if (rewritten) {

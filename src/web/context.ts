@@ -74,6 +74,7 @@ export interface WebDeps {
     lifecycle?: {
       background?: boolean;
       onBackgroundResult?: (message: string) => Promise<void> | void;
+      triggerMessageId?: string | null;
     },
   ) => Promise<string>;
 }

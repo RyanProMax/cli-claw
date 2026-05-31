@@ -196,7 +196,7 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命
 
 如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容，并以隔离 runtime session 执行。该 session 不会写回 workspace 主会话；下一条普通消息继续使用原主会话，若历史版本已把上一轮 skill final 的 session 误写成主 session，则会先忽略它并建立新的普通主会话。
 
-若 skill 返回 `workflow`，Web 会保存原 slash command、启动回执与后台终态回复，但不会把它入队为普通 Agent 消息；IM 入口同样先直接回复启动回执，再把最终结果、失败或超时消息回到触发会话。当前 `/hkipo` 与 `/kol` 都走这条路径。
+若 skill 返回 `workflow`，Web 与 Feishu IM 都会保存原 slash command、启动回执与后台终态回复，但原命令会标记为 `user_command`，不会入队为普通 Agent 消息；workflow run 会记录 `trigger_message_id`，便于从审计回溯到触发消息。当前 `/hkipo` 与 `/kol` 都走这条路径。
 
 ## 运行时配置命令
 

@@ -29,6 +29,7 @@ import type {
   MessageSourceKind,
   RuntimeIdentity,
 } from '../domain/types.js';
+import type { IMCommandContext } from './slash-command.js';
 
 // ─── Unified Interface ──────────────────────────────────────────
 
@@ -50,7 +51,11 @@ export interface IMChannelConnectOpts {
    * Return reply text for known commands; return null to emit the default
    * unsupported-command reply without falling through to model execution.
    */
-  onCommand?: (chatJid: string, command: string) => Promise<string | null>;
+  onCommand?: (
+    chatJid: string,
+    command: string,
+    context?: IMCommandContext,
+  ) => Promise<string | null>;
   /** Explicit operator phrases rewritten to managed commands before model execution */
   resolveManagedCommandText?: (chatJid: string, text: string) => string | null;
   /** 根据 jid 解析群组 folder，用于下载文件/图片到工作区 */

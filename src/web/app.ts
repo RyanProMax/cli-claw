@@ -334,7 +334,7 @@ async function handleWebSlashCommand(options: {
                 argsText: slashCandidate.argsText,
                 input: skillResult.input,
               },
-              workflowLifecycle,
+              { ...workflowLifecycle, triggerMessageId: messageId },
             ),
           );
         } catch (err) {
@@ -381,7 +381,7 @@ async function handleWebSlashCommand(options: {
             displayChatJid,
             parsed.argsText,
             undefined,
-            workflowLifecycle,
+            { ...workflowLifecycle, triggerMessageId: messageId },
           ),
         );
       } catch (err) {

@@ -17,6 +17,7 @@ import type { FeishuConnectionConfig } from './providers/feishu/index.js';
 import type { WeChatConnectionConfig } from './providers/wechat/index.js';
 import type { StreamingCardController } from './providers/feishu/streaming-card.js';
 import { logger } from '../core/logger.js';
+import type { IMCommandContext } from './slash-command.js';
 
 export interface FeishuConnectConfig {
   appId: string;
@@ -37,7 +38,11 @@ export interface ConnectFeishuOptions {
   ignoreMessagesBefore?: number;
   startupBackfillChatIds?: string[];
   startupBackfillIgnoreMessagesBefore?: number;
-  onCommand?: (chatJid: string, command: string) => Promise<string | null>;
+  onCommand?: (
+    chatJid: string,
+    command: string,
+    context?: IMCommandContext,
+  ) => Promise<string | null>;
   resolveManagedCommandText?: (chatJid: string, text: string) => string | null;
   resolveGroupFolder?: (chatJid: string) => string | undefined;
   resolveEffectiveChatJid?: (
@@ -219,7 +224,11 @@ class IMConnectionManager {
     onNewChat: (chatJid: string, chatName: string) => void,
     options?: {
       ignoreMessagesBefore?: number;
-      onCommand?: (chatJid: string, command: string) => Promise<string | null>;
+      onCommand?: (
+        chatJid: string,
+        command: string,
+        context?: IMCommandContext,
+      ) => Promise<string | null>;
       resolveGroupFolder?: (jid: string) => string | undefined;
       resolveEffectiveChatJid?: (
         chatJid: string,
