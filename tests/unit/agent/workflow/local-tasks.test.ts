@@ -143,7 +143,8 @@ describe('default workflow local tasks', () => {
           x_url: 'https://x.com/secondvoice',
         },
       ],
-      covered_kol_summary: 'Sample KOL（@sample）、Second Voice（@secondvoice）',
+      covered_kol_summary:
+        'Sample KOL（@sample）、Second Voice（@secondvoice）',
       x_preflight: {
         source: 'twscrape',
         status: 'ok',
@@ -156,12 +157,8 @@ describe('default workflow local tasks', () => {
         ],
       },
     });
-    expect((artifact as any).report_requirements).toContain(
-      '按主题/共识合并',
-    );
-    expect((artifact as any).report_requirements).toContain(
-      '作者原文链接',
-    );
+    expect((artifact as any).report_requirements).toContain('按主题/共识合并');
+    expect((artifact as any).report_requirements).toContain('作者原文链接');
     expect((artifact as any).report_requirements).toContain(
       '结论/总结必须放在消息顶部',
     );
@@ -187,6 +184,235 @@ describe('default workflow local tasks', () => {
       (artifact as any).output_template.indexOf('🧾 **结论/总结**'),
     ).toBeLessThan(
       (artifact as any).output_template.indexOf('**近期投资方向与高信号内容**'),
+    );
+  });
+
+  test('prepare_context reuses in-memory cache for long KOL windows', async () => {
+    const stockKolRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'stock-kol-cache-root-'),
+    );
+    tempDirs.push(stockKolRoot);
+    fs.mkdirSync(path.join(stockKolRoot, 'commands'), { recursive: true });
+    fs.mkdirSync(path.join(stockKolRoot, 'references'), { recursive: true });
+    const counterPath = path.join(stockKolRoot, 'counter.txt');
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'references', 'kol_whitelist.json'),
+      JSON.stringify({
+        version: 1,
+        kols: [
+          {
+            id: 'sample',
+            display_name: 'Sample KOL',
+            primary_links: [
+              { platform: 'X/Twitter', url: 'https://x.com/sample' },
+            ],
+          },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'commands', 'kol.py'),
+      [
+        'import json',
+        'import sys',
+        'from pathlib import Path',
+        '',
+        'COUNTER = Path(__file__).resolve().parents[1] / "counter.txt"',
+        '',
+        'def load_whitelist():',
+        '    return json.loads((Path(__file__).resolve().parents[1] / "references" / "kol_whitelist.json").read_text(encoding="utf-8"))',
+        '',
+        'def build_x_source_preflight(days, whitelist):',
+        '    count = int(COUNTER.read_text(encoding="utf-8") or "0") + 1 if COUNTER.exists() else 1',
+        '    COUNTER.write_text(str(count), encoding="utf-8")',
+        '    return {',
+        '        "source": "twscrape",',
+        '        "status": "ok",',
+        '        "window_days": days,',
+        '        "results": [{',
+        '            "kol_id": "sample",',
+        '            "status": "ok",',
+        '            "posts": [{"url": "https://x.com/sample/status/1", "text": f"fetch {count}"}],',
+        '        }],',
+        '    }',
+      ].join('\n'),
+    );
+
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_KOL_INTEL_ROOT = stockKolRoot;
+
+    const tasks = createDefaultWorkflowLocalTasks({
+      kolContextCache: {
+        minDays: 30,
+        ttlMs: 60_000,
+        maxEntries: 4,
+        now: () => 1_000,
+      },
+    } as any);
+    const input = {
+      taskId: 'stock.kol.prepare_context',
+      nodeId: 'kol_context_preflight',
+      input: { command: 'kol', argsText: '', input: { days: 30 } },
+      artifacts: {},
+    };
+
+    const first = await tasks['stock.kol.prepare_context'](input);
+    const second = await tasks['stock.kol.prepare_context'](input);
+
+    expect(fs.readFileSync(counterPath, 'utf-8')).toBe('1');
+    expect((first as any).cache).toMatchObject({
+      scope: 'memory',
+      status: 'miss',
+      cacheable: true,
+    });
+    expect((second as any).cache).toMatchObject({
+      scope: 'memory',
+      status: 'hit',
+      cacheable: true,
+    });
+    expect((second as any).x_preflight.results[0].posts[0].text).toBe(
+      'fetch 1',
+    );
+  });
+
+  test('prepare_context does not cache short KOL windows', async () => {
+    const stockKolRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'stock-kol-short-root-'),
+    );
+    tempDirs.push(stockKolRoot);
+    fs.mkdirSync(path.join(stockKolRoot, 'commands'), { recursive: true });
+    fs.mkdirSync(path.join(stockKolRoot, 'references'), { recursive: true });
+    const counterPath = path.join(stockKolRoot, 'counter.txt');
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'references', 'kol_whitelist.json'),
+      JSON.stringify({
+        version: 1,
+        kols: [
+          {
+            id: 'sample',
+            display_name: 'Sample KOL',
+            primary_links: [
+              { platform: 'X/Twitter', url: 'https://x.com/sample' },
+            ],
+          },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'commands', 'kol.py'),
+      [
+        'import json',
+        'from pathlib import Path',
+        'COUNTER = Path(__file__).resolve().parents[1] / "counter.txt"',
+        'def load_whitelist():',
+        '    return json.loads((Path(__file__).resolve().parents[1] / "references" / "kol_whitelist.json").read_text(encoding="utf-8"))',
+        'def build_x_source_preflight(days, whitelist):',
+        '    count = int(COUNTER.read_text(encoding="utf-8") or "0") + 1 if COUNTER.exists() else 1',
+        '    COUNTER.write_text(str(count), encoding="utf-8")',
+        '    return {"source": "twscrape", "status": "ok", "window_days": days, "results": []}',
+      ].join('\n'),
+    );
+
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_KOL_INTEL_ROOT = stockKolRoot;
+
+    const tasks = createDefaultWorkflowLocalTasks({
+      kolContextCache: {
+        minDays: 30,
+        ttlMs: 60_000,
+        maxEntries: 4,
+        now: () => 1_000,
+      },
+    } as any);
+    const input = {
+      taskId: 'stock.kol.prepare_context',
+      nodeId: 'kol_context_preflight',
+      input: { command: 'kol', argsText: '--days=7', input: { days: 7 } },
+      artifacts: {},
+    };
+
+    const first = await tasks['stock.kol.prepare_context'](input);
+    const second = await tasks['stock.kol.prepare_context'](input);
+
+    expect(fs.readFileSync(counterPath, 'utf-8')).toBe('2');
+    expect((first as any).cache).toMatchObject({
+      scope: 'memory',
+      status: 'disabled',
+      cacheable: false,
+    });
+    expect((second as any).cache).toMatchObject({
+      scope: 'memory',
+      status: 'disabled',
+      cacheable: false,
+    });
+  });
+
+  test('prepare_context expires stale long KOL cache entries', async () => {
+    const stockKolRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'stock-kol-expire-root-'),
+    );
+    tempDirs.push(stockKolRoot);
+    fs.mkdirSync(path.join(stockKolRoot, 'commands'), { recursive: true });
+    fs.mkdirSync(path.join(stockKolRoot, 'references'), { recursive: true });
+    const counterPath = path.join(stockKolRoot, 'counter.txt');
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'references', 'kol_whitelist.json'),
+      JSON.stringify({
+        version: 1,
+        kols: [
+          {
+            id: 'sample',
+            display_name: 'Sample KOL',
+            primary_links: [
+              { platform: 'X/Twitter', url: 'https://x.com/sample' },
+            ],
+          },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'commands', 'kol.py'),
+      [
+        'import json',
+        'from pathlib import Path',
+        'COUNTER = Path(__file__).resolve().parents[1] / "counter.txt"',
+        'def load_whitelist():',
+        '    return json.loads((Path(__file__).resolve().parents[1] / "references" / "kol_whitelist.json").read_text(encoding="utf-8"))',
+        'def build_x_source_preflight(days, whitelist):',
+        '    count = int(COUNTER.read_text(encoding="utf-8") or "0") + 1 if COUNTER.exists() else 1',
+        '    COUNTER.write_text(str(count), encoding="utf-8")',
+        '    return {"source": "twscrape", "status": "ok", "window_days": days, "results": [{"posts": [{"text": f"fetch {count}"}]}]}',
+      ].join('\n'),
+    );
+
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_KOL_INTEL_ROOT = stockKolRoot;
+
+    let now = 1_000;
+    const tasks = createDefaultWorkflowLocalTasks({
+      kolContextCache: {
+        minDays: 30,
+        ttlMs: 100,
+        maxEntries: 4,
+        now: () => now,
+      },
+    } as any);
+    const input = {
+      taskId: 'stock.kol.prepare_context',
+      nodeId: 'kol_context_preflight',
+      input: { command: 'kol', argsText: '', input: { days: 30 } },
+      artifacts: {},
+    };
+
+    const first = await tasks['stock.kol.prepare_context'](input);
+    now += 101;
+    const second = await tasks['stock.kol.prepare_context'](input);
+
+    expect(fs.readFileSync(counterPath, 'utf-8')).toBe('2');
+    expect((first as any).cache.status).toBe('miss');
+    expect((second as any).cache.status).toBe('miss');
+    expect((second as any).x_preflight.results[0].posts[0].text).toBe(
+      'fetch 2',
     );
   });
 
@@ -323,8 +549,9 @@ describe('default workflow local tasks', () => {
     const tasks = createDefaultWorkflowLocalTasks();
 
     expect(
-      Object.keys(tasks).filter((taskId) => taskId.startsWith('stock.strategy.')),
+      Object.keys(tasks).filter((taskId) =>
+        taskId.startsWith('stock.strategy.'),
+      ),
     ).toEqual([]);
   });
-
 });

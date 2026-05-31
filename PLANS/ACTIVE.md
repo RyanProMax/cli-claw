@@ -1,80 +1,75 @@
-# 当前任务：修复 /kol X/Twitter 抓取失败
+# 当前任务：为 /kol 长周期查询增加内存缓存
 
 ## Goal
 
-- 查明 `/kol` 报告中 `x_preflight.status = error` 且 twscrape 报错 `No account available for queue UserTweets` 的真实原因。
-- 恢复或改进 `/kol` 对白名单 KOL 原文抓取的可用性；如果根因是账号池限流/锁定等运行态问题，必须输出可执行的诊断与恢复路径，而不是只给泛化错误。
-- 保持 `/kol` 证据边界：没有可验证 X 原文时不把低置信内容合成股票热点结论。
+- 为 `/kol` 这类长窗口 KOL X/Twitter 预检增加进程内缓存，避免短时间内重复抓取同一组白名单与同一长窗口，降低 `UserTweets` 队列被锁概率。
+- 短周期查询保持实时抓取，不走缓存。
+- 缓存只放在 Cli Claw 常驻进程内存中，不落库；必须有 TTL、容量上限和清理机制，避免内存泄露。
 
 ## Done when
 
-- 已明确失败发生在配置、账号池、队列限流、依赖行为或代码调用中的哪一层。
-- `/kol` 预检失败时能给出更清晰的队列/账号池原因；可自动恢复的场景已由代码处理。
-- 相关测试或健康检查覆盖本轮修复点。
-- 直接相关验证、review gate 通过；若影响正在运行的 Cli Claw 服务，按安全重启路径应用变更。
+- `stock.kol.prepare_context` 对长窗口查询复用内存缓存，短窗口不复用。
+- 缓存 key 能区分窗口天数、白名单内容和 source root，避免不同配置串用。
+- 过期缓存和超容量缓存会被清理。
+- 相关单测、格式/review gate 通过；影响运行中的 Cli Claw 服务时走安全重启路径应用。
 
 ## Milestones
 
-### Milestone 1：定位 twscrape 抓取失败根因
+### Milestone 1：红灯测试锁定缓存边界
 
 Objective:
-- 检查 `/kol` workflow 最近运行记录、`stock-kol-intel` twscrape provider、账号库 schema 与 `UserTweets` 队列状态，确定为什么两个白名单账号都无法抓取。
+- 为长窗口缓存命中、短窗口不缓存、TTL/容量清理建立失败优先测试。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- 只读检查 `~/.cli-claw/state/stock-kol-intel/twscrape/accounts.db`
-- 只读检查 `/Users/ryan/projects/stock-kol-intel/**`
-- 只读检查 `/Users/ryan/projects/cli-claw/src/agent/workflow/**`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+- 只读检查 `src/agent/workflow/local-tasks.ts`
 
 Validation:
-- 能用本地命令复现或解释 `No account available for queue UserTweets`，且不泄露 cookie/token/password。
+- 新增定向测试在旧实现上失败，失败原因证明 `stock.kol.prepare_context` 尚未复用长窗口内存缓存。
 
 Status:
 - done
 
 Validation status:
-- passed：已确认账号库只有 1 个 active 账号 `ryan_probe`；失败窗口内 `UserTweets` 队列被锁到 `2026-05-31T08:42:31Z`，导致两个白名单 KOL 的时间线请求都无法拿到账号。当前锁已过期，健康检查显示 `UserByScreenName`、`UserTweets`、`SearchTimeline` 均可用。
+- passed：新增长窗口缓存红灯测试，旧实现第二次仍执行 Python 抓取脚本，计数从 1 变 2；短窗口测试确认 `days=7` 不应走缓存。
 
 Review status:
-- passed：只读取非敏感字段 `username`、`active`、`locks`、`stats`、`last_used`、`error_msg`；没有输出 cookie/password/token。
+- passed：测试聚焦 `stock.kol.prepare_context` 行为边界，不触碰生产实现以外模块。
 
 Risks / Notes / Handoff:
-- 账号池数据库可能包含敏感认证字段；诊断输出只允许展示账号名、active 状态、队列名、lock/reset 时间等非 secret 字段。
+- Python `stock-kol-intel` 脚本是每次 local task 都新起进程，缓存必须放在 Cli Claw Node 进程内；放 Python 全局变量不能跨 `/kol` 运行生效。
 
-### Milestone 2：实现可用性修复与诊断增强
+### Milestone 2：实现长窗口内存缓存与清理
 
 Objective:
-- 根据 Milestone 1 结论，做最小修复：优先恢复抓取可用性；若需要人工刷新/新增 X 账号，则把失败原因、可用账号、队列冷却时间和恢复命令做成明确诊断。
+- 在 `stock.kol.prepare_context` local task 层实现长窗口内存缓存，带 TTL、最大条数和清理；短窗口不缓存。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `/Users/ryan/projects/stock-kol-intel/commands/kol.py`
-- `/Users/ryan/projects/stock-kol-intel/scripts/twscrape_healthcheck.py`
-- `/Users/ryan/projects/stock-kol-intel/tests/**`
-- `/Users/ryan/projects/stock-kol-intel/references/twscrape_provider.md`
-- 如需调整 Cli Claw artifact 展示，可扩展到 `src/agent/workflow/local-tasks.ts` 和对应测试，但必须先记录原因。
+- `src/agent/workflow/local-tasks.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
 
 Validation:
-- `python3 -m unittest tests/test_kol_command.py`
-- 直接运行 twscrape 健康检查，确认能解释当前 `UserTweets` 可用性状态。
-- 如修改 Cli Claw：运行相关 `npm test` 定向测试。
+- `npm test -- tests/unit/agent/workflow/local-tasks.test.ts`
 
 Status:
 - done
 
 Validation status:
-- passed：新增队列快照和 `SearchTimeline` fallback 单测，`python3 -m unittest tests/test_kol_command.py` 通过 8/8；真实 `build_x_source_preflight(30)` 返回 `status=ok`，`dexteryy` 与 `aleabitoreddit` 均通过 `user_tweets` 抓取成功。
+- passed：实现 `days >= 30` 内存缓存，默认 TTL 6 小时、最多 16 条；缓存 key 包含 source root、窗口天数、白名单 hash、`kol.py` hash 和 twscrape/proxy 环境；补充 TTL 过期测试；`npm test -- tests/unit/agent/workflow/local-tasks.test.ts` 通过 7/7。
 
 Review status:
-- passed：修复保持在 `stock-kol-intel` 抓取/诊断边界内；不改变报告证据规则，不使用镜像或二手来源冒充主证据。
+- passed：缓存只放在 Node 常驻进程内，不落库；短窗口返回 `cache.status=disabled`；每次访问都会清理过期项，并在超容量时淘汰最久未访问项。
 
 Risks / Notes / Handoff:
-- 如果所有 X 账号都处于队列限流或账号失效，代码不能绕过 X/Twitter 访问限制；本轮只能提供清晰诊断和恢复操作，不能伪造主证据。
+- 默认将 `days >= 30` 视为长窗口；`/kol --days=7` 等短窗口仍实时抓取。
+- 缓存 TTL 和容量上限应为保守默认，避免日报重复查询打爆 X 队列，同时不长期保留旧 artifact。
 
 ### Milestone 3：验证、review、提交与服务应用
 
 Objective:
-- 跑完直接相关验证和 review gate；提交 Cli Claw 仓库内变更；说明 sibling `stock-kol-intel` 若不是 git repo 的未提交状态；必要时安全重启服务。
+- 运行定向验证和 review gate，提交 Cli Claw 仓库变更，并按安全路径重启服务以应用常驻进程内存缓存。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
@@ -82,21 +77,21 @@ Allowed scope:
 - 本轮已修改文件
 
 Validation:
-- Milestone 2 验证命令全部通过。
-- `./scripts/review.sh` 或等价 review 通过。
+- `npm test -- tests/unit/agent/workflow/local-tasks.test.ts`
+- `./scripts/review.sh`
 - `git diff --check`
 
 Status:
 - done
 
 Validation status:
-- passed：`python3 -m unittest tests/test_kol_command.py` 通过 8/8；`python3 -m py_compile commands/kol.py scripts/twscrape_healthcheck.py` 通过；`scripts/twscrape_healthcheck.py` 显示 1 个 active 账号且 `UserByScreenName` / `UserTweets` / `SearchTimeline` 均可用；真实 `build_x_source_preflight(30)` 返回两位白名单 KOL 均抓取成功；`git diff --check` 通过。
+- passed：`npm test -- tests/unit/agent/workflow/local-tasks.test.ts` 通过 7/7；`npm run typecheck:backend` 通过；`git diff --check` 通过；`./scripts/review.sh` 通过格式与 diff hygiene。
 
 Review status:
-- passed：`./scripts/review.sh` 通过格式与 diff hygiene；已按 `RUNBOOKS/Review.md` 做语义审查，确认修复只增强 twscrape 队列诊断和 `SearchTimeline` fallback，不削弱 `/kol` 证据边界。
+- passed：已按 `RUNBOOKS/Review.md` 做语义审查，确认缓存 key 隔离窗口、白名单、source root、`kol.py` 和 twscrape/proxy 环境；缓存只在进程内，TTL 清理和超容量 LRU 淘汰均在每次访问时执行；短窗口不缓存。
 
 Risks / Notes / Handoff:
-- `/Users/ryan/projects/stock-kol-intel` 不是 git repo，若修改该目录需在最终说明中明确无法通过当前仓库 commit 记录。
+- 这是运行时行为变更，提交后需要重启 Cli Claw 服务才能让常驻进程加载新缓存逻辑。
 
 ## Working Rules
 
@@ -116,16 +111,14 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `/Users/ryan/projects/stock-kol-intel/commands/kol.py`
-- `/Users/ryan/projects/stock-kol-intel/scripts/twscrape_healthcheck.py`
-- `/Users/ryan/projects/stock-kol-intel/tests/test_kol_command.py`
-- `/Users/ryan/projects/stock-kol-intel/references/twscrape_provider.md`
+- `src/agent/workflow/local-tasks.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
 
 Last failure summary:
-- 用户截图中的 `/kol` 报告显示两位白名单 KOL 的 X/Twitter 预检均失败，错误为 `No account available for queue UserTweets`。
+- 最近 `/kol` 连续两次 7 KOL / 30 天窗口抓取共重复返回约 350 条 X 帖子，第三次 2 KOL 查询时唯一账号 `UserTweets` 队列进入冷却。
 
 Suspected cause:
-- 已确认：账号池只有一个 active cookie 账号，`UserTweets` 队列在失败时间段被 twscrape 锁定；旧健康检查只显示 active 账号数，未暴露队列锁，所以表面看像“抓取失败”而不是“队列冷却中”。
+- 长窗口查询没有任何缓存，且 workflow local task 每次都会新起 Python 进程重新抓取；单账号池承受重复 30 天全量请求。
 
 Next step:
-- 本轮修复完成；Cli Claw 仓库内只改了 `PLANS/ACTIVE.md`，`stock-kol-intel` 不是 git repo，最终说明需明确该目录为直接文件变更。
+- 本轮实现完成；提交后按安全路径重启服务，让常驻进程加载长窗口内存缓存。

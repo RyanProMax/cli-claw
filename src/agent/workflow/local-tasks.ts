@@ -1,4 +1,5 @@
 import { execFile } from 'child_process';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -18,7 +19,32 @@ const JSON_BUFFER_BYTES = 20 * 1024 * 1024;
 
 interface DefaultWorkflowLocalTaskOptions {
   workspaceRoot?: string;
+  kolContextCache?: {
+    minDays?: number;
+    ttlMs?: number;
+    maxEntries?: number;
+    now?: () => number;
+  };
 }
+
+interface KolContextCacheConfig {
+  minDays: number;
+  ttlMs: number;
+  maxEntries: number;
+  now: () => number;
+}
+
+interface KolContextCacheEntry {
+  artifact: Record<string, unknown>;
+  cachedAtMs: number;
+  expiresAtMs: number;
+  lastAccessedAtMs: number;
+}
+
+const KOL_CONTEXT_CACHE_MIN_DAYS = 30;
+const KOL_CONTEXT_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
+const KOL_CONTEXT_CACHE_MAX_ENTRIES = 16;
+const kolContextCache = new Map<string, KolContextCacheEntry>();
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -31,6 +57,12 @@ function parseJsonValue(value: unknown): unknown {
   } catch {
     return value;
   }
+}
+
+function cloneJsonObject(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
 
 function pruneArtifactValue(value: unknown, depth = 0): unknown {
@@ -498,6 +530,85 @@ function readWorkflowKolDays(input: WorkflowLocalTaskInput): number {
   return 30;
 }
 
+function resolveKolContextCacheConfig(
+  options: DefaultWorkflowLocalTaskOptions,
+): KolContextCacheConfig {
+  return {
+    minDays: options.kolContextCache?.minDays ?? KOL_CONTEXT_CACHE_MIN_DAYS,
+    ttlMs: options.kolContextCache?.ttlMs ?? KOL_CONTEXT_CACHE_TTL_MS,
+    maxEntries:
+      options.kolContextCache?.maxEntries ?? KOL_CONTEXT_CACHE_MAX_ENTRIES,
+    now: options.kolContextCache?.now ?? (() => Date.now()),
+  };
+}
+
+function hashFileIfExists(filePath: string): string {
+  if (!fs.existsSync(filePath)) return 'missing';
+  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function buildKolContextCacheKey(skillRoot: string, days: number): string {
+  const payload = JSON.stringify({
+    skillRoot,
+    days,
+    whitelistHash: hashFileIfExists(
+      path.join(skillRoot, 'references', 'kol_whitelist.json'),
+    ),
+    commandHash: hashFileIfExists(path.join(skillRoot, 'commands', 'kol.py')),
+    twscrapeDbPath: process.env.TWSCRAPE_DB_PATH ?? '',
+    twscrapeProxy: process.env.TWSCRAPE_PROXY ?? '',
+    httpsProxy: process.env.HTTPS_PROXY ?? process.env.https_proxy ?? '',
+    allProxy: process.env.ALL_PROXY ?? process.env.all_proxy ?? '',
+  });
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+function pruneKolContextCache(
+  config: KolContextCacheConfig,
+  now: number,
+): void {
+  for (const [key, entry] of kolContextCache.entries()) {
+    if (entry.expiresAtMs <= now) {
+      kolContextCache.delete(key);
+    }
+  }
+
+  while (kolContextCache.size > config.maxEntries) {
+    let oldestKey = '';
+    let oldestAccess = Number.POSITIVE_INFINITY;
+    for (const [key, entry] of kolContextCache.entries()) {
+      if (entry.lastAccessedAtMs < oldestAccess) {
+        oldestKey = key;
+        oldestAccess = entry.lastAccessedAtMs;
+      }
+    }
+    if (!oldestKey) break;
+    kolContextCache.delete(oldestKey);
+  }
+}
+
+function formatCacheIso(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+function kolCacheMetadata(
+  status: 'disabled' | 'hit' | 'miss',
+  config: KolContextCacheConfig,
+  now: number,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    scope: 'memory',
+    status,
+    cacheable: status !== 'disabled',
+    min_days: config.minDays,
+    ttl_seconds: Math.floor(config.ttlMs / 1_000),
+    max_entries: config.maxEntries,
+    served_at: formatCacheIso(now),
+    ...extra,
+  };
+}
+
 function getCode(item: unknown): string {
   return isObject(item) && typeof item.code === 'string' ? item.code : '';
 }
@@ -741,86 +852,153 @@ function createBacktestTask(
   };
 }
 
+function buildKolPrepareContextArtifact(
+  days: number,
+  payload: Record<string, unknown>,
+  cache: Record<string, unknown>,
+): Record<string, unknown> {
+  const whitelist = isObject(payload.whitelist) ? payload.whitelist : {};
+  const xPreflight = isObject(payload.x_preflight)
+    ? payload.x_preflight
+    : {
+        source: 'twscrape',
+        status: 'unavailable',
+        reason: 'stock-kol-intel did not return x_preflight',
+        results: [],
+      };
+  const coveredKols = buildCoveredKols(whitelist);
+  const coveredKolSummary =
+    coveredKols.map(formatCoveredKol).join('、') || '未解析到白名单 KOL 名称';
+  return {
+    status: 'ok',
+    source: 'stock-kol-intel',
+    generatedAt: new Date().toISOString(),
+    window_days: days,
+    cache,
+    whitelist,
+    covered_kols: coveredKols,
+    covered_kol_summary: coveredKolSummary,
+    x_preflight: xPreflight,
+    report_requirements: [
+      '只使用白名单 KOL，不临时扩展范围',
+      '覆盖 KOL 必须逐个列出 display_name（@handle），不能只写数量',
+      '结论/总结必须放在消息顶部',
+      '每个 emoji 字段块之间必须保留一个空行',
+      '每个编号主题之间必须至少保留一个空行，下一条主题标题不能紧贴上一条来源列表',
+      '按主题/共识合并',
+      '按主题/共识合并，输出 3-5 个高信号投资主题',
+      '每个要点字段必须使用 emoji + 粗体标签，例如 🧭 **核心论点**：',
+      '作者原文链接',
+      '每个主题必须包含观点摘要、关联行业/代表标的、行业现状、未来叙事',
+      '每个主题必须包含核心论点、可跟踪方向、作者原文链接',
+      '作者原文链接放在来源行；原站不可访问时明确标注',
+      '可跟踪方向必须落到股票/ETF/行业链，不写笼统事件',
+      '剔除弱证据、营销帖、玩笑帖、纯转推和无法核验内容',
+      '区分 KOL 观点、可核验事实和推断，不输出买卖建议',
+      '不要输出缓存状态、抓取过程、测试过程或内部实现细节',
+    ],
+    output_template: [
+      '**KOL 情报报告｜<主题池或默认白名单>**',
+      `窗口：最近 ${days} 天`,
+      `覆盖：${coveredKols.length} 位 KOL`,
+      `覆盖 KOL：${coveredKolSummary}`,
+      '高信号主题：<最多 5 个主题，用顿号分隔>',
+      '',
+      '🧾 **结论/总结**：<先给本轮最高置信共识、可跟踪股票方向和下一步核验方向；不输出买卖建议>',
+      '',
+      '**近期投资方向与高信号内容**',
+      '',
+      '**1. <主题>：<整合后的核心判断>**',
+      '🧭 **核心论点**：<合并多个 KOL 的共识、分歧和高置信证据>',
+      '',
+      '📝 **观点摘要**：',
+      '- **事实**：<可核验事实>',
+      '- **推断**：<由事实延伸出的市场叙事或风险>',
+      '',
+      '🏷️ **关联行业/代表标的**：<行业链 + 典型股票/ETF>',
+      '',
+      '📊 **行业现状**：<当前供需、政策、财报、估值或资金面状态>',
+      '',
+      '🔮 **未来叙事**：<后续市场可能交易的主线和关键催化>',
+      '',
+      '🎯 **可跟踪方向**：<股票投资方向 + 典型标的/ETF>',
+      '',
+      '🔗 **来源**：',
+      '- <作者>：[<原文标题> | x](<原文链接>)',
+      '',
+      '**2. <主题>：<整合后的核心判断>**',
+      '<按同样字段结构继续；主题之间必须保留空行>',
+      '',
+      '**账号与来源可信度**',
+      '- <账号归因和来源可访问性>',
+    ].join('\n'),
+  };
+}
+
 function createKolPrepareContextTask(
   options: DefaultWorkflowLocalTaskOptions,
 ): WorkflowLocalTask {
   return async (input) => {
     const days = readWorkflowKolDays(input);
+    const cacheConfig = resolveKolContextCacheConfig(options);
+    const now = cacheConfig.now();
+    pruneKolContextCache(cacheConfig, now);
+
+    if (
+      days < cacheConfig.minDays ||
+      cacheConfig.ttlMs <= 0 ||
+      cacheConfig.maxEntries <= 0
+    ) {
+      const payload = await runStockKolContextJson(days, input, options);
+      return buildKolPrepareContextArtifact(
+        days,
+        payload,
+        kolCacheMetadata('disabled', cacheConfig, now, {
+          reason: 'short_window_or_cache_disabled',
+        }),
+      );
+    }
+
+    const skillRoot = resolveStockKolIntelRoot({
+      workspaceRoot: options.workspaceRoot,
+      executionCwd: input.executionCwd,
+    });
+    const cacheKey = buildKolContextCacheKey(skillRoot, days);
+    const existing = kolContextCache.get(cacheKey);
+    if (existing && existing.expiresAtMs > now) {
+      existing.lastAccessedAtMs = now;
+      return {
+        ...cloneJsonObject(existing.artifact),
+        generatedAt: new Date().toISOString(),
+        cache: kolCacheMetadata('hit', cacheConfig, now, {
+          key: cacheKey,
+          cached_at: formatCacheIso(existing.cachedAtMs),
+          expires_at: formatCacheIso(existing.expiresAtMs),
+        }),
+      };
+    }
+    if (existing) {
+      kolContextCache.delete(cacheKey);
+    }
+
     const payload = await runStockKolContextJson(days, input, options);
-    const whitelist = isObject(payload.whitelist) ? payload.whitelist : {};
-    const xPreflight = isObject(payload.x_preflight)
-      ? payload.x_preflight
-      : {
-          source: 'twscrape',
-          status: 'unavailable',
-          reason: 'stock-kol-intel did not return x_preflight',
-          results: [],
-        };
-    const coveredKols = buildCoveredKols(whitelist);
-    const coveredKolSummary =
-      coveredKols.map(formatCoveredKol).join('、') || '未解析到白名单 KOL 名称';
-    return {
-      status: 'ok',
-      source: 'stock-kol-intel',
-      generatedAt: new Date().toISOString(),
-      window_days: days,
-      whitelist,
-      covered_kols: coveredKols,
-      covered_kol_summary: coveredKolSummary,
-      x_preflight: xPreflight,
-      report_requirements: [
-        '只使用白名单 KOL，不临时扩展范围',
-        '覆盖 KOL 必须逐个列出 display_name（@handle），不能只写数量',
-        '结论/总结必须放在消息顶部',
-        '每个 emoji 字段块之间必须保留一个空行',
-        '每个编号主题之间必须至少保留一个空行，下一条主题标题不能紧贴上一条来源列表',
-        '按主题/共识合并',
-        '按主题/共识合并，输出 3-5 个高信号投资主题',
-        '每个要点字段必须使用 emoji + 粗体标签，例如 🧭 **核心论点**：',
-        '作者原文链接',
-        '每个主题必须包含观点摘要、关联行业/代表标的、行业现状、未来叙事',
-        '每个主题必须包含核心论点、可跟踪方向、作者原文链接',
-        '作者原文链接放在来源行；原站不可访问时明确标注',
-        '可跟踪方向必须落到股票/ETF/行业链，不写笼统事件',
-        '剔除弱证据、营销帖、玩笑帖、纯转推和无法核验内容',
-        '区分 KOL 观点、可核验事实和推断，不输出买卖建议',
-      ],
-      output_template: [
-        '**KOL 情报报告｜<主题池或默认白名单>**',
-        `窗口：最近 ${days} 天`,
-        `覆盖：${coveredKols.length} 位 KOL`,
-        `覆盖 KOL：${coveredKolSummary}`,
-        '高信号主题：<最多 5 个主题，用顿号分隔>',
-        '',
-        '🧾 **结论/总结**：<先给本轮最高置信共识、可跟踪股票方向和下一步核验方向；不输出买卖建议>',
-        '',
-        '**近期投资方向与高信号内容**',
-        '',
-        '**1. <主题>：<整合后的核心判断>**',
-        '🧭 **核心论点**：<合并多个 KOL 的共识、分歧和高置信证据>',
-        '',
-        '📝 **观点摘要**：',
-        '- **事实**：<可核验事实>',
-        '- **推断**：<由事实延伸出的市场叙事或风险>',
-        '',
-        '🏷️ **关联行业/代表标的**：<行业链 + 典型股票/ETF>',
-        '',
-        '📊 **行业现状**：<当前供需、政策、财报、估值或资金面状态>',
-        '',
-        '🔮 **未来叙事**：<后续市场可能交易的主线和关键催化>',
-        '',
-        '🎯 **可跟踪方向**：<股票投资方向 + 典型标的/ETF>',
-        '',
-        '🔗 **来源**：',
-        '- <作者>：[<原文标题> | x](<原文链接>)',
-        '',
-        '**2. <主题>：<整合后的核心判断>**',
-        '<按同样字段结构继续；主题之间必须保留空行>',
-        '',
-        '**账号与来源可信度**',
-        '- <账号归因和来源可访问性>',
-      ].join('\n'),
-    };
+    const artifact = buildKolPrepareContextArtifact(
+      days,
+      payload,
+      kolCacheMetadata('miss', cacheConfig, now, {
+        key: cacheKey,
+        cached_at: formatCacheIso(now),
+        expires_at: formatCacheIso(now + cacheConfig.ttlMs),
+      }),
+    );
+    kolContextCache.set(cacheKey, {
+      artifact: cloneJsonObject({ ...artifact, cache: undefined }),
+      cachedAtMs: now,
+      expiresAtMs: now + cacheConfig.ttlMs,
+      lastAccessedAtMs: now,
+    });
+    pruneKolContextCache(cacheConfig, now);
+    return artifact;
   };
 }
 
