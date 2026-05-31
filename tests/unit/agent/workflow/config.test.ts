@@ -89,6 +89,14 @@ describe('workflow config discovery', () => {
       skillIds: ['stock-kol-intel'],
       permissionMode: 'readonly',
     });
+    const instructions =
+      discovered.roles.get('kol-intel-reporter')?.instructions ?? '';
+    expect(instructions).toContain('覆盖 KOL：<逐个列出 display_name（@handle）>');
+    expect(instructions).toContain('🧾 **结论/总结**');
+    expect(instructions).toContain('🧭 **核心论点**');
+    expect(instructions).toContain('📝 **观点摘要**');
+    expect(instructions).toContain('🔗 **来源**');
+    expect(instructions).not.toContain('证据口径');
   });
 
   test('loads workflow definitions and runtime role cards from .agents', () => {

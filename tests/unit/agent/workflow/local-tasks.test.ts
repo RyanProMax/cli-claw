@@ -68,6 +68,17 @@ describe('default workflow local tasks', () => {
                 },
               ],
             },
+            {
+              id: 'second',
+              display_name: 'Second Voice',
+              primary_links: [
+                {
+                  platform: 'X/Twitter',
+                  url: 'https://x.com/secondvoice',
+                  confidence: 'strong',
+                },
+              ],
+            },
           ],
         },
         null,
@@ -113,8 +124,26 @@ describe('default workflow local tasks', () => {
       source: 'stock-kol-intel',
       window_days: 7,
       whitelist: {
-        kols: [{ id: 'sample', display_name: 'Sample KOL' }],
+        kols: [
+          { id: 'sample', display_name: 'Sample KOL' },
+          { id: 'second', display_name: 'Second Voice' },
+        ],
       },
+      covered_kols: [
+        {
+          id: 'sample',
+          display_name: 'Sample KOL',
+          handle: 'sample',
+          x_url: 'https://x.com/sample',
+        },
+        {
+          id: 'second',
+          display_name: 'Second Voice',
+          handle: 'secondvoice',
+          x_url: 'https://x.com/secondvoice',
+        },
+      ],
+      covered_kol_summary: 'Sample KOL（@sample）、Second Voice（@secondvoice）',
       x_preflight: {
         source: 'twscrape',
         status: 'ok',
@@ -132,6 +161,23 @@ describe('default workflow local tasks', () => {
     );
     expect((artifact as any).report_requirements).toContain(
       '作者原文链接',
+    );
+    expect((artifact as any).report_requirements).toContain(
+      '结论/总结必须放在消息顶部',
+    );
+    expect((artifact as any).report_requirements).not.toContain('证据口径');
+    expect((artifact as any).output_template).toContain(
+      '覆盖 KOL：Sample KOL（@sample）、Second Voice（@secondvoice）',
+    );
+    expect((artifact as any).output_template).toContain('🧾 **结论/总结**');
+    expect((artifact as any).output_template).toContain('🧭 **核心论点**');
+    expect((artifact as any).output_template).toContain('📝 **观点摘要**');
+    expect((artifact as any).output_template).toContain('🔗 **来源**');
+    expect((artifact as any).output_template).not.toContain('证据口径');
+    expect(
+      (artifact as any).output_template.indexOf('🧾 **结论/总结**'),
+    ).toBeLessThan(
+      (artifact as any).output_template.indexOf('**近期投资方向与高信号内容**'),
     );
   });
 

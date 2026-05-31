@@ -271,6 +271,99 @@ async function runStockKolContextJson(
   }
 }
 
+interface CoveredKol {
+  id: string;
+  display_name: string;
+  handle?: string;
+  x_url?: string;
+  focus?: string[];
+}
+
+function getStringValue(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getStringArrayValue(
+  record: Record<string, unknown>,
+  key: string,
+): string[] {
+  const value = record[key];
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function extractXHandle(urlValue: string): string {
+  try {
+    const parsed = new URL(urlValue);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host !== 'x.com' &&
+      host !== 'twitter.com' &&
+      !host.endsWith('.x.com') &&
+      !host.endsWith('.twitter.com')
+    ) {
+      return '';
+    }
+    const handle = parsed.pathname.split('/').filter(Boolean)[0] ?? '';
+    if (!handle || ['i', 'intent', 'share', 'search'].includes(handle)) {
+      return '';
+    }
+    return handle.replace(/^@/, '');
+  } catch {
+    return '';
+  }
+}
+
+function findKolXLink(kol: Record<string, unknown>): {
+  url: string;
+  handle: string;
+} | null {
+  const links = [
+    ...(Array.isArray(kol.primary_links) ? kol.primary_links : []),
+    ...(Array.isArray(kol.candidate_links) ? kol.candidate_links : []),
+  ];
+  for (const link of links) {
+    if (!isObject(link)) continue;
+    const url = getStringValue(link, 'url');
+    if (!url) continue;
+    const platform = getStringValue(link, 'platform').toLowerCase();
+    const handle = extractXHandle(url);
+    if (handle || platform.includes('twitter') || platform === 'x') {
+      return { url, handle };
+    }
+  }
+  return null;
+}
+
+function buildCoveredKols(whitelist: Record<string, unknown>): CoveredKol[] {
+  const kols = Array.isArray(whitelist.kols) ? whitelist.kols : [];
+  return kols
+    .filter(isObject)
+    .map((kol) => {
+      const id = getStringValue(kol, 'id');
+      const displayName = getStringValue(kol, 'display_name') || id;
+      const xLink = findKolXLink(kol);
+      const fallbackHandle = id.replace(/^@/, '');
+      return {
+        id,
+        display_name: displayName || fallbackHandle,
+        handle: xLink?.handle || fallbackHandle || undefined,
+        x_url: xLink?.url,
+        focus: getStringArrayValue(kol, 'focus'),
+      };
+    })
+    .filter((kol) => kol.id || kol.display_name || kol.handle);
+}
+
+function formatCoveredKol(kol: CoveredKol): string {
+  const name = kol.display_name || kol.id || kol.handle || 'unknown';
+  return kol.handle ? `${name}（@${kol.handle}）` : name;
+}
+
 async function runStockApiJson(
   args: string[],
   input: WorkflowLocalTaskInput,
@@ -663,20 +756,28 @@ function createKolPrepareContextTask(
           reason: 'stock-kol-intel did not return x_preflight',
           results: [],
         };
+    const coveredKols = buildCoveredKols(whitelist);
+    const coveredKolSummary =
+      coveredKols.map(formatCoveredKol).join('、') || '未解析到白名单 KOL 名称';
     return {
       status: 'ok',
       source: 'stock-kol-intel',
       generatedAt: new Date().toISOString(),
       window_days: days,
       whitelist,
+      covered_kols: coveredKols,
+      covered_kol_summary: coveredKolSummary,
       x_preflight: xPreflight,
       report_requirements: [
         '只使用白名单 KOL，不临时扩展范围',
+        '覆盖 KOL 必须逐个列出 display_name（@handle），不能只写数量',
+        '结论/总结必须放在消息顶部',
         '按主题/共识合并',
         '按主题/共识合并，输出 3-5 个高信号投资主题',
+        '每个要点字段必须使用 emoji + 粗体标签，例如 🧭 **核心论点**：',
         '作者原文链接',
         '每个主题必须包含观点摘要、关联行业/代表标的、行业现状、未来叙事',
-        '每个主题必须包含核心论点、可跟踪方向、作者原文链接、证据口径',
+        '每个主题必须包含核心论点、可跟踪方向、作者原文链接',
         '作者原文链接放在来源行；原站不可访问时明确标注',
         '可跟踪方向必须落到股票/ETF/行业链，不写笼统事件',
         '剔除弱证据、营销帖、玩笑帖、纯转推和无法核验内容',
@@ -685,26 +786,28 @@ function createKolPrepareContextTask(
       output_template: [
         '**KOL 情报报告｜<主题池或默认白名单>**',
         `窗口：最近 ${days} 天`,
-        '覆盖：<数量> 位 KOL',
+        `覆盖：${coveredKols.length} 位 KOL`,
+        `覆盖 KOL：${coveredKolSummary}`,
         '高信号主题：<最多 5 个主题，用顿号分隔>',
+        '',
+        '🧾 **结论/总结**：<先给本轮最高置信共识、可跟踪股票方向和下一步核验方向；不输出买卖建议>',
         '',
         '**近期投资方向与高信号内容**',
         '',
         '**1. <主题>：<整合后的核心判断>**',
-        '核心论点：<合并多个 KOL 的共识、分歧和高置信证据>',
-        '观点摘要：<KOL 观点的短摘要，区分事实与推断>',
-        '关联行业/代表标的：<行业链 + 典型股票/ETF>',
-        '行业现状：<当前供需、政策、财报、估值或资金面状态>',
-        '未来叙事：<后续市场可能交易的主线和关键催化>',
-        '可跟踪方向：<股票投资方向 + 典型标的/ETF>',
-        '来源：<作者：原文链接；原站不可访问时标注>',
-        '证据口径：<具体可核验事实>',
+        '🧭 **核心论点**：<合并多个 KOL 的共识、分歧和高置信证据>',
+        '📝 **观点摘要**：',
+        '- **事实**：<可核验事实>',
+        '- **推断**：<由事实延伸出的市场叙事或风险>',
+        '🏷️ **关联行业/代表标的**：<行业链 + 典型股票/ETF>',
+        '📊 **行业现状**：<当前供需、政策、财报、估值或资金面状态>',
+        '🔮 **未来叙事**：<后续市场可能交易的主线和关键催化>',
+        '🎯 **可跟踪方向**：<股票投资方向 + 典型标的/ETF>',
+        '🔗 **来源**：',
+        '- <作者>：[<原文标题> | x](<原文链接>)',
         '',
         '**账号与来源可信度**',
         '- <账号归因和来源可访问性>',
-        '',
-        '**结论**',
-        '<最高置信共识、可跟踪方向和下一步核验方向；不输出买卖建议>',
       ].join('\n'),
     };
   };
