@@ -162,7 +162,16 @@ describe('default workflow local tasks', () => {
     expect((artifact as any).report_requirements).toContain(
       '结论/总结必须放在消息顶部',
     );
+    expect((artifact as any).report_requirements).toContain(
+      '结论/总结、近期投资方向和每个编号主题之间必须用 --- 分隔',
+    );
+    expect((artifact as any).report_requirements).toContain(
+      '只有来源存疑、低置信或不可访问时才输出来源提醒',
+    );
     expect((artifact as any).report_requirements).not.toContain('证据口径');
+    expect((artifact as any).report_requirements).not.toContain(
+      '账号与来源可信度',
+    );
     expect((artifact as any).output_template).toContain(
       '覆盖 KOL：Sample KOL（@sample）、Second Voice（@secondvoice）',
     );
@@ -170,15 +179,19 @@ describe('default workflow local tasks', () => {
     expect((artifact as any).output_template).toContain('🧭 **核心论点**');
     expect((artifact as any).output_template).toContain('📝 **观点摘要**');
     expect((artifact as any).output_template).toContain('🔗 **来源**');
+    expect((artifact as any).output_template).toContain(
+      '🧾 **结论/总结**：<先给本轮最高置信共识、可跟踪股票方向和下一步核验方向；不输出买卖建议>\n\n---\n\n**近期投资方向与高信号内容**',
+    );
+    expect((artifact as any).output_template).toContain(
+      '- <作者>：[<原文标题> | x](<原文链接>)\n\n---\n\n**2. <主题>：<整合后的核心判断>**',
+    );
     expect((artifact as any).output_template).not.toContain('证据口径');
+    expect((artifact as any).output_template).not.toContain('账号与来源可信度');
     expect((artifact as any).output_template).toContain(
       '🧭 **核心论点**：<合并多个 KOL 的共识、分歧和高置信证据>\n\n📝 **观点摘要**：',
     );
     expect((artifact as any).output_template).toContain(
       '- **推断**：<由事实延伸出的市场叙事或风险>\n\n🏷️ **关联行业/代表标的**',
-    );
-    expect((artifact as any).output_template).toContain(
-      '- <作者>：[<原文标题> | x](<原文链接>)\n\n**2. <主题>：<整合后的核心判断>**',
     );
     expect(
       (artifact as any).output_template.indexOf('🧾 **结论/总结**'),

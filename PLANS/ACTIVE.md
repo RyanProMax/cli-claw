@@ -1,15 +1,16 @@
-# 当前任务：排查并修复 /kol 角色节点 UND_ERR_SOCKET 失败
+# 当前任务：优化 /kol 分隔符、来源提醒和飞书来源 footer
 
 ## Goal
 
-- 查清本次 `/kol` 已启动后失败的具体节点与原因。
-- 避免 OpenAI/Codex 临时 socket 断开把 `UND_ERR_SOCKET` 原始对象直接发给用户。
-- 若本地 KOL context 已成功生成，角色节点临时失败时应有可读降级结果或有界重试，而不是整条 workflow 只返回底层网络错误。
+- `/kol` 报告在结论和每个主题之间使用 `---` 分隔，提高飞书长消息可读性。
+- `/kol` 默认不输出“账号与来源可信度”；只有来源存疑、不可访问或低置信时才输出提醒。
+- 静态回复 footer 移除冗余入口名，例如不再显示 `| 飞书 |`。
+- 查清飞书私聊为什么展示为“飞书群聊（主线）”，并修复私聊/群聊来源标签。
 
 ## Done when
 
-- 有 `workflow_runs`、`workflow_run_steps` 和日志证据说明失败发生在哪个节点。
-- 本仓库可控修复完成，并覆盖测试。
+- 根因定位清楚：报告格式来源、footer 入口标签来源、Feishu 私聊误判来源。
+- 修复完成并有测试覆盖。
 - 验证和 review gate 通过；提交后安全重启服务。
 
 ## Milestones
@@ -17,15 +18,17 @@
 ### Milestone 1：根因定位
 
 Objective:
-- 定位最新 `/kol` 失败 run 的节点、输入 artifact 状态、错误来源和用户可见 raw error 的格式化路径。
+- 定位 `/kol` 报告结构由哪些模板/角色提示控制。
+- 定位 footer 文案与“飞书群聊（主线）”的生成路径。
+- 对照 DB/代码确认私聊误判是输入元数据、chat type 归类还是纯展示映射问题。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- 只读查询 `~/.cli-claw/db/messages.db` 和服务日志
-- 只读检查 `src/agent/workflow/`、`src/presentation/`、相关测试
+- 只读检查 `src/`、`.agents/`、`docs/`、`tests/`
+- 只读查询本地消息/路由数据库和日志
 
 Validation:
-- 给出 run id、失败节点、上游 local task 是否成功、错误来源和现有失败消息路径。
+- 记录涉及文件、函数和根因结论。
 
 Status:
 - done
@@ -37,25 +40,29 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 已确认失败 run 为 `wfrun_ac94cf1b-29c0-42b8-8aeb-5d98102142ce`。
-- `kol_context_preflight` 成功，`kol_context` artifact 的 `status=ok`、`x_preflight.status=ok`，窗口为最近 30 天，覆盖 KOL 为 Dexter Yang（@dexteryy）与 Serenity（@aleabitoreddit）。
-- `kol_report_editor` role node 在 runner 中因 `UND_ERR_SOCKET` 失败；日志显示远端为本机代理 `127.0.0.1:7897`，错误为 `TypeError: terminated` / `SocketError: other side closed`，属于 OpenAI/Codex role runtime 网络瞬断，不是 X 抓取失败。
-- 失败消息路径为 `runWorkflowGraph` 抛出原始 error 后由 `formatWorkflowFailure()` 拼接成飞书终态消息，因此底层 undici 对象被直接展示给用户。
+- 用户明确希望只在来源存疑时输出置信提醒；不能把所有报告都附加“账号与来源可信度”。
+- `/kol` 固定“账号与来源可信度”来自 `.agents/agent-roles/kol-intel-reporter.md` 和 `buildKolPrepareContextArtifact()` 的 `output_template`；workflow node prompt 也没有明确禁止固定置信段落。
+- footer 的 `| 飞书 |` 来自 `formatRouteStatus()` 的 `channelLabel` 字段；前半段已经能表达入口/位置，channelLabel 在 IM footer 中重复。
+- “飞书群聊（主线）”来自 IM source registered group 的 name；当前 DB 中 `feishu:oc_98f0bb60f284627bf20f9386704f8c82` 被注册为 `飞书群聊`。
+- 最新 `/kol` 消息 lifecycle 显示 `source=backfill` 且 `chatType=group`；根因是 Feishu backfill message list 缺 `chat_type` 时旧代码默认填 `group`，导致私聊被注册/刷新成群聊。
 
-### Milestone 2：修复 transient role failure 的用户体验
+### Milestone 2：实现与测试
 
 Objective:
-- 为 `/kol` 或通用 workflow role transient socket 失败增加有界重试/可读降级，至少保证 raw `UND_ERR_SOCKET` 不进入用户正文。
+- 调整 `/kol` 模板、角色提示和必要的归一化逻辑，使主题之间有 `---` 分隔，来源可信度只在异常时输出。
+- 调整 footer 文案，去掉重复入口名。
+- 修复 Feishu 私聊/群聊标签误判。
 
 Allowed scope:
-- `PLANS/ACTIVE.md`
+- `.agents/agent-roles/`
+- `.agents/workflows/`
 - `src/agent/workflow/`
-- `src/presentation/`（仅错误摘要必要时）
+- `src/presentation/` / `src/index.ts` / 相关 IM 路由模块
 - `tests/`
 - 必要时更新 `docs/COMMAND.md`
 
 Validation:
-- 新增/更新定向测试覆盖 `/kol` role 节点 transient failure。
+- 新增或更新定向测试覆盖 KOL 模板和 footer/私聊标签。
 - 相关测试通过。
 
 Status:
@@ -68,10 +75,11 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 不应掩盖真实业务数据缺失；只有 runner/socket transient 才降级或重试，KOL context 本身失败仍应如实报错。
-- 已收紧 runtime timeout 判定，避免 `timeout: undefined` 误判为真实超时而跳过 socket 重试。
-- 已为 `kol_report_editor` 增加 transient socket 降级报告；当 `kol_context` 已存在但最终报告角色失败时，输出白名单、来源状态和保守核验方向，不再裸露 undici 对象。
-- `formatWorkflowFailure()` 对 socket/服务繁忙类 runtime 错误做摘要化；真实 `Agent Process timed out after ...` 保留原文。
+- 不改变 Feishu 路由语义，只修显示文案与错误归类。
+- `/kol` role card、workflow prompt 和 local task template 已改为 `---` 分隔；固定账号/来源置信段落已改为仅异常时的“来源提醒”。
+- `kol` workflow delivery 增加轻量归一化：补齐缺失的 `---`，并移除无异常的旧“账号与来源可信度”段落。
+- route footer 不再拼接 channelLabel。
+- Feishu backfill 缺 `chat_type` 时会调用 `chat.get` 读取 `chat_mode/chat_type`，再决定 `飞书私聊` / `飞书群聊`。
 
 ### Milestone 3：验证、review、提交与服务应用
 
@@ -99,16 +107,18 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 若最终证明失败完全来自外部 OpenAI 临时网络，仍需修掉 raw error 泄露，避免用户看到底层对象。
+- 若 Feishu SDK 对私聊字段缺失，只能基于 chat_id/open_id/route 元数据做最稳妥展示兜底。
 - 验证通过：
-  - `npm test -- tests/unit/agent/workflow/engine.test.ts tests/unit/agent/workflow/command.test.ts`
+  - `npm test -- tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/unit/messaging/context-router.test.ts tests/integration/messaging/feishu/connection.test.ts tests/unit/messaging/channel.test.ts tests/unit/presentation/assistant-meta-footer.test.ts`
   - `npm run typecheck:backend`
   - `git diff --check`
   - `./scripts/review.sh`
-- 已按 `RUNBOOKS/Review.md` 做语义 review：scope 与 milestone 一致，无 debug/TODO，无额外协议重复；`docs/COMMAND.md` 已同步 `/kol` transient socket 重试与降级行为。
-- 已提交 `cf6f7b2 Handle KOL workflow socket failures`。
-- 已通过 `bun src/cli.ts restart` 走安全 watchdog 重启；restart intent `restart-2026-05-31T14-16-43-056Z-49ad3189.json` 状态为 `passed`。
-- 新 backend PID 为 `88726`，`http://127.0.0.1:3000/api/health` 返回 `healthy`。
+- 已按 `RUNBOOKS/Review.md` 做语义 review：scope 与 milestone 一致，未发现 debug/TODO；KOL 来源提醒保留了异常来源，正常 confirmed 段会被移除；footer 仅去掉重复 channelLabel，不改变路由位置。
+- 测试过程中 `tests/unit/agent/workflow/command.test.ts` 触发 Vitest/Node `MaxListenersExceededWarning`，但测试通过；该 warning 来自多次动态 import/load 的既有测试行为，本轮未扩大 runtime listener 逻辑。
+- 已提交实现：`Refine KOL report and Feishu footers`。
+- 已修正当前误标的本地会话记录：`feishu:oc_98f0bb60f284627bf20f9386704f8c82` 从 `飞书群聊` 改为 `飞书私聊`。
+- 已按安全路径重启服务：restart intent `restart-2026-05-31T14-50-39-922Z-3c7f7b53.json`，状态 `passed`；新进程 PID `95459`。
+- 重启后健康检查通过：`GET /api/health` 返回 `healthy`，database 与 queue 均为 `true`。
 
 ## Working Rules
 
@@ -121,24 +131,30 @@ Risks / Notes / Handoff:
 ## Handoff
 
 Current milestone:
-- Milestone 3
+- Milestone 3 done
 
 Current status:
-- complete
+- complete; validation, review, commit, DB correction and safe restart all done
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/agent/workflow/engine.ts`
+- `.agents/agent-roles/kol-intel-reporter.md`
+- `.agents/workflows/kol.json`
+- `src/agent/workflow/local-tasks.ts`
 - `src/agent/workflow/command.ts`
-- `tests/unit/agent/workflow/engine.test.ts`
+- `src/agent/workflow/engine.ts`
+- `src/messaging/context-router.ts`
+- `src/messaging/providers/feishu/index.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+- `tests/unit/agent/workflow/config.test.ts`
 - `tests/unit/agent/workflow/command.test.ts`
+- `tests/unit/messaging/context-router.test.ts`
+- `tests/integration/messaging/feishu/connection.test.ts`
 - `docs/COMMAND.md`
+- `docs/RUNTIME.md`
 
-Last failure summary:
-- 用户发送 `/kol` 后先收到启动回执，随后收到 `Agent process exited with code 1` 和 undici `UND_ERR_SOCKET` 原始错误片段。
-
-Suspected cause:
-- 已确认：`kol_report_editor` 的 OpenAI role runtime 经本机代理连接中断；上游 KOL context 已成功生成。
+Findings:
+- 根因见 Milestone 1 notes。
 
 Next step:
-- 无。修复已提交并应用到正在运行的服务。
+- 无。若后续再次出现私聊/群聊标签异常，优先检查 Feishu `message.list` 是否仍缺少 `chat_type` 以及 `chat.get` 返回的 `chat_mode/chat_type`。

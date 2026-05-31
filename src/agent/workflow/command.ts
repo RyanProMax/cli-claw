@@ -140,11 +140,68 @@ function normalizeHkipoFinalReport(result: string): string {
     );
 }
 
+function hasSourceWarning(text: string): boolean {
+  return /存疑|低置信|不置信|不可访问|无法访问|原站不可访问|账号失败|抓取失败|未成功|失败|镜像|缓存|搜索缓存|unavailable|error|failed|No account/i.test(
+    text,
+  );
+}
+
+function removeDefaultKolConfidenceSection(result: string): string {
+  const headingMatch = result.match(
+    /(?:^|\n)(\*\*)?账号与来源可信度\1?[：:]?\s*\n?/,
+  );
+  if (!headingMatch || headingMatch.index === undefined) return result;
+  const start = headingMatch.index;
+  const section = result.slice(start + headingMatch[0].length);
+  const nextSectionMatch = section.match(
+    /\n(?:---\s*\n+)?\*\*(?:\d+\.|来源提醒|[^\n]+)\*\*/,
+  );
+  const end = nextSectionMatch?.index
+    ? start + headingMatch[0].length + nextSectionMatch.index
+    : result.length;
+  const sectionBody = result.slice(start, end);
+  if (hasSourceWarning(sectionBody)) {
+    return `${result.slice(0, start)}\n\n**来源提醒**\n${result
+      .slice(start + headingMatch[0].length, end)
+      .trim()}${result.slice(end)}`;
+  }
+  return `${result.slice(0, start).trimEnd()}${result.slice(end)}`;
+}
+
+function ensureBlankLineAroundSeparators(result: string): string {
+  return result
+    .replace(/\n{0,2}---\n{0,2}/g, '\n\n---\n\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function insertSeparatorBefore(result: string, pattern: RegExp): string {
+  return result.replace(pattern, (match: string) => {
+    const prefix = result.slice(0, result.indexOf(match));
+    if (/(?:^|\n)---\s*\n*$/.test(prefix.slice(-20))) return match;
+    return `\n\n---\n\n${match.trimStart()}`;
+  });
+}
+
+function normalizeKolFinalReport(result: string): string {
+  let normalized = removeDefaultKolConfidenceSection(result);
+  normalized = insertSeparatorBefore(
+    normalized,
+    /(?:\*\*)?近期投资方向与高信号内容(?:\*\*)?/,
+  );
+  normalized = normalized.replace(
+    /\n+(?!\s*---)((?:\*\*)?[2-9]\.\s+)/g,
+    '\n\n---\n\n$1',
+  );
+  return ensureBlankLineAroundSeparators(normalized);
+}
+
 function normalizeWorkflowResultForDelivery(
   workflowId: string,
   result: string,
 ): string {
   if (workflowId === 'hkipo') return normalizeHkipoFinalReport(result);
+  if (workflowId === 'kol') return normalizeKolFinalReport(result);
   return result;
 }
 

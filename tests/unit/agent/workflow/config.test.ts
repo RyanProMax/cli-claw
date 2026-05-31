@@ -64,9 +64,7 @@ describe('workflow config discovery', () => {
       knownLocalTasks: [...DEFAULT_WORKFLOW_LOCAL_TASK_IDS],
     });
 
-    const kol = discovered.workflows.find(
-      (workflow) => workflow.id === 'kol',
-    );
+    const kol = discovered.workflows.find((workflow) => workflow.id === 'kol');
     expect(discovered.errors.filter((error) => error.includes('kol'))).toEqual(
       [],
     );
@@ -91,13 +89,18 @@ describe('workflow config discovery', () => {
     });
     const instructions =
       discovered.roles.get('kol-intel-reporter')?.instructions ?? '';
-    expect(instructions).toContain('覆盖 KOL：<逐个列出 display_name（@handle）>');
+    expect(instructions).toContain(
+      '覆盖 KOL：<逐个列出 display_name（@handle）>',
+    );
     expect(instructions).toContain('🧾 **结论/总结**');
     expect(instructions).toContain('🧭 **核心论点**');
     expect(instructions).toContain('📝 **观点摘要**');
     expect(instructions).toContain('🔗 **来源**');
     expect(instructions).toContain('每个 emoji 字段块之间必须保留一个空行');
     expect(instructions).toContain('每个编号主题之间必须至少保留一个空行');
+    expect(instructions).toContain('---');
+    expect(instructions).toContain('只在来源存疑、低置信或不可访问时输出');
+    expect(instructions).not.toContain('账号与来源可信度');
     expect(instructions).not.toContain('证据口径');
   });
 
@@ -534,15 +537,14 @@ describe('workflow config discovery', () => {
     const roleDir = path.join(repoRoot, '.agents', 'agent-roles');
 
     expect(
-      fs.readdirSync(workflowDir).filter((file) =>
-        file.startsWith('stock-strategy-'),
-      ),
+      fs
+        .readdirSync(workflowDir)
+        .filter((file) => file.startsWith('stock-strategy-')),
     ).toEqual([]);
     expect(
-      fs.readdirSync(roleDir).filter((file) =>
-        file.startsWith('stock-strategy-'),
-      ),
+      fs
+        .readdirSync(roleDir)
+        .filter((file) => file.startsWith('stock-strategy-')),
     ).toEqual([]);
   });
-
 });

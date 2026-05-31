@@ -24,6 +24,7 @@ const hoisted = vi.hoisted(() => {
     createSpy: vi.fn().mockResolvedValue({}),
     messageGetSpy: vi.fn(),
     messageListSpy: vi.fn().mockResolvedValue({ data: { items: [] } }),
+    chatGetSpy: vi.fn().mockResolvedValue({ data: null }),
     reactionCreateSpy: vi
       .fn()
       .mockResolvedValue({ data: { reaction_id: 'r1' } }),
@@ -57,7 +58,7 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
           list: hoisted.messageListSpy,
         },
         chat: {
-          get: vi.fn(),
+          get: hoisted.chatGetSpy,
           list: vi.fn(),
         },
         image: {
@@ -193,6 +194,8 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.messageGetSpy.mockReset();
     hoisted.messageListSpy.mockReset();
     hoisted.messageListSpy.mockResolvedValue({ data: { items: [] } });
+    hoisted.chatGetSpy.mockReset();
+    hoisted.chatGetSpy.mockResolvedValue({ data: null });
     hoisted.reactionCreateSpy.mockClear();
     hoisted.reactionDeleteSpy.mockClear();
     hoisted.resolveJidByMessageIdSpy.mockReset();
@@ -303,12 +306,12 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         outputTokens: 300,
         durationMs: 2_500,
       },
-      routeFooter: 'HK IPO（主线） | 飞书 | 09:42',
+      routeFooter: 'HK IPO（主线） | 09:42',
     });
 
     expect(buildStaticReplyCard).toHaveBeenCalledWith('最终回复', {
       footerNote:
-        '2s | OpenAI | GPT-5.5 | high | standard (1x) | HK IPO（主线） | 飞书 | 09:42',
+        '2s | OpenAI | GPT-5.5 | high | standard (1x) | HK IPO（主线） | 09:42',
       runtimeIdentity,
     });
     expect(hoisted.createSpy).toHaveBeenCalledWith({
@@ -348,7 +351,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
         tokenUsage: {
           durationMs: 2_500,
         },
-        routeFooter: 'HK IPO（主线） | 飞书 | 09:42',
+        routeFooter: 'HK IPO（主线） | 09:42',
       },
     );
 
@@ -363,7 +366,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
               [
                 {
                   tag: 'md',
-                  text: '最终回复\n\n2s | OpenAI | GPT-5.5 | high | standard (1x) | HK IPO（主线） | 飞书 | 09:42',
+                  text: '最终回复\n\n2s | OpenAI | GPT-5.5 | high | standard (1x) | HK IPO（主线） | 09:42',
                 },
               ],
             ],
@@ -862,6 +865,70 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       { attachments: undefined, sourceJid: 'feishu:startup-chat' },
     );
     expect(notifyNewImMessage).toHaveBeenCalled();
+  });
+
+  test('resolves private chat type during backfill when message list omits chat_type', async () => {
+    const startupThreshold = Date.now() - 5_000;
+    hoisted.chatGetSpy.mockResolvedValueOnce({
+      data: {
+        name: '',
+        chat_mode: 'p2p',
+        chat_type: '',
+      },
+    });
+    hoisted.messageListSpy.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            message_id: 'msg-backfill-p2p',
+            create_time: String(startupThreshold + 1_000),
+            msg_type: 'text',
+            body: {
+              content: JSON.stringify({ text: 'private restart message' }),
+            },
+            sender: {
+              sender_id: {
+                open_id: 'user-open-id',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const onNewChat = vi.fn();
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onNewChat,
+      ignoreMessagesBefore: startupThreshold,
+      startupBackfillIgnoreMessagesBefore: startupThreshold,
+      startupBackfillChatIds: ['startup-private-chat'] as any,
+    } as any);
+
+    expect(hoisted.chatGetSpy).toHaveBeenCalledWith({
+      path: { chat_id: 'startup-private-chat' },
+    });
+    expect(onNewChat).toHaveBeenCalledWith(
+      'feishu:startup-private-chat',
+      '飞书私聊',
+    );
+    expect(recordImMessageLifecycleEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'feishu',
+        chatJid: 'feishu:startup-private-chat',
+        messageId: 'msg-backfill-p2p',
+        stage: 'received',
+        details: expect.objectContaining({
+          source: 'backfill',
+          chatType: 'p2p',
+        }),
+      }),
+    );
   });
 
   test('does not let a stale live ws message suppress startup backfill', async () => {

@@ -395,6 +395,164 @@ describe('workflow command execution', () => {
     db.closeDatabase();
   });
 
+  test('normalizes kol final report separators and removes default confidence footer', async () => {
+    const workspaceRoot = tempDir('cli-claw-workflow-command-kol-report-');
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'agent-roles', 'editor.md'),
+      [
+        '---',
+        'id: editor',
+        'name: KOL 编辑',
+        'allowedTools: send_message',
+        'permissionMode: readonly',
+        '---',
+        '',
+        '输出 KOL 报告。',
+      ].join('\n'),
+    );
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'workflows', 'kol.json'),
+      JSON.stringify(
+        {
+          id: 'kol',
+          name: '股票 KOL 情报工作流',
+          roles: ['editor'],
+          start: 'kol_report_editor',
+          nodes: [
+            {
+              id: 'kol_report_editor',
+              type: 'role_task',
+              roleId: 'editor',
+            },
+          ],
+          edges: [{ from: 'kol_report_editor', to: '__end__' }],
+        },
+        null,
+        2,
+      ),
+    );
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: '股票 KOL 情报报告',
+      result: [
+        '**KOL 情报报告｜默认白名单**',
+        '窗口：最近 30 天',
+        '覆盖：2 位 KOL',
+        '',
+        '🧾 **结论/总结**：AI 主线仍强。',
+        '',
+        '**近期投资方向与高信号内容**',
+        '',
+        '**1. CPO/光互连链条：从概念验证转向订单兑现**',
+        '🧭 **核心论点**：订单和产能成为关键。',
+        '',
+        '🔗 **来源**：',
+        '- Dexter Yang：[原文 | x](https://x.com/dexteryy/status/1)',
+        '',
+        '**2. AI 电力：数据中心建设带来电力约束**',
+        '🧭 **核心论点**：电力瓶颈继续被交易。',
+        '',
+        '**账号与来源可信度**',
+        '- Dexter Yang confirmed；Serenity confirmed。',
+      ].join('\n'),
+      stepResults: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'kol 股票 KOL 情报报告',
+      workspaceRoot,
+      runGraph,
+    });
+
+    expect(reply).toContain(
+      '🧾 **结论/总结**：AI 主线仍强。\n\n---\n\n**近期投资方向与高信号内容**',
+    );
+    expect(reply).toContain(
+      '- Dexter Yang：[原文 | x](https://x.com/dexteryy/status/1)\n\n---\n\n**2. AI 电力',
+    );
+    expect(reply).not.toContain('账号与来源可信度');
+    expect(reply).not.toContain('confirmed');
+
+    db.closeDatabase();
+  });
+
+  test('keeps kol source warnings while renaming the old confidence section', async () => {
+    const workspaceRoot = tempDir(
+      'cli-claw-workflow-command-kol-warning-report-',
+    );
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'agent-roles', 'editor.md'),
+      [
+        '---',
+        'id: editor',
+        'name: KOL 编辑',
+        'permissionMode: readonly',
+        '---',
+        '',
+        '输出 KOL 报告。',
+      ].join('\n'),
+    );
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'workflows', 'kol.json'),
+      JSON.stringify(
+        {
+          id: 'kol',
+          name: '股票 KOL 情报工作流',
+          roles: ['editor'],
+          start: 'kol_report_editor',
+          nodes: [
+            {
+              id: 'kol_report_editor',
+              type: 'role_task',
+              roleId: 'editor',
+            },
+          ],
+          edges: [{ from: 'kol_report_editor', to: '__end__' }],
+        },
+        null,
+        2,
+      ),
+    );
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: '股票 KOL 情报报告',
+      result: [
+        '🧾 **结论/总结**：暂无高信号。',
+        '',
+        '**近期投资方向与高信号内容**',
+        '',
+        '**1. 暂无：等待核验**',
+        '',
+        '**账号与来源可信度**',
+        '- Serenity 原站不可访问，暂不作为主证据。',
+      ].join('\n'),
+      stepResults: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'kol 股票 KOL 情报报告',
+      workspaceRoot,
+      runGraph,
+    });
+
+    expect(reply).toContain('**来源提醒**\n- Serenity 原站不可访问');
+    expect(reply).not.toContain('账号与来源可信度');
+
+    db.closeDatabase();
+  });
+
   test('does not expose retired stock strategy built-in workflows', async () => {
     const { command, db } = await loadWorkflowCommand();
 

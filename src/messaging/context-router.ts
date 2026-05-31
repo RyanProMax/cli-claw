@@ -473,5 +473,5 @@ export function resolveContextRoute(
 
 export function formatRouteStatus(meta: MessageFooterMeta): string {
   const runSuffix = meta.runId ? ` #${meta.runId}` : '';
-  return `${meta.workspaceName}（${meta.threadTitle}${runSuffix}） | ${meta.channelLabel} | ${meta.timestamp}`;
+  return `${meta.workspaceName}（${meta.threadTitle}${runSuffix}） | ${meta.timestamp}`;
 }

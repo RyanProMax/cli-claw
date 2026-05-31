@@ -152,6 +152,6 @@ describe('formatRouteStatus', () => {
         channelLabel: '飞书',
         timestamp: '09:42',
       }),
-    ).toBe('股票研究（盯盘任务） | 飞书 | 09:42');
+    ).toBe('股票研究（盯盘任务） | 09:42');
   });
 });

@@ -654,6 +654,45 @@ export function createFeishuConnection(
     }
   }
 
+  function normalizeFeishuChatType(
+    value?: string | null,
+  ): 'p2p' | 'group' | null {
+    const normalized = value?.trim().toLowerCase();
+    if (!normalized) return null;
+    if (normalized === 'p2p' || normalized === 'private') return 'p2p';
+    if (normalized === 'group' || normalized === 'chat') return 'group';
+    return null;
+  }
+
+  async function resolveFeishuChatType(
+    chatId: string,
+    candidate?: string | null,
+  ): Promise<'p2p' | 'group' | null> {
+    const direct = normalizeFeishuChatType(candidate);
+    if (direct) return direct;
+
+    const cached = normalizeFeishuChatType(chatTypeById.get(chatId));
+    if (cached) return cached;
+
+    if (!client) return null;
+    try {
+      const res = await client.im.v1.chat.get({
+        path: { chat_id: chatId },
+      });
+      const data = res.data as
+        | { chat_type?: string; chat_mode?: string }
+        | undefined;
+      const resolved =
+        normalizeFeishuChatType(data?.chat_mode) ??
+        normalizeFeishuChatType(data?.chat_type);
+      if (resolved) chatTypeById.set(chatId, resolved);
+      return resolved;
+    } catch (err) {
+      logger.warn({ err, chatId }, 'Failed to resolve Feishu chat type');
+      return null;
+    }
+  }
+
   function retireUnavailableChatFromBackfill(
     chatId: string,
     err: unknown,
@@ -1185,6 +1224,9 @@ export function createFeishuConnection(
       return;
     }
 
+    const effectiveChatType =
+      (await resolveFeishuChatType(chatId, chatType)) ?? 'group';
+
     recordLifecycleEvent({
       chatJid,
       sourceJid: chatJid,
@@ -1194,7 +1236,7 @@ export function createFeishuConnection(
       details: {
         source,
         messageType,
-        chatType,
+        chatType: effectiveChatType,
         createTimeMs,
       },
     });
@@ -1281,7 +1323,8 @@ export function createFeishuConnection(
     }
 
     const resolvedSenderName = senderName || getSenderName(senderOpenId);
-    const resolvedChatName = chatType === 'p2p' ? '飞书私聊' : '飞书群聊';
+    const resolvedChatName =
+      effectiveChatType === 'p2p' ? '飞书私聊' : '飞书群聊';
 
     // 先注册会话，确保 resolveGroupFolder 能正确解析 folder（含首条文件消息场景）
     onNewChat?.(chatJid, resolvedChatName);
@@ -1391,7 +1434,7 @@ export function createFeishuConnection(
 
     const resolvedCreateTimeMs = createTimeMs > 0 ? createTimeMs : Date.now();
     const timestamp = new Date(resolvedCreateTimeMs).toISOString();
-    rememberChatProgress(chatId, resolvedCreateTimeMs, chatType);
+    rememberChatProgress(chatId, resolvedCreateTimeMs, effectiveChatType);
 
     // ── 斜杠指令：交给 onCommand 决定是否拦截，不进入普通消息流 ──
     // 群聊中 @机器人 后跟斜杠命令，mention 替换后文本为 "@botname /cmd"，
@@ -1411,7 +1454,7 @@ export function createFeishuConnection(
           senderOpenId,
           senderName: resolvedSenderName,
           source,
-          chatType,
+          chatType: effectiveChatType,
         },
         'Feishu slash command detected',
       );
@@ -1507,7 +1550,7 @@ export function createFeishuConnection(
           senderOpenId,
           senderName: resolvedSenderName,
           source,
-          chatType,
+          chatType: effectiveChatType,
         },
         'Feishu managed command detected',
       );
@@ -1548,7 +1591,7 @@ export function createFeishuConnection(
     }
 
     // ── 群聊 Mention 过滤：require_mention 模式下，bot 未被 @ 则丢弃 ──
-    if (chatType === 'group' && shouldProcessGroupMessage) {
+    if (effectiveChatType === 'group' && shouldProcessGroupMessage) {
       const isBotMentioned = botOpenId
         ? (mentions?.some((m) => m.id?.open_id === botOpenId) ?? false)
         : true; // 无 bot open_id 时默认放行（安全降级）
@@ -1564,7 +1607,7 @@ export function createFeishuConnection(
           stage: 'skipped',
           status: 'skipped',
           reason: 'mention_required',
-          details: { source, chatType },
+          details: { source, chatType: effectiveChatType },
         });
         return;
       }
@@ -1747,7 +1790,7 @@ export function createFeishuConnection(
             createTimeMs: toEpochMs(item.create_time),
             messageType: item.msg_type || item.message_type || '',
             content: item.body?.content || item.content || '',
-            chatType: item.chat_type || chatTypeById.get(chatId) || 'group',
+            chatType: item.chat_type || chatTypeById.get(chatId),
             mentions: item.mentions,
             senderOpenId,
           };

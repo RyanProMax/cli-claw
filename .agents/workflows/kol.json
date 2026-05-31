@@ -1,7 +1,7 @@
 {
   "id": "kol",
   "name": "股票 KOL 情报工作流",
-  "description": "基于 stock-kol-intel 白名单、X/Twitter twscrape 预检和公开来源可信度规则，生成飞书移动端友好的股票 KOL 情报报告。",
+  "description": "基于 stock-kol-intel 白名单、X/Twitter twscrape 预检和公开来源规则，生成飞书移动端友好的股票 KOL 情报报告。",
   "roles": ["kol-intel-reporter"],
   "start": "kol_context_preflight",
   "nodes": [
@@ -17,7 +17,7 @@
       "type": "role_task",
       "roleId": "kol-intel-reporter",
       "outputArtifact": "final_report",
-      "prompt": "基于 kol_context artifact 生成股票 KOL 情报报告。报告必须按主题/共识合并，不按作者或帖子平铺；开头列出覆盖 KOL 明细并先给结论/总结；每条主题必须使用 emoji + 粗体字段，包含核心论点、观点摘要、关联行业/代表标的、行业现状、未来叙事、可跟踪方向和来源；每个字段块和每个编号主题之间都必须保留空行。"
+      "prompt": "基于 kol_context artifact 生成股票 KOL 情报报告。报告必须按主题/共识合并，不按作者或帖子平铺；开头列出覆盖 KOL 明细并先给结论/总结；结论/总结、近期投资方向和每个编号主题之间必须用单独一行 --- 分隔；每条主题必须使用 emoji + 粗体字段，包含核心论点、观点摘要、关联行业/代表标的、行业现状、未来叙事、可跟踪方向和来源；每个字段块和每个编号主题之间都必须保留空行；不要输出固定的账号/来源置信段落，只有来源存疑、低置信或不可访问时才输出来源提醒。"
     }
   ],
   "edges": [
