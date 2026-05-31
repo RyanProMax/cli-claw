@@ -17,7 +17,7 @@
       "type": "role_task",
       "roleId": "kol-intel-reporter",
       "outputArtifact": "final_report",
-      "prompt": "基于 kol_context artifact 生成股票 KOL 情报报告。报告必须按主题/共识合并，不按作者或帖子平铺；开头列出覆盖 KOL 明细并先给结论/总结；每条主题必须使用 emoji + 粗体字段，包含核心论点、观点摘要、关联行业/代表标的、行业现状、未来叙事、可跟踪方向和来源。"
+      "prompt": "基于 kol_context artifact 生成股票 KOL 情报报告。报告必须按主题/共识合并，不按作者或帖子平铺；开头列出覆盖 KOL 明细并先给结论/总结；每条主题必须使用 emoji + 粗体字段，包含核心论点、观点摘要、关联行业/代表标的、行业现状、未来叙事、可跟踪方向和来源；每个字段块和每个编号主题之间都必须保留空行。"
     }
   ],
   "edges": [

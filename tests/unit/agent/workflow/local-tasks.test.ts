@@ -174,6 +174,15 @@ describe('default workflow local tasks', () => {
     expect((artifact as any).output_template).toContain('📝 **观点摘要**');
     expect((artifact as any).output_template).toContain('🔗 **来源**');
     expect((artifact as any).output_template).not.toContain('证据口径');
+    expect((artifact as any).output_template).toContain(
+      '🧭 **核心论点**：<合并多个 KOL 的共识、分歧和高置信证据>\n\n📝 **观点摘要**：',
+    );
+    expect((artifact as any).output_template).toContain(
+      '- **推断**：<由事实延伸出的市场叙事或风险>\n\n🏷️ **关联行业/代表标的**',
+    );
+    expect((artifact as any).output_template).toContain(
+      '- <作者>：[<原文标题> | x](<原文链接>)\n\n**2. <主题>：<整合后的核心判断>**',
+    );
     expect(
       (artifact as any).output_template.indexOf('🧾 **结论/总结**'),
     ).toBeLessThan(
