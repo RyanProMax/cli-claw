@@ -881,7 +881,7 @@ function buildKolPrepareContextArtifact(
     x_preflight: xPreflight,
     report_requirements: [
       '只使用白名单 KOL，不临时扩展范围',
-      '覆盖 KOL 必须逐个列出 display_name（@handle），不能只写数量',
+      '覆盖 KOL 必须用一行输出为“覆盖 KOL（数量）：display_name（@handle）列表”，不能拆成数量和名单两行，也不能只写数量',
       '结论/总结必须放在消息顶部',
       '结论/总结、近期投资方向和每个编号主题之间必须用 --- 分隔',
       '每个 emoji 字段块之间必须保留一个空行',
@@ -903,8 +903,7 @@ function buildKolPrepareContextArtifact(
     output_template: [
       '**KOL 情报报告｜<主题池或默认白名单>**',
       `窗口：最近 ${days} 天`,
-      `覆盖：${coveredKols.length} 位 KOL`,
-      `覆盖 KOL：${coveredKolSummary}`,
+      `覆盖 KOL（${coveredKols.length}）：${coveredKolSummary}`,
       '高信号主题：<最多 5 个主题，用顿号分隔>',
       '',
       '🧾 **结论/总结**：<先给本轮最高置信共识、可跟踪股票方向和下一步核验方向；不输出买卖建议>',

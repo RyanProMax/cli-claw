@@ -752,10 +752,10 @@ describe('workflow graph engine', () => {
     } as any);
 
     expect(result.result).toContain('⚠️ **KOL 情报报告｜降级报告**');
-    expect(result.result).toContain('覆盖：2 位 KOL');
     expect(result.result).toContain(
-      'Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
+      '覆盖 KOL（2）：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
     );
+    expect(result.result).not.toContain('覆盖：2 位 KOL');
     expect(result.result).toContain('Agent runtime socket 异常');
     expect(result.result).not.toContain('remoteFamily');
     expect(runEvents).toEqual(

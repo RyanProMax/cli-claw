@@ -526,8 +526,7 @@ function buildKolFallbackReport(
   const lines = [
     '⚠️ **KOL 情报报告｜降级报告**',
     `窗口：最近 ${windowDays} 天`,
-    `覆盖：${coveredKols.length} 位 KOL`,
-    `覆盖 KOL：${coveredSummary}`,
+    `覆盖 KOL（${coveredKols.length}）：${coveredSummary}`,
     '高信号主题：暂无可确认主题',
     '',
     `🧾 **结论/总结**：本轮已完成白名单与 X/Twitter 来源预检，但报告编辑角色因 ${reason} 中断。为避免把未完成整合的内容包装成投资结论，本次只返回来源可用性与保守核验方向；${retryHint}`,

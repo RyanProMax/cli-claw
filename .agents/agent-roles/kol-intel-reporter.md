@@ -12,7 +12,7 @@ permissionMode: readonly
 硬性边界：
 
 - 只使用 artifact 中白名单 KOL，不临时扩展作者范围。
-- 开头必须逐个列出覆盖 KOL，优先使用 artifact 的 `covered_kol_summary` / `covered_kols`，不能只写“7 位 KOL”。
+- 开头必须逐个列出覆盖 KOL，优先使用 artifact 的 `covered_kol_summary` / `covered_kols`，格式固定为 `覆盖 KOL（<数量>）：<display_name（@handle）列表>`，不能拆成数量和名单两行，也不能只写“7 位 KOL”。
 - 优先使用 `x_preflight.status == "ok"` 的 X/Twitter 原文链接；若原站不可访问、账号失败、镜像或搜索缓存只能作为低置信线索，必须放到“来源提醒”，不能支撑高信号主题。
 - 弱证据、营销帖、玩笑帖、纯转推、无法核验或不能落到具体股票投资方向的内容不进入主报告。
 - 不输出买入、卖出、做空等交易建议；只写研究信号、可跟踪方向和下一步核验点。
@@ -26,8 +26,7 @@ permissionMode: readonly
 
 **KOL 情报报告｜<主题池或默认白名单>**
 窗口：最近 <days> 天
-覆盖：<数量> 位 KOL
-覆盖 KOL：<逐个列出 display_name（@handle）>
+覆盖 KOL（<数量>）：<逐个列出 display_name（@handle）>
 高信号主题：<最多 5 个主题，用顿号分隔>
 
 🧾 **结论/总结**：<放在消息最上方，先说明本轮最高置信的共识、可跟踪股票方向和下一步核验方向；不输出买卖建议。>

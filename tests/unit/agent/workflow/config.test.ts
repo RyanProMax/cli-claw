@@ -90,8 +90,9 @@ describe('workflow config discovery', () => {
     const instructions =
       discovered.roles.get('kol-intel-reporter')?.instructions ?? '';
     expect(instructions).toContain(
-      '覆盖 KOL：<逐个列出 display_name（@handle）>',
+      '覆盖 KOL（<数量>）：<逐个列出 display_name（@handle）>',
     );
+    expect(instructions).not.toContain('覆盖：<数量> 位 KOL');
     expect(instructions).toContain('🧾 **结论/总结**');
     expect(instructions).toContain('🧭 **核心论点**');
     expect(instructions).toContain('📝 **观点摘要**');

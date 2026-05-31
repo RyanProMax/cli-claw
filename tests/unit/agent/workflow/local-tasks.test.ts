@@ -173,7 +173,10 @@ describe('default workflow local tasks', () => {
       '账号与来源可信度',
     );
     expect((artifact as any).output_template).toContain(
-      '覆盖 KOL：Sample KOL（@sample）、Second Voice（@secondvoice）',
+      '覆盖 KOL（2）：Sample KOL（@sample）、Second Voice（@secondvoice）',
+    );
+    expect((artifact as any).output_template).not.toContain(
+      '覆盖：2 位 KOL',
     );
     expect((artifact as any).output_template).toContain('🧾 **结论/总结**');
     expect((artifact as any).output_template).toContain('🧭 **核心论点**');

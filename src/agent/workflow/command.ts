@@ -175,6 +175,20 @@ function ensureBlankLineAroundSeparators(result: string): string {
     .trim();
 }
 
+function mergeKolCoverageLines(result: string): string {
+  return result
+    .replace(
+      /(^|\n)覆盖[：:]\s*(\d+)\s*位\s*KOL\s*\n覆盖\s*KOL[：:]\s*([^\n]+)/g,
+      (_match, prefix: string, count: string, summary: string) =>
+        `${prefix}覆盖 KOL（${count}）：${summary.trim()}`,
+    )
+    .replace(
+      /(^|\n)覆盖\s*KOL\s*\((\d+)\)[：:]\s*([^\n]+)/g,
+      (_match, prefix: string, count: string, summary: string) =>
+        `${prefix}覆盖 KOL（${count}）：${summary.trim()}`,
+    );
+}
+
 function insertSeparatorBefore(result: string, pattern: RegExp): string {
   return result.replace(pattern, (match: string) => {
     const prefix = result.slice(0, result.indexOf(match));
@@ -185,6 +199,7 @@ function insertSeparatorBefore(result: string, pattern: RegExp): string {
 
 function normalizeKolFinalReport(result: string): string {
   let normalized = removeDefaultKolConfidenceSection(result);
+  normalized = mergeKolCoverageLines(normalized);
   normalized = insertSeparatorBefore(
     normalized,
     /(?:\*\*)?近期投资方向与高信号内容(?:\*\*)?/,

@@ -438,6 +438,7 @@ describe('workflow command execution', () => {
         '**KOL 情报报告｜默认白名单**',
         '窗口：最近 30 天',
         '覆盖：2 位 KOL',
+        '覆盖 KOL：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
         '',
         '🧾 **结论/总结**：AI 主线仍强。',
         '',
@@ -476,6 +477,11 @@ describe('workflow command execution', () => {
     expect(reply).toContain(
       '- Dexter Yang：[原文 | x](https://x.com/dexteryy/status/1)\n\n---\n\n**2. AI 电力',
     );
+    expect(reply).toContain(
+      '覆盖 KOL（2）：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
+    );
+    expect(reply).not.toContain('覆盖：2 位 KOL');
+    expect(reply).not.toContain('覆盖 KOL：Dexter Yang');
     expect(reply).not.toContain('账号与来源可信度');
     expect(reply).not.toContain('confirmed');
 
