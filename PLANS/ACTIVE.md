@@ -1,112 +1,102 @@
-# 当前任务：将 /kol 完全迁移到工作流体系
+# 当前任务：修复 /kol X/Twitter 抓取失败
 
 ## Goal
 
-- 将原本由 `stock-kol-intel` skill 生成 `assistant_prompt` 并进入主 Agent 会话的 `/kol` 流程，迁移为 Cli Claw workflow：slash command 只触发 `workflowId=kol`，工作流内完成白名单读取、X/Twitter 预检、KOL 情报整理和飞书移动端友好日报输出。
-- 保留 `/kol [--days=30]` 用户入口与原报告质量规则，为后续定时 workflow 任务复用同一条执行路径打基础。
+- 查明 `/kol` 报告中 `x_preflight.status = error` 且 twscrape 报错 `No account available for queue UserTweets` 的真实原因。
+- 恢复或改进 `/kol` 对白名单 KOL 原文抓取的可用性；如果根因是账号池限流/锁定等运行态问题，必须输出可执行的诊断与恢复路径，而不是只给泛化错误。
+- 保持 `/kol` 证据边界：没有可验证 X 原文时不把低置信内容合成股票热点结论。
 
 ## Done when
 
-- `/kol [--days=N]` 的 repository skill executor 返回 `reply.type="workflow"`，不再返回 `assistant_prompt`，且非法参数仍返回本地用法提示。
-- 新增内置 `kol` workflow、runtime role card 和默认 local task；`/workflow kol ...` 与 scheduled workflow 可以不经过 `/kol` skill executor 直接执行同一套 KOL 情报流程。
-- workflow local task 复用 `stock-kol-intel` 白名单和 twscrape 源预检能力，输出结构化 artifact，避免把抓取/预检过程塞进主会话。
-- 报告角色继续遵守原 `/kol` 规则：白名单范围、原文链接、主题合并、可跟踪方向、来源可信度、弱证据剔除、不输出买卖建议。
-- `docs/COMMAND.md`、`docs/RUNTIME.md`、`docs/MODULE.md` 和必要架构说明已同步 `/kol` 工作流契约。
-- 相关回归测试、统一验证和 review gate 通过；完成后按仓库规则提交。
+- 已明确失败发生在配置、账号池、队列限流、依赖行为或代码调用中的哪一层。
+- `/kol` 预检失败时能给出更清晰的队列/账号池原因；可自动恢复的场景已由代码处理。
+- 相关测试或健康检查覆盖本轮修复点。
+- 直接相关验证、review gate 通过；若影响正在运行的 Cli Claw 服务，按安全重启路径应用变更。
 
 ## Milestones
 
-### Milestone 1：红灯测试与迁移边界确认
+### Milestone 1：定位 twscrape 抓取失败根因
 
 Objective:
-- 为 `/kol` skill workflow trigger、内置 `kol` workflow 配置和 KOL local task 建立失败优先的回归测试，锁定迁移目标。
+- 检查 `/kol` workflow 最近运行记录、`stock-kol-intel` twscrape provider、账号库 schema 与 `UserTweets` 队列状态，确定为什么两个白名单账号都无法抓取。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `tests/contracts/skills/**`
-- `tests/unit/agent/workflow/config.test.ts`
-- `tests/unit/agent/workflow/local-tasks.test.ts`
-- 只读检查 `.agents/skills/**`、`.agents/workflows/**`、`.agents/agent-roles/**`、`src/agent/workflow/**`
+- 只读检查 `~/.cli-claw/state/stock-kol-intel/twscrape/accounts.db`
+- 只读检查 `/Users/ryan/projects/stock-kol-intel/**`
+- 只读检查 `/Users/ryan/projects/cli-claw/src/agent/workflow/**`
 
 Validation:
-- 新增定向测试在旧实现上失败，失败原因分别证明：`/kol` 仍是 `assistant_prompt` 或外部委托、`kol` workflow 不存在、`stock.kol.prepare_context` local task 未注册。
+- 能用本地命令复现或解释 `No account available for queue UserTweets`，且不泄露 cookie/token/password。
 
 Status:
 - done
 
 Validation status:
-- passed：新增红灯测试已运行并失败在预期位置。`tests/contracts/skills/stock-kol-command.test.ts` 单独运行显示 `/kol` 仍返回 `assistant_prompt` 且非法参数没有在 workflow dispatch 前拦截；合并定向测试显示 `kol` workflow 缺失，`stock.kol.prepare_context` 未注册。
+- passed：已确认账号库只有 1 个 active 账号 `ryan_probe`；失败窗口内 `UserTweets` 队列被锁到 `2026-05-31T08:42:31Z`，导致两个白名单 KOL 的时间线请求都无法拿到账号。当前锁已过期，健康检查显示 `UserByScreenName`、`UserTweets`、`SearchTimeline` 均可用。
 
 Review status:
-- passed：测试只覆盖迁移目标，未改生产路径；第一轮并发运行出现过一次旧委托超时噪声，单独重跑 contract 测试确认失败原因稳定为旧 `assistant_prompt`。
+- passed：只读取非敏感字段 `username`、`active`、`locks`、`stats`、`last_used`、`error_msg`；没有输出 cookie/password/token。
 
 Risks / Notes / Handoff:
-- 上一轮用户已认可“白名单 KOL 情报流水线”设计；本轮直接实施，不再额外创建 `docs/superpowers/*`，遵守仓库禁止规则。
+- 账号池数据库可能包含敏感认证字段；诊断输出只允许展示账号名、active 状态、队列名、lock/reset 时间等非 secret 字段。
 
-### Milestone 2：实现 /kol workflow 化
+### Milestone 2：实现可用性修复与诊断增强
 
 Objective:
-- 新增 `kol` workflow、role card、local task，并把 `.agents/skills/stock-kol-intel` 的 `/kol` executor 改为 workflow trigger。
+- 根据 Milestone 1 结论，做最小修复：优先恢复抓取可用性；若需要人工刷新/新增 X 账号，则把失败原因、可用账号、队列冷却时间和恢复命令做成明确诊断。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `.agents/skills/stock-kol-intel/**`
-- `.agents/workflows/kol.json`
-- `.agents/agent-roles/kol-intel-reporter.md`
-- `src/agent/workflow/local-tasks.ts`
-- `src/agent/workflow/tools.ts`
-- `tests/contracts/skills/**`
-- `tests/unit/agent/workflow/config.test.ts`
-- `tests/unit/agent/workflow/local-tasks.test.ts`
+- `/Users/ryan/projects/stock-kol-intel/commands/kol.py`
+- `/Users/ryan/projects/stock-kol-intel/scripts/twscrape_healthcheck.py`
+- `/Users/ryan/projects/stock-kol-intel/tests/**`
+- `/Users/ryan/projects/stock-kol-intel/references/twscrape_provider.md`
+- 如需调整 Cli Claw artifact 展示，可扩展到 `src/agent/workflow/local-tasks.ts` 和对应测试，但必须先记录原因。
 
 Validation:
-- `npm test -- tests/contracts/skills/stock-kol-command.test.ts`
-- `npm test -- tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts`
+- `python3 -m unittest tests/test_kol_command.py`
+- 直接运行 twscrape 健康检查，确认能解释当前 `UserTweets` 可用性状态。
+- 如修改 Cli Claw：运行相关 `npm test` 定向测试。
 
 Status:
 - done
 
 Validation status:
-- passed：`npm test -- tests/contracts/skills/stock-kol-command.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts` 通过，3 个文件 17 个测试全部通过。
+- passed：新增队列快照和 `SearchTimeline` fallback 单测，`python3 -m unittest tests/test_kol_command.py` 通过 8/8；真实 `build_x_source_preflight(30)` 返回 `status=ok`，`dexteryy` 与 `aleabitoreddit` 均通过 `user_tweets` 抓取成功。
 
 Review status:
-- passed：变更集中在 `/kol` skill executor、`kol` workflow/role card、默认 local task 注册与对应测试；未改普通消息主线、scheduler 执行语义或 HKIPO local task 行为。`/kol` 非法参数仍在本地返回用法提示，合法参数只返回 workflow trigger。
+- passed：修复保持在 `stock-kol-intel` 抓取/诊断边界内；不改变报告证据规则，不使用镜像或二手来源冒充主证据。
 
 Risks / Notes / Handoff:
-- local task 只读取公开白名单和 twscrape 预检结果；X 原站不可访问时必须结构化标注 `unavailable/error`，交由报告角色降权处理。
+- 如果所有 X 账号都处于队列限流或账号失效，代码不能绕过 X/Twitter 访问限制；本轮只能提供清晰诊断和恢复操作，不能伪造主证据。
 
-### Milestone 3：文档同步、全量验证与提交
+### Milestone 3：验证、review、提交与服务应用
 
 Objective:
-- 同步 owner 文档，运行统一 validation/review gate，完成 handoff 与提交。
+- 跑完直接相关验证和 review gate；提交 Cli Claw 仓库内变更；说明 sibling `stock-kol-intel` 若不是 git repo 的未提交状态；必要时安全重启服务。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `PLANS/ROADMAP.md`（仅当留下跨轮次事项）
-- `docs/COMMAND.md`
-- `docs/RUNTIME.md`
-- `docs/MODULE.md`
-- `docs/ARCHITECTURE.md`
+- `PLANS/ROADMAP.md`（仅跨轮次事项）
 - 本轮已修改文件
 
 Validation:
-- `npm test -- tests/contracts/skills/stock-kol-command.test.ts`
-- `npm test -- tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts`
-- `./scripts/validate.sh`
-- `./scripts/review.sh`
+- Milestone 2 验证命令全部通过。
+- `./scripts/review.sh` 或等价 review 通过。
+- `git diff --check`
 
 Status:
 - done
 
 Validation status:
-- passed：定向回归 `npm test -- tests/contracts/skills/stock-kol-command.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts` 通过，3 个文件 17 个测试全部通过；统一验证 `./scripts/validate.sh` 通过，Vitest 76 个文件通过 / 1 个跳过，515 个测试通过 / 1 个跳过，typecheck 和 build 均通过。
+- passed：`python3 -m unittest tests/test_kol_command.py` 通过 8/8；`python3 -m py_compile commands/kol.py scripts/twscrape_healthcheck.py` 通过；`scripts/twscrape_healthcheck.py` 显示 1 个 active 账号且 `UserByScreenName` / `UserTweets` / `SearchTimeline` 均可用；真实 `build_x_source_preflight(30)` 返回两位白名单 KOL 均抓取成功；`git diff --check` 通过。
 
 Review status:
-- passed：`./scripts/review.sh` 通过；`npx prettier --write src/agent/workflow/local-tasks.ts` 修复格式后重跑定向测试、统一验证和 review 均通过。已手动语义 review `git diff`、新增 workflow/role/local task/test/doc 变更、`git diff --check` 和调试残留搜索，未发现阻塞问题。
+- passed：`./scripts/review.sh` 通过格式与 diff hygiene；已按 `RUNBOOKS/Review.md` 做语义审查，确认修复只增强 twscrape 队列诊断和 `SearchTimeline` fallback，不削弱 `/kol` 证据边界。
 
 Risks / Notes / Handoff:
-- 若 workflow 调度或飞书私聊定时任务创建需要真实 Feishu open_id / scheduled task 配置，本轮只完成可复用工作流契约，不替用户伪造线上定时任务。
-- 无跨轮次实现事项需要同步到 `PLANS/ROADMAP.md`。
+- `/Users/ryan/projects/stock-kol-intel` 不是 git repo，若修改该目录需在最终说明中明确无法通过当前仓库 commit 记录。
 
 ## Working Rules
 
@@ -126,26 +116,16 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `.agents/skills/stock-kol-intel/SKILL.md`
-- `.agents/skills/stock-kol-intel/commands.json`
-- `.agents/skills/stock-kol-intel/commands/dispatch.py`
-- `.agents/workflows/kol.json`
-- `.agents/agent-roles/kol-intel-reporter.md`
-- `docs/ARCHITECTURE.md`
-- `docs/COMMAND.md`
-- `docs/MODULE.md`
-- `docs/RUNTIME.md`
-- `src/agent/workflow/local-tasks.ts`
-- `src/agent/workflow/tools.ts`
-- `tests/contracts/skills/stock-kol-command.test.ts`
-- `tests/unit/agent/workflow/config.test.ts`
-- `tests/unit/agent/workflow/local-tasks.test.ts`
+- `/Users/ryan/projects/stock-kol-intel/commands/kol.py`
+- `/Users/ryan/projects/stock-kol-intel/scripts/twscrape_healthcheck.py`
+- `/Users/ryan/projects/stock-kol-intel/tests/test_kol_command.py`
+- `/Users/ryan/projects/stock-kol-intel/references/twscrape_provider.md`
 
 Last failure summary:
-- 已修复：`/kol` executor 改为 workflow trigger；新增 `kol` workflow / `kol-intel-reporter` role / `stock.kol.prepare_context` local task；同步 owner 文档；定向测试、`./scripts/validate.sh` 和 `./scripts/review.sh` 均通过。
+- 用户截图中的 `/kol` 报告显示两位白名单 KOL 的 X/Twitter 预检均失败，错误为 `No account available for queue UserTweets`。
 
 Suspected cause:
-- 旧 `/kol` executor 仍委托 `stock-kol-intel/commands/kol.py`，返回 `assistant_prompt`，导致命令执行污染主 runtime session，也不能被 scheduled workflow 复用。
+- 已确认：账号池只有一个 active cookie 账号，`UserTweets` 队列在失败时间段被 twscrape 锁定；旧健康检查只显示 active 账号数，未暴露队列锁，所以表面看像“抓取失败”而不是“队列冷却中”。
 
 Next step:
-- 本轮迁移已完成；若后续需要真实 8 点日报或爆点实时推送，需要在 scheduled workflow / Feishu 私聊目标上配置实际投递对象与触发策略。
+- 本轮修复完成；Cli Claw 仓库内只改了 `PLANS/ACTIVE.md`，`stock-kol-intel` 不是 git repo，最终说明需明确该目录为直接文件变更。
