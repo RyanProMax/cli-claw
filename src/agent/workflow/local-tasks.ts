@@ -157,6 +157,120 @@ function resolveStockAnalysisSkillRoot(options: {
   );
 }
 
+function resolveStockKolIntelRoot(options: {
+  workspaceRoot?: string;
+  executionCwd?: string;
+}): string {
+  const candidates = [
+    process.env.STOCK_KOL_INTEL_ROOT,
+    options.workspaceRoot
+      ? path.join(options.workspaceRoot, '..', 'stock-kol-intel')
+      : null,
+    options.executionCwd
+      ? path.join(options.executionCwd, '..', 'stock-kol-intel')
+      : null,
+    path.join(APP_ROOT, '..', 'stock-kol-intel'),
+    path.join(APP_ROOT, '..', '..', 'stock-kol-intel'),
+    path.join(os.homedir(), 'projects', 'stock-kol-intel'),
+    path.join(os.homedir(), 'stock-kol-intel'),
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const resolved = path.resolve(candidate);
+    if (
+      fs.existsSync(path.join(resolved, 'commands', 'kol.py')) &&
+      fs.existsSync(path.join(resolved, 'references', 'kol_whitelist.json'))
+    ) {
+      return resolved;
+    }
+  }
+  throw new Error(
+    '未找到 stock-kol-intel 仓库或 references/kol_whitelist.json',
+  );
+}
+
+function resolveStockKolPythonExecutable(root: string): string {
+  const venvCandidates =
+    process.platform === 'win32'
+      ? [
+          path.join(root, '.venv', 'Scripts', 'python.exe'),
+          path.join(root, '.venv', 'Scripts', 'python'),
+        ]
+      : [path.join(root, '.venv', 'bin', 'python')];
+  for (const candidate of venvCandidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  for (const envName of ['STOCK_KOL_INTEL_PYTHON', 'PYTHON_BIN']) {
+    const resolved = findExecutable(process.env[envName] ?? '');
+    if (resolved) return resolved;
+  }
+  for (const candidate of ['python3', 'python']) {
+    const resolved = findExecutable(candidate);
+    if (resolved) return resolved;
+  }
+  throw new Error('未找到 python，可设置 STOCK_KOL_INTEL_PYTHON / PYTHON_BIN');
+}
+
+async function runStockKolContextJson(
+  days: number,
+  input: WorkflowLocalTaskInput,
+  options: DefaultWorkflowLocalTaskOptions,
+): Promise<Record<string, unknown>> {
+  const skillRoot = resolveStockKolIntelRoot({
+    workspaceRoot: options.workspaceRoot,
+    executionCwd: input.executionCwd,
+  });
+  const python = resolveStockKolPythonExecutable(skillRoot);
+  const helper = [
+    'import importlib.util',
+    'import json',
+    'import pathlib',
+    'import sys',
+    'root = pathlib.Path(sys.argv[1])',
+    'days = int(sys.argv[2])',
+    'module_path = root / "commands" / "kol.py"',
+    'spec = importlib.util.spec_from_file_location("stock_kol_workflow_kol", module_path)',
+    'module = importlib.util.module_from_spec(spec)',
+    'assert spec.loader is not None',
+    'spec.loader.exec_module(module)',
+    'whitelist = module.load_whitelist() if hasattr(module, "load_whitelist") else json.loads((root / "references" / "kol_whitelist.json").read_text(encoding="utf-8"))',
+    'if hasattr(module, "build_x_source_preflight"):',
+    '    x_preflight = module.build_x_source_preflight(days, whitelist)',
+    'else:',
+    '    x_preflight = {"source": "twscrape", "status": "unavailable", "reason": "stock-kol-intel command does not expose build_x_source_preflight", "results": []}',
+    'print(json.dumps({"whitelist": whitelist, "x_preflight": x_preflight}, ensure_ascii=False))',
+  ].join('\n');
+
+  const { stdout, stderr } = await execFileAsync(
+    python,
+    ['-c', helper, skillRoot, String(days)],
+    {
+      cwd: skillRoot,
+      timeout: 180_000,
+      maxBuffer: JSON_BUFFER_BYTES,
+      env: {
+        ...process.env,
+        CLI_CLAW_SKILL_DIR: skillRoot,
+      },
+    },
+  );
+  const raw = stdout.trim();
+  if (!raw) {
+    throw new Error(
+      stderr.trim() || 'stock-kol-intel context preflight 无输出',
+    );
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isObject(parsed)) throw new Error('payload is not an object');
+    return parsed;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`stock-kol-intel JSON 解析失败：${message}`);
+  }
+}
+
 async function runStockApiJson(
   args: string[],
   input: WorkflowLocalTaskInput,
@@ -259,6 +373,36 @@ function readWorkflowReportDate(input: WorkflowLocalTaskInput): string {
   return typeof taskInput.reportDate === 'string'
     ? taskInput.reportDate
     : currentShanghaiDate();
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value !== 'string') return null;
+  if (!/^\d+$/.test(value.trim())) return null;
+  return Number.parseInt(value.trim(), 10);
+}
+
+function readWorkflowKolDays(input: WorkflowLocalTaskInput): number {
+  const taskInput = resolveWorkflowTaskInput(input);
+  const direct = parsePositiveInteger(taskInput.days);
+  if (direct !== null) {
+    if (direct < 1 || direct > 365) {
+      throw new Error(`kol days must be between 1 and 365, got ${direct}`);
+    }
+    return direct;
+  }
+
+  const prompt = typeof input.prompt === 'string' ? input.prompt : '';
+  const promptMatch = prompt.match(/(?:^|\s)--days(?:=|\s+)(\d+)(?:\s|$)/);
+  if (promptMatch) {
+    const days = Number.parseInt(promptMatch[1], 10);
+    if (days < 1 || days > 365) {
+      throw new Error(`kol days must be between 1 and 365, got ${days}`);
+    }
+    return days;
+  }
+
+  return 30;
 }
 
 function getCode(item: unknown): string {
@@ -504,6 +648,68 @@ function createBacktestTask(
   };
 }
 
+function createKolPrepareContextTask(
+  options: DefaultWorkflowLocalTaskOptions,
+): WorkflowLocalTask {
+  return async (input) => {
+    const days = readWorkflowKolDays(input);
+    const payload = await runStockKolContextJson(days, input, options);
+    const whitelist = isObject(payload.whitelist) ? payload.whitelist : {};
+    const xPreflight = isObject(payload.x_preflight)
+      ? payload.x_preflight
+      : {
+          source: 'twscrape',
+          status: 'unavailable',
+          reason: 'stock-kol-intel did not return x_preflight',
+          results: [],
+        };
+    return {
+      status: 'ok',
+      source: 'stock-kol-intel',
+      generatedAt: new Date().toISOString(),
+      window_days: days,
+      whitelist,
+      x_preflight: xPreflight,
+      report_requirements: [
+        '只使用白名单 KOL，不临时扩展范围',
+        '按主题/共识合并',
+        '按主题/共识合并，输出 3-5 个高信号投资主题',
+        '作者原文链接',
+        '每个主题必须包含观点摘要、关联行业/代表标的、行业现状、未来叙事',
+        '每个主题必须包含核心论点、可跟踪方向、作者原文链接、证据口径',
+        '作者原文链接放在来源行；原站不可访问时明确标注',
+        '可跟踪方向必须落到股票/ETF/行业链，不写笼统事件',
+        '剔除弱证据、营销帖、玩笑帖、纯转推和无法核验内容',
+        '区分 KOL 观点、可核验事实和推断，不输出买卖建议',
+      ],
+      output_template: [
+        '**KOL 情报报告｜<主题池或默认白名单>**',
+        `窗口：最近 ${days} 天`,
+        '覆盖：<数量> 位 KOL',
+        '高信号主题：<最多 5 个主题，用顿号分隔>',
+        '',
+        '**近期投资方向与高信号内容**',
+        '',
+        '**1. <主题>：<整合后的核心判断>**',
+        '核心论点：<合并多个 KOL 的共识、分歧和高置信证据>',
+        '观点摘要：<KOL 观点的短摘要，区分事实与推断>',
+        '关联行业/代表标的：<行业链 + 典型股票/ETF>',
+        '行业现状：<当前供需、政策、财报、估值或资金面状态>',
+        '未来叙事：<后续市场可能交易的主线和关键催化>',
+        '可跟踪方向：<股票投资方向 + 典型标的/ETF>',
+        '来源：<作者：原文链接；原站不可访问时标注>',
+        '证据口径：<具体可核验事实>',
+        '',
+        '**账号与来源可信度**',
+        '- <账号归因和来源可访问性>',
+        '',
+        '**结论**',
+        '<最高置信共识、可跟踪方向和下一步核验方向；不输出买卖建议>',
+      ].join('\n'),
+    };
+  };
+}
+
 export function createDefaultWorkflowLocalTasks(
   options: DefaultWorkflowLocalTaskOptions = {},
 ): WorkflowLocalTaskRegistry {
@@ -512,6 +718,7 @@ export function createDefaultWorkflowLocalTasks(
     'stock.hkipo.scan_heat': createHeatScanTask(options),
     'stock.hkipo.fetch_official_docs': createOfficialDocsTask(options),
     'stock.hkipo.run_backtest': createBacktestTask(options),
+    'stock.kol.prepare_context': createKolPrepareContextTask(options),
   };
 }
 

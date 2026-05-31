@@ -6,6 +6,10 @@ description: Repository-level slash command bridge for public stock-market KOL i
 # stock-kol-intel
 
 This repository-level skill exposes `/kol` through the workspace
-`.agents/skills` command contract. The implementation is delegated to the
-sibling `stock-kol-intel` repository when present, or to
-`STOCK_KOL_INTEL_ROOT` when set.
+`.agents/skills` command contract.
+
+`/kol [--days=30]` returns a Cli Claw workflow trigger for the built-in `kol`
+workflow. The workflow local task reads the sibling `stock-kol-intel`
+repository, or `STOCK_KOL_INTEL_ROOT` when set, to load the KOL whitelist and
+run the X/Twitter twscrape source preflight before the report role writes the
+mobile-friendly intelligence brief.

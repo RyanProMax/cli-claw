@@ -86,8 +86,8 @@
 ├── PLANS/                           # 当前计划、长期 roadmap 与计划模板
 ├── RUNBOOKS/                        # 实施、review、handoff 操作规范
 ├── .agents/
-│   ├── workflows/                   # 仓库级/内置 workflow/crew graph 配置；含 hkipo
-│   ├── agent-roles/                 # runtime role card；会注入 workflow runner；含 hkipo crew
+│   ├── workflows/                   # 仓库级/内置 workflow/crew graph 配置；含 hkipo、kol
+│   ├── agent-roles/                 # runtime role card；会注入 workflow runner；含 hkipo crew、kol reporter
 │   ├── roles/                       # 仓库协作/subagent 角色，不注入 runtime
 │   └── skills/                      # 仓库内联 skill command
 ├── scripts/                         # repo 级验证、review、release 脚本

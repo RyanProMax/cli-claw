@@ -1,109 +1,112 @@
-# 当前任务：修复线上 Feishu 报错与 HKIPO 重复触发
+# 当前任务：将 /kol 完全迁移到工作流体系
 
 ## Goal
 
-- 定位用户反馈的线上 `TypeError: Cannot read properties of undefined (reading 'map')` 报错原因并修复。
-- 定位 `/hkipo` 约每 30 分钟重复执行的触发链路，阻断重复触发。
-- 完成相关回归测试、统一验证、review gate，并按安全重启路径让当前服务加载修复。
+- 将原本由 `stock-kol-intel` skill 生成 `assistant_prompt` 并进入主 Agent 会话的 `/kol` 流程，迁移为 Cli Claw workflow：slash command 只触发 `workflowId=kol`，工作流内完成白名单读取、X/Twitter 预检、KOL 情报整理和飞书移动端友好日报输出。
+- 保留 `/kol [--days=30]` 用户入口与原报告质量规则，为后续定时 workflow 任务复用同一条执行路径打基础。
 
 ## Done when
 
-- 已解释线上现象、根因和修复点。
-- `/hkipo` 旧 backfill 消息不会在内存去重 TTL 过期后再次触发 workflow。
-- Codex Responses 终态输出缺少 `message.content` 或 `reasoning.summary` 时不再抛原始 SDK TypeError。
-- `./scripts/validate.sh` 和 `./scripts/review.sh` 通过，或清楚记录外部阻塞。
-- 服务通过 `cli-claw restart` 或 repo-local fallback 安全重启，并验证新进程健康。
+- `/kol [--days=N]` 的 repository skill executor 返回 `reply.type="workflow"`，不再返回 `assistant_prompt`，且非法参数仍返回本地用法提示。
+- 新增内置 `kol` workflow、runtime role card 和默认 local task；`/workflow kol ...` 与 scheduled workflow 可以不经过 `/kol` skill executor 直接执行同一套 KOL 情报流程。
+- workflow local task 复用 `stock-kol-intel` 白名单和 twscrape 源预检能力，输出结构化 artifact，避免把抓取/预检过程塞进主会话。
+- 报告角色继续遵守原 `/kol` 规则：白名单范围、原文链接、主题合并、可跟踪方向、来源可信度、弱证据剔除、不输出买卖建议。
+- `docs/COMMAND.md`、`docs/RUNTIME.md`、`docs/MODULE.md` 和必要架构说明已同步 `/kol` 工作流契约。
+- 相关回归测试、统一验证和 review gate 通过；完成后按仓库规则提交。
 
 ## Milestones
 
-### Milestone 1：事故复现与根因确认
+### Milestone 1：红灯测试与迁移边界确认
 
 Objective:
-- 从本地 DB、生命周期事件、workflow run 和当前进程确认重复触发与线上报错来源。
+- 为 `/kol` skill workflow trigger、内置 `kol` workflow 配置和 KOL local task 建立失败优先的回归测试，锁定迁移目标。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- 只读检查 `~/.cli-claw/db/messages.db`
-- 只读检查 `~/.cli-claw/ops/**` 与 `~/.cli-claw/groups/**/logs/**`
-- `src/**`
-- `container/agent-runner/**`
-- `tests/**`
+- `tests/contracts/skills/**`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+- 只读检查 `.agents/skills/**`、`.agents/workflows/**`、`.agents/agent-roles/**`、`src/agent/workflow/**`
 
 Validation:
-- DB 查询能证明重复 `/hkipo` run 来源、时间间隔和触发类型。
-- 日志能证明当前报错栈和运行进程是否加载最新代码。
+- 新增定向测试在旧实现上失败，失败原因分别证明：`/kol` 仍是 `assistant_prompt` 或外部委托、`kol` workflow 不存在、`stock.kol.prepare_context` local task 未注册。
 
 Status:
 - done
 
 Validation status:
-- passed：`workflow_runs` 显示 `hkipo` 从 `2026-05-28T22:47:11.031Z` 到 `2026-05-29T02:22:58.117Z` 约每 30 分钟运行一次，metadata source 为 `slash-command`，而 `scheduled_tasks` 为空；`im_message_lifecycle_events` 显示同一条 backfill 消息反复被拉取，内存去重 TTL 为 30 分钟。当前服务 PID 47762 启动于 `2026-05-27T15:01:51.128Z`，早于上一轮修复提交。线上新报错栈来自 `@openai/agents-openai` `convertToOutputItem(... content.map/summary.map ...)`。
+- passed：新增红灯测试已运行并失败在预期位置。`tests/contracts/skills/stock-kol-command.test.ts` 单独运行显示 `/kol` 仍返回 `assistant_prompt` 且非法参数没有在 workflow dispatch 前拦截；合并定向测试显示 `kol` workflow 缺失，`stock.kol.prepare_context` 未注册。
 
 Review status:
-- passed：复现阶段只做只读 DB / 日志 / 代码检查，未打印 secret。
+- passed：测试只覆盖迁移目标，未改生产路径；第一轮并发运行出现过一次旧委托超时噪声，单独重跑 contract 测试确认失败原因稳定为旧 `assistant_prompt`。
 
 Risks / Notes / Handoff:
-- 上一轮 CardKit fallback TypeError 已在代码和测试中修复，但服务未安全重启，所以现网仍跑旧进程；本次用户看到的 `reading 'map'` 是另一条 Codex Responses SDK 兼容性问题。
+- 上一轮用户已认可“白名单 KOL 情报流水线”设计；本轮直接实施，不再额外创建 `docs/superpowers/*`，遵守仓库禁止规则。
 
-### Milestone 2：修复 backfill 重复触发与 Codex 终态兼容
+### Milestone 2：实现 /kol workflow 化
 
 Objective:
-- 增加持久化 backfill 去重判断，阻止已处理旧消息再次触发 slash command。
-- 对 Codex Responses 终态 output 做最小规范化，避免缺字段触发 SDK 内部 TypeError。
+- 新增 `kol` workflow、role card、local task，并把 `.agents/skills/stock-kol-intel` 的 `/kol` executor 改为 workflow trigger。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/messaging/providers/feishu/index.ts`
-- `container/agent-runner/src/codex-cli-provider.ts`
-- `tests/integration/messaging/feishu/connection.test.ts`
-- `tests/contracts/openai/runner-request.test.ts`
+- `.agents/skills/stock-kol-intel/**`
+- `.agents/workflows/kol.json`
+- `.agents/agent-roles/kol-intel-reporter.md`
+- `src/agent/workflow/local-tasks.ts`
+- `src/agent/workflow/tools.ts`
+- `tests/contracts/skills/**`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
 
 Validation:
-- 相关回归测试先在旧实现失败，再在修复后通过。
+- `npm test -- tests/contracts/skills/stock-kol-command.test.ts`
+- `npm test -- tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts`
 
 Status:
 - done
 
 Validation status:
-- passed：新增 Feishu backfill 持久化重复消息回归测试先在旧实现上失败，证明旧逻辑会再次调用 `/hkipo` slash command；修复后通过。新增 Codex terminal malformed output 回归测试先在旧实现上失败，复现 `Cannot read properties of undefined (reading 'map')`；修复后通过。`npm test -- tests/integration/messaging/feishu/connection.test.ts` 24/24 通过；`npm test -- tests/contracts/openai/runner-request.test.ts` 9/9 通过。
+- passed：`npm test -- tests/contracts/skills/stock-kol-command.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts` 通过，3 个文件 17 个测试全部通过。
 
 Review status:
-- passed：修复限制在 backfill 持久化去重与 Codex terminal output 规范化；live ws 实时消息路径不走持久化 backfill 去重，已有 stale/live ws 回归覆盖仍通过。
+- passed：变更集中在 `/kol` skill executor、`kol` workflow/role card、默认 local task 注册与对应测试；未改普通消息主线、scheduler 执行语义或 HKIPO local task 行为。`/kol` 非法参数仍在本地返回用法提示，合法参数只返回 workflow trigger。
 
 Risks / Notes / Handoff:
-- backfill 持久化去重只应用于 `source='backfill'`，不改变 live ws 的实时消息处理。
+- local task 只读取公开白名单和 twscrape 预检结果；X 原站不可访问时必须结构化标注 `unavailable/error`，交由报告角色降权处理。
 
-### Milestone 3：全量验证、review gate、服务安全重启
+### Milestone 3：文档同步、全量验证与提交
 
 Objective:
-- 跑通仓库验证与 review gate，提交修复并安全重启当前服务。
+- 同步 owner 文档，运行统一 validation/review gate，完成 handoff 与提交。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
+- `PLANS/ROADMAP.md`（仅当留下跨轮次事项）
+- `docs/COMMAND.md`
+- `docs/RUNTIME.md`
+- `docs/MODULE.md`
+- `docs/ARCHITECTURE.md`
 - 本轮已修改文件
-- 只读检查 `~/.cli-claw/ops/restarts/**`、`~/.cli-claw/ops/current-backend.json`
 
 Validation:
-- `npm test -- tests/integration/messaging/feishu/connection.test.ts`
-- `npm test -- tests/contracts/openai/runner-request.test.ts`
-- `npm test -- tests/integration/messaging/feishu/e2e.test.ts`
-- `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=<private_chat_id> npm test -- tests/live/feishu/message-smoke.test.ts`
+- `npm test -- tests/contracts/skills/stock-kol-command.test.ts`
+- `npm test -- tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts`
 - `./scripts/validate.sh`
 - `./scripts/review.sh`
-- `/Users/ryan/.bun/bin/bun src/cli.ts restart` 或 `cli-claw restart`
-- `curl http://127.0.0.1:3000/api/health`
 
 Status:
 - done
 
 Validation status:
-- passed：相关单测已通过：`tests/integration/messaging/feishu/connection.test.ts` 24/24，`tests/contracts/openai/runner-request.test.ts` 9/9。仓库统一验证 `./scripts/validate.sh` 通过：Vitest 75 个文件通过、1 个 skipped，511 个测试通过、1 个 skipped，typecheck 和 build 通过。Feishu in-process E2E `npm test -- tests/integration/messaging/feishu/e2e.test.ts` 通过：14/14。真实飞书 live smoke 使用当前私聊入口发送并读回 `[e2e]` 消息，通过：1/1。safe restart 使用 repo-local launcher `/Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/cli.ts restart`，intent `restart-2026-05-29T03-07-08-096Z-8199a1ee` 状态 passed；服务从旧 PID 47762 切到新 PID 81958，`/api/health` 返回 healthy。重启后 DB 查询 `hkipo_runs_after_restart=0`，launchd stdout 最近 300 行未再出现 `/hkipo` 重跑或 `Cannot read properties of undefined (reading 'map')`。
+- passed：定向回归 `npm test -- tests/contracts/skills/stock-kol-command.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts` 通过，3 个文件 17 个测试全部通过；统一验证 `./scripts/validate.sh` 通过，Vitest 76 个文件通过 / 1 个跳过，515 个测试通过 / 1 个跳过，typecheck 和 build 均通过。
 
 Review status:
-- passed：`./scripts/review.sh` 通过，人工语义 review 通过；变更未扩展到调度器或 Feishu 凭据存储，secret 检查只输出存在性和 appId 短前缀。
+- passed：`./scripts/review.sh` 通过；`npx prettier --write src/agent/workflow/local-tasks.ts` 修复格式后重跑定向测试、统一验证和 review 均通过。已手动语义 review `git diff`、新增 workflow/role/local task/test/doc 变更、`git diff --check` 和调试残留搜索，未发现阻塞问题。
 
 Risks / Notes / Handoff:
-- 运行日志仍存在飞书 WebSocket reconnect 噪声，但重连后 Feishu backfill finished，服务健康、IM channel connected；这不是本轮 `/hkipo` 重复触发或 Codex `.map` TypeError 的阻塞项。
+- 若 workflow 调度或飞书私聊定时任务创建需要真实 Feishu open_id / scheduled task 配置，本轮只完成可复用工作流契约，不替用户伪造线上定时任务。
+- 无跨轮次实现事项需要同步到 `PLANS/ROADMAP.md`。
 
 ## Working Rules
 
@@ -123,17 +126,26 @@ Current status:
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/messaging/providers/feishu/index.ts`
-- `container/agent-runner/src/codex-cli-provider.ts`
-- `tests/integration/messaging/feishu/connection.test.ts`
-- `tests/contracts/openai/runner-request.test.ts`
+- `.agents/skills/stock-kol-intel/SKILL.md`
+- `.agents/skills/stock-kol-intel/commands.json`
+- `.agents/skills/stock-kol-intel/commands/dispatch.py`
+- `.agents/workflows/kol.json`
+- `.agents/agent-roles/kol-intel-reporter.md`
+- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
+- `docs/MODULE.md`
+- `docs/RUNTIME.md`
+- `src/agent/workflow/local-tasks.ts`
+- `src/agent/workflow/tools.ts`
+- `tests/contracts/skills/stock-kol-command.test.ts`
+- `tests/unit/agent/workflow/config.test.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
 
 Last failure summary:
-- 已修复：旧 backfill slash command 现在会根据持久化生命周期直接跳过；Codex terminal output 缺数组字段时不再触发 SDK `.map()` TypeError。
+- 已修复：`/kol` executor 改为 workflow trigger；新增 `kol` workflow / `kol-intel-reporter` role / `stock.kol.prepare_context` local task；同步 owner 文档；定向测试、`./scripts/validate.sh` 和 `./scripts/review.sh` 均通过。
 
 Suspected cause:
-- Feishu backfill 只依赖 30 分钟内存 message cache 去重，旧 slash command 每次 TTL 过期后会被重新当成新消息处理。
-- Codex Responses 终态 output 某些 item 缺 `content` / `summary` 数组，SDK `convertToOutputItem` 未防御并直接 `.map()`。
+- 旧 `/kol` executor 仍委托 `stock-kol-intel/commands/kol.py`，返回 `assistant_prompt`，导致命令执行污染主 runtime session，也不能被 scheduled workflow 复用。
 
 Next step:
-- 提交本轮修复；若后续飞书 WebSocket 仍持续重连，可单独跟进连接稳定性。
+- 本轮迁移已完成；若后续需要真实 8 点日报或爆点实时推送，需要在 scheduled workflow / Feishu 私聊目标上配置实际投递对象与触发策略。

@@ -1,92 +1,100 @@
 #!/usr/bin/env python3
-"""Delegate /kol to the stock-kol-intel repo."""
+"""Convert /kol into the built-in stock KOL workflow trigger."""
 
 from __future__ import annotations
 
 import json
-import os
-import subprocess
+import shlex
 import sys
-from pathlib import Path
 
 
-def emit_error(message: str) -> None:
-    sys.stdout.write(
-        json.dumps(
-            {"reply": {"type": "final_markdown", "content": message}},
-            ensure_ascii=False,
-        )
+DEFAULT_DAYS = 30
+MIN_DAYS = 1
+MAX_DAYS = 365
+
+
+def emit_reply(reply: dict) -> None:
+    sys.stdout.write(json.dumps({"reply": reply}, ensure_ascii=False))
+
+
+def emit_usage(message: str | None = None) -> None:
+    prefix = f"{message}\n\n" if message else ""
+    emit_reply(
+        {
+            "type": "final_markdown",
+            "content": (
+                prefix
+                + "用法：`/kol [--days=30]`\n\n"
+                + "- `/kol`：触发默认 KOL 白名单工作流，最近 30 天。\n"
+                + "- `/kol --days=7`：触发最近 7 天的 KOL 情报工作流。\n\n"
+                + "不支持 `--platform` / `--deep` / positional KOL 参数；平台和 KOL 范围由白名单与内置信源统一维护。"
+            ),
+        }
     )
 
 
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
+def parse_days(args_text: str) -> tuple[int | None, str | None]:
+    try:
+        args = shlex.split(args_text.strip())
+    except ValueError as exc:
+        return None, f"参数解析失败：{exc}"
+
+    days = DEFAULT_DAYS
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg.startswith("--days="):
+            value = arg.split("=", 1)[1]
+        elif arg == "--days":
+            index += 1
+            if index >= len(args):
+                return None, "`--days` 需要一个数字参数。"
+            value = args[index]
+        else:
+            return None, f"不支持的参数：`{arg}`。"
+
+        try:
+            parsed = int(value)
+        except ValueError:
+            return None, f"`--days` 必须是整数，当前是 `{value}`。"
+        if parsed < MIN_DAYS or parsed > MAX_DAYS:
+            return None, (
+                f"`--days` 必须在 {MIN_DAYS}-{MAX_DAYS} 之间，当前是 {parsed}。"
+            )
+        days = parsed
+        index += 1
+
+    return days, None
 
 
-def candidate_roots() -> list[Path]:
-    roots: list[Path] = []
-    env_root = os.environ.get("STOCK_KOL_INTEL_ROOT")
-    if env_root:
-        roots.append(Path(env_root).expanduser())
-    root = repo_root()
-    roots.extend(
-        [
-            root.parent / "stock-kol-intel",
-            Path.home() / "projects" / "stock-kol-intel",
-            Path.home() / "stock-kol-intel",
-        ]
-    )
-    return roots
-
-
-def resolve_external_root() -> Path | None:
-    for root in candidate_roots():
-        candidate = root.resolve()
-        if (candidate / "commands" / "kol.py").is_file():
-            return candidate
-    return None
-
-
-def python_executable(root: Path) -> str:
-    candidates = (
-        [root / ".venv" / "Scripts" / "python.exe", root / ".venv" / "Scripts" / "python"]
-        if os.name == "nt"
-        else [root / ".venv" / "bin" / "python"]
-    )
-    for candidate in candidates:
-        if candidate.is_file():
-            return str(candidate)
-    return sys.executable
+def load_payload() -> dict:
+    raw = sys.stdin.read()
+    if not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def main() -> int:
-    external_root = resolve_external_root()
-    if external_root is None:
-        emit_error(
-            "未找到 stock-kol-intel 仓库。请设置 STOCK_KOL_INTEL_ROOT，"
-            "或把该仓库放在 cli-claw 同级目录。"
-        )
+    payload = load_payload()
+    days, error = parse_days(str(payload.get("argsText") or ""))
+    if error:
+        emit_usage(error)
         return 0
 
-    env = os.environ.copy()
-    env["CLI_CLAW_SKILL_DIR"] = str(external_root)
-    proc = subprocess.run(
-        [
-            python_executable(external_root),
-            str(external_root / "commands" / "kol.py"),
-        ],
-        input=sys.stdin.read(),
-        text=True,
-        cwd=str(external_root),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+    resolved_days = days or DEFAULT_DAYS
+    emit_reply(
+        {
+            "type": "workflow",
+            "workflowId": "kol",
+            "content": "股票 KOL 情报报告",
+            "input": {"days": resolved_days},
+            "ack": f"已启动 KOL 情报工作流，窗口 {resolved_days} 天。",
+        }
     )
-    if proc.stdout:
-        sys.stdout.write(proc.stdout)
-    else:
-        emit_error(proc.stderr.strip() or "/kol 未返回结果")
     return 0
 
 

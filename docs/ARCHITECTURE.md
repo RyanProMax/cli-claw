@@ -33,6 +33,8 @@ Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workf
 
 `/hkipo` 是当前内置 workflow 示例：用户仍从 skill slash command 入口触发，但 skill executor 只返回 `workflowId=hkipo` 和结构化 input；主进程随后执行 Futu IPO 池发现、池标准化、核心数据采集计划、二级热度/发行结构/估值证据采集、证据核验、官方文件下载解析、发行结构与估值分析、回测校准和最终报告节点。Futu/OpenD 不可用时 pool discovery 失败；Futu 可用但热度、绿鞋、基石、回拨、保荐或估值字段缺失时，证据采集节点继续按公开只读来源和 HKEX 官方文件补齐并记录降级。采集脚本自身失败或超时时，只允许 `stock.hkipo.scan_heat` / `stock.hkipo.fetch_official_docs` 返回降级 artifact，不能中断整个 workflow；后续 verifier / report 必须把该情况表述为“热度未达当日核验门槛”或“多源未取到”，并说明缺失字段。
 
+`/kol` 同样是 skill slash command 到 workflow 的快捷入口：skill executor 只校验 `--days` 并返回 `workflowId=kol`，不再生成 `assistant_prompt` 或进入用户主线会话。workflow 的 local task 从 `stock-kol-intel` 白名单与 X/Twitter 预检生成结构化 `kol_context`，报告角色再按主题/共识合并输出 KOL 情报日报；该 workflow 可被 `/workflow kol ...` 和 scheduled workflow 复用。
+
 ## IM 消息可靠性
 
 - IM 入站消息先落库，再进入队列；飞书链路会记录 durable lifecycle 事件，覆盖 `received` / `stored` / `notified` / `queued` / `runner_started` / `stream_started` / `finalized` / `im_delivered` / `cursor_committed` / `dead_lettered`。

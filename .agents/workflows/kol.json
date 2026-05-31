@@ -1,0 +1,28 @@
+{
+  "id": "kol",
+  "name": "股票 KOL 情报工作流",
+  "description": "基于 stock-kol-intel 白名单、X/Twitter twscrape 预检和公开来源可信度规则，生成飞书移动端友好的股票 KOL 情报报告。",
+  "roles": ["kol-intel-reporter"],
+  "start": "kol_context_preflight",
+  "nodes": [
+    {
+      "id": "kol_context_preflight",
+      "type": "local_task",
+      "taskId": "stock.kol.prepare_context",
+      "outputArtifact": "kol_context",
+      "prompt": "读取 stock-kol-intel 白名单，执行 X/Twitter twscrape 源预检，并输出报告所需结构化上下文。"
+    },
+    {
+      "id": "kol_report_editor",
+      "type": "role_task",
+      "roleId": "kol-intel-reporter",
+      "outputArtifact": "final_report",
+      "prompt": "基于 kol_context artifact 生成股票 KOL 情报报告。报告必须按主题/共识合并，不按作者或帖子平铺；每条主题必须包含核心论点、可跟踪方向、来源和证据口径。"
+    }
+  ],
+  "edges": [
+    { "from": "kol_context_preflight", "to": "kol_report_editor" },
+    { "from": "kol_report_editor", "to": "__end__" }
+  ],
+  "maxRetries": 1
+}

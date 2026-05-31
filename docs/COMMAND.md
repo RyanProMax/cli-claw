@@ -42,6 +42,8 @@ Cli Claw 的“命令”分成两层：
 
 scheduled workflow 默认带 usage guard：OpenAI 5h 或 7d 剩余额低于 30% 时不启动 workflow，并把任务延后到 usage reset 后继续。阈值可用 `CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT` 覆盖；usage API 临时不可读时优先复用 90 分钟内最近一次成功 snapshot，仍不可读时按 `CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS` 做保守重试。usage guard 延期是 `Deferred` 状态，不等同于任务失败；workflow 自身返回 `❌ 工作流 ... 失败` 才会记为 task run error。scheduler 还会对超时或上个进程遗留的 running task log / workflow run 执行 watchdog 清理，错误文本为 `Process exceeded scheduled workflow watchdog timeout`。
 
+内置 `kol` workflow 可作为定时 KOL 情报日报复用：`script_command='kol'`，`prompt` 可写 `股票 KOL 情报报告`，默认窗口为 30 天；若需要短窗口，可在 prompt 中加入 `--days=7`。`/kol [--days=30]` skill command 只是这个 workflow 的参数化快捷入口，scheduled task 不需要先经过 `/kol` executor。
+
 ## 应用内命令概览
 
 Cli Claw 维护一份统一命令注册表，作为以下入口的单一事实源：
@@ -71,7 +73,7 @@ skill command 的执行结果有三类：
 
 - 直接回复一段最终 markdown
 - 把 slash command 改写成一段由 skill 生成的 `assistant_prompt` 消息，再继续进入 Agent 主流程；这类消息会使用隔离 runtime session，既不继承也不替换当前 workspace 的主 runtime session
-- 触发一个 workflow，例如 `stock-analysis-skill` 的 `/hkipo` 会返回 `workflowId=hkipo` 和结构化 input，由 Cli Claw 创建独立 workflow run；这条路径不进入用户主会话，也不会生成 `assistant_prompt`
+- 触发一个 workflow，例如 `stock-analysis-skill` 的 `/hkipo` 会返回 `workflowId=hkipo` 和结构化 input，`stock-kol-intel` 的 `/kol --days=7` 会返回 `workflowId=kol` 与 `{ days: 7 }`，由 Cli Claw 创建独立 workflow run；这条路径不进入用户主会话，也不会生成 `assistant_prompt`
 
 因此，并不是所有 slash command 都会在本地层终止；skill command 可以选择把命令解析结果继续交给 Agent。
 
@@ -93,6 +95,7 @@ skill command 的执行结果有三类：
 - `/workflow` 不复用用户主线 runtime session。它只把当前 Web / IM 入口作为触发入口和结果回填通道；workflow 自身按 `(folder, workflowId)` 生成独立 `workflowContextId` / LangGraph `thread_id`，role node 通过独立 `agentId=workflow:<workflowContextId>` 启动 runner，并创建或关联一个 workflow 线程用于后续追问和来源显示。workflow 定义优先来自当前工作区 `.agents/workflows/<id>.json`，缺失时可使用 Cli Claw 内置 `.agents/workflows/<id>.json`；runtime role card 同理优先读取 `.agents/agent-roles/<id>.md`。role 的 `allowedTools` 会在 runner tool factory 层硬过滤。
 - 输入 bare `/workflow` 会列出当前工作区可用 workflow；输入 `/workflow <id> <任务>` 会创建一条 `workflow_runs` 审计记录并后台执行对应 graph。run 创建成功后，Web / IM 会立即收到 `🚀 已启动工作流 ...` 回执，包含 run id；成功、失败或 runner 超时后，系统会再向同一触发会话发送 `✅ 完成` 或 `❌ 失败` 终态消息。
 - 内置 `hkipo` workflow 是 9 节点 crew：Futu/OpenD IPO 池发现、池标准化、核心数据采集计划、二级热度/结构/估值证据采集、热度核验、官方文件下载解析、发行结构/基本面/估值分析、回测校准、最终短报告。用户仍输入 `/hkipo [--all]`；skill executor 只负责把它转成 `hkipo` workflow trigger，`--all` 作为结构化 input 传入 workflow state。最终报告面向飞书普通文本气泡，中文公司名优先，用短行和 emoji 突出排名、热度、入场费、绿鞋/基石/保荐/回拨、同类估值、合理区间、风险与池子校验，不依赖 Markdown 粗体或表格渲染。热度分只允许来自报告日同日的 `margin_multiple` 或 `subscription_multiple` evidence；`margin_multiple` 表示融资/孖展超额倍数，`subscription_multiple` 表示认购倍数，报告不得互相改名。若只有单一券商认购倍数，必须写“单一券商下限；融资/孖展倍数暂无多源核验”；若 `subscription_heat.score_status=not_scorable` 或核心因子不足，报告必须写 `0/N/A` 或“数据不足”，不得输出精确总分或主观“热5”。HKIPO 单个 role node 有 180s runtime 预算；对 `UND_ERR_SOCKET` 等 transient OpenAI socket 异常会有界重试，非最终 role 仍失败或超时时写降级 artifact 继续，最终报告 role 仍失败时用已完成的本地 artifact 生成“降级报告”，避免用户只看到 undici 堆栈。投递前还会对 `hkipo` 最终文本做轻量确定性归一化：把旧来源名统一为“致富证券 IPO”，把旧版“孖展多源未取到”改为“融资/孖展倍数暂无多源核验”，并把“卡：热17 结构8 ...”这类内部短码改写成独立 `🧮 评分` 行。
+- 内置 `kol` workflow 是 2 节点 crew：`stock.kol.prepare_context` local task 从 sibling `stock-kol-intel` 仓库或 `STOCK_KOL_INTEL_ROOT` 读取白名单和权威信源，调用其 X/Twitter `twscrape` 源预检函数，并输出 `kol_context` 结构化 artifact；`kol-intel-reporter` 只读角色基于该 artifact 生成飞书移动端友好的 KOL 情报报告。用户仍输入 `/kol [--days=30]`；skill executor 只负责校验 `--days` 并转成 `kol` workflow trigger。报告必须按主题/共识合并，不按作者或帖子平铺；每个高信号主题必须包含作者原文链接、观点摘要、可跟踪行业/标的、证据口径和后续核验方向；弱证据、无法核验、营销或纯转推内容不进入主报告。
 - 当工作区未显式设置 `openai` 的模型、思考强度或速度时，`/status`、`/openai` 配置卡、dispatch 与 footer fallback 会统一继承 backend 解析出的 OpenAI 环境变量 fallback，避免不同入口看到不同值。
 - `openai` 的模型选项使用内置 preset；若当前 effective model 不在 preset 中，配置卡仍会把它作为当前值展示，避免 `/status` 与 `/openai` 不一致。
 - 普通回复 footer 只保留基础 runtime 信息（紧凑耗时 / Agent 类型 / 模型 / 推理强度 / OpenAI 速度）；耗时不显示小数秒，并按非零单位展示，例如 `36s`、`1min12s`、`1h23min12s`，OpenAI 速度展示为 `standard (1x)` 或 `fast (2x)`。footer 不展示 5h / 7d 剩余额；OpenAI usage 只作为 scheduled workflow 的启动保护使用。
@@ -193,7 +196,7 @@ Web 输入框与 agent tab 直接识别统一命令注册表中的 Web 入口命
 
 如果 Web 输入的是已声明的 skill command，系统会先执行 skill executor；若 skill 返回 `assistant_prompt`，前端会把该 prompt 作为本次真正入库并发给 Agent 的用户消息内容，并以隔离 runtime session 执行。该 session 不会写回 workspace 主会话；下一条普通消息继续使用原主会话，若历史版本已把上一轮 skill final 的 session 误写成主 session，则会先忽略它并建立新的普通主会话。
 
-若 skill 返回 `workflow`，Web 会保存原 slash command、启动回执与后台终态回复，但不会把它入队为普通 Agent 消息；IM 入口同样先直接回复启动回执，再把最终结果、失败或超时消息回到触发会话。
+若 skill 返回 `workflow`，Web 会保存原 slash command、启动回执与后台终态回复，但不会把它入队为普通 Agent 消息；IM 入口同样先直接回复启动回执，再把最终结果、失败或超时消息回到触发会话。当前 `/hkipo` 与 `/kol` 都走这条路径。
 
 ## 运行时配置命令
 

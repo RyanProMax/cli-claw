@@ -8,6 +8,10 @@ import {
   discoverWorkflowConfigs,
   loadWorkflowDefinition,
 } from '../../../../src/agent/workflow/config.ts';
+import {
+  DEFAULT_WORKFLOW_KNOWN_TOOLS,
+  DEFAULT_WORKFLOW_LOCAL_TASK_IDS,
+} from '../../../../src/agent/workflow/tools.ts';
 
 function writeFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -51,6 +55,40 @@ describe('workflow config discovery', () => {
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test('loads the built-in KOL intelligence workflow and role card', () => {
+    const discovered = discoverWorkflowConfigs({
+      workspaceRoot: process.cwd(),
+      knownTools: [...DEFAULT_WORKFLOW_KNOWN_TOOLS],
+      knownLocalTasks: [...DEFAULT_WORKFLOW_LOCAL_TASK_IDS],
+    });
+
+    const kol = discovered.workflows.find(
+      (workflow) => workflow.id === 'kol',
+    );
+    expect(discovered.errors.filter((error) => error.includes('kol'))).toEqual(
+      [],
+    );
+    expect(kol).toMatchObject({
+      id: 'kol',
+      name: '股票 KOL 情报工作流',
+      roles: ['kol-intel-reporter'],
+      start: 'kol_context_preflight',
+    });
+    expect(kol?.nodes).toContainEqual(
+      expect.objectContaining({
+        id: 'kol_context_preflight',
+        type: 'local_task',
+        taskId: 'stock.kol.prepare_context',
+        outputArtifact: 'kol_context',
+      }),
+    );
+    expect(discovered.roles.get('kol-intel-reporter')).toMatchObject({
+      id: 'kol-intel-reporter',
+      skillIds: ['stock-kol-intel'],
+      permissionMode: 'readonly',
+    });
   });
 
   test('loads workflow definitions and runtime role cards from .agents', () => {

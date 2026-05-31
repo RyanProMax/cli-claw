@@ -9,6 +9,7 @@ import { createDefaultWorkflowLocalTasks } from '../../../../src/agent/workflow/
 const ENV_KEYS = [
   'STOCK_ANALYSIS_API_ROOT',
   'STOCK_ANALYSIS_UV',
+  'STOCK_KOL_INTEL_ROOT',
   'CLI_CLAW_CACHE_DIR',
 ] as const;
 
@@ -35,6 +36,103 @@ describe('default workflow local tasks', () => {
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test('prepare_context builds a structured KOL artifact from the stock-kol-intel whitelist and X preflight', async () => {
+    const stockKolRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'stock-kol-root-'),
+    );
+    tempDirs.push(stockKolRoot);
+    fs.mkdirSync(path.join(stockKolRoot, 'commands'), { recursive: true });
+    fs.mkdirSync(path.join(stockKolRoot, 'references'), { recursive: true });
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'references', 'kol_whitelist.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          authoritative_sources: [
+            {
+              id: 'content',
+              platforms: ['X/Twitter', 'official blog'],
+            },
+          ],
+          kols: [
+            {
+              id: 'sample',
+              display_name: 'Sample KOL',
+              primary_links: [
+                {
+                  platform: 'X/Twitter',
+                  url: 'https://x.com/sample',
+                  confidence: 'confirmed',
+                },
+              ],
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'commands', 'kol.py'),
+      [
+        'import json',
+        'from pathlib import Path',
+        '',
+        'def load_whitelist():',
+        '    return json.loads((Path(__file__).resolve().parents[1] / "references" / "kol_whitelist.json").read_text(encoding="utf-8"))',
+        '',
+        'def build_x_source_preflight(days, whitelist):',
+        '    return {',
+        '        "source": "twscrape",',
+        '        "status": "ok",',
+        '        "window_days": days,',
+        '        "results": [{',
+        '            "kol_id": whitelist["kols"][0]["id"],',
+        '            "status": "ok",',
+        '            "posts": [{"url": "https://x.com/sample/status/1", "text": "AI capex signal"}],',
+        '        }],',
+        '    }',
+      ].join('\n'),
+    );
+
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_KOL_INTEL_ROOT = stockKolRoot;
+
+    const tasks = createDefaultWorkflowLocalTasks();
+    const artifact = await tasks['stock.kol.prepare_context']({
+      taskId: 'stock.kol.prepare_context',
+      nodeId: 'kol_context_preflight',
+      input: { command: 'kol', argsText: '--days=7', input: { days: 7 } },
+      artifacts: {},
+    });
+
+    expect(artifact).toMatchObject({
+      status: 'ok',
+      source: 'stock-kol-intel',
+      window_days: 7,
+      whitelist: {
+        kols: [{ id: 'sample', display_name: 'Sample KOL' }],
+      },
+      x_preflight: {
+        source: 'twscrape',
+        status: 'ok',
+        window_days: 7,
+        results: [
+          {
+            kol_id: 'sample',
+            posts: [{ url: 'https://x.com/sample/status/1' }],
+          },
+        ],
+      },
+    });
+    expect((artifact as any).report_requirements).toContain(
+      '按主题/共识合并',
+    );
+    expect((artifact as any).report_requirements).toContain(
+      '作者原文链接',
+    );
   });
 
   test('scan_heat returns a degraded artifact when the readonly scanner fails', async () => {
