@@ -114,6 +114,7 @@ let persistentWorkflowCheckpointer: BaseCheckpointSaver | null = null;
 let persistentWorkflowCheckpointPath: string | null = null;
 
 const HKIPO_FINAL_REPORT_NODE_ID = 'ranking_report_editor';
+const KOL_FINAL_REPORT_NODE_ID = 'kol_report_editor';
 const HKIPO_ROLE_PROCESS_TIMEOUT_MS = 180_000;
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -220,7 +221,37 @@ function isTransientAgentRuntimeError(message: string): boolean {
 }
 
 function isAgentRuntimeTimeout(message: string): boolean {
-  return /timed out|timeout/i.test(message);
+  return /Agent Process timed out after|process timed out after|\btimed out after\b|TimeoutError\b|operation timed out|deadline exceeded/i.test(
+    message,
+  );
+}
+
+export function summarizeAgentRuntimeError(message: string): string {
+  if (
+    /UND_ERR_SOCKET|undici\.error\.UND_ERR_SOCKET|socket hang up|other side closed|ECONNRESET|EPIPE|network socket|fetch failed|terminated/i.test(
+      message,
+    )
+  ) {
+    return 'Agent runtime socket 异常（UND_ERR_SOCKET）';
+  }
+  if (
+    /server_is_overloaded|service_unavailable_error|server_error|servers are currently overloaded|please try again later|502|503|504|529/i.test(
+      message,
+    )
+  ) {
+    return 'Agent runtime 服务暂时繁忙';
+  }
+  return message;
+}
+
+function formatAgentRuntimeErrorSummary(
+  message: string,
+  maxLength: number,
+): string {
+  const summary = summarizeAgentRuntimeError(message);
+  return summary.length > maxLength
+    ? `${summary.slice(0, maxLength)}...`
+    : summary;
 }
 
 function getWorkflowRoleProcessTimeoutMs(
@@ -239,7 +270,7 @@ function buildDegradedRoleNotice(input: {
   return [
     `⚠️ ${input.nodeId} 已降级`,
     `原因：Agent runtime socket 异常，已保留上游结构化数据继续执行。`,
-    `原始错误：${input.message.slice(0, 500)}`,
+    `错误摘要：${formatAgentRuntimeErrorSummary(input.message, 500)}`,
   ].join('\n');
 }
 
@@ -266,7 +297,7 @@ function buildHkipoFallbackReport(
   const lines = [
     '⚠️ 港股IPO打新｜降级报告',
     `原因：Agent runtime socket 异常，报告编辑角色中断；以下基于已完成的本地采集 artifact 自动生成，建议稍后重试获取完整分析。`,
-    `Run 仍保留审计记录；原始错误：${message.slice(0, 220)}`,
+    `Run 仍保留审计记录；错误摘要：${formatAgentRuntimeErrorSummary(message, 220)}`,
     '',
     `📦 池子：Futu池 ${ipos.length}只｜同日热度 ${sameDayCount}/${Math.max(ipos.length, heatRows.length)}`,
   ];
@@ -308,6 +339,226 @@ function buildHkipoFallbackReport(
   if (rows.length === 0) {
     lines.push('未能从 artifact 读取 IPO 池，请查看 workflow run steps。');
   }
+
+  return lines.join('\n');
+}
+
+function normalizeKolHandle(handle: string): string {
+  return handle.replace(/^@+/, '').trim();
+}
+
+function extractKolHandleFromUrl(url: string): string {
+  const match = url.match(/(?:x|twitter)\.com\/([^/?#]+)/i);
+  return match ? normalizeKolHandle(match[1]) : '';
+}
+
+function readKolHandle(item: Record<string, unknown>): string {
+  const direct =
+    readString(item.handle) ||
+    readString(item.username) ||
+    readString(item.screen_name) ||
+    readString(item.screenName);
+  if (direct) return normalizeKolHandle(direct);
+  const url = readString(item.x_url) || readString(item.url);
+  return url ? extractKolHandleFromUrl(url) : '';
+}
+
+function readKolDisplayName(item: Record<string, unknown>): string {
+  return (
+    readString(item.display_name) ||
+    readString(item.displayName) ||
+    readString(item.name) ||
+    readString(item.id) ||
+    readKolHandle(item) ||
+    'Unknown KOL'
+  );
+}
+
+function formatKolName(item: Record<string, unknown>): string {
+  const displayName = readKolDisplayName(item);
+  const handle = readKolHandle(item);
+  return handle ? `${displayName}（@${handle}）` : displayName;
+}
+
+function readKolContext(state: WorkflowGraphState): Record<string, unknown> {
+  const artifact = state.artifacts.kol_context;
+  return isRecord(artifact) ? artifact : {};
+}
+
+function readCoveredKols(
+  kolContext: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const covered = asArray(kolContext.covered_kols).filter(isRecord);
+  if (covered.length > 0) return covered;
+  const whitelist = isRecord(kolContext.whitelist) ? kolContext.whitelist : {};
+  return asArray(whitelist.kols).filter(isRecord);
+}
+
+function buildKolIdentityMap(
+  coveredKols: Record<string, unknown>[],
+  xPreflight: Record<string, unknown>,
+): Map<string, string> {
+  const identities = new Map<string, string>();
+  const addIdentity = (item: Record<string, unknown>) => {
+    const name = formatKolName(item);
+    for (const key of [
+      readString(item.id),
+      readString(item.kol_id),
+      readKolHandle(item),
+      readString(item.username),
+    ]) {
+      if (key) identities.set(normalizeKolHandle(key), name);
+    }
+  };
+  for (const kol of coveredKols) addIdentity(kol);
+  for (const account of asArray(xPreflight.accounts).filter(isRecord)) {
+    addIdentity(account);
+  }
+  return identities;
+}
+
+function readKolIdentity(
+  item: Record<string, unknown>,
+  identities: Map<string, string>,
+): string {
+  for (const key of [
+    readString(item.kol_id),
+    readString(item.id),
+    readKolHandle(item),
+    readString(item.username),
+  ]) {
+    const normalized = normalizeKolHandle(key);
+    if (normalized && identities.has(normalized)) {
+      return identities.get(normalized) ?? formatKolName(item);
+    }
+  }
+  return formatKolName(item);
+}
+
+function formatKolSourceTitle(post: Record<string, unknown>): string {
+  const title = readString(post.title);
+  if (title) return title;
+  const text = readString(post.text).replace(/\s+/g, ' ');
+  if (text) return text.length > 42 ? `${text.slice(0, 42)}...` : text;
+  return '原文';
+}
+
+function collectKolSourceLinks(
+  kolContext: Record<string, unknown>,
+  coveredKols: Record<string, unknown>[],
+): string[] {
+  const xPreflight = isRecord(kolContext.x_preflight)
+    ? kolContext.x_preflight
+    : {};
+  const identities = buildKolIdentityMap(coveredKols, xPreflight);
+  const seenUrls = new Set<string>();
+  const lines: string[] = [];
+  const pushLink = (
+    author: string,
+    title: string,
+    url: string,
+    suffix = '',
+  ) => {
+    if (!url || seenUrls.has(url)) return;
+    seenUrls.add(url);
+    lines.push(`- ${author}：[${title} | x](${url})${suffix}`);
+  };
+
+  for (const result of asArray(xPreflight.results).filter(isRecord)) {
+    const author = readKolIdentity(result, identities);
+    for (const post of asArray(result.posts).filter(isRecord)) {
+      const url = readString(post.url) || readString(post.link);
+      pushLink(author, formatKolSourceTitle(post), url);
+    }
+  }
+
+  for (const account of asArray(xPreflight.accounts).filter(isRecord)) {
+    const author = readKolIdentity(account, identities);
+    const url = readString(account.url) || readString(account.x_url);
+    pushLink(author, '账号主页', url, '（本轮报告编辑中断，未完成主题归因）');
+  }
+
+  for (const kol of coveredKols) {
+    const url = readString(kol.x_url) || readString(kol.url);
+    pushLink(
+      formatKolName(kol),
+      '账号主页',
+      url,
+      '（本轮报告编辑中断，未完成主题归因）',
+    );
+  }
+
+  return lines.slice(0, 8);
+}
+
+function formatKolPreflightStatus(kolContext: Record<string, unknown>): string {
+  const xPreflight = isRecord(kolContext.x_preflight)
+    ? kolContext.x_preflight
+    : {};
+  const status = readString(xPreflight.status) || 'unknown';
+  const reason =
+    readString(xPreflight.error) ||
+    readString(xPreflight.reason) ||
+    readString(xPreflight.message);
+  return reason ? `${status}（${reason.slice(0, 120)}）` : status;
+}
+
+function buildKolFallbackReport(
+  state: WorkflowGraphState,
+  message: string,
+): string {
+  const kolContext = readKolContext(state);
+  const coveredKols = readCoveredKols(kolContext);
+  const coveredSummary =
+    readString(kolContext.covered_kol_summary) ||
+    coveredKols.map(formatKolName).join('、') ||
+    '未解析到白名单 KOL 名称';
+  const windowDays = readNumber(kolContext.window_days) ?? 30;
+  const sourceLinks = collectKolSourceLinks(kolContext, coveredKols);
+  const preflightStatus = formatKolPreflightStatus(kolContext);
+  const reason = formatAgentRuntimeErrorSummary(message, 220);
+  const cache = isRecord(kolContext.cache) ? kolContext.cache : {};
+  const retryHint =
+    cache.cacheable === true
+      ? '稍后重试可复用缓存继续生成完整报告。'
+      : '稍后重试可重新获取上下文并生成完整报告。';
+
+  const lines = [
+    '⚠️ **KOL 情报报告｜降级报告**',
+    `窗口：最近 ${windowDays} 天`,
+    `覆盖：${coveredKols.length} 位 KOL`,
+    `覆盖 KOL：${coveredSummary}`,
+    '高信号主题：暂无可确认主题',
+    '',
+    `🧾 **结论/总结**：本轮已完成白名单与 X/Twitter 来源预检，但报告编辑角色因 ${reason} 中断。为避免把未完成整合的内容包装成投资结论，本次只返回来源可用性与保守核验方向；${retryHint}`,
+    '',
+    '**近期投资方向与高信号内容**',
+    '',
+    '**1. 暂无可确认高信号主题：等待完整报告角色复核**',
+    '',
+    '🧭 **核心论点**：上游 `kol_context` 已生成，但本次最终编辑未完成，因此不能把零散帖子或账号主页直接提升为股票热点方向。',
+    '',
+    '📝 **观点摘要**：',
+    '- **事实**：白名单范围与 X/Twitter 预检已完成；最终报告生成环节发生 runtime socket 中断。',
+    '- **推断**：问题更接近模型运行时网络瞬断，而不是 KOL 抓取或账号白名单失败；重试后更可能得到完整主题合并报告。',
+    '',
+    '🏷️ **关联行业/代表标的**：暂无。当前证据不足以落到具体行业链、个股或 ETF。',
+    '',
+    '📊 **行业现状**：本次不输出行业景气判断；需等待完整报告角色基于原文链接复核后再生成。',
+    '',
+    '🔮 **未来叙事**：优先观察两位白名单 KOL 的原文恢复情况、是否出现多源共识，以及是否能落到可跟踪股票方向。',
+    '',
+    '🎯 **可跟踪方向**：先跟踪来源可用性与完整报告重跑结果；不输出买卖建议。',
+    '',
+    '🔗 **来源**：',
+    ...(sourceLinks.length > 0
+      ? sourceLinks
+      : ['- 暂无可用原文链接（本轮报告编辑中断）']),
+    '',
+    '**账号与来源可信度**',
+    `- X/Twitter 预检状态：${preflightStatus}`,
+    '- 降级边界：不使用镜像、搜索缓存、截图或不可核验转述作为高信号主题主证据。',
+  ];
 
   return lines.join('\n');
 }
@@ -521,15 +772,22 @@ function createRoleTaskNode(options: {
           continue;
         }
 
-        if (options.workflow.id === 'hkipo' && transientRuntimeError) {
+        const canDegradeTransientRole =
+          transientRuntimeError &&
+          (options.workflow.id === 'hkipo' || options.workflow.id === 'kol');
+        if (canDegradeTransientRole) {
           const fallbackResult =
+            options.workflow.id === 'hkipo' &&
             options.node.id === HKIPO_FINAL_REPORT_NODE_ID
               ? buildHkipoFallbackReport(state, error)
-              : buildDegradedRoleNotice({
-                  nodeId: options.node.id,
-                  roleId: options.role.id,
-                  message: error,
-                });
+              : options.workflow.id === 'kol' &&
+                  options.node.id === KOL_FINAL_REPORT_NODE_ID
+                ? buildKolFallbackReport(state, error)
+                : buildDegradedRoleNotice({
+                    nodeId: options.node.id,
+                    roleId: options.role.id,
+                    message: error,
+                  });
           const artifactKey = options.node.outputArtifact ?? options.node.id;
           const roleArtifact = {
             status: 'degraded',

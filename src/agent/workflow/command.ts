@@ -12,6 +12,7 @@ import {
 import {
   getPersistentWorkflowCheckpointer,
   runWorkflowGraph,
+  summarizeAgentRuntimeError,
   type WorkflowLocalTaskRegistry,
 } from './engine.js';
 import {
@@ -165,7 +166,12 @@ function formatWorkflowFailure(options: {
   workflow: WorkflowDiscovery['workflows'][number];
   message: string;
 }): string {
-  return `❌ 工作流 ${options.workflow.name} (${options.workflow.id}) 失败：${options.message}`;
+  const runtimeSummary = summarizeAgentRuntimeError(options.message);
+  const message =
+    runtimeSummary === options.message
+      ? options.message
+      : `${runtimeSummary}。已记录运行日志，请稍后重试。`;
+  return `❌ 工作流 ${options.workflow.name} (${options.workflow.id}) 失败：${message}`;
 }
 
 function discoverWorkflowConfigsWithBuiltins(options: {

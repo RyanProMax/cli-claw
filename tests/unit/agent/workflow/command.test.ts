@@ -293,6 +293,37 @@ describe('workflow command execution', () => {
     db.closeDatabase();
   });
 
+  test('summarizes transient socket failures instead of exposing raw undici details', async () => {
+    const workspaceRoot = tempDir('cli-claw-workflow-command-socket-fail-');
+    writeWorkflowFixture(workspaceRoot);
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn(async () => {
+      throw new Error(
+        "Agent process exited with code 1: remoteFamily: 'IPv4', timeout: undefined, Symbol(undici.error.UND_ERR_SOCKET): true",
+      );
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'research 分析英伟达',
+      triggerUserId: 'user-1',
+      workspaceRoot,
+      runGraph,
+    } as any);
+
+    expect(reply).toContain('❌ 工作流 投研工作流 (research) 失败');
+    expect(reply).toContain('Agent runtime socket 异常');
+    expect(reply).not.toContain('remoteFamily');
+    expect(reply).not.toContain('timeout: undefined');
+
+    db.closeDatabase();
+  });
+
   test('normalizes hkipo final report before delivery', async () => {
     const workspaceRoot = tempDir('cli-claw-workflow-command-hkipo-report-');
     writeFile(
@@ -382,5 +413,4 @@ describe('workflow command execution', () => {
 
     db.closeDatabase();
   });
-
 });

@@ -1,77 +1,82 @@
-# 当前任务：排查 /hkipo Web 展示缺失与启动延迟
+# 当前任务：排查并修复 /kol 角色节点 UND_ERR_SOCKET 失败
 
 ## Goal
 
-- 查清用户发送 `/hkipo` 后 Web 不展示原始指令的原因。
-- 查清用户在 09 分发送、11 分才收到“已启动工作流”的延迟发生在哪一层。
-- 若根因在 Cli Claw 命令分发、消息入库或 workflow 触发链路内，修复并补充验证。
+- 查清本次 `/kol` 已启动后失败的具体节点与原因。
+- 避免 OpenAI/Codex 临时 socket 断开把 `UND_ERR_SOCKET` 原始对象直接发给用户。
+- 若本地 KOL context 已成功生成，角色节点临时失败时应有可读降级结果或有界重试，而不是整条 workflow 只返回底层网络错误。
 
 ## Done when
 
-- 有数据库、日志和代码链路证据说明 `/hkipo` 原始指令为何未在 Web 展示。
-- 有时间线说明 09→11 的延迟发生在 Feishu 事件进入服务前、命令分发前、workflow 创建前，还是 workflow 内部。
-- 若属于本仓库 bug，相关代码和测试完成；若属于外部平台投递延迟，给出可观测证据与后续监控建议。
-- 验证和 review gate 通过；影响运行中服务时走安全重启路径应用。
+- 有 `workflow_runs`、`workflow_run_steps` 和日志证据说明失败发生在哪个节点。
+- 本仓库可控修复完成，并覆盖测试。
+- 验证和 review gate 通过；提交后安全重启服务。
 
 ## Milestones
 
 ### Milestone 1：根因定位
 
 Objective:
-- 从消息库、workflow 审计、服务日志和命令分发代码定位 Web 不展示与启动延迟的边界。
+- 定位最新 `/kol` 失败 run 的节点、输入 artifact 状态、错误来源和用户可见 raw error 的格式化路径。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- 只读检查 `src/`、`docs/`、`tests/`
-- 只读查询本机 `~/.cli-claw/db/messages.db` 和 `~/.cli-claw/ops/launchd/cli-claw.stdout.log`
+- 只读查询 `~/.cli-claw/db/messages.db` 和服务日志
+- 只读检查 `src/agent/workflow/`、`src/presentation/`、相关测试
 
 Validation:
-- 给出一条包含用户输入、workflow run 创建、启动回执、step 开始的时间线。
-- 给出 Web 消息展示路径中是否过滤或缺失 `/hkipo` 的明确证据。
+- 给出 run id、失败节点、上游 local task 是否成功、错误来源和现有失败消息路径。
 
 Status:
 - done
 
 Validation status:
-- passed：消息库 13:07-13:14 无 `/hkipo` 原始输入；`workflow_runs` 最新 `hkipo` run 创建于 `2026-05-31T13:11:45.515Z` 且 `trigger_message_id` 为空；`im_message_lifecycle_events` 显示同一 Feishu message `received` 于 `2026-05-31T13:11:45.271Z`、随后 `skipped/slash_command`。服务日志显示消息原始 `createTimeMs=1780232946873` 即 `2026-05-31T13:09:06.873Z`，但 `source=backfill`，且 09:07-09:11 期间持续 `ws connect failed`，说明启动回执延迟发生在 Feishu 长连接离线后的 backfill 到达前，不是 workflow 内部排队。
+- passed
 
 Review status:
-- passed：Web 历史查询 `getMessagesPage/getMessagesAfter` 不过滤 `user_command`；Feishu slash command 分支在发送本地 reply 后直接 return，未调用普通消息的 `storeMessageDirect/broadcastNewMessage`，因此 Web 无可展示记录。
+- passed
 
 Risks / Notes / Handoff:
-- 最新 `/hkipo` workflow run 在服务收到消息同秒创建并立即启动；本轮可控修复应聚焦 IM slash command 原始消息/启动回执可见性，以及 workflow run 绑定 `trigger_message_id`。Feishu 长连接离线造成的外部到达延迟只能通过连接健康和 backfill 观测解释，不能在 workflow 层修复。
+- 已确认失败 run 为 `wfrun_ac94cf1b-29c0-42b8-8aeb-5d98102142ce`。
+- `kol_context_preflight` 成功，`kol_context` artifact 的 `status=ok`、`x_preflight.status=ok`，窗口为最近 30 天，覆盖 KOL 为 Dexter Yang（@dexteryy）与 Serenity（@aleabitoreddit）。
+- `kol_report_editor` role node 在 runner 中因 `UND_ERR_SOCKET` 失败；日志显示远端为本机代理 `127.0.0.1:7897`，错误为 `TypeError: terminated` / `SocketError: other side closed`，属于 OpenAI/Codex role runtime 网络瞬断，不是 X 抓取失败。
+- 失败消息路径为 `runWorkflowGraph` 抛出原始 error 后由 `formatWorkflowFailure()` 拼接成飞书终态消息，因此底层 undici 对象被直接展示给用户。
 
-### Milestone 2：修复本仓库内可控问题
+### Milestone 2：修复 transient role failure 的用户体验
 
 Objective:
-- 若根因是 slash workflow command 未保存原始指令、未绑定 `trigger_message_id`、或 Web 查询过滤错误，则修复源头并补测试。
+- 为 `/kol` 或通用 workflow role transient socket 失败增加有界重试/可读降级，至少保证 raw `UND_ERR_SOCKET` 不进入用户正文。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/`
+- `src/agent/workflow/`
+- `src/presentation/`（仅错误摘要必要时）
 - `tests/`
 - 必要时更新 `docs/COMMAND.md`
 
 Validation:
-- 相关定向单测通过。
-- `/hkipo` workflow command 能保存原始 slash command 并把 workflow run 绑定到触发消息。
+- 新增/更新定向测试覆盖 `/kol` role 节点 transient failure。
+- 相关测试通过。
 
 Status:
 - done
 
 Validation status:
-- passed：新增 Feishu slash command 可见性测试先红后绿，确认 `/hkipo` 这类本地 reply 命令会保存原始 `user_command` 和即时回执；新增 workflow command 测试确认 `triggerMessageId` 会写入 `workflow_runs.trigger_message_id`。`npm test -- tests/unit/messaging/slash-command.test.ts tests/integration/messaging/feishu/connection.test.ts tests/unit/agent/workflow/command.test.ts` 通过 36/36；`npm run typecheck:backend` 通过；`git diff --check` 通过。
+- passed
 
 Review status:
-- passed：改动只在 IM slash command context、Feishu slash command 本地 reply 持久化、workflow trigger id 传递和 Web workflow trigger id 传递路径内；`user_command` 仍被 `getNewMessages` 排除，不会进入普通 Agent 队列。
+- passed
 
 Risks / Notes / Handoff:
-- Feishu slash command 的原始命令使用 Feishu `message_id` 保存，timestamp 使用平台 `create_time`；即时回执使用 Feishu 返回的 sent message id 或本地 UUID 保存。交互卡片类回执在 Web 历史中只保存 summary/占位文本，避免展示原始 card JSON。
+- 不应掩盖真实业务数据缺失；只有 runner/socket transient 才降级或重试，KOL context 本身失败仍应如实报错。
+- 已收紧 runtime timeout 判定，避免 `timeout: undefined` 误判为真实超时而跳过 socket 重试。
+- 已为 `kol_report_editor` 增加 transient socket 降级报告；当 `kol_context` 已存在但最终报告角色失败时，输出白名单、来源状态和保守核验方向，不再裸露 undici 对象。
+- `formatWorkflowFailure()` 对 socket/服务繁忙类 runtime 错误做摘要化；真实 `Agent Process timed out after ...` 保留原文。
 
 ### Milestone 3：验证、review、提交与服务应用
 
 Objective:
-- 跑完定向验证、review gate、提交，并按安全路径重启服务。
+- 运行定向验证、typecheck、review gate，提交并安全重启服务。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
@@ -79,7 +84,7 @@ Allowed scope:
 - 本轮已修改文件
 
 Validation:
-- 定向测试。
+- 定向测试
 - `npm run typecheck:backend`
 - `git diff --check`
 - `./scripts/review.sh`
@@ -88,13 +93,22 @@ Status:
 - done
 
 Validation status:
-- passed：`npm test -- tests/unit/messaging/slash-command.test.ts tests/integration/messaging/feishu/connection.test.ts tests/unit/agent/workflow/command.test.ts` 通过 36/36；`npm run typecheck:backend` 通过；`git diff --check` 通过；`./scripts/review.sh` 通过 diff hygiene 与格式检查。
+- passed
 
 Review status:
-- passed：按 `RUNBOOKS/Review.md` 复核 diff，确认 `user_command` 只用于 Web/审计可见性，仍被 `getNewMessages` 排除；Feishu 本地回执持久化只发生在 slash command 本地 reply 路径，不改变 assistant_prompt rewrite 的普通消息入队语义；Web 与 Feishu workflow trigger 都把已保存的触发消息 id 传入 `workflow_runs.trigger_message_id`。
+- passed
 
 Risks / Notes / Handoff:
-- 本轮不能消除 Feishu WebSocket 离线造成的 09:09→09:11 到达延迟；已通过日志证明 workflow run 创建后立即执行。后续若仍频繁掉线，应单独加强 Feishu WS 健康告警/自恢复，而不是调整 `/hkipo` workflow。
+- 若最终证明失败完全来自外部 OpenAI 临时网络，仍需修掉 raw error 泄露，避免用户看到底层对象。
+- 验证通过：
+  - `npm test -- tests/unit/agent/workflow/engine.test.ts tests/unit/agent/workflow/command.test.ts`
+  - `npm run typecheck:backend`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- 已按 `RUNBOOKS/Review.md` 做语义 review：scope 与 milestone 一致，无 debug/TODO，无额外协议重复；`docs/COMMAND.md` 已同步 `/kol` transient socket 重试与降级行为。
+- 已提交 `cf6f7b2 Handle KOL workflow socket failures`。
+- 已通过 `bun src/cli.ts restart` 走安全 watchdog 重启；restart intent `restart-2026-05-31T14-16-43-056Z-49ad3189.json` 状态为 `passed`。
+- 新 backend PID 为 `88726`，`http://127.0.0.1:3000/api/health` 返回 `healthy`。
 
 ## Working Rules
 
@@ -110,28 +124,21 @@ Current milestone:
 - Milestone 3
 
 Current status:
-- done
+- complete
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `docs/COMMAND.md`
+- `src/agent/workflow/engine.ts`
 - `src/agent/workflow/command.ts`
-- `src/index.ts`
-- `src/messaging/channel.ts`
-- `src/messaging/manager.ts`
-- `src/messaging/providers/feishu/index.ts`
-- `src/messaging/providers/wechat/index.ts`
-- `src/messaging/slash-command.ts`
-- `src/web/app.ts`
-- `src/web/context.ts`
-- `tests/integration/messaging/feishu/connection.test.ts`
+- `tests/unit/agent/workflow/engine.test.ts`
 - `tests/unit/agent/workflow/command.test.ts`
+- `docs/COMMAND.md`
 
 Last failure summary:
-- 用户反馈 `/hkipo` 在 Web 不展示，且 09 分发送后 11 分才收到“已启动工作流”回执。
+- 用户发送 `/kol` 后先收到启动回执，随后收到 `Agent process exited with code 1` 和 undici `UND_ERR_SOCKET` 原始错误片段。
 
 Suspected cause:
-- 已确认。Feishu slash command 分支没有保存原始命令和即时回执；workflow command 入口没有接收/传递 `trigger_message_id`。09→11 延迟来自 Feishu WebSocket 离线重连期间的 backfill，到达服务后处理仅约 260ms。
+- 已确认：`kol_report_editor` 的 OpenAI role runtime 经本机代理连接中断；上游 KOL context 已成功生成。
 
 Next step:
-- 本轮实现完成；提交后按安全路径重启服务，让运行中 backend 加载新 slash command 可见性逻辑。
+- 无。修复已提交并应用到正在运行的服务。

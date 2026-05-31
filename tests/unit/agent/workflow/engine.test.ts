@@ -256,6 +256,62 @@ describe('workflow graph engine', () => {
     );
   });
 
+  test('retries socket errors even when undici includes timeout metadata', async () => {
+    const workflow = makeWorkflow();
+    const role = makeRole();
+    const context = makeContext();
+    const run = makeRun();
+    const stepEvents: unknown[] = [];
+    let attempts = 0;
+
+    const result = await runWorkflowGraph({
+      workflow,
+      roles: new Map([[role.id, role]]),
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      context,
+      run,
+      prompt: '分析英伟达近期风险',
+      runner: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            status: 'error',
+            result: null,
+            error:
+              "Agent process exited with code 1: remoteFamily: 'IPv4', timeout: undefined, Symbol(undici.error.UND_ERR_SOCKET): true",
+          };
+        }
+        return { status: 'success', result: 'socket 重试后完成' };
+      },
+      recordStep: (step) => {
+        stepEvents.push(step);
+      },
+      updateRunStatus: (runId, update) => ({ ...run, ...update }),
+    });
+
+    expect(result.result).toBe('socket 重试后完成');
+    expect(attempts).toBe(2);
+    expect(stepEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'research',
+          status: 'error',
+          attempt: 1,
+          error: expect.stringContaining('UND_ERR_SOCKET'),
+        }),
+        expect.objectContaining({
+          nodeId: 'research',
+          status: 'success',
+          attempt: 2,
+        }),
+      ]),
+    );
+  });
+
   test('runs local tasks through a registered task runner and exposes artifacts to later roles', async () => {
     const workflow: WorkflowDefinition = {
       id: 'hkipo',
@@ -586,6 +642,134 @@ describe('workflow graph engine', () => {
       expect.arrayContaining([
         expect.objectContaining({
           nodeId: 'ranking_report_editor',
+          status: 'success',
+          output: expect.objectContaining({
+            artifact: expect.objectContaining({ status: 'degraded' }),
+          }),
+        }),
+      ]),
+    );
+  });
+
+  test('returns a deterministic kol fallback report when the final role hits a transient socket failure', async () => {
+    const workflow: WorkflowDefinition = {
+      id: 'kol',
+      name: '股票 KOL 情报工作流',
+      description: '股票 KOL 情报 crew',
+      roles: ['analyst'],
+      start: 'kol_context_preflight',
+      nodes: [
+        {
+          id: 'kol_context_preflight',
+          type: 'local_task',
+          taskId: 'stock.kol.prepare_context',
+          outputArtifact: 'kol_context',
+        },
+        {
+          id: 'kol_report_editor',
+          type: 'role_task',
+          roleId: 'analyst',
+          outputArtifact: 'final_report',
+        },
+      ] as any,
+      edges: [
+        { from: 'kol_context_preflight', to: 'kol_report_editor' },
+        { from: 'kol_report_editor', to: '__end__' },
+      ],
+      maxRetries: 0,
+      sourcePath: '/workspace/.agents/workflows/kol.json',
+    };
+    const role = makeRole();
+    const context = { ...makeContext(), workflow_id: 'kol' };
+    const run = { ...makeRun(), workflow_id: 'kol' };
+    const runEvents: unknown[] = [];
+    const stepEvents: unknown[] = [];
+
+    const result = await runWorkflowGraph({
+      workflow,
+      roles: new Map([[role.id, role]]),
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      context,
+      run,
+      prompt: '生成 KOL 情报日报',
+      localTasks: {
+        'stock.kol.prepare_context': async () => ({
+          status: 'ok',
+          source: 'stock-kol-intel',
+          window_days: 30,
+          covered_kol_summary:
+            'Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
+          covered_kols: [
+            {
+              id: 'dexteryy',
+              display_name: 'Dexter Yang',
+              handle: 'dexteryy',
+              x_url: 'https://x.com/dexteryy',
+            },
+            {
+              id: 'aleabitoreddit',
+              display_name: 'Serenity',
+              handle: 'aleabitoreddit',
+              x_url: 'https://x.com/aleabitoreddit',
+            },
+          ],
+          x_preflight: {
+            status: 'ok',
+            accounts: [
+              {
+                kol_id: 'dexteryy',
+                display_name: 'Dexter Yang',
+                username: 'dexteryy',
+                url: 'https://x.com/dexteryy',
+              },
+              {
+                kol_id: 'aleabitoreddit',
+                display_name: 'Serenity',
+                username: 'aleabitoreddit',
+                url: 'https://x.com/aleabitoreddit',
+              },
+            ],
+          },
+        }),
+      },
+      runner: async () => ({
+        status: 'error',
+        result: null,
+        error:
+          "Agent process exited with code 1: remoteFamily: 'IPv4', timeout: undefined, Symbol(undici.error.UND_ERR_SOCKET): true",
+      }),
+      updateRunStatus: (runId, update) => {
+        runEvents.push({ runId, ...update });
+        return { ...run, ...update };
+      },
+      recordStep: (step) => {
+        stepEvents.push(step);
+      },
+    } as any);
+
+    expect(result.result).toContain('⚠️ **KOL 情报报告｜降级报告**');
+    expect(result.result).toContain('覆盖：2 位 KOL');
+    expect(result.result).toContain(
+      'Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
+    );
+    expect(result.result).toContain('Agent runtime socket 异常');
+    expect(result.result).not.toContain('remoteFamily');
+    expect(runEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'success',
+          result: expect.stringContaining('降级报告'),
+        }),
+      ]),
+    );
+    expect(stepEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: 'kol_report_editor',
           status: 'success',
           output: expect.objectContaining({
             artifact: expect.objectContaining({ status: 'degraded' }),
