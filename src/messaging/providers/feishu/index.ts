@@ -168,6 +168,7 @@ const FEISHU_WS_READY_STATE_OPEN = 1;
 const WS_HEALTH_CHECK_INTERVAL_MS = 15_000;
 const WS_RECONNECT_CHECK_THRESHOLD = 4;
 const WS_RECONNECT_MIN_INTERVAL_MS = 30_000;
+const OFFLINE_BACKFILL_INTERVAL_MS = 60_000;
 const BACKFILL_LOOKBACK_MS = 5 * 60 * 1000;
 const BACKFILL_PAGE_SIZE = 50;
 const BACKFILL_MAX_PAGES_PER_CHAT = 5;
@@ -639,6 +640,7 @@ export function createFeishuConnection(
   let lastWsStateConnected = false;
   let disconnectedChecks = 0;
   let disconnectedSince: number | null = null;
+  let lastOfflineBackfillAt = 0;
   let healthTimer: NodeJS.Timeout | null = null;
 
   function rememberChatProgress(
@@ -1840,6 +1842,13 @@ export function createFeishuConnection(
     }
   }
 
+  async function maybeRunOfflineBackfill(now: number): Promise<void> {
+    if (!disconnectedSince || knownChatIds.size === 0) return;
+    if (now - lastOfflineBackfillAt < OFFLINE_BACKFILL_INTERVAL_MS) return;
+    lastOfflineBackfillAt = now;
+    await runBackfill('offline-health-check');
+  }
+
   async function reconnectWebSocket(reason: string): Promise<void> {
     if (reconnecting || !connectOptions) return;
     reconnecting = true;
@@ -1878,6 +1887,7 @@ export function createFeishuConnection(
       // 先执行 backfill（需要读取 disconnectedSince 确定回填起点），完成后再重置
       await runBackfill('reconnect');
       disconnectedSince = null;
+      lastOfflineBackfillAt = 0;
     } catch (err) {
       logger.error({ err, reason }, 'Feishu WebSocket reconnect failed');
     } finally {
@@ -1897,6 +1907,7 @@ export function createFeishuConnection(
         logger.info('Feishu WebSocket is back online');
         await runBackfill('recovered');
         disconnectedSince = null;
+        lastOfflineBackfillAt = 0;
       }
       lastWsStateConnected = true;
       return;
@@ -1914,15 +1925,20 @@ export function createFeishuConnection(
     const now = Date.now();
     const reconnectWindowReady =
       state.nextConnectTime <= 0 || state.nextConnectTime <= now;
-    if (!reconnectWindowReady) return;
-
     disconnectedChecks++;
-    if (
+    const shouldReconnect =
+      reconnectWindowReady &&
       disconnectedChecks >= WS_RECONNECT_CHECK_THRESHOLD &&
-      now - reconnectRequestedAt >= WS_RECONNECT_MIN_INTERVAL_MS
-    ) {
+      now - reconnectRequestedAt >= WS_RECONNECT_MIN_INTERVAL_MS;
+    if (shouldReconnect) {
       await reconnectWebSocket('health-check');
+      if (!lastWsStateConnected) {
+        await maybeRunOfflineBackfill(now);
+      }
+      return;
     }
+
+    await maybeRunOfflineBackfill(now);
   }
 
   function normalizeCardAction(value: unknown): FeishuCardAction | null {
@@ -2110,6 +2126,7 @@ export function createFeishuConnection(
       reconnectRequestedAt = Date.now();
       reconnecting = false;
       backfillRunning = false;
+      lastOfflineBackfillAt = 0;
 
       // Initialize client
       client = new lark.Client({
@@ -2307,6 +2324,7 @@ export function createFeishuConnection(
         logger.info('Feishu WebSocket client started');
         lastWsStateConnected = true;
         disconnectedSince = null;
+        lastOfflineBackfillAt = 0;
         startHealthMonitor();
         onReady();
         if (startupBackfillChatIds.length > 0) {
@@ -2335,6 +2353,7 @@ export function createFeishuConnection(
       reconnecting = false;
       disconnectedSince = null;
       disconnectedChecks = 0;
+      lastOfflineBackfillAt = 0;
       if (wsClient) {
         logger.info('Stopping Feishu client');
         try {

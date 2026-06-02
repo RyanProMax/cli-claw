@@ -130,7 +130,7 @@ function expectMessageWithRouteFooter(
   expect(content).toContain(body);
   expect(content).toMatch(
     new RegExp(
-      `\\n\\n${workspaceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}（主线） \\| 飞书 \\| \\d{2}:\\d{2}$`,
+      `\\n\\n${workspaceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}（主线） \\| \\d{2}:\\d{2}$`,
     ),
   );
 }

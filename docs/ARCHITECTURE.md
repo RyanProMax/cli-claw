@@ -39,6 +39,7 @@ Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workf
 
 - IM 入站消息先落库，再进入队列；飞书链路会记录 durable lifecycle 事件，覆盖 `received` / `stored` / `notified` / `queued` / `runner_started` / `stream_started` / `finalized` / `im_delivered` / `cursor_committed` / `dead_lettered`。
 - 飞书 live WS 与 startup backfill 共用去重语义：只有通过 stale-window 过滤的消息才会写入 seen cache，避免自启动阶段的过期 WS 事件毒化后续 backfill。
+- 飞书 WS 健康检查确认离线后，不能只等待 SDK 或应用层重连成功；服务必须在离线窗口内按节流频率执行 backfill，确保私聊 / slash workflow 命令不会长时间滞留到下一次成功重连才处理。
 - startup backfill 按实例级 Feishu / workspace/folder 绑定恢复候选，不依赖用户归属字段。
 - 普通服务模式下，startup pending-message recovery、conversation-agent recovery 和主消息循环必须等待 IM connection phase 完成后再启动，避免恢复消息早于飞书连接可用而丢投递。
 - 回复游标提交必须受 IM 投递结果约束：当某条 Feishu-origin turn 依赖 static IM delivery 且投递最终失败时，不能提交对应 inbound cursor；该 turn 应保持 retryable 或记录明确 dead-letter。

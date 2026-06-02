@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const hoisted = vi.hoisted(() => {
   const handlers: Record<string, (payload: any) => Promise<void> | void> = {};
@@ -35,6 +35,9 @@ const hoisted = vi.hoisted(() => {
     getStreamingSessionSpy: vi.fn(() => null),
     wsStartSpy: vi.fn().mockResolvedValue(undefined),
     wsCloseSpy: vi.fn().mockResolvedValue(undefined),
+    wsReadyState: 1,
+    wsNextConnectTime: 0,
+    wsIsConnecting: false,
     onReadySpy: vi.fn(),
     resolveImSlashCommandReplySpy,
   };
@@ -91,6 +94,17 @@ vi.mock('@larksuiteoapi/node-sdk', () => {
   class MockWSClient {
     start = hoisted.wsStartSpy;
     close = hoisted.wsCloseSpy;
+    wsConfig = {
+      getWSInstance: () => ({ readyState: hoisted.wsReadyState }),
+    };
+
+    get isConnecting() {
+      return hoisted.wsIsConnecting;
+    }
+
+    getReconnectInfo() {
+      return { nextConnectTime: hoisted.wsNextConnectTime };
+    }
 
     constructor(_: unknown) {}
   }
@@ -205,6 +219,9 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     hoisted.getStreamingSessionSpy.mockReturnValue(null);
     hoisted.wsStartSpy.mockClear();
     hoisted.wsCloseSpy.mockClear();
+    hoisted.wsReadyState = 1;
+    hoisted.wsNextConnectTime = 0;
+    hoisted.wsIsConnecting = false;
     hoisted.onReadySpy.mockClear();
     hoisted.resolveImSlashCommandReplySpy.mockClear();
     vi.mocked(buildStaticReplyCard).mockClear();
@@ -219,6 +236,10 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     Object.keys(hoisted.handlers).forEach(
       (key) => delete hoisted.handlers[key],
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   test('sends only the inner card payload when creating a prebuilt interactive message', async () => {
@@ -1182,6 +1203,81 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(hoisted.createSpy).not.toHaveBeenCalled();
     expect(storeMessageDirect).not.toHaveBeenCalled();
     expect(notifyNewImMessage).not.toHaveBeenCalled();
+  });
+
+  test('backfills known chats while websocket remains offline awaiting sdk reconnect', async () => {
+    vi.useFakeTimers();
+    const baseTime = Date.parse('2026-06-02T12:20:00.000Z');
+    vi.setSystemTime(baseTime);
+    const onCommand = vi.fn().mockResolvedValue('🚀 已启动工作流 kol');
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCommand,
+    });
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: 'oc_offline_chat',
+        message_id: 'msg-before-offline',
+        create_time: String(baseTime - 10_000),
+        message_type: 'text',
+        content: JSON.stringify({ text: 'before offline' }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'user-open-id',
+        },
+      },
+    });
+
+    hoisted.messageListSpy.mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            message_id: 'msg-offline-backfill',
+            create_time: String(baseTime + 1_000),
+            msg_type: 'text',
+            body: {
+              content: JSON.stringify({ text: '/kol' }),
+            },
+            chat_type: 'p2p',
+            sender: {
+              sender_id: {
+                open_id: 'user-open-id',
+              },
+            },
+          },
+        ],
+      },
+    });
+    hoisted.wsReadyState = 3;
+    hoisted.wsIsConnecting = true;
+    hoisted.wsNextConnectTime = baseTime + 10 * 60 * 1000;
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(hoisted.wsCloseSpy).not.toHaveBeenCalled();
+    expect(hoisted.messageListSpy).toHaveBeenCalledWith({
+      params: expect.objectContaining({
+        container_id: 'oc_offline_chat',
+      }),
+    });
+    expect(onCommand).toHaveBeenCalledWith(
+      'feishu:oc_offline_chat',
+      'kol',
+      expect.objectContaining({
+        triggerMessageId: 'msg-offline-backfill',
+      }),
+    );
+
+    await connection.stop();
   });
 
   test('clears every pending ack reaction when multiple requests arrive before reply delivery', async () => {
