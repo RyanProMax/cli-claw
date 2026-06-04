@@ -24,6 +24,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function stripTopLevelResponseItemId(item: AgentInputItem): {
+  item: AgentInputItem;
+  changed: boolean;
+} {
+  const cloned = structuredClone(item) as unknown;
+  if (!isRecord(cloned) || typeof cloned.type !== 'string') {
+    return { item, changed: false };
+  }
+  if (!('id' in cloned)) return { item, changed: false };
+  delete cloned.id;
+  return { item: cloned as AgentInputItem, changed: true };
+}
+
+export function stripOpenAiNonPersistedResponseItemIds(
+  items: AgentInputItem[],
+): AgentInputItem[] {
+  return items.map((item) => stripTopLevelResponseItemId(item).item);
+}
+
+export function filterOpenAiStoreFalseModelInput(args: {
+  modelData: { input: AgentInputItem[]; instructions?: string };
+}): { input: AgentInputItem[]; instructions?: string } {
+  return {
+    ...args.modelData,
+    input: stripOpenAiNonPersistedResponseItemIds(args.modelData.input),
+  };
+}
+
 function sanitizeSessionItems(items: AgentInputItem[]): {
   items: AgentInputItem[];
   changed: boolean;
@@ -38,23 +66,29 @@ function sanitizeSessionItems(items: AgentInputItem[]): {
       continue;
     }
 
+    const stripped = stripTopLevelResponseItemId(cloned as AgentInputItem);
+    if (stripped.changed) {
+      changed = true;
+    }
+    const sanitizedItem = stripped.item as unknown;
+    if (!isRecord(sanitizedItem)) {
+      sanitized.push(stripped.item);
+      continue;
+    }
+
     if (cloned.type === 'reasoning') {
       changed = true;
       continue;
     }
 
-    if (cloned.type === 'message') {
-      if ('id' in cloned) {
-        delete cloned.id;
-        changed = true;
-      }
-      if ('providerData' in cloned) {
-        delete cloned.providerData;
+    if (sanitizedItem.type === 'message') {
+      if ('providerData' in sanitizedItem) {
+        delete sanitizedItem.providerData;
         changed = true;
       }
     }
 
-    sanitized.push(cloned as AgentInputItem);
+    sanitized.push(sanitizedItem as AgentInputItem);
   }
 
   return { items: sanitized, changed };

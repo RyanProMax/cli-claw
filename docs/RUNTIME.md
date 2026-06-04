@@ -140,6 +140,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - 用户可见最终回复经过 `reply-visibility` 输出边界；该边界会把 OpenAI commentary 和可识别的内部包装从主正文剥离，避免 runtime session 细节直接发给用户。
 - 最终发送路径不使用 streaming presentation 的 `answerText` 作为正文来源；可见正文只来自当前 turn 的 runtime raw/final output。`answerText` 只允许作为 Web/调试展示的过渡 buffer，不得覆盖新 turn 的最终回复。中断、overflow、compact、crash recovery 的 partial body 不会作为 IM 正文发送或持久化，也不能推进 committed cursor。
 - OpenAI runtime 错误必须在 runner 边界格式化为稳定提示；API key、quota/rate limit、context window、invalid model 等诊断不得以低层异常原样进入飞书/Web 正文。
+- OpenAI / Codex Responses 请求必须保持 `store:false`。由于后端不会持久化 Responses output item，runner 在所有 model input 边界都必须移除历史 / 工具循环 continuation 里的 top-level output `id`（例如 `rs_*` reasoning、assistant `msg_*`、`function_call.id`），只保留文本、`call_id` 和工具输出等自包含上下文；同 turn tool continuation 也不能依赖 session 文件 sanitizer 兜底。
 - 一个 workspace 不是永久对应一个 runner；workspace 可以没有活跃 runner，也可以因为主线、任务线程或 workflow 同时存在多个 runner。
 
 ### Feishu Streaming Card Presentation

@@ -193,6 +193,25 @@ function responseSnapshot(text = '', status = 'in_progress') {
   };
 }
 
+function responseWithOutput(
+  output: Array<Record<string, unknown>>,
+  id = 'resp_1',
+) {
+  return {
+    id,
+    object: 'response',
+    created_at: Math.floor(Date.now() / 1000),
+    status: 'completed',
+    model: 'gpt-5.5',
+    output,
+    usage: {
+      input_tokens: 5,
+      output_tokens: 2,
+      total_tokens: 7,
+    },
+  };
+}
+
 function writeSuccessfulResponsesStream(
   res: ServerResponse,
   finalText: string,
@@ -309,6 +328,42 @@ function writeSuccessfulResponsesStream(
             options.emptyTerminalOutput ? '' : finalText,
             'completed',
           ),
+    }),
+  );
+  res.end('data: [DONE]\n\n');
+}
+
+function writeToolCallResponsesStream(res: ServerResponse): void {
+  const firstResponse = responseWithOutput(
+    [
+      {
+        id: 'rs_tool_loop_leak',
+        type: 'reasoning',
+        summary: [{ type: 'summary_text', text: 'Need to send a message.' }],
+      },
+      {
+        id: 'fc_tool_loop_leak',
+        type: 'function_call',
+        status: 'completed',
+        call_id: 'call_tool_loop',
+        name: 'send_message',
+        arguments: JSON.stringify({ text: 'tool hello' }),
+      },
+    ],
+    'resp_tool_loop_first',
+  );
+
+  res.writeHead(200, { 'content-type': 'text/event-stream' });
+  res.write(
+    sse('response.created', {
+      type: 'response.created',
+      response: { ...firstResponse, output: [], status: 'in_progress' },
+    }),
+  );
+  res.write(
+    sse('response.completed', {
+      type: 'response.completed',
+      response: firstResponse,
     }),
   );
   res.end('data: [DONE]\n\n');
@@ -782,6 +837,70 @@ describe('P0 OpenAI runner request contract', () => {
             reasoningId: isFirstTurn ? 'rs_session_leak' : undefined,
           },
         );
+      },
+    );
+  });
+
+  test('does not replay non-persisted Codex response item ids during tool continuation', async () => {
+    const finalText = 'TOOL_LOOP_DONE_OK';
+    await withCaptureServer(
+      async ({ baseUrl, captured }) => {
+        const tempRoot = makeTempDir('cli-claw-p0-openai-tool-loop-');
+        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        vi.stubEnv(
+          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          path.join(tempRoot, 'sessions'),
+        );
+        vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
+        vi.stubEnv('no_proxy', '127.0.0.1,localhost');
+
+        const { runOpenAiAgentLoop } =
+          await import('../../../container/agent-runner/src/openai-agent-runtime.ts');
+        const { outputs, deps } = buildRunnerDeps(tempRoot);
+
+        await runOpenAiAgentLoop(
+          {
+            prompt: 'send a progress note, then answer',
+            groupFolder: 'main',
+            chatJid: 'feishu:oc_p0_tool_loop',
+            agentType: 'openai',
+            model: 'gpt-5.5',
+            reasoningEffort: 'xhigh',
+            speedTier: 'standard',
+            turnId: 'om_p0_tool_loop',
+            messageCursor: {
+              timestamp: '1778943000000',
+              id: 'om_p0_tool_loop',
+            },
+          },
+          deps,
+        );
+
+        expect(captured).toHaveLength(2);
+        const secondInput = JSON.stringify(captured[1]!.body.input);
+        expect(secondInput).toContain('function_call_output');
+        expect(secondInput).toContain('call_tool_loop');
+        expect(secondInput).not.toContain('rs_tool_loop_leak');
+        expect(secondInput).not.toContain('fc_tool_loop_leak');
+        expect(outputs).toContainEqual(
+          expect.objectContaining({
+            status: 'success',
+            result: finalText,
+            sourceKind: 'sdk_final',
+            finalizationReason: 'completed',
+          }),
+        );
+      },
+      (_req, res, body) => {
+        const isToolContinuation = JSON.stringify(body.input).includes(
+          'function_call_output',
+        );
+        if (isToolContinuation) {
+          writeSuccessfulResponsesStream(res, finalText);
+          return;
+        }
+        writeToolCallResponsesStream(res);
       },
     );
   });

@@ -88,6 +88,13 @@ export function formatOpenAiRuntimeError(errorMessage: string): string {
   if (/rate limit|429|quota|insufficient_quota/i.test(normalized)) {
     return 'OpenAI rate limit or quota was reached. Retry later or check account usage.';
   }
+  if (
+    /Items are not persisted when store is set to false|Item with id .* not found.*store is set to false/i.test(
+      normalized,
+    )
+  ) {
+    return 'OpenAI runtime request referenced non-persisted response state while store is false. Retry this turn; if it repeats, clear the OpenAI runtime session and retry.';
+  }
   if (/Store must be set to false/i.test(normalized)) {
     return 'OpenAI runtime request was rejected by Codex backend because store must be false. Update and restart cli-claw, then retry.';
   }

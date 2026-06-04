@@ -1,33 +1,36 @@
-# 当前任务：排查并修复 `/kol` 8:25 入站、9:55 才处理的延迟
+# 当前任务：修复 OpenAI `store:false` session 回放非持久化 item 导致 404
 
 ## Goal
 
-- 查清 2026-06-02 早上约 8:25 发送的 `/kol` 为什么到约 9:55 才开始处理。
-- 修复导致 `/kol` 或同类 IM workflow 命令长时间滞留的根因。
-- 用自动化测试覆盖复现场景，避免以后再次出现“已收到但长时间不启动 workflow”的问题。
+- 查清截图中 OpenAI Responses 404 `Item with id 'rs_*' not found. Items are not persisted when store is set to false` 的根因。
+- 修复 OpenAI runtime 在 `store:false` 下跨 turn 回放 `rs_*` / `msg_*` / tool call 等非持久化 provider item id 的问题。
+- 用自动化 e2e 仿真测试覆盖连续对话、含 reasoning / assistant message / tool call 的 session 回放，扫描同类 OpenAI 请求入口，避免类似错误再次出现。
 
 ## Done when
 
-- 根因有证据链：入站事件、消息落库、队列/调度、workflow run、runner 或 usage guard 的时间点能对齐。
-- 修复完成，且测试覆盖失败前行为与修复后行为。
+- 根因有证据链：能说明哪个模块把非持久化 Responses output item 带入下一轮 `input`。
+- 修复完成，且测试先红后绿覆盖截图对应的 `rs_*` item 404 场景。
+- 扫描其他 OpenAI 请求入口，确认没有同类 `store:false` + 非持久化 item id 回放风险。
 - 当前 milestone 验证通过，并经过 review gate。
-- 若改动影响正在运行服务，提交后按安全重启路径应用变更。
+- 若改动影响正在运行服务，提交后按安全路径应用变更。
 
 ## Milestones
 
-### Milestone 1：根因调查
+### Milestone 1：根因调查与复现边界
 
 Objective:
-- 查询本地 DB、Feishu lifecycle、workflow run/step、task run log 和服务日志，定位 8:25 到 9:55 的延迟发生在哪个边界。
-- 阅读相关代码路径，形成单一根因假设，不在根因确认前改代码。
+- 阅读 OpenAI runtime session、Codex provider、SDK session persistence 和现有 contract tests，定位 `rs_*` item 进入下一轮请求的具体边界。
+- 不改生产代码，先写清单一根因假设和最小复现测试方案。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- 只读检查 `src/`、`.agents/`、`docs/`、`tests/`
-- 只读查询本地数据库、日志和 ops 状态文件
+- 只读检查 `container/agent-runner/src/`
+- 只读检查 `tests/contracts/openai/`
+- 只读检查 `docs/RUNTIME.md`
+- 只读检查 `container/agent-runner/node_modules/@openai/agents*` SDK 源码
 
 Validation:
-- 记录关键时间点、涉及文件/函数和根因结论。
+- 记录关键调用链、涉及文件/函数和根因结论。
 
 Status:
 - done
@@ -39,31 +42,30 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- `/kol` 原始消息 `om_x100b6ed8f5fef4acc0af684156e4108` 的 message timestamp 是 `2026-06-02T12:25:23.346Z`（美东 08:25:23）。
-- 对应 workflow run `wfrun_164837b3-cd5a-4b0b-b6c9-f9e447c40ae9` 在 `2026-06-02T13:55:47.882Z`（美东 09:55:47）创建并立刻 started，说明 workflow/runner 没有排队 90 分钟。
-- lifecycle 第一条 `received` 也是 `2026-06-02T13:55:47.768Z`，details 为 `{"source":"backfill","messageType":"text","chatType":"p2p","createTimeMs":1780403123346}`；8:25 没有 live WS received/stored 记录。
-- 服务日志显示 `2026-06-02 08:22:45` 记录 `Feishu WebSocket appears offline`，之后 SDK 持续输出 `ws connect failed`，下一次应用层 `Feishu WebSocket reconnected` 直到 `2026-06-02 09:55:47`；`/kol` 正好落在这个离线窗口。
-- 根因：Feishu provider 的 backfill 只在 startup、应用层 reconnect 成功、offline→online 恢复时执行；WS 长时间离线/SDK 自重连但应用层未完成 reconnect 时，没有离线期周期性 backfill 兜底，导致消息必须等下一次成功 reconnect 才处理。
+- 截图报错是 Responses API 在 `store:false` 下收到上一轮未持久化的 `rs_*` item id；错误文本明确要求 `store:true` 或移除该 item。
+- 仓库 contract 明确 OpenAI/Codex runtime 必须发送 `store:false`，不能改为 `store:true` 绕过。
+- 根因定位：截图里有 tool `steps`，对应 SDK 在同一个 `runner.run` 的工具循环里会调用 `prepareModelInputItems(originalInput, generatedItems, state._reasoningItemIdPolicy)`，把当前 turn 第一轮 Responses 的 `generatedItems` 拼回第二次 `/responses`。这条路径不经过 `FileOpenAiAgentSession.getItems()` / `addItems()` sanitizer。
+- 当前 `Runner` 未设置 `reasoningItemIdPolicy`，SDK 默认保留 `reasoning` output item 的 `id`；在 `store:false` 时第二次 `/responses` 带入 `rs_*`，Codex/OpenAI 后端查不到非持久化 item，于是返回 404。
+- 现有 contract 只覆盖跨 turn session 文件回放，不覆盖同 turn tool continuation；因此测试没有抓到截图场景。
 
-### Milestone 2：复现测试与实现修复
+### Milestone 2：红灯测试与最小修复
 
 Objective:
-- 写一个最小失败测试复现根因。
-- 实现最小修复，覆盖 `/kol` workflow 命令或同类 IM workflow 命令的滞留场景。
+- 写最小失败测试，复现连续 turn 中上一轮 Responses output item id 被回放到下一轮 `input`。
+- 实现最小修复：在 OpenAI session 模型输入边界过滤所有 `store:false` 下不可回放的 provider item id，同时保留必要文本上下文和 tool call/result 配对。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/messaging/`
-- `src/agent/queue/`
-- `src/agent/workflow/`
-- `src/agent/scheduler/`
-- `src/storage/`
-- `tests/`
-- 必要时同步 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md` 或 `docs/COMMAND.md`
+- `container/agent-runner/src/openai-agent-session.ts`
+- `container/agent-runner/src/openai-agent-stream.ts`
+- `container/agent-runner/src/codex-cli-provider.ts`（仅当根因证据需要）
+- `tests/contracts/openai/runner-request.test.ts`
+- `tests/contracts/openai/agent-runtime.test.ts`
+- 必要时同步 `docs/RUNTIME.md`
 
 Validation:
-- 定向测试先红后绿。
-- 与改动相关的 unit/integration 测试通过。
+- 定向测试先红后绿：`npm test -- tests/contracts/openai/runner-request.test.ts -t "<新增测试名>"`
+- 相关 contract tests：`npm test -- tests/contracts/openai/runner-request.test.ts tests/contracts/openai/agent-runtime.test.ts`
 
 Status:
 - done
@@ -75,33 +77,36 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 修复必须处理根因，不只对 `/kol` 做一次性补偿。
-- 已新增红灯测试 `backfills known chats while websocket remains offline awaiting sdk reconnect`：WS closed、SDK next reconnect time 仍很远时，修复前不会调用 `message.list`，测试失败。
-- 修复后 Feishu 健康检查在离线窗口内按 60 秒节流执行 `offline-health-check` backfill，不再等待应用层 reconnect 成功才回填消息；reconnect/recovered/startup 成功后会重置节流状态。
-- 已同步 `docs/ARCHITECTURE.md` 的 IM 消息可靠性契约。
-- 已把 Feishu E2E footer helper 同步到当前 footer 契约：不再期待重复的 `| 飞书 |`。
+- 修复不能依赖 Feishu/Web 展示层过滤；必须在 runner/session 请求边界解决。
+- 不能破坏连续对话记忆，第二轮仍应包含前一轮用户与 assistant 可见文本。
+- 红灯测试应构造第一次 Responses 返回 `reasoning + function_call`，让 runner 执行 `send_message` 后发出第二次 `/responses`，断言第二次 request `input` 不含第一轮 `rs_*`。
+- 截图还暴露了错误展示问题：如果同类 404 残余发生，runner 必须格式化为稳定中文/英文操作提示，不能把原始 JSON 进入 Feishu/Web 正文。
+- 已新增红灯测试 `does not replay non-persisted Codex response item ids during tool continuation`。修复前第二次 `/responses` 的 `input` 包含 `rs_tool_loop_leak` 和 `fc_tool_loop_leak`，测试失败；修复后通过。
+- 修复在 `runner.run` 配置 `reasoningItemIdPolicy: "omit"`，并通过 `callModelInputFilter` 对所有 top-level Responses output item 剥离 `id`，保留 `call_id`、工具输出和文本上下文。
+- 已新增错误格式化红灯测试 `formats non-persisted Responses item errors without raw SDK JSON`。修复后同类 404 不再把原始 JSON、`rs_*`、`headers` 或 `requestID` 暴露到正文。
+- 已同步 `docs/RUNTIME.md` 的 OpenAI `store:false` model input 边界契约。
 - 验证通过：
-  - `npm test -- tests/integration/messaging/feishu/connection.test.ts -t "backfills known chats while websocket remains offline awaiting sdk reconnect"`（先红后绿）
-  - `npm test -- tests/integration/messaging/feishu/connection.test.ts`
-  - `npm test -- tests/integration/messaging/feishu/e2e.test.ts`
-  - `npm run typecheck:backend`
-- Feishu E2E 仍出现既有 `MaxListenersExceededWarning`，测试通过；该 warning 来自测试进程多次挂载 process listener，不是本轮 Feishu provider 逻辑新增。
+  - `npm test -- tests/contracts/openai/runner-request.test.ts -t "does not replay non-persisted Codex response item ids during tool continuation"`（先红后绿）
+  - `npm test -- tests/contracts/openai/agent-runtime.test.ts -t "formats non-persisted Responses item errors"`（先红后绿）
+  - `npm test -- tests/contracts/openai/runner-request.test.ts tests/contracts/openai/agent-runtime.test.ts`
 
-### Milestone 3：验证、review、提交与服务应用
+### Milestone 3：扫描、完整验证、review、提交与服务应用
 
 Objective:
-- 运行定向验证、必要 typecheck、review gate。
+- 扫描其他 OpenAI 请求入口和错误格式化路径，确认没有同类 `store:false` item id 回放。
+- 运行定向验证、typecheck、diff hygiene 和 review gate。
 - 更新 `PLANS/ACTIVE.md` 结果与 handoff；若有跨轮次事项，回写 `PLANS/ROADMAP.md`。
 - 默认提交并按安全路径重启服务。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`（仅跨轮次事项）
+- `docs/RUNTIME.md`（仅协议变化）
 - 本轮已修改文件
 
 Validation:
-- 定向测试
-- `npm run typecheck:backend`（若改动 TS 后端）
+- `npm test -- tests/contracts/openai/runner-request.test.ts tests/contracts/openai/agent-runtime.test.ts`
+- `npm run typecheck:backend`
 - `git diff --check`
 - `./scripts/review.sh`
 
@@ -115,16 +120,18 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 如果真实 Feishu/live smoke 需要发消息，遵守 `docs/E2E.md` 的 `[e2e]` 前缀和凭据安全边界。
+- 若真实服务需重启，按 `docs/COMMAND.md` 的安全重启路径，不直接 `kill` / `pkill`。
+- 扫描结论：
+  - 状态型 OpenAI runner 入口只有 `container/agent-runner/src/openai-agent-runtime.ts` 的 `runOpenAiAgentLoop`；已在该入口统一设置 model input filter。
+  - `src/agent/runner/sdk-query.ts` 虽然也发送 `store:false`，但它只发送一次性当前用户 input，不保存 session、不执行工具 continuation，没有同类 `rs_*` / output id 回放风险。
+  - `codex-cli-provider.ts` 的 terminal output fallback 仍可能把 completed output item 交给 SDK；新的 model input filter 覆盖该 fallback 后续进入模型的路径。
 - 最终验证通过：
-  - `npm test -- tests/integration/messaging/feishu/connection.test.ts tests/integration/messaging/feishu/e2e.test.ts`
+  - `npm test -- tests/contracts/openai/runner-request.test.ts tests/contracts/openai/agent-runtime.test.ts`
   - `npm run typecheck:backend`
   - `git diff --check`
   - `./scripts/review.sh`
-- 已按 `RUNBOOKS/Review.md` 做语义 review：scope 聚焦 Feishu provider/message tests/docs；目标覆盖 8:25→9:55 的 WS 离线 backfill 缺口；测试含红绿复现；未发现 debug/TODO、无多余文档重复。
-- 本轮不需要更新 `PLANS/ROADMAP.md`：修复已落地，无新的跨轮次待办；后续只需观察真实 Feishu WS 离线时 lifecycle 是否能在 60 秒级 backfill 到消息。
-- 已提交实现：`Backfill Feishu messages while websocket is offline`。
-- 已按安全路径重启服务：restart intent `restart-2026-06-02T16-14-39-593Z-f4e634ee.json`，状态 `passed`；当前 backend PID `82453`，`GET /api/health` 返回 `healthy`，database 与 queue 均为 `true`。
+- 已按 `RUNBOOKS/Review.md` 做语义 review：scope 聚焦 OpenAI runner/session/error formatting/tests/runtime docs；目标覆盖截图中的 tool step continuation `rs_*` 404；红绿测试覆盖工具循环与错误展示；未发现 debug/TODO、无未同步协议文档。
+- 本轮不需要更新 `PLANS/ROADMAP.md`：修复已落地，无新的跨轮次待办。
 
 ## Working Rules
 
@@ -140,17 +147,27 @@ Current milestone:
 - Milestone 3 done
 
 Current status:
-- complete; validation, review, commit and safe restart all done
+- complete; validation, review, commit and safe restart all passed
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `docs/ARCHITECTURE.md`
-- `src/messaging/providers/feishu/index.ts`
-- `tests/integration/messaging/feishu/connection.test.ts`
-- `tests/integration/messaging/feishu/e2e.test.ts`
+- `container/agent-runner/src/openai-agent-runtime.ts`
+- `container/agent-runner/src/openai-agent-session.ts`
+- `container/agent-runner/src/openai-agent-stream.ts`
+- `docs/RUNTIME.md`
+- `tests/contracts/openai/agent-runtime.test.ts`
+- `tests/contracts/openai/runner-request.test.ts`
 
-Findings:
-- 8:25 的 `/kol` 没有进入 live WS；9:55 由 backfill 首次 received 后才创建 workflow。根因是 WS 离线窗口内只等待 SDK/app reconnect 成功才执行 backfill，没有离线期周期 backfill 兜底。
+Last failure summary:
+- 截图显示 OpenAI Responses 404：`Item with id 'rs_*' not found. Items are not persisted when store is set to false`。
+
+Suspected cause:
+- `Runner` 没有配置 `reasoningItemIdPolicy: "omit"`，SDK 在同 turn tool continuation 中把上一轮 `reasoning.id` 回放到下一次 `/responses`；session 文件 sanitizer 无法覆盖这条内存路径。
 
 Next step:
-- 无。若后续再次出现 Feishu 消息延迟，优先检查 WS offline lifecycle、`offline-health-check` backfill 日志和 `im_message_lifecycle_events.created_at - messages.timestamp` 的差值。
+- 无。若后续再次出现 OpenAI `store:false` non-persisted item 404，优先检查第二次 `/responses` 的 `input` 是否仍包含 top-level output `id`，以及 `filterOpenAiStoreFalseModelInput` 是否被绕过。
+
+Result:
+- 已提交实现：`Strip non-persisted OpenAI response item ids`。
+- 已按安全路径重启服务：`bun src/cli.ts restart` 创建 restart intent `restart-2026-06-04T10-00-53-678Z-15057185`，状态 `passed`。
+- 当前 backend PID `28931`，`GET /api/health` 返回 `{"status":"healthy","checks":{"database":true,"queue":true,"uptime":12}}`。

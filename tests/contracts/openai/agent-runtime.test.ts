@@ -83,6 +83,19 @@ describe('OpenAI agent model settings', () => {
     expect(formatted).not.toContain('"requestID"');
   });
 
+  test('formats non-persisted Responses item errors without raw SDK JSON', () => {
+    const formatted = formatOpenAiRuntimeError(
+      `{ "name": "Error", "message": "404 Item with id 'rs_0049910cf1452a4f016a1ffc6bc25481938b1fce5d233c81d3' not found. Items are not persisted when store is set to false. Try again with store set to true, or remove this item from your input.", "status": 404, "type": "invalid_request_error", "headers": {}, "requestID": null, "error": { "param": "input" } }`,
+    );
+
+    expect(formatted).toBe(
+      'OpenAI runtime request referenced non-persisted response state while store is false. Retry this turn; if it repeats, clear the OpenAI runtime session and retry.',
+    );
+    expect(formatted).not.toContain('rs_0049910');
+    expect(formatted).not.toContain('"headers"');
+    expect(formatted).not.toContain('"requestID"');
+  });
+
   test('adds workflow and role metadata to OpenAI runtime instructions', () => {
     const instructions = buildOpenAiInstructions({
       prompt: '',

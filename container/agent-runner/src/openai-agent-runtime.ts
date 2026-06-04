@@ -14,7 +14,10 @@ import type {
   StreamEvent,
 } from './types.js';
 import { configureCodexCliOpenAiProvider } from './codex-cli-provider.js';
-import { createOpenAiAgentSession } from './openai-agent-session.js';
+import {
+  createOpenAiAgentSession,
+  filterOpenAiStoreFalseModelInput,
+} from './openai-agent-session.js';
 import {
   OpenAiAgentStreamMapper,
   type RuntimeIdentityState,
@@ -278,6 +281,8 @@ async function runOpenAiTurn(
       session,
       signal: abortController.signal,
       maxTurns: 20,
+      reasoningItemIdPolicy: 'omit',
+      callModelInputFilter: filterOpenAiStoreFalseModelInput,
     });
     for await (const event of result) {
       mapper.process(event);
