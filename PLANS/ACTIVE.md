@@ -1,36 +1,42 @@
-# 当前任务：修复 OpenAI `store:false` session 回放非持久化 item 导致 404
+# 当前任务：Workflow 实时进度飞书独立卡片
 
 ## Goal
 
-- 查清截图中 OpenAI Responses 404 `Item with id 'rs_*' not found. Items are not persisted when store is set to false` 的根因。
-- 修复 OpenAI runtime 在 `store:false` 下跨 turn 回放 `rs_*` / `msg_*` / tool call 等非持久化 provider item id 的问题。
-- 用自动化 e2e 仿真测试覆盖连续对话、含 reasoning / assistant message / tool call 的 session 回放，扫描同类 OpenAI 请求入口，避免类似错误再次出现。
+- 在触发 workflow 时，额外创建一张独立飞书消息卡片，用于实时展示并更新 workflow 进度。
+- 卡片必须展示 workflow 每个节点的内容、状态和耗时，并随 workflow run / step 状态变化更新。
+- 完成卡片样式设计、代码落地、类似线上环境的 E2E 测试、sub-agent review、验证、提交、push，并在需要时安全重启服务和清理孤儿进程。
 
 ## Done when
 
-- 根因有证据链：能说明哪个模块把非持久化 Responses output item 带入下一轮 `input`。
-- 修复完成，且测试先红后绿覆盖截图对应的 `rs_*` item 404 场景。
-- 扫描其他 OpenAI 请求入口，确认没有同类 `store:false` + 非持久化 item id 回放风险。
-- 当前 milestone 验证通过，并经过 review gate。
-- 若改动影响正在运行服务，提交后按安全路径应用变更。
+- `main` 已 push 到 `origin/main`，包括上一轮已提交修复和本轮最终实现。
+- workflow 被触发后，触发会话除启动回执 / 终态结果外，还有独立进度卡片。
+- 进度卡片能随节点 lifecycle 更新，至少覆盖 pending / running / success / failed / degraded / skipped 等状态，并显示每个节点标题、摘要内容和耗时。
+- 进度卡片与普通 Agent streaming card 分离，不污染最终回复正文、不破坏 workflow thread / context 隔离。
+- 有 in-process、类似线上环境的飞书 E2E 测试验证触发、卡片创建、节点更新、终态状态和失败场景。
+- 派生 sub-agent 做代码 review，review 无 blocking 问题。
+- 计划内验证命令通过，完成 review gate。
+- 提交、push；如影响运行服务，按 `docs/COMMAND.md` 安全重启并确认健康。
 
 ## Milestones
 
-### Milestone 1：根因调查与复现边界
+### Milestone 1：上下文探索与设计确认
 
 Objective:
-- 阅读 OpenAI runtime session、Codex provider、SDK session persistence 和现有 contract tests，定位 `rs_*` item 进入下一轮请求的具体边界。
-- 不改生产代码，先写清单一根因假设和最小复现测试方案。
+- 阅读 workflow engine、workflow run/step 审计、Feishu card builder/updater、IM command/workflow trigger 和现有 E2E 路径。
+- 给出卡片样式与数据流设计，覆盖实时更新、失败降级和测试策略。
+- 在用户确认设计前不写生产实现代码。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- 只读检查 `container/agent-runner/src/`
-- 只读检查 `tests/contracts/openai/`
-- 只读检查 `docs/RUNTIME.md`
-- 只读检查 `container/agent-runner/node_modules/@openai/agents*` SDK 源码
+- 只读检查 `src/agent/workflow/`
+- 只读检查 `src/messaging/providers/feishu/`
+- 只读检查 `src/index.ts`
+- 只读检查 `tests/integration/messaging/feishu/`
+- 只读检查 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`、`docs/E2E.md`
 
 Validation:
-- 记录关键调用链、涉及文件/函数和根因结论。
+- 记录现有数据流、可复用模块、缺口和推荐方案。
+- 设计得到用户确认。
 
 Status:
 - done
@@ -42,30 +48,36 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 截图报错是 Responses API 在 `store:false` 下收到上一轮未持久化的 `rs_*` item id；错误文本明确要求 `store:true` 或移除该 item。
-- 仓库 contract 明确 OpenAI/Codex runtime 必须发送 `store:false`，不能改为 `store:true` 绕过。
-- 根因定位：截图里有 tool `steps`，对应 SDK 在同一个 `runner.run` 的工具循环里会调用 `prepareModelInputItems(originalInput, generatedItems, state._reasoningItemIdPolicy)`，把当前 turn 第一轮 Responses 的 `generatedItems` 拼回第二次 `/responses`。这条路径不经过 `FileOpenAiAgentSession.getItems()` / `addItems()` sanitizer。
-- 当前 `Runner` 未设置 `reasoningItemIdPolicy`，SDK 默认保留 `reasoning` output item 的 `id`；在 `store:false` 时第二次 `/responses` 带入 `rs_*`，Codex/OpenAI 后端查不到非持久化 item，于是返回 404。
-- 现有 contract 只覆盖跨 turn session 文件回放，不覆盖同 turn tool continuation；因此测试没有抓到截图场景。
+- 已完成第一项：当前 `main` 已 push 到 `origin/main`，远端从 `36c2610` 更新到 `3094e02`。
+- `docs/ARCHITECTURE.md` 当前只规定 workflow 触发回执和终态结果，没有独立实时进度卡片。
+- `docs/RUNTIME.md` 当前已有 workflow run/step 审计和 Feishu streaming card 契约；新卡片必须作为 workflow 展示层，不成为 runtime session 或记忆边界。
+- `src/agent/workflow/engine.ts` 已在 role/local task 节点运行前后调用 `recordStep`，但事件只进 `workflow_run_steps`，没有飞书展示层订阅。
+- `src/agent/workflow/command.ts` 的 background 模式只返回启动回执并通过 `onBackgroundResult` 发送终态文本，缺少 progress reporter 生命周期。
+- `src/storage/db.ts` 的 `workflow_run_steps.started_at/completed_at` 当前不会自动填充；若调用方不显式传入时间，节点耗时无法从审计数据恢复。
+- `src/index.ts` 的 `/workflow`、repository skill workflow rewrite 和 scheduler `runWorkflowCommand` 都汇入同一个 `handleWorkflowSlashCommand`，应在统一入口挂进度 reporter，避免只覆盖手动 slash。
+- 现有 `tests/integration/messaging/feishu/e2e.test.ts` 已有 CardKit mock，可捕获 `createdCards` / `updatedCards`，适合扩展为进度卡 in-process E2E。
+- 用户继续 active goal，按推荐方案 A 进入 TDD 实现：在统一 workflow command 入口挂 Feishu-only progress reporter。
+- 仓库协议禁止把 superpowers/spec 产物写到 `docs/superpowers`；本轮设计/计划统一写在 `PLANS/ACTIVE.md`，需要长期沉淀的稳定契约再同步 owner docs。
 
-### Milestone 2：红灯测试与最小修复
+### Milestone 2：TDD 实现 workflow 进度卡片
 
 Objective:
-- 写最小失败测试，复现连续 turn 中上一轮 Responses output item id 被回放到下一轮 `input`。
-- 实现最小修复：在 OpenAI session 模型输入边界过滤所有 `store:false` 下不可回放的 provider item id，同时保留必要文本上下文和 tool call/result 配对。
+- 先写失败测试，覆盖 workflow 触发时进度卡片创建、节点状态更新、耗时展示和终态更新。
+- 实现最小可维护方案，沿用现有 Feishu card / workflow 审计边界。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `container/agent-runner/src/openai-agent-session.ts`
-- `container/agent-runner/src/openai-agent-stream.ts`
-- `container/agent-runner/src/codex-cli-provider.ts`（仅当根因证据需要）
-- `tests/contracts/openai/runner-request.test.ts`
-- `tests/contracts/openai/agent-runtime.test.ts`
-- 必要时同步 `docs/RUNTIME.md`
+- `src/agent/workflow/`
+- `src/messaging/providers/feishu/`
+- `src/index.ts`
+- `src/storage/`
+- `tests/integration/messaging/feishu/`
+- `tests/unit/` 或 `tests/integration/` 中必要新增测试
+- 必要时同步 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`
 
 Validation:
-- 定向测试先红后绿：`npm test -- tests/contracts/openai/runner-request.test.ts -t "<新增测试名>"`
-- 相关 contract tests：`npm test -- tests/contracts/openai/runner-request.test.ts tests/contracts/openai/agent-runtime.test.ts`
+- 新增定向测试先红后绿。
+- 相关 workflow / Feishu E2E 测试通过。
 
 Status:
 - done
@@ -77,38 +89,36 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 修复不能依赖 Feishu/Web 展示层过滤；必须在 runner/session 请求边界解决。
-- 不能破坏连续对话记忆，第二轮仍应包含前一轮用户与 assistant 可见文本。
-- 红灯测试应构造第一次 Responses 返回 `reasoning + function_call`，让 runner 执行 `send_message` 后发出第二次 `/responses`，断言第二次 request `input` 不含第一轮 `rs_*`。
-- 截图还暴露了错误展示问题：如果同类 404 残余发生，runner 必须格式化为稳定中文/英文操作提示，不能把原始 JSON 进入 Feishu/Web 正文。
-- 已新增红灯测试 `does not replay non-persisted Codex response item ids during tool continuation`。修复前第二次 `/responses` 的 `input` 包含 `rs_tool_loop_leak` 和 `fc_tool_loop_leak`，测试失败；修复后通过。
-- 修复在 `runner.run` 配置 `reasoningItemIdPolicy: "omit"`，并通过 `callModelInputFilter` 对所有 top-level Responses output item 剥离 `id`，保留 `call_id`、工具输出和文本上下文。
-- 已新增错误格式化红灯测试 `formats non-persisted Responses item errors without raw SDK JSON`。修复后同类 404 不再把原始 JSON、`rs_*`、`headers` 或 `requestID` 暴露到正文。
-- 已同步 `docs/RUNTIME.md` 的 OpenAI `store:false` model input 边界契约。
-- 验证通过：
-  - `npm test -- tests/contracts/openai/runner-request.test.ts -t "does not replay non-persisted Codex response item ids during tool continuation"`（先红后绿）
-  - `npm test -- tests/contracts/openai/agent-runtime.test.ts -t "formats non-persisted Responses item errors"`（先红后绿）
-  - `npm test -- tests/contracts/openai/runner-request.test.ts tests/contracts/openai/agent-runtime.test.ts`
+- 不允许只靠最终静态消息假装“实时”；E2E 必须看到至少一次运行中更新和一次终态更新。
+- 不允许把节点详情塞进普通最终回复正文；进度卡片必须独立。
+- 已实现 workflow progress reporter：run 创建、run 状态更新、step lifecycle 都会驱动独立飞书 CardKit 卡片更新；普通 Agent streaming card 仍保持分离。
+- 已修复相邻可靠性风险：若 `card.create` 成功但 `message.create` 短暂失败或无 `message_id`，后续更新会继续尝试发送 card reference，不会永久更新一张用户不可见的卡。
+- 已把 `workflow_run_steps.started_at/completed_at` 在 running/terminal upsert 时自动补齐，保证节点耗时可从审计数据恢复。
+- 已提升节点摘要展示：local task artifact 优先展示 `result/summary/message/title/description`，避免 `{ status: "ok", result: ... }` 只显示 `ok`。
+- 已同步 owner docs，scheduled workflow 的飞书进度卡口径收窄为“执行会话本身是已连接飞书入口时”。
+- 验证通过：定向 workflow/Feishu 单测、完整 Feishu in-process E2E、`npm run typecheck:backend`、`git diff --check`、`./scripts/review.sh`。
+- sub-agent reviewer 初审发现 1 个 blocking 与 3 个相邻问题；修复后复审通过，无 blocking/important 问题。
 
-### Milestone 3：扫描、完整验证、review、提交与服务应用
+### Milestone 3：sub-agent review、完整验证、提交 push 与服务应用
 
 Objective:
-- 扫描其他 OpenAI 请求入口和错误格式化路径，确认没有同类 `store:false` item id 回放。
-- 运行定向验证、typecheck、diff hygiene 和 review gate。
-- 更新 `PLANS/ACTIVE.md` 结果与 handoff；若有跨轮次事项，回写 `PLANS/ROADMAP.md`。
-- 默认提交并按安全路径重启服务。
+- 派生 sub-agent review 本轮 diff，修复 blocking/important 问题。
+- 运行完整验证和 review gate。
+- 提交、push；如影响当前服务，安全重启并确认健康，必要时清理孤儿 runner。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `PLANS/ROADMAP.md`（仅跨轮次事项）
-- `docs/RUNTIME.md`（仅协议变化）
 - 本轮已修改文件
 
 Validation:
-- `npm test -- tests/contracts/openai/runner-request.test.ts tests/contracts/openai/agent-runtime.test.ts`
+- 与实现相关的定向测试
 - `npm run typecheck:backend`
 - `git diff --check`
 - `./scripts/review.sh`
+- sub-agent review 结果无 blocking 问题
+- push 后 `git status -sb` 显示本地与 `origin/main` 对齐
+- 如重启，`/api/health` 返回 healthy
 
 Status:
 - done
@@ -120,18 +130,11 @@ Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 若真实服务需重启，按 `docs/COMMAND.md` 的安全重启路径，不直接 `kill` / `pkill`。
-- 扫描结论：
-  - 状态型 OpenAI runner 入口只有 `container/agent-runner/src/openai-agent-runtime.ts` 的 `runOpenAiAgentLoop`；已在该入口统一设置 model input filter。
-  - `src/agent/runner/sdk-query.ts` 虽然也发送 `store:false`，但它只发送一次性当前用户 input，不保存 session、不执行工具 continuation，没有同类 `rs_*` / output id 回放风险。
-  - `codex-cli-provider.ts` 的 terminal output fallback 仍可能把 completed output item 交给 SDK；新的 model input filter 覆盖该 fallback 后续进入模型的路径。
-- 最终验证通过：
-  - `npm test -- tests/contracts/openai/runner-request.test.ts tests/contracts/openai/agent-runtime.test.ts`
-  - `npm run typecheck:backend`
-  - `git diff --check`
-  - `./scripts/review.sh`
-- 已按 `RUNBOOKS/Review.md` 做语义 review：scope 聚焦 OpenAI runner/session/error formatting/tests/runtime docs；目标覆盖截图中的 tool step continuation `rs_*` 404；红绿测试覆盖工具循环与错误展示；未发现 debug/TODO、无未同步协议文档。
-- 本轮不需要更新 `PLANS/ROADMAP.md`：修复已落地，无新的跨轮次待办。
+- 若真实 Feishu live smoke 需要发消息，遵守 `docs/E2E.md` 的 `[e2e]` 前缀和凭据安全边界。
+- 若安全重启发现真正孤儿 runner，按现有 self-restart 孤儿清理路径处理，不直接粗暴 `pkill`。
+- sub-agent 语义 review 已通过；仓库 review 脚本已通过。
+- 已通过 repo-local safe launcher `bun src/cli.ts restart` 请求安全重启；restart intent `restart-2026-06-04T16-28-59-887Z-a85aee94` 状态为 `passed`。
+- 重启后 `/api/health` 返回 healthy；旧 backend PID `28931` 已退出，当前 backend PID 为 `8932`；未发现残留 `agent-runner` 进程。
 
 ## Working Rules
 
@@ -147,27 +150,39 @@ Current milestone:
 - Milestone 3 done
 
 Current status:
-- complete; validation, review, commit and safe restart all passed
+- implementation, validation, semantic review, and safe service restart passed; preparing commit and push
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `container/agent-runner/src/openai-agent-runtime.ts`
-- `container/agent-runner/src/openai-agent-session.ts`
-- `container/agent-runner/src/openai-agent-stream.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/COMMAND.md`
+- `docs/MODULE.md`
 - `docs/RUNTIME.md`
-- `tests/contracts/openai/agent-runtime.test.ts`
-- `tests/contracts/openai/runner-request.test.ts`
+- `src/agent/workflow/command.ts`
+- `src/agent/workflow/engine.ts`
+- `src/agent/workflow/progress.ts`
+- `src/index.ts`
+- `src/messaging/channel.ts`
+- `src/messaging/manager.ts`
+- `src/messaging/providers/feishu/index.ts`
+- `src/messaging/providers/feishu/workflow-progress-card.ts`
+- `src/storage/db.ts`
+- `tests/integration/messaging/feishu/e2e.test.ts`
+- `tests/unit/agent/workflow/context.test.ts`
+- `tests/unit/messaging/feishu/workflow-progress-card.test.ts`
 
-Last failure summary:
-- 截图显示 OpenAI Responses 404：`Item with id 'rs_*' not found. Items are not persisted when store is set to false`。
-
-Suspected cause:
-- `Runner` 没有配置 `reasoningItemIdPolicy: "omit"`，SDK 在同 turn tool continuation 中把上一轮 `reasoning.id` 回放到下一次 `/responses`；session 文件 sanitizer 无法覆盖这条内存路径。
+Findings:
+- 已 push 当前 `main` 到 `origin/main`。
+- 根因：workflow run/step lifecycle 只持久化和最终文本通知，没有独立 Feishu progress card 的创建、状态订阅、更新和失败降级链路。
+- 相邻缺口已修复：step 审计时间戳自动填充，CardKit 发送失败会重试可见消息引用，artifact 摘要展示真实结果，workflow E2E 覆盖 manager/channel wiring。
+- 验证已通过：
+  - `npm test -- tests/unit/agent/workflow/context.test.ts tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts --run`
+  - `npm test -- tests/integration/messaging/feishu/e2e.test.ts --run`
+  - `npm run typecheck:backend`
+  - `git diff --check`
+  - `./scripts/review.sh`
+- sub-agent reviewer 复审通过，无 blocking/important 问题。
+- 服务已按 `docs/COMMAND.md` 走安全重启路径应用源码变更；`/api/health` healthy，current backend PID `8932`。
 
 Next step:
-- 无。若后续再次出现 OpenAI `store:false` non-persisted item 404，优先检查第二次 `/responses` 的 `input` 是否仍包含 top-level output `id`，以及 `filterOpenAiStoreFalseModelInput` 是否被绕过。
-
-Result:
-- 已提交实现：`Strip non-persisted OpenAI response item ids`。
-- 已按安全路径重启服务：`bun src/cli.ts restart` 创建 restart intent `restart-2026-06-04T10-00-53-678Z-15057185`，状态 `passed`。
-- 当前 backend PID `28931`，`GET /api/health` 返回 `{"status":"healthy","checks":{"database":true,"queue":true,"uptime":12}}`。
+- 提交并 push 本轮实现。

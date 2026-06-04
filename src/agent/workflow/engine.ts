@@ -16,6 +16,7 @@ import type {
 } from '../runner/container-runner.js';
 import { runAgentProcess } from '../runner/container-runner.js';
 import { STORE_DIR } from '../../core/config.js';
+import { logger } from '../../core/logger.js';
 import type {
   RegisteredGroup,
   WorkflowContext,
@@ -32,6 +33,7 @@ import type {
 } from './config.js';
 import { WORKFLOW_END } from './config.js';
 import { createWorkflowSqliteSaver } from './sqlite-checkpointer.js';
+import type { WorkflowProgressReporter } from './progress.js';
 
 export interface WorkflowNodeResult {
   nodeId: string;
@@ -87,6 +89,7 @@ export interface WorkflowGraphRunOptions {
   runner?: WorkflowNodeRunner;
   recordStep?: WorkflowStepRecorder;
   updateRunStatus?: WorkflowRunStatusUpdater;
+  progressReporter?: WorkflowProgressReporter | null;
   checkpointer?: BaseCheckpointSaver | false;
   onProcess?: (proc: ChildProcess, identifier: string) => void;
   onOutput?: (output: AgentProcessOutput) => Promise<void>;
@@ -116,6 +119,22 @@ let persistentWorkflowCheckpointPath: string | null = null;
 const HKIPO_FINAL_REPORT_NODE_ID = 'ranking_report_editor';
 const KOL_FINAL_REPORT_NODE_ID = 'kol_report_editor';
 const HKIPO_ROLE_PROCESS_TIMEOUT_MS = 180_000;
+
+function notifyWorkflowProgress(
+  reporter: WorkflowProgressReporter | null | undefined,
+  label: string,
+  notify: (reporter: WorkflowProgressReporter) => Promise<void> | void,
+): void {
+  if (!reporter) return;
+  try {
+    void Promise.resolve(notify(reporter)).catch((err) => {
+      logger.debug({ err, label }, 'Workflow progress reporter failed');
+    });
+  } catch (err) {
+    logger.debug({ err, label }, 'Workflow progress reporter failed');
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -997,7 +1016,14 @@ export function compileWorkflowGraph(
             : {}),
         },
       ));
-  const recordStep = options.recordStep ?? persistWorkflowRunStep;
+  const baseRecordStep = options.recordStep ?? persistWorkflowRunStep;
+  const recordStep: WorkflowStepRecorder = (input) => {
+    const step = baseRecordStep(input);
+    notifyWorkflowProgress(options.progressReporter, 'step', (reporter) =>
+      reporter.onStep?.(step),
+    );
+    return step;
+  };
   const localTasks = options.localTasks ?? {};
   const graph = new StateGraph(WorkflowState) as any;
   const maxAttempts = Math.max(1, (options.workflow.maxRetries ?? 0) + 1);
@@ -1076,7 +1102,15 @@ export function compileWorkflowGraph(
 export async function runWorkflowGraph(
   options: WorkflowGraphRunOptions,
 ): Promise<WorkflowGraphState> {
-  const updateRunStatus = options.updateRunStatus ?? persistWorkflowRunStatus;
+  const baseUpdateRunStatus =
+    options.updateRunStatus ?? persistWorkflowRunStatus;
+  const updateRunStatus: WorkflowRunStatusUpdater = (runId, input) => {
+    const updatedRun = baseUpdateRunStatus(runId, input);
+    notifyWorkflowProgress(options.progressReporter, 'run_status', (reporter) =>
+      reporter.onRunStatus?.(updatedRun),
+    );
+    return updatedRun;
+  };
   const graph = compileWorkflowGraph(options);
   updateRunStatus(options.run.id, { status: 'running' });
   try {

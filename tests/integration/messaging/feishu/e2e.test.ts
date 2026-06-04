@@ -162,6 +162,46 @@ function createTempHome(): string {
   return dir;
 }
 
+function writeTextFile(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content);
+}
+
+function writeWorkflowProgressFixture(workspaceRoot: string): void {
+  writeTextFile(
+    path.join(workspaceRoot, '.agents', 'workflows', 'progress.json'),
+    JSON.stringify(
+      {
+        id: 'progress',
+        name: '进度测试工作流',
+        roles: [],
+        start: 'collect_context',
+        nodes: [
+          {
+            id: 'collect_context',
+            type: 'local_task',
+            taskId: 'test.collect_context',
+            outputArtifact: 'context',
+          },
+          {
+            id: 'render_report',
+            type: 'local_task',
+            taskId: 'test.render_report',
+            outputArtifact: 'report',
+            prompt: '整理上下文并输出最终报告',
+          },
+        ],
+        edges: [
+          { from: 'collect_context', to: 'render_report' },
+          { from: 'render_report', to: '__end__' },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 async function loadFeishuE2EModules() {
   const home = createTempHome();
   vi.stubEnv('HOME', home);
@@ -1927,6 +1967,242 @@ describe('Feishu in-process E2E harness', () => {
         presentationAnswerLength: stalePresentationAnswer.length,
         visibleTextLength: rawFinalText.length,
       },
+    });
+  });
+
+  test('creates and updates an independent workflow progress card for Feishu slash workflow triggers', async () => {
+    const { db, imManager, restartGuard } =
+      await loadFeishuProcessGroupModules();
+    const command = await import('../../../../src/agent/workflow/command.ts');
+    const { getDefaultWorkflowLocalTaskIds } =
+      await import('../../../../src/agent/workflow/local-tasks.ts');
+    const workspaceRoot = createTempHome();
+    writeWorkflowProgressFixture(workspaceRoot);
+    const chatId = 'oc_workflow_progress_card';
+    const chatJid = `feishu:${chatId}`;
+    const messageId = 'om_workflow_progress_card';
+    const progressReports: string[] = [];
+
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
+      vi.fn(),
+      {
+        resolveManagedCommandText: (_chatJid, text) =>
+          restartGuard.resolveManagedSelfRestartCommand(text),
+        onCommand: async (incomingChatJid, commandText, context) => {
+          expect(incomingChatJid).toBe(chatJid);
+          const rawArgs = commandText.replace(/^workflow\s+/, '');
+          const progressReporter =
+            imManager.createWorkflowProgressReporter(incomingChatJid);
+
+          return command.executeWorkflowCommand({
+            group: {
+              name: 'Workflow Progress Workspace',
+              folder: 'workflow-progress-workspace',
+              added_at: '2026-05-20T14:00:00.000Z',
+              agentType: 'openai',
+            },
+            chatJid: incomingChatJid,
+            argsText: rawArgs,
+            workspaceRoot,
+            knownLocalTasks: [
+              ...getDefaultWorkflowLocalTaskIds(),
+              'test.collect_context',
+              'test.render_report',
+            ],
+            localTasks: {
+              'test.collect_context': async () => {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+                return { status: 'ok', symbol: 'HK.01234' };
+              },
+              'test.render_report': async (input: any) => ({
+                status: 'ok',
+                result: `报告完成：${input.artifacts.context.symbol}`,
+              }),
+            },
+            background: true,
+            triggerMessageId: context?.triggerMessageId ?? null,
+            progressReporter,
+            onBackgroundResult: async (message: string) => {
+              progressReports.push(message);
+              await imManager.sendMessage(incomingChatJid, message);
+            },
+          } as any);
+        },
+      },
+    );
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: chatId,
+        message_id: messageId,
+        create_time: '1777070337000',
+        message_type: 'text',
+        content: JSON.stringify({
+          text: '/workflow progress 生成一份进度测试报告',
+        }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_workflow_progress',
+        },
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(hoisted.cardCreateSpy).toHaveBeenCalledTimes(1);
+    });
+    await vi.waitFor(() => {
+      const cardPayloads = JSON.stringify([
+        ...hoisted.createdCards,
+        ...hoisted.updatedCards,
+      ]);
+      expect(cardPayloads).toContain('Workflow 进度');
+      expect(cardPayloads).toContain('进度测试工作流');
+      expect(cardPayloads).toContain('collect_context');
+      expect(cardPayloads).toContain('render_report');
+      expect(cardPayloads).toContain('运行中');
+      expect(cardPayloads).toContain('已完成');
+      expect(cardPayloads).toContain('耗时');
+      expect(cardPayloads).toContain('报告完成：HK.01234');
+    });
+
+    const cardReferenceMessages = hoisted.createSpy.mock.calls.filter(
+      ([payload]) => {
+        const content = payload?.data?.content;
+        return (
+          payload?.data?.msg_type === 'interactive' &&
+          typeof content === 'string' &&
+          content.includes('"card_id"')
+        );
+      },
+    );
+    expect(cardReferenceMessages).toHaveLength(1);
+    expect(progressReports.at(-1)).toContain(
+      '✅ 工作流 进度测试工作流 (progress) 完成',
+    );
+
+    const [run] = db.listWorkflowRuns({
+      folder: 'workflow-progress-workspace',
+      workflowId: 'progress',
+      limit: 1,
+    });
+    expect(run).toMatchObject({
+      trigger_chat_jid: chatJid,
+      trigger_message_id: messageId,
+      status: 'success',
+    });
+    const steps = db.listWorkflowRunSteps(run.id);
+    expect(steps).toHaveLength(2);
+    expect(steps.every((step: any) => step.started_at)).toBe(true);
+    expect(steps.every((step: any) => step.completed_at)).toBe(true);
+  });
+
+  test('updates the independent workflow progress card when a Feishu workflow fails', async () => {
+    const { db, imManager, restartGuard } =
+      await loadFeishuProcessGroupModules();
+    const command = await import('../../../../src/agent/workflow/command.ts');
+    const { getDefaultWorkflowLocalTaskIds } =
+      await import('../../../../src/agent/workflow/local-tasks.ts');
+    const workspaceRoot = createTempHome();
+    writeWorkflowProgressFixture(workspaceRoot);
+    const chatId = 'oc_workflow_progress_failure';
+    const chatJid = `feishu:${chatId}`;
+    const messageId = 'om_workflow_progress_failure';
+    const progressReports: string[] = [];
+
+    await imManager.connectFeishu(
+      { appId: 'app-id', appSecret: 'app-secret', enabled: true },
+      vi.fn(),
+      {
+        resolveManagedCommandText: (_chatJid, text) =>
+          restartGuard.resolveManagedSelfRestartCommand(text),
+        onCommand: async (incomingChatJid, commandText, context) =>
+          command.executeWorkflowCommand({
+            group: {
+              name: 'Workflow Failure Workspace',
+              folder: 'workflow-failure-workspace',
+              added_at: '2026-05-20T14:00:00.000Z',
+              agentType: 'openai',
+            },
+            chatJid: incomingChatJid,
+            argsText: commandText.replace(/^workflow\s+/, ''),
+            workspaceRoot,
+            knownLocalTasks: [
+              ...getDefaultWorkflowLocalTaskIds(),
+              'test.collect_context',
+              'test.render_report',
+            ],
+            localTasks: {
+              'test.collect_context': async () => {
+                throw new Error('local task exploded');
+              },
+              'test.render_report': async () => ({ status: 'unused' }),
+            },
+            background: true,
+            triggerMessageId: context?.triggerMessageId ?? null,
+            progressReporter:
+              imManager.createWorkflowProgressReporter(incomingChatJid),
+            onBackgroundResult: async (message: string) => {
+              progressReports.push(message);
+              await imManager.sendMessage(incomingChatJid, message);
+            },
+          } as any),
+      },
+    );
+
+    await hoisted.handlers['im.message.receive_v1']?.({
+      message: {
+        chat_id: chatId,
+        message_id: messageId,
+        create_time: '1777070337001',
+        message_type: 'text',
+        content: JSON.stringify({
+          text: '/workflow progress 触发失败分支',
+        }),
+        chat_type: 'p2p',
+      },
+      sender: {
+        sender_id: {
+          open_id: 'ou_workflow_progress_failure',
+        },
+      },
+    });
+
+    await vi.waitFor(() => {
+      const cardPayloads = JSON.stringify([
+        ...hoisted.createdCards,
+        ...hoisted.updatedCards,
+      ]);
+      expect(cardPayloads).toContain('Workflow 进度');
+      expect(cardPayloads).toContain('失败');
+      expect(cardPayloads).toContain('local task exploded');
+      expect(cardPayloads).toContain('render_report');
+      expect(cardPayloads).toContain('待处理');
+    });
+    await vi.waitFor(() => {
+      expect(progressReports.at(-1)).toContain(
+        '❌ 工作流 进度测试工作流 (progress) 失败',
+      );
+    });
+
+    const [run] = db.listWorkflowRuns({
+      folder: 'workflow-failure-workspace',
+      workflowId: 'progress',
+      limit: 1,
+    });
+    expect(run).toMatchObject({
+      trigger_chat_jid: chatJid,
+      trigger_message_id: messageId,
+      status: 'error',
+      error: 'local task exploded',
+    });
+    const steps = db.listWorkflowRunSteps(run.id);
+    expect(steps[0]).toMatchObject({
+      node_id: 'collect_context',
+      status: 'error',
+      error: 'local task exploded',
     });
   });
 

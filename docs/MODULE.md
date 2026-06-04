@@ -57,7 +57,7 @@
 │   │   ├── downloader.ts            # IM 文件下载
 │   │   ├── image-detector.ts        # 图片 MIME 探测
 │   │   ├── new-workspace.ts         # IM 创建工作区 helper
-│   │   └── providers/               # Feishu / WeChat adapters
+│   │   └── providers/               # Feishu / WeChat adapters；含飞书 streaming card 与 workflow progress card
 │   ├── presentation/
 │   │   ├── assistant-meta-footer.ts # footer runtime identity / duration 格式化
 │   │   ├── reply-visibility.ts      # final/tool/send_message 可见文本裁剪

@@ -2013,6 +2013,7 @@ async function handleWorkflowSlashCommand(
   });
   if (!target) return '未找到当前工作区';
   const resolvedLifecycle = resolveWorkflowCommandLifecycle(chatJid, lifecycle);
+  const progressReporter = imManager.createWorkflowProgressReporter(chatJid);
   return executeWorkflowCommand({
     group: target.effectiveGroup,
     chatJid,
@@ -2022,6 +2023,7 @@ async function handleWorkflowSlashCommand(
     initialInput,
     background: resolvedLifecycle?.background,
     onBackgroundResult: resolvedLifecycle?.onBackgroundResult,
+    progressReporter,
   });
 }
 

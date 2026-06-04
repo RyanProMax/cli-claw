@@ -3,6 +3,7 @@ import path from 'path';
 
 import { APP_ROOT } from '../../core/app-root.js';
 import { GROUPS_DIR } from '../../core/config.js';
+import { logger } from '../../core/logger.js';
 import type { RegisteredGroup } from '../../domain/types.js';
 import { createWorkflowRun, getOrCreateWorkflowContext } from './context.js';
 import {
@@ -19,6 +20,7 @@ import {
   createDefaultWorkflowLocalTasks,
   getDefaultWorkflowLocalTaskIds,
 } from './local-tasks.js';
+import type { WorkflowProgressReporter } from './progress.js';
 import { DEFAULT_WORKFLOW_KNOWN_TOOLS } from './tools.js';
 
 type WorkflowDiscovery = ReturnType<typeof discoverWorkflowConfigs>;
@@ -37,6 +39,7 @@ export interface WorkflowCommandOptions {
   background?: boolean;
   onBackgroundResult?: (message: string) => Promise<void> | void;
   triggerMessageId?: string | null;
+  progressReporter?: WorkflowProgressReporter | null;
 }
 
 function splitWorkflowArgs(argsText: string): {
@@ -220,6 +223,28 @@ function normalizeWorkflowResultForDelivery(
   return result;
 }
 
+async function notifyWorkflowProgress(
+  reporter: WorkflowProgressReporter | null | undefined,
+  label: string,
+  notify: (reporter: WorkflowProgressReporter) => Promise<void> | void,
+): Promise<void> {
+  if (!reporter) return;
+  try {
+    await notify(reporter);
+  } catch (err) {
+    logger.debug({ err, label }, 'Workflow progress reporter failed');
+  }
+}
+
+async function waitForWorkflowProgressReporter(
+  reporter: WorkflowProgressReporter | null | undefined,
+): Promise<void> {
+  if (!reporter?.waitForIdle) return;
+  await notifyWorkflowProgress(reporter, 'wait_for_idle', (activeReporter) =>
+    activeReporter.waitForIdle?.(),
+  );
+}
+
 function formatWorkflowSuccess(options: {
   workflow: WorkflowDiscovery['workflows'][number];
   result: string;
@@ -348,6 +373,17 @@ export async function executeWorkflowCommand(
       initialInput: options.initialInput ?? {},
     },
   });
+  await notifyWorkflowProgress(
+    options.progressReporter,
+    'run_created',
+    (reporter) =>
+      reporter.onRunCreated?.({
+        workflow,
+        roles: discovered.roles,
+        run,
+        prompt,
+      }),
+  );
 
   const runAndFormatResult = async (): Promise<string> => {
     const graphRunner = options.runGraph ?? runWorkflowGraph;
@@ -365,13 +401,18 @@ export async function executeWorkflowCommand(
           createDefaultWorkflowLocalTasks({ workspaceRoot }),
         executionCwd: workspaceRoot,
         checkpointer: getPersistentWorkflowCheckpointer(),
+        ...(options.progressReporter
+          ? { progressReporter: options.progressReporter }
+          : {}),
       });
+      await waitForWorkflowProgressReporter(options.progressReporter);
       return formatWorkflowSuccess({
         workflow,
         result: result.result ?? '',
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      await waitForWorkflowProgressReporter(options.progressReporter);
       return formatWorkflowFailure({ workflow, message });
     }
   };

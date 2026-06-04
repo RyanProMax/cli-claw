@@ -30,6 +30,7 @@ import type {
   RuntimeIdentity,
 } from '../domain/types.js';
 import type { IMCommandContext } from './slash-command.js';
+import type { WorkflowProgressReporter } from '../agent/workflow/progress.js';
 
 // ─── Unified Interface ──────────────────────────────────────────
 
@@ -124,6 +125,10 @@ export interface IMChannel {
     chatId: string,
     onCardCreated?: (messageId: string) => void,
   ): StreamingCardController | undefined;
+  /** Create an independent workflow progress reporter (Feishu only). */
+  createWorkflowProgressReporter?(
+    chatId: string,
+  ): WorkflowProgressReporter | null;
   getChatInfo?(chatId: string): Promise<{
     avatar?: string;
     name?: string;
@@ -312,6 +317,13 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         onTerminal: () => inner?.clearAckReaction(chatId),
       };
       return new StreamingCardController(opts);
+    },
+
+    createWorkflowProgressReporter(
+      chatId: string,
+    ): WorkflowProgressReporter | null {
+      if (!inner) return null;
+      return inner.createWorkflowProgressReporter(chatId);
     },
   };
 

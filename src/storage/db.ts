@@ -2218,9 +2218,23 @@ export function upsertWorkflowRunStep(input: {
   updatedAt?: string;
 }): WorkflowRunStep {
   const now = new Date().toISOString();
-  const createdAt = input.createdAt ?? now;
-  const updatedAt = input.updatedAt ?? now;
   const attempt = input.attempt ?? 1;
+  const existing = db
+    .prepare(
+      'SELECT * FROM workflow_run_steps WHERE run_id = ? AND node_id = ? AND attempt = ?',
+    )
+    .get(input.runId, input.nodeId, attempt) as
+    | DbWorkflowRunStepRow
+    | undefined;
+  const createdAt = input.createdAt ?? existing?.created_at ?? now;
+  const updatedAt = input.updatedAt ?? now;
+  const terminalStep = ['success', 'error', 'skipped'].includes(input.status);
+  const startedAt =
+    input.startedAt ??
+    existing?.started_at ??
+    (input.status === 'running' ? now : null);
+  const completedAt =
+    input.completedAt ?? existing?.completed_at ?? (terminalStep ? now : null);
   db.prepare(
     `INSERT INTO workflow_run_steps (
       id, run_id, node_id, role_id, status, attempt, input, output, error,
@@ -2245,8 +2259,8 @@ export function upsertWorkflowRunStep(input: {
     stringifyJsonObject(input.input),
     stringifyJsonObject(input.output),
     input.error ?? null,
-    input.startedAt ?? null,
-    input.completedAt ?? null,
+    startedAt,
+    completedAt,
     createdAt,
     updatedAt,
   );

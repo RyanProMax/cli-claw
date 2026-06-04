@@ -33,6 +33,7 @@ import {
   registerMessageIdMapping,
   resolveJidByMessageId,
 } from './streaming-card.js';
+import { createFeishuWorkflowProgressReporter } from './workflow-progress-card.js';
 import { optimizeMarkdownStyle } from './markdown-style.js';
 import {
   formatAssistantCardFooter,
@@ -48,6 +49,7 @@ import type {
   MessageSourceKind,
   RuntimeIdentity,
 } from '../../../domain/types.js';
+import type { WorkflowProgressReporter } from '../../../agent/workflow/progress.js';
 
 type FeishuLifecycleEventInput = Omit<
   Parameters<typeof recordImMessageLifecycleEvent>[0],
@@ -152,6 +154,10 @@ export interface FeishuConnection {
   getLarkClient(): lark.Client | null;
   /** Get the last received message ID for a chat (for reply threading) */
   getLastMessageId(chatId: string): string | undefined;
+  /** Create an independent workflow progress card reporter for this chat. */
+  createWorkflowProgressReporter(
+    chatId: string,
+  ): WorkflowProgressReporter | null;
 }
 
 type FeishuCardAction =
@@ -2734,6 +2740,16 @@ export function createFeishuConnection(
 
     getLastMessageId(chatId: string): string | undefined {
       return lastMessageIdByChat.get(chatId);
+    },
+
+    createWorkflowProgressReporter(
+      chatId: string,
+    ): WorkflowProgressReporter | null {
+      if (!client) return null;
+      return createFeishuWorkflowProgressReporter({
+        client,
+        chatId,
+      });
     },
   };
 

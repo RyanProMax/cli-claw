@@ -157,6 +157,54 @@ describe('workflow context persistence', () => {
     db.closeDatabase();
   });
 
+  test('fills workflow step timestamps across running and terminal updates', async () => {
+    vi.useFakeTimers();
+    const { context, db } = await loadWorkflowModules();
+    const workflowContext = context.getOrCreateWorkflowContext({
+      folder: 'workspace-a',
+      workflowId: 'qa-review',
+    });
+    const run = context.createWorkflowRun({
+      contextId: workflowContext.id,
+      folder: 'workspace-a',
+      workflowId: 'qa-review',
+      triggerChatJid: 'web:workspace-a',
+      prompt: 'review this change',
+    });
+
+    try {
+      vi.setSystemTime(new Date('2026-05-17T10:00:01.000Z'));
+      context.recordWorkflowRunStep({
+        runId: run.id,
+        nodeId: 'review',
+        roleId: 'qa',
+        status: 'running',
+        attempt: 1,
+      });
+
+      vi.setSystemTime(new Date('2026-05-17T10:00:04.250Z'));
+      context.recordWorkflowRunStep({
+        runId: run.id,
+        nodeId: 'review',
+        roleId: 'qa',
+        status: 'success',
+        attempt: 1,
+        output: { summary: 'looks good' },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const [step] = context.listWorkflowRunSteps(run.id);
+    expect(step).toMatchObject({
+      status: 'success',
+      started_at: '2026-05-17T10:00:01.000Z',
+      completed_at: '2026-05-17T10:00:04.250Z',
+    });
+
+    db.closeDatabase();
+  });
+
   test('rejects workflow runs whose folder or workflow id does not match the context', async () => {
     const { context, db } = await loadWorkflowModules();
     const workflowContext = context.getOrCreateWorkflowContext({

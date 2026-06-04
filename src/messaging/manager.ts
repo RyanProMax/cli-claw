@@ -18,6 +18,7 @@ import type { WeChatConnectionConfig } from './providers/wechat/index.js';
 import type { StreamingCardController } from './providers/feishu/streaming-card.js';
 import { logger } from '../core/logger.js';
 import type { IMCommandContext } from './slash-command.js';
+import type { WorkflowProgressReporter } from '../agent/workflow/progress.js';
 
 export interface FeishuConnectConfig {
   appId: string;
@@ -168,6 +169,16 @@ class IMConnectionManager {
     return this.channels
       .get('feishu')
       ?.createStreamingSession?.(extractChatId(jid), onCardCreated);
+  }
+
+  createWorkflowProgressReporter(jid: string): WorkflowProgressReporter | null {
+    const channelType = getChannelType(jid);
+    if (channelType !== 'feishu') return null;
+    return (
+      this.channels
+        .get('feishu')
+        ?.createWorkflowProgressReporter?.(extractChatId(jid)) ?? null
+    );
   }
 
   getConnectedChannelTypes(): string[] {

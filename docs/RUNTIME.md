@@ -132,7 +132,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 - 同一个 workspace 主线线程共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 普通消息会合并成一轮；遇到不同来源或 `assistant_prompt` 任务边界即切到下一轮，按入库顺序继续处理，不跨来源重排。例如 `A1/A2/B1/A3/B2/B3` 必须切成 `A1+A2`、`B1`、`A3`、`B2+B3` 四轮。
 - Skill slash command 如果返回 `assistant_prompt`，该消息会标记为 `source_kind='assistant_prompt'`，并用隔离 runtime session 作为新 turn 发送给底层 runtime；它不读取 workspace 主 runtime session，完成后也不写回主 session，避免命令生成的研究任务污染后续普通对话。若历史版本已经把上一轮 skill final 的 session 写成主 session，下一条普通用户消息必须忽略它并建立新的正常主 session。
-- Skill slash command 如果返回 `workflow`，不会改写成用户消息，也不会进入主 runtime session；宿主会用返回的 `workflowId`、`prompt` 和结构化 `input` 创建独立 workflow run。run 创建成功后，触发会话先收到启动回执；后台 graph 完成、失败或 runner 超时后，触发会话再收到终态消息。`/hkipo [--all]` 当前走这条路径。
+- Skill slash command 如果返回 `workflow`，不会改写成用户消息，也不会进入主 runtime session；宿主会用返回的 `workflowId`、`prompt` 和结构化 `input` 创建独立 workflow run。run 创建成功后，触发会话先收到启动回执；飞书入口还会收到独立 workflow progress card，展示每个节点的状态、内容摘要和耗时；后台 graph 完成、失败或 runner 超时后，触发会话再收到终态消息。`/hkipo [--all]` 当前走这条路径。
 - 同一个 workspace 下的每个任务线程都有独立 runtime session，不与主线共享 Codex / OpenAI 对话上下文。内部实现可以继续使用旧 agent slot，但 Web / IM 不把它作为用户主概念展示。
 - Workflow run 有独立 workflow context、LangGraph `thread_id` 和 workflow 线程；它不写入工作区主线 runtime session。workflow 线程只用于来源标识、运行追问和审计串联。
 - Runner 按 serialization key 串行化：主线以 `folder` 为 key，任务线程以 `folder + runtimeAgentId` 为 key，workflow / 任务运行以独立任务 key 为 key。runtime query 正在执行时不消费新的用户 IPC 消息；新消息只会排队并触发 drain。只有当前 query 已结束、runner 处于等待下一条消息的 idle 阶段时，才允许同来源消息通过 IPC 复用同一 runtime session。不同来源消息始终排队并触发 drain，让当前 turn 完成后按顺序处理。
@@ -162,6 +162,16 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - OpenAI final visibility resolution 必须保留结构化日志，至少记录 raw final、streaming presentation answer/commentary、最终 visible text、剥离出的 commentary、`sourceKind`、`finalizationReason`、`turnId` / `sessionId` / `sdkMessageUuid` 和 runtime identity，便于追踪正文与过程文本边界。
 - Streaming / 完成态 card 保留当前 turn 的完整 tool steps，便于回看执行过程；临时状态、hook 和 system status 在终态收敛。
 - Footer 必须展示 runtime identity 和当前处理耗时；耗时按当前 streaming turn 计算，而不是按长运行 handler、runtime session 或 SDK 累计 usage 计算。同来源新用户输入、`turnId` 变化、`messageCursor.id` 变化，或完成态清理后首次绑定下一轮 `turnId` / `messageCursor.id` 时，presentation buffer、thinking、中断状态和 footer 计时起点必须一起重置。耗时使用紧凑格式并省略为 0 的小时/分钟单位，例如 `36s`、`1min12s`、`1h23min12s`，且不显示小数秒。usage 晚到时可以补丁更新 footer，但不能改写主正文来源。
+
+### Feishu Workflow Progress Card
+
+飞书 workflow progress card 是 workflow 审计的展示层，不是普通 Agent streaming card，也不是 runtime session 或记忆边界。稳定契约如下：
+
+- 只在飞书入口可用；Web 继续通过自动化 / workflow 看板查看审计，微信和不可用 IM channel 保持启动回执与终态文本路径。
+- 卡片由 `workflow_runs` 与 `workflow_run_steps` 的持久化事件驱动，显示 workflow 名称、run id、总状态、总耗时、触发任务，以及每个节点的 id、状态、内容摘要和耗时。
+- 节点展示状态至少覆盖 pending / running / success / error / degraded / skipped；`degraded` 来自成功 step 的结构化 artifact（例如 `artifact.status='degraded'`），不要求新增数据库 step status。
+- `workflow_run_steps.started_at` / `completed_at` 是节点耗时事实来源。running step 自动写 `started_at`，terminal step 自动写 `completed_at` 并保留已有 `started_at`，避免只有终态审计而无法计算耗时。
+- 卡片创建或更新失败只能记录 debug 日志并降级，不得影响 workflow graph 执行、run/step 审计、启动回执或终态结果投递。
 
 当前限制：
 
@@ -201,7 +211,7 @@ Workflow graph 支持 `local_task` 节点，但它不是 shell passthrough。wor
 
 `stock.kol.prepare_context` 会解析 workflow input 或 prompt 中的 `days` / `--days=N`，默认 30 天，然后从 sibling `stock-kol-intel` 仓库或 `STOCK_KOL_INTEL_ROOT` 定位 `references/kol_whitelist.json` 与 `commands/kol.py`。该 local task 复用 `stock-kol-intel` 的 `load_whitelist()` 和 `build_x_source_preflight()`，输出 `kol_context` artifact：`window_days`、白名单、X/Twitter `twscrape` 源预检、报告规则和输出模板。X 原站不可访问、twscrape 账号池不可用或单账号失败时，预检结果必须结构化标注为 `unavailable` / `error` / per-account reason，由报告角色降权处理；不要把截图、镜像或搜索缓存提升为主证据。报告模板要求开头用 `覆盖 KOL（数量）：名单` 一行列出覆盖范围，结论/总结、近期投资方向和每个编号主题之间用 `---` 分隔；固定的账号/来源置信段落不输出，只有来源存疑、低置信或不可访问时才追加“来源提醒”。
 
-scheduled task 支持 `execution_type='workflow'`：`script_command` 存 workflow id，`prompt` 存 workflow prompt，scheduler 到期后复用 `/workflow <id> <prompt>` 同一条 workflow command 路径。scheduled workflow 不创建独立 task workspace，也不把 prompt 注入源工作区主会话；它只创建 workflow run/context、执行 local task / role node，并把终态消息回投到 scheduled task 的目标会话。
+scheduled task 支持 `execution_type='workflow'`：`script_command` 存 workflow id，`prompt` 存 workflow prompt，scheduler 到期后复用 `/workflow <id> <prompt>` 同一条 workflow command 路径。scheduled workflow 不创建独立 task workspace，也不把 prompt 注入源工作区主会话；它只创建 workflow run/context、执行 local task / role node，并把终态消息回投到 scheduled task 的执行会话；只有该执行会话本身是已连接飞书入口时，才会复用 workflow progress card 展示节点进度。
 
 scheduled workflow 在启动任何 Agent runtime 前会读取 OpenAI Codex usage snapshot。若 5h primary window 或 7d secondary window 剩余额低于 `CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT`（默认 30），scheduler 不启动 workflow，写 task run log 和 `last_result`，并把 `next_run` 延后到低额度 bucket 的 reset time；若 usage API 临时不可读，会优先复用 90 分钟内最近一次成功 snapshot，仍不可读时再按 `CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS`（默认 30 分钟）保守延后。usage guard 延期属于“未启动/已延期”，run log 记录 `Deferred: ...`，不作为任务失败；真实 workflow 命令返回 `❌ 工作流 ... 失败` 时才会落成 task run `error`。scheduler 对 workflow 命令还有运行时上限 `CLI_CLAW_SCHEDULED_WORKFLOW_TASK_TIMEOUT_MS`（默认 30 分钟），并每 5 分钟清理超过 `CLI_CLAW_SCHEDULED_WORKFLOW_STALE_TIMEOUT_MS`（默认 30 分钟）的 running task log / workflow run；服务启动时也会把上个进程遗留的 running 记录打成 watchdog error，避免日报或主控永久挂住。
 

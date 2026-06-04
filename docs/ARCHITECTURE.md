@@ -23,7 +23,7 @@ Cli Claw 是一个单实例、自托管的 CLI Agent 工具。它接收 Web、�
 2. backend 启动时校验当前启动目录，并为缺失 `customCwd` 的主工作区物化默认执行目录。
 3. 用户从 Web 或 IM 入口发来消息。
 4. 主进程写入数据库，并把请求按工作区路由到队列。
-5. 若消息触发 workflow，主进程先创建独立 workflow run/context，再由 workflow engine 调度 `local_task` 与 role node；普通消息仍按原路径进入本地 Agent 进程。
+5. 若消息触发 workflow，主进程先创建独立 workflow run/context；飞书入口会同时创建一张独立 workflow 进度卡，并由 workflow run/step 审计事件驱动更新。随后 workflow engine 调度 `local_task` 与 role node；普通消息仍按原路径进入本地 Agent 进程。
 6. 队列或 workflow dispatcher 启动本地 Agent 进程，再由 `agent-runner` 加载工作区的 Codex/OpenAI 模型配置以及显式传入的 workflow/role metadata。
 7. runner 产生文本、思考、工具调用和任务事件，经 stdout / IPC 回到主进程。
 8. 主进程保留底层 `StreamEvent` 契约，同时通过共享展示语义层把流式文本归入 answer / commentary 等展示槽位，再通过 WebSocket 或 IM 通道回推给用户。
@@ -35,6 +35,8 @@ Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workf
 
 `/kol` 同样是 skill slash command 到 workflow 的快捷入口：skill executor 只校验 `--days` 并返回 `workflowId=kol`，不再生成 `assistant_prompt` 或进入用户主线会话。workflow 的 local task 从 `stock-kol-intel` 白名单与 X/Twitter 预检生成结构化 `kol_context`，报告角色再按主题/共识合并输出 KOL 情报日报；该 workflow 可被 `/workflow kol ...` 和 scheduled workflow 复用。
 
+飞书 workflow 进度卡与普通 Agent streaming card 是两张不同消息卡片：前者只展示 workflow run 与各节点状态、内容摘要和耗时，后者只展示普通 runtime 的流式 answer / thinking / tool steps。进度卡读取 `workflow_runs` / `workflow_run_steps` 的运行事实，不写 runtime session、不参与记忆边界，也不替代启动回执和终态结果消息。
+
 ## IM 消息可靠性
 
 - IM 入站消息先落库，再进入队列；飞书链路会记录 durable lifecycle 事件，覆盖 `received` / `stored` / `notified` / `queued` / `runner_started` / `stream_started` / `finalized` / `im_delivered` / `cursor_committed` / `dead_lettered`。
@@ -44,6 +46,7 @@ Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workf
 - 普通服务模式下，startup pending-message recovery、conversation-agent recovery 和主消息循环必须等待 IM connection phase 完成后再启动，避免恢复消息早于飞书连接可用而丢投递。
 - 回复游标提交必须受 IM 投递结果约束：当某条 Feishu-origin turn 依赖 static IM delivery 且投递最终失败时，不能提交对应 inbound cursor；该 turn 应保持 retryable 或记录明确 dead-letter。
 - 飞书 streaming card 是 IM 可见进度面；answer 文本出现前的工具、hook、status、todo 等辅助进度也应创建/更新卡片，避免 Web 有流式进展而飞书静默。
+- 飞书 workflow 触发成功后还应创建独立 progress card：run 状态变化和 step upsert 会驱动卡片更新，覆盖待处理、运行中、完成、失败、降级和跳过节点；卡片更新失败只能降级为日志，不得中断 workflow 执行或终态投递。
 - 消息调度允许连续同源 pending batch：若入库顺序为 `A1/A2/B1/A3/B2/B3`，应按 `A1+A2 -> A`、`B1 -> B`、`A3 -> A`、`B2+B3 -> B` 处理；pending batch 只包含尚未处理、未提交 cursor 的连续同源消息，不得捞取已处理历史、recovery summary 或旧 interrupted 内容补上下文。
 - 当前 runtime query 正在输出时，新用户消息不能被 `stream.push()` 注入同一 query；它必须排队到下一轮。只有 query 已完成、runner idle 等待 IPC 时，同来源消息才可复用同一 runtime session。这样卡片路由切换不会接住上一轮仍在流出的工具步骤。
 - Runner stdout 是当前 turn 的 live output 边界：底层 runtime session 的恢复、历史 transcript 读取和旧执行事件都必须在 runner 内部闭环，不能作为 stream event 发给主进程。
