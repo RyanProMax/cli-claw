@@ -150,7 +150,7 @@ Current milestone:
 - Milestone 3 done
 
 Current status:
-- implementation, validation, semantic review, and safe service restart passed; preparing commit and push
+- implementation, validation, semantic review, commit, push, and safe service restart are complete
 
 Changed files:
 - `PLANS/ACTIVE.md`
@@ -183,6 +183,7 @@ Findings:
   - `./scripts/review.sh`
 - sub-agent reviewer 复审通过，无 blocking/important 问题。
 - 服务已按 `docs/COMMAND.md` 走安全重启路径应用源码变更；`/api/health` healthy，current backend PID `8932`。
+- 最终实现已提交并 push 到 `origin/main`；最新提交为 `0d31a38 Add Feishu workflow progress cards`。
 
 Next step:
-- 提交并 push 本轮实现。
+- 无，本轮目标已完成。
