@@ -1529,6 +1529,41 @@ export function createFeishuConnection(
           onCommand,
           { triggerMessageId: messageId },
         );
+        if (reply.kind === 'no_reply') {
+          persistSlashCommandForWebHistory({
+            chatJid,
+            messageId,
+            senderOpenId,
+            senderName: resolvedSenderName,
+            content: textForSlash,
+            timestamp,
+            attachments: attachmentsJson,
+            source,
+          });
+          recordLifecycleEvent({
+            chatJid,
+            sourceJid: chatJid,
+            messageId,
+            stage: 'skipped',
+            status: 'skipped',
+            reason: 'slash_command',
+            details: {
+              source,
+              cmd: slashMatch[1],
+              replyKind: reply.kind,
+            },
+          });
+          logger.info(
+            {
+              chatJid,
+              cmd: slashMatch[1],
+              hasReply: false,
+              replyLen: 0,
+            },
+            'Feishu slash command processed',
+          );
+          return;
+        }
         if (reply.kind === 'reply') {
           persistSlashCommandForWebHistory({
             chatJid,

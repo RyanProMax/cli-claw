@@ -172,9 +172,11 @@ function removeDefaultKolConfidenceSection(result: string): string {
   return `${result.slice(0, start).trimEnd()}${result.slice(end)}`;
 }
 
-function ensureBlankLineAroundSeparators(result: string): string {
+function compactKolSeparators(result: string): string {
   return result
-    .replace(/\n{0,2}---\n{0,2}/g, '\n\n---\n\n')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .replace(/\n*\s*---\s*\n*/g, '\n---\n')
+    .replace(/(?:\n---\n\s*){2,}/g, '\n---\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -193,26 +195,113 @@ function mergeKolCoverageLines(result: string): string {
     );
 }
 
-function insertSeparatorBefore(result: string, pattern: RegExp): string {
-  return result.replace(pattern, (match: string) => {
-    const prefix = result.slice(0, result.indexOf(match));
-    if (/(?:^|\n)---\s*\n*$/.test(prefix.slice(-20))) return match;
-    return `\n\n---\n\n${match.trimStart()}`;
-  });
+function normalizeKolDate(value: string | null | undefined): string | null {
+  const match = value
+    ?.trim()
+    .match(/(20\d{2})[年\/-](\d{1,2})[月\/-](\d{1,2})/);
+  if (!match) return null;
+  return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(
+    2,
+    '0',
+  )}`;
+}
+
+function normalizeKolSourceLinks(result: string): string {
+  return result.replace(
+    /\[([^\]\n]*?)\s*\|\s*x\]\(([^)\n]+)\)([^\n]*)/gi,
+    (_match, rawTitle: string, url: string, rawTail: string) => {
+      const title = rawTitle.trim();
+      const date = normalizeKolDate(rawTail);
+      const tail = rawTail
+        .replace(
+          /\s*(?:[\[（(]\s*)?20\d{2}[年\/-]\d{1,2}[月\/-]\d{1,2}(?:\s*[\]）)])?/g,
+          '',
+        )
+        .trim();
+      return `[${title}](${url})${date ? ` [${date}]` : ''}${
+        tail ? ` ${tail}` : ''
+      }`;
+    },
+  );
+}
+
+function splitKolSentences(value: string): string[] {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+  const matches = normalized.match(/[^。！？]+[。！？]?/g) ?? [normalized];
+  return matches.map((item) => item.trim()).filter(Boolean);
+}
+
+function splitKolNumberedItems(value: string): string[] {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+  const parts = normalized
+    .split(/\s*(?:\d+[）、]|\d+[.)]\s+)/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts : splitKolSentences(normalized);
+}
+
+function formatKolNumberedSection(title: string, items: string[]): string {
+  const normalizedItems = items.length > 0 ? items : ['暂无高置信内容。'];
+  return [
+    title,
+    ...normalizedItems.map((item, index) => `${index + 1}. ${item}`),
+  ].join('\n');
+}
+
+function normalizeKolConclusion(result: string): string {
+  return result.replace(
+    /(^|\n)🧾\s*\*\*结论\/总结\*\*[：:]\s*([\s\S]*?)(?=\n\s*---|\n\s*\*\*近期投资方向|$)/g,
+    (_match, prefix: string, rawBody: string) => {
+      const body = rawBody.replace(/\s+/g, ' ').trim();
+      const split = body.match(/([\s\S]*?)下一步重点核验[：:]\s*([\s\S]*)/);
+      const summaryText = (split?.[1] ?? body).trim();
+      const verificationText = split?.[2]?.trim() ?? '';
+      const sections = [
+        formatKolNumberedSection(
+          '🧾 **结论/总结**',
+          splitKolSentences(summaryText),
+        ),
+      ];
+      if (verificationText) {
+        sections.push(
+          formatKolNumberedSection(
+            '🔍 **下一步重点核验**',
+            splitKolNumberedItems(verificationText),
+          ),
+        );
+      }
+      return `${prefix}${sections.join('\n\n')}`;
+    },
+  );
+}
+
+function insertCompactKolSeparators(result: string): string {
+  return result
+    .replace(
+      /\n+(?!\s*---\s*\n)(\*\*近期投资方向与高信号内容\*\*)/g,
+      '\n---\n$1',
+    )
+    .replace(/\n+(?!\s*---\s*\n)(\*\*[2-9]\.\s+)/g, '\n---\n$1');
+}
+
+function compactKolFieldSpacing(result: string): string {
+  return result
+    .replace(/\n{2,}(?=(?:🧭|📝|🏷️|📊|🔮|🎯|🔗)\s+\*\*)/g, '\n')
+    .replace(/((?:📝|🔗)\s+\*\*[^*\n]+\*\*[：:]?)\n{2,}(?=-\s)/g, '$1\n')
+    .replace(/(\n-\s+\*\*[^：:\n]+[：:].+)\n{2,}(?=-\s+\*\*)/g, '$1\n');
 }
 
 function normalizeKolFinalReport(result: string): string {
   let normalized = removeDefaultKolConfidenceSection(result);
   normalized = mergeKolCoverageLines(normalized);
-  normalized = insertSeparatorBefore(
-    normalized,
-    /(?:\*\*)?近期投资方向与高信号内容(?:\*\*)?/,
-  );
-  normalized = normalized.replace(
-    /\n+(?!\s*---)((?:\*\*)?[2-9]\.\s+)/g,
-    '\n\n---\n\n$1',
-  );
-  return ensureBlankLineAroundSeparators(normalized);
+  normalized = normalizeKolSourceLinks(normalized);
+  normalized = normalizeKolConclusion(normalized);
+  normalized = insertCompactKolSeparators(normalized);
+  normalized = compactKolSeparators(normalized);
+  normalized = compactKolFieldSpacing(normalized);
+  return compactKolSeparators(normalized);
 }
 
 function normalizeWorkflowResultForDelivery(

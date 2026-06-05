@@ -462,6 +462,27 @@ function formatKolSourceTitle(post: Record<string, unknown>): string {
   return '原文';
 }
 
+function formatKolSourceDate(post: Record<string, unknown>): string {
+  for (const key of [
+    'published_at',
+    'created_at',
+    'posted_at',
+    'date',
+    'time',
+    'timestamp',
+  ]) {
+    const rawValue = readString(post[key]);
+    const match = rawValue.match(/(20\d{2})[年\/-](\d{1,2})[月\/-](\d{1,2})/);
+    if (match) {
+      return ` [${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(
+        2,
+        '0',
+      )}]`;
+    }
+  }
+  return '';
+}
+
 function collectKolSourceLinks(
   kolContext: Record<string, unknown>,
   coveredKols: Record<string, unknown>[],
@@ -480,14 +501,19 @@ function collectKolSourceLinks(
   ) => {
     if (!url || seenUrls.has(url)) return;
     seenUrls.add(url);
-    lines.push(`- ${author}：[${title} | x](${url})${suffix}`);
+    lines.push(`- ${author}：[${title}](${url})${suffix}`);
   };
 
   for (const result of asArray(xPreflight.results).filter(isRecord)) {
     const author = readKolIdentity(result, identities);
     for (const post of asArray(result.posts).filter(isRecord)) {
       const url = readString(post.url) || readString(post.link);
-      pushLink(author, formatKolSourceTitle(post), url);
+      pushLink(
+        author,
+        formatKolSourceTitle(post),
+        url,
+        formatKolSourceDate(post),
+      );
     }
   }
 

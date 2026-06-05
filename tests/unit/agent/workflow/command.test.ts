@@ -451,18 +451,27 @@ describe('workflow command execution', () => {
         '覆盖：2 位 KOL',
         '覆盖 KOL：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
         '',
-        '🧾 **结论/总结**：AI 主线仍强。',
+        '🧾 **结论/总结**：本轮最高置信共识仍围绕 AI 基础设施持续扩张 展开，尤其是光互连、CPO、存储、网络芯片和上游半导体链条；多位 KOL 同时给出“需求强、但市场会在细分环节间快速轮动”的信号。与此对应，AI 应用层的商业闭环仍未完全验证，价值更可能先向模型、云、平台入口和高壁垒生态集中。除 AI 主线外，物理 AI/机器人零部件 与 大型药企/精准医疗创新 也出现了较清晰的可跟踪方向。下一步重点核验：1）800G/1.6T、CPO 与激光器/硅光的订单兑现；2）超大厂 CapEx 是否继续上修并传导至 MU、MRVL、AVGO、TSM 等链条；3）AI 应用的付费、留存与成本回收；4）机器人核心零部件客户扩张与量产节奏；5）医药突破能否转化为持续的产品收入与临床里程碑。',
         '',
+        '---',
         '**近期投资方向与高信号内容**',
         '',
         '**1. CPO/光互连链条：从概念验证转向订单兑现**',
         '🧭 **核心论点**：订单和产能成为关键。',
         '',
         '🔗 **来源**：',
-        '- Dexter Yang：[原文 | x](https://x.com/dexteryy/status/1)',
+        '- Dexter Yang：[原文 | x](https://x.com/dexteryy/status/1790000000000000000) [2026-06-01]',
+        '',
+        '---',
         '',
         '**2. AI 电力：数据中心建设带来电力约束**',
         '🧭 **核心论点**：电力瓶颈继续被交易。',
+        '',
+        '📝 **观点摘要**：',
+        '',
+        '- **事实**：电力设备订单仍强。',
+        '',
+        '- **推断**：电力约束可能继续成为 AI 数据中心建设的交易线索。',
         '',
         '**账号与来源可信度**',
         '- Dexter Yang confirmed；Serenity confirmed。',
@@ -483,16 +492,30 @@ describe('workflow command execution', () => {
     });
 
     expect(reply).toContain(
-      '🧾 **结论/总结**：AI 主线仍强。\n\n---\n\n**近期投资方向与高信号内容**',
+      [
+        '🧾 **结论/总结**',
+        '1. 本轮最高置信共识仍围绕 AI 基础设施持续扩张 展开',
+      ].join('\n'),
     );
     expect(reply).toContain(
-      '- Dexter Yang：[原文 | x](https://x.com/dexteryy/status/1)\n\n---\n\n**2. AI 电力',
+      [
+        '🔍 **下一步重点核验**',
+        '1. 800G/1.6T、CPO 与激光器/硅光的订单兑现；',
+      ].join('\n'),
+    );
+    expect(reply).toContain(
+      '- Dexter Yang：[原文](https://x.com/dexteryy/status/1790000000000000000) [2026-06-01]\n---\n**2. AI 电力',
     );
     expect(reply).toContain(
       '覆盖 KOL（2）：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
     );
     expect(reply).not.toContain('覆盖：2 位 KOL');
     expect(reply).not.toContain('覆盖 KOL：Dexter Yang');
+    expect(reply).not.toContain('| x');
+    expect(reply).not.toContain('\n---\n---\n');
+    expect(reply).not.toContain('🧭 **核心论点**：订单和产能成为关键。\n\n🔗');
+    expect(reply).not.toContain('📝 **观点摘要**：\n\n- **事实**');
+    expect(reply).not.toContain('- **事实**：电力设备订单仍强。\n\n- **推断**');
     expect(reply).not.toContain('账号与来源可信度');
     expect(reply).not.toContain('confirmed');
 

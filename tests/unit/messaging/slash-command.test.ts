@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import {
+  encodeImSlashNoReply,
   encodeImSlashRewriteMessage,
   resolveImSlashCommandReply,
 } from '../../../src/messaging/slash-command.ts';
@@ -46,6 +47,17 @@ describe('IM slash command reply policy', () => {
       kind: 'rewrite_message',
       content: '请分析当前港股 IPO 池',
       sourceKind: 'assistant_prompt',
+    });
+  });
+
+  test('decodes no-reply sentinels into silent command results', async () => {
+    const onCommand = vi.fn().mockResolvedValue(encodeImSlashNoReply());
+
+    await expect(
+      resolveImSlashCommandReply('feishu:room', 'kol', onCommand),
+    ).resolves.toEqual({
+      kind: 'no_reply',
+      content: '',
     });
   });
 });

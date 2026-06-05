@@ -167,6 +167,7 @@ import {
 import { executeWorkflowCommand } from './agent/workflow/command.js';
 import { listWorkflowRuns } from './agent/workflow/context.js';
 import {
+  encodeImSlashNoReply,
   encodeImSlashRewriteMessage,
   type IMCommandContext,
 } from './messaging/slash-command.js';
@@ -2014,7 +2015,7 @@ async function handleWorkflowSlashCommand(
   if (!target) return '未找到当前工作区';
   const resolvedLifecycle = resolveWorkflowCommandLifecycle(chatJid, lifecycle);
   const progressReporter = imManager.createWorkflowProgressReporter(chatJid);
-  return executeWorkflowCommand({
+  const reply = await executeWorkflowCommand({
     group: target.effectiveGroup,
     chatJid,
     argsText: rawArgs,
@@ -2025,6 +2026,10 @@ async function handleWorkflowSlashCommand(
     onBackgroundResult: resolvedLifecycle?.onBackgroundResult,
     progressReporter,
   });
+  if (progressReporter && reply.startsWith('🚀 已启动：')) {
+    return encodeImSlashNoReply();
+  }
+  return reply;
 }
 
 async function discoverSkillCommandsForTarget(

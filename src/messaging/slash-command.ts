@@ -15,15 +15,20 @@ export interface IMCommandContext {
 }
 
 const IM_SLASH_REWRITE_PREFIX = '__CLI_CLAW_REWRITE__\n';
+const IM_SLASH_NO_REPLY = '__CLI_CLAW_NO_REPLY__';
 
 export interface ResolvedImSlashCommand {
-  kind: 'reply' | 'rewrite_message';
+  kind: 'reply' | 'rewrite_message' | 'no_reply';
   content: string;
   sourceKind?: MessageSourceKind;
 }
 
 export function encodeImSlashRewriteMessage(message: string): string {
   return `${IM_SLASH_REWRITE_PREFIX}${message}`;
+}
+
+export function encodeImSlashNoReply(): string {
+  return IM_SLASH_NO_REPLY;
 }
 
 function decodeImSlashRewriteMessage(reply: string): string | null {
@@ -44,6 +49,9 @@ export async function resolveImSlashCommandReply(
       ? await onCommand(chatJid, trimmed)
       : await onCommand(chatJid, trimmed, context);
   if (reply !== null) {
+    if (reply === IM_SLASH_NO_REPLY) {
+      return { kind: 'no_reply', content: '' };
+    }
     const rewritten = decodeImSlashRewriteMessage(reply);
     if (rewritten) {
       return {

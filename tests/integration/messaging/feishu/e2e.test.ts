@@ -4,6 +4,8 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { encodeImSlashNoReply } from '../../../../src/messaging/slash-command.ts';
+
 const hoisted = vi.hoisted(() => {
   const handlers: Record<string, (payload: any) => Promise<void> | void> = {};
   const createdCards: Array<Record<string, any>> = [];
@@ -1995,7 +1997,7 @@ describe('Feishu in-process E2E harness', () => {
           const progressReporter =
             imManager.createWorkflowProgressReporter(incomingChatJid);
 
-          return command.executeWorkflowCommand({
+          await command.executeWorkflowCommand({
             group: {
               name: 'Workflow Progress Workspace',
               folder: 'workflow-progress-workspace',
@@ -2028,6 +2030,7 @@ describe('Feishu in-process E2E harness', () => {
               await imManager.sendMessage(incomingChatJid, message);
             },
           } as any);
+          return encodeImSlashNoReply();
         },
       },
     );
@@ -2079,6 +2082,17 @@ describe('Feishu in-process E2E harness', () => {
       },
     );
     expect(cardReferenceMessages).toHaveLength(1);
+    const startedTextMessages = hoisted.createSpy.mock.calls.filter(
+      ([payload]) => {
+        const content = payload?.data?.content;
+        return (
+          payload?.data?.msg_type === 'text' &&
+          typeof content === 'string' &&
+          JSON.parse(content).text.includes('已启动')
+        );
+      },
+    );
+    expect(startedTextMessages).toHaveLength(0);
     expect(progressReports.at(-1)).toContain(
       '✅ 工作流 进度测试工作流 (progress) 完成',
     );
@@ -2118,8 +2132,8 @@ describe('Feishu in-process E2E harness', () => {
       {
         resolveManagedCommandText: (_chatJid, text) =>
           restartGuard.resolveManagedSelfRestartCommand(text),
-        onCommand: async (incomingChatJid, commandText, context) =>
-          command.executeWorkflowCommand({
+        onCommand: async (incomingChatJid, commandText, context) => {
+          await command.executeWorkflowCommand({
             group: {
               name: 'Workflow Failure Workspace',
               folder: 'workflow-failure-workspace',
@@ -2148,7 +2162,9 @@ describe('Feishu in-process E2E harness', () => {
               progressReports.push(message);
               await imManager.sendMessage(incomingChatJid, message);
             },
-          } as any),
+          } as any);
+          return encodeImSlashNoReply();
+        },
       },
     );
 

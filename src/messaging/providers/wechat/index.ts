@@ -541,6 +541,9 @@ export function createWeChatConnection(
             cmdBody,
             opts.onCommand,
           );
+          if (reply.kind === 'no_reply') {
+            return;
+          }
           if (reply.kind === 'reply') {
             const ct = contextTokenCache.get(fromUserId);
             if (ct) {

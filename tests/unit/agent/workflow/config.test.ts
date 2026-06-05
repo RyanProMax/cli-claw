@@ -97,8 +97,11 @@ describe('workflow config discovery', () => {
     expect(instructions).toContain('🧭 **核心论点**');
     expect(instructions).toContain('📝 **观点摘要**');
     expect(instructions).toContain('🔗 **来源**');
-    expect(instructions).toContain('每个 emoji 字段块之间必须保留一个空行');
+    expect(instructions).toContain('每个 emoji 字段块之间不插入空行');
     expect(instructions).toContain('每个编号主题之间必须至少保留一个空行');
+    expect(instructions).toContain('🔍 **下一步重点核验**');
+    expect(instructions).toContain('原文标题 [YYYY-MM-DD]');
+    expect(instructions).not.toContain('| x');
     expect(instructions).toContain('---');
     expect(instructions).toContain('只在来源存疑、低置信或不可访问时输出');
     expect(instructions).not.toContain('账号与来源可信度');

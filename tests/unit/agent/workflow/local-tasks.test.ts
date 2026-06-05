@@ -166,6 +166,12 @@ describe('default workflow local tasks', () => {
       '结论/总结、近期投资方向和每个编号主题之间必须用 --- 分隔',
     );
     expect((artifact as any).report_requirements).toContain(
+      '每个 emoji 字段块之间不插入空行',
+    );
+    expect((artifact as any).report_requirements).toContain(
+      '来源标题格式必须为“原文标题 [YYYY-MM-DD]”，不能保留旧版来源后缀',
+    );
+    expect((artifact as any).report_requirements).toContain(
       '只有来源存疑、低置信或不可访问时才输出来源提醒',
     );
     expect((artifact as any).report_requirements).not.toContain('证据口径');
@@ -179,22 +185,24 @@ describe('default workflow local tasks', () => {
       '覆盖：2 位 KOL',
     );
     expect((artifact as any).output_template).toContain('🧾 **结论/总结**');
+    expect((artifact as any).output_template).toContain('🔍 **下一步重点核验**');
     expect((artifact as any).output_template).toContain('🧭 **核心论点**');
     expect((artifact as any).output_template).toContain('📝 **观点摘要**');
     expect((artifact as any).output_template).toContain('🔗 **来源**');
     expect((artifact as any).output_template).toContain(
-      '🧾 **结论/总结**：<先给本轮最高置信共识、可跟踪股票方向和下一步核验方向；不输出买卖建议>\n\n---\n\n**近期投资方向与高信号内容**',
+      '🧾 **结论/总结**\n1. <最高置信共识一，用完整短句说明>\n2. <最高置信共识二，用完整短句说明>\n3. <可跟踪股票方向或行业链变化>\n\n🔍 **下一步重点核验**',
     );
     expect((artifact as any).output_template).toContain(
-      '- <作者>：[<原文标题> | x](<原文链接>)\n\n---\n\n**2. <主题>：<整合后的核心判断>**',
+      '- <作者>：[<原文标题>](<原文链接>) [YYYY-MM-DD]\n---\n**2. <主题>：<整合后的核心判断>**',
     );
     expect((artifact as any).output_template).not.toContain('证据口径');
+    expect((artifact as any).output_template).not.toContain('| x');
     expect((artifact as any).output_template).not.toContain('账号与来源可信度');
     expect((artifact as any).output_template).toContain(
-      '🧭 **核心论点**：<合并多个 KOL 的共识、分歧和高置信证据>\n\n📝 **观点摘要**：',
+      '🧭 **核心论点**：<合并多个 KOL 的共识、分歧和高置信证据>\n📝 **观点摘要**：',
     );
     expect((artifact as any).output_template).toContain(
-      '- **推断**：<由事实延伸出的市场叙事或风险>\n\n🏷️ **关联行业/代表标的**',
+      '- **推断**：<由事实延伸出的市场叙事或风险>\n🏷️ **关联行业/代表标的**',
     );
     expect(
       (artifact as any).output_template.indexOf('🧾 **结论/总结**'),
