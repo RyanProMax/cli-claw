@@ -1205,7 +1205,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(notifyNewImMessage).not.toHaveBeenCalled();
   });
 
-  test('backfills known chats while websocket remains offline awaiting sdk reconnect', async () => {
+  test('keeps SDK reconnect in charge and backfills every health tick while offline', async () => {
     vi.useFakeTimers();
     const baseTime = Date.parse('2026-06-02T12:20:00.000Z');
     vi.setSystemTime(baseTime);
@@ -1259,11 +1259,13 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     });
     hoisted.wsReadyState = 3;
     hoisted.wsIsConnecting = true;
-    hoisted.wsNextConnectTime = baseTime + 10 * 60 * 1000;
+    hoisted.wsNextConnectTime = 0;
 
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(60_000);
 
     expect(hoisted.wsCloseSpy).not.toHaveBeenCalled();
+    expect(hoisted.wsStartSpy).toHaveBeenCalledTimes(1);
+    expect(hoisted.messageListSpy).toHaveBeenCalledTimes(4);
     expect(hoisted.messageListSpy).toHaveBeenCalledWith({
       params: expect.objectContaining({
         container_id: 'oc_offline_chat',

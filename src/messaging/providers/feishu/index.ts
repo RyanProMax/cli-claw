@@ -174,7 +174,7 @@ const FEISHU_WS_READY_STATE_OPEN = 1;
 const WS_HEALTH_CHECK_INTERVAL_MS = 15_000;
 const WS_RECONNECT_CHECK_THRESHOLD = 4;
 const WS_RECONNECT_MIN_INTERVAL_MS = 30_000;
-const OFFLINE_BACKFILL_INTERVAL_MS = 60_000;
+const OFFLINE_BACKFILL_INTERVAL_MS = WS_HEALTH_CHECK_INTERVAL_MS;
 const BACKFILL_LOOKBACK_MS = 5 * 60 * 1000;
 const BACKFILL_PAGE_SIZE = 50;
 const BACKFILL_MAX_PAGES_PER_CHAT = 5;
@@ -2005,6 +2005,14 @@ export function createFeishuConnection(
     lastWsStateConnected = false;
 
     const now = Date.now();
+    const sdkReconnectInProgress =
+      state.isConnecting || state.nextConnectTime > now;
+    if (sdkReconnectInProgress) {
+      disconnectedChecks = 0;
+      await maybeRunOfflineBackfill(now);
+      return;
+    }
+
     const reconnectWindowReady =
       state.nextConnectTime <= 0 || state.nextConnectTime <= now;
     disconnectedChecks++;
