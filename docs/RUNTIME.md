@@ -132,7 +132,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 - 同一个 workspace 主线线程共用同一份 runtime session：Web、飞书、微信等 channel 只决定消息来源和回复路由，不决定记忆边界。连续同来源 pending 普通消息会合并成一轮；遇到不同来源或 `assistant_prompt` 任务边界即切到下一轮，按入库顺序继续处理，不跨来源重排。例如 `A1/A2/B1/A3/B2/B3` 必须切成 `A1+A2`、`B1`、`A3`、`B2+B3` 四轮。
 - Skill slash command 如果返回 `assistant_prompt`，该消息会标记为 `source_kind='assistant_prompt'`，并用隔离 runtime session 作为新 turn 发送给底层 runtime；它不读取 workspace 主 runtime session，完成后也不写回主 session，避免命令生成的研究任务污染后续普通对话。若历史版本已经把上一轮 skill final 的 session 写成主 session，下一条普通用户消息必须忽略它并建立新的正常主 session。
-- Skill slash command 如果返回 `workflow`，不会改写成用户消息，也不会进入主 runtime session；宿主会用返回的 `workflowId`、`prompt` 和结构化 `input` 创建独立 workflow run。run 创建成功后，触发会话先收到启动回执；飞书入口还会收到独立 workflow progress card，展示每个节点的状态、内容摘要和耗时；后台 graph 完成、失败或 runner 超时后，触发会话再收到终态消息。`/hkipo [--all]` 当前走这条路径。
+- Skill slash command 如果返回 `workflow`，不会改写成用户消息，也不会进入主 runtime session；宿主会用返回的 `workflowId`、`prompt` 和结构化 `input` 创建独立 workflow run。run 创建成功后，触发会话先收到字段化启动回执；飞书入口还会收到独立 workflow progress card，用 emoji 字段和强制换行展示每个节点的状态、内容摘要、耗时和本地任务；后台 graph 完成、失败或 runner 超时后，触发会话再收到终态消息。`/hkipo [--all]` 当前走这条路径。
 - 同一个 workspace 下的每个任务线程都有独立 runtime session，不与主线共享 Codex / OpenAI 对话上下文。内部实现可以继续使用旧 agent slot，但 Web / IM 不把它作为用户主概念展示。
 - Workflow run 有独立 workflow context、LangGraph `thread_id` 和 workflow 线程；它不写入工作区主线 runtime session。workflow 线程只用于来源标识、运行追问和审计串联。
 - Runner 按 serialization key 串行化：主线以 `folder` 为 key，任务线程以 `folder + runtimeAgentId` 为 key，workflow / 任务运行以独立任务 key 为 key。runtime query 正在执行时不消费新的用户 IPC 消息；新消息只会排队并触发 drain。只有当前 query 已结束、runner 处于等待下一条消息的 idle 阶段时，才允许同来源消息通过 IPC 复用同一 runtime session。不同来源消息始终排队并触发 drain，让当前 turn 完成后按顺序处理。
@@ -168,7 +168,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 飞书 workflow progress card 是 workflow 审计的展示层，不是普通 Agent streaming card，也不是 runtime session 或记忆边界。稳定契约如下：
 
 - 只在飞书入口可用；Web 继续通过自动化 / workflow 看板查看审计，微信和不可用 IM channel 保持启动回执与终态文本路径。
-- 卡片由 `workflow_runs` 与 `workflow_run_steps` 的持久化事件驱动，显示 workflow 名称、run id、总状态、总耗时、触发任务，以及每个节点的 id、状态、内容摘要和耗时。
+- 卡片由 `workflow_runs` 与 `workflow_run_steps` 的持久化事件驱动，显示 workflow 名称、run id、总状态、总耗时、触发任务，以及每个节点的 id、状态、内容摘要、耗时和本地任务。节点块必须用 emoji 字段和强制换行分隔，避免 Feishu Markdown 在窄屏下把状态、内容和任务挤成一个长段落。
 - 节点展示状态至少覆盖 pending / running / success / error / degraded / skipped；`degraded` 来自成功 step 的结构化 artifact（例如 `artifact.status='degraded'`），不要求新增数据库 step status。
 - `workflow_run_steps.started_at` / `completed_at` 是节点耗时事实来源。running step 自动写 `started_at`，terminal step 自动写 `completed_at` 并保留已有 `started_at`，避免只有终态审计而无法计算耗时。
 - 卡片创建或更新失败只能记录 debug 日志并降级，不得影响 workflow graph 执行、run/step 审计、启动回执或终态结果投递。

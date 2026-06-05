@@ -510,7 +510,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
   });
 
   test('persists Feishu slash commands and immediate replies for web history', async () => {
-    const onCommand = vi.fn().mockResolvedValue('🚀 已启动工作流 hkipo');
+    const onCommand = vi.fn().mockResolvedValue('🚀 已启动：hkipo');
     hoisted.createSpy.mockResolvedValueOnce({
       data: { message_id: 'msg-hkipo-reply' },
     });
@@ -575,7 +575,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       'feishu:oc_command_chat',
       'cli-claw-agent',
       expect.any(String),
-      '🚀 已启动工作流 hkipo',
+      '🚀 已启动：hkipo',
       expect.any(String),
       true,
       {
@@ -586,7 +586,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
       'feishu:oc_command_chat',
       expect.objectContaining({
         id: 'msg-hkipo-reply',
-        content: '🚀 已启动工作流 hkipo',
+        content: '🚀 已启动：hkipo',
         is_from_me: true,
       }),
       undefined,
@@ -1209,7 +1209,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     vi.useFakeTimers();
     const baseTime = Date.parse('2026-06-02T12:20:00.000Z');
     vi.setSystemTime(baseTime);
-    const onCommand = vi.fn().mockResolvedValue('🚀 已启动工作流 kol');
+    const onCommand = vi.fn().mockResolvedValue('🚀 已启动：kol');
 
     const connection = createFeishuConnection({
       appId: 'app-id',

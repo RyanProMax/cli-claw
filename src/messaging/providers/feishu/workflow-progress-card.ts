@@ -185,17 +185,13 @@ function describeNodeContent(
   node: WorkflowNodeDefinition,
   role: WorkflowRoleDefinition | undefined,
   step: WorkflowRunStep | undefined,
-): string {
+): string | null {
   const outputSummary = extractOutputSummary(step);
   if (outputSummary) return truncateText(outputSummary, 180);
-  const pieces = [
-    node.prompt,
-    node.type === 'local_task' && node.taskId
-      ? `本地任务：${node.taskId}`
-      : null,
-    role ? `角色：${role.name}` : null,
-  ].filter((part): part is string => Boolean(part?.trim()));
-  return truncateText(pieces.join(' · ') || node.id, 180);
+  const pieces = [node.prompt].filter((part): part is string =>
+    Boolean(part?.trim()),
+  );
+  return pieces.length > 0 ? truncateText(pieces.join(' · '), 180) : null;
 }
 
 function buildNodeLine(input: {
@@ -213,11 +209,24 @@ function buildNodeLine(input: {
       : '';
   const duration = formatStepDuration(input.step);
   const content = describeNodeContent(input.node, input.role, input.step);
+  const taskLine =
+    input.node.type === 'local_task' && input.node.taskId
+      ? `🧩 本地任务：\`${input.node.taskId}\``
+      : null;
+  const roleLine =
+    input.role && input.node.type !== 'local_task'
+      ? `🎭 角色：${input.role.name}`
+      : null;
   return [
-    `${input.index}. ${icon} **${input.node.id}**`,
-    `状态：${label}${attempt} · 耗时：${duration}`,
-    `内容：${content}`,
-  ].join('\n');
+    `**${input.index}. ${icon} ${input.node.id}**`,
+    `📌 状态：${label}${attempt}`,
+    `⏱️ 耗时：${duration}`,
+    content ? `🧾 内容：${content}` : null,
+    taskLine,
+    roleLine,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('<br>');
 }
 
 function buildWorkflowProgressCard(input: {
@@ -238,16 +247,19 @@ function buildWorkflowProgressCard(input: {
       step: findLatestStepForNode(input.steps, node.id),
     });
   });
-  const summary = `Workflow 进度：${workflow.name} ${runLabel}`;
+  const summary = `Workflow 进度｜${workflow.name} ${runLabel}`;
   const body = [
-    `## ${runIcon} Workflow 进度：${workflow.name}`,
-    `Run：\`${run.id}\``,
-    `状态：${runLabel} · 节点：${workflow.nodes.length} · 总耗时：${formatRunDuration(run)}`,
-    `开始：${formatInstant(run.started_at ?? run.created_at)} · 更新：${formatInstant(run.updated_at)}`,
-    prompt ? `任务：${truncateText(prompt, 220)}` : null,
+    `## ${runIcon} Workflow 进度｜${workflow.name}`,
+    `🆔 Run：\`${run.id}\``,
+    `📌 状态：${runLabel}`,
+    `🧩 节点：${workflow.nodes.length}`,
+    `⏱️ 总耗时：${formatRunDuration(run)}`,
+    `🕘 开始：${formatInstant(run.started_at ?? run.created_at)}`,
+    `🔄 更新：${formatInstant(run.updated_at)}`,
+    prompt ? `📝 任务：${truncateText(prompt, 220)}` : null,
   ]
     .filter((part): part is string => Boolean(part))
-    .join('\n');
+    .join('<br>');
 
   return {
     schema: '2.0',
@@ -272,7 +284,7 @@ function buildWorkflowProgressCard(input: {
         })),
         {
           tag: 'markdown',
-          content: `*${runIcon} ${runLabel} · 最后更新 ${formatInstant(
+          content: `*${runIcon} ${runLabel} · 🔄 最后更新 ${formatInstant(
             run.updated_at,
           )}*`,
           text_size: 'notation',

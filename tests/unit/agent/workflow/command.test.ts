@@ -243,7 +243,15 @@ describe('workflow command execution', () => {
     gate.resolve();
 
     expect(firstResult).not.toBe('timeout');
-    expect(firstResult).toContain('🚀 已启动工作流 投研工作流 (research)');
+    expect(firstResult).toContain('🚀 已启动：投研工作流');
+    expect(firstResult).toContain('🧩 Workflow：research');
+    expect(firstResult).toContain('🆔 Run：wfrun_');
+    expect(firstResult).toContain('📝 任务：分析英伟达');
+    expect(firstResult).toContain(
+      '📬 完成、失败或超时后，我会回到这里通知你。',
+    );
+    expect(firstResult).not.toContain('已启动工作流 投研工作流 (research)');
+    expect(firstResult).not.toContain('Run: ');
     expect(backgroundResults).toEqual([]);
 
     await waitForCondition(() => backgroundResults.length === 1);
@@ -281,7 +289,10 @@ describe('workflow command execution', () => {
       },
     } as any);
 
-    expect(reply).toContain('🚀 已启动工作流 投研工作流 (research)');
+    expect(reply).toContain('🚀 已启动：投研工作流');
+    expect(reply).toContain('🧩 Workflow：research');
+    expect(reply).toContain('🆔 Run：wfrun_');
+    expect(reply).toContain('📝 任务：分析英伟达');
     await waitForCondition(() => backgroundResults.length === 1);
     expect(backgroundResults[0]).toContain(
       '❌ 工作流 投研工作流 (research) 失败',

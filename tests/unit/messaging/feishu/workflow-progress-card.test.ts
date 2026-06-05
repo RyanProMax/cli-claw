@@ -165,6 +165,16 @@ describe('Feishu workflow progress card', () => {
     expect(payload).toContain('已跳过');
     expect(payload).toContain('耗时');
     expect(payload).toContain('外部数据源失败');
+    expect(payload).toContain('Workflow 进度｜状态矩阵工作流');
+    expect(payload).toContain('🆔 Run：`wfrun_status_matrix`');
+    expect(payload).toContain('📌 状态：失败');
+    expect(payload).toContain('🧩 节点：6');
+    expect(payload).toContain('📝 任务：覆盖所有状态');
+    expect(payload).toContain('**3. ✅ success_node**<br>');
+    expect(payload).toContain('🧾 内容：普通节点完成');
+    expect(payload).toContain('🧩 本地任务：`test.success`');
+    expect(payload).not.toContain('3. ✅ **success_node**');
+    expect(payload).not.toContain('状态：已完成 · 耗时：2s\\n内容：普通节点完成');
   });
 
   test('retries sending the visible card message when initial message creation fails after CardKit create', async () => {

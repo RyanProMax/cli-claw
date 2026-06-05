@@ -334,7 +334,11 @@ describe('web skill command filtering', () => {
         },
       ) => {
         capturedLifecycle = lifecycle;
-        return '🚀 已启动工作流 港股 IPO 打新工作流 (hkipo)\nRun: wfrun_test';
+        return [
+          '🚀 已启动：港股 IPO 打新工作流',
+          '🧩 Workflow：hkipo',
+          '🆔 Run：wfrun_test',
+        ].join('\n');
       },
     );
     const enqueueMessageCheck = vi.fn();
@@ -374,7 +378,7 @@ describe('web skill command filtering', () => {
       expect.objectContaining({ background: true }),
     );
     expect(getMessagesPage(chatJid).map((message) => message.content)).toEqual([
-      '🚀 已启动工作流 港股 IPO 打新工作流 (hkipo)\nRun: wfrun_test',
+      '🚀 已启动：港股 IPO 打新工作流\n🧩 Workflow：hkipo\n🆔 Run：wfrun_test',
       '/hkipo --all',
     ]);
 
@@ -383,7 +387,7 @@ describe('web skill command filtering', () => {
     );
     expect(getMessagesPage(chatJid).map((message) => message.content)).toEqual([
       '✅ 工作流 港股 IPO 打新工作流 (hkipo) 完成：\nIPO 报告完成',
-      '🚀 已启动工作流 港股 IPO 打新工作流 (hkipo)\nRun: wfrun_test',
+      '🚀 已启动：港股 IPO 打新工作流\n🧩 Workflow：hkipo\n🆔 Run：wfrun_test',
       '/hkipo --all',
     ]);
     expect(enqueueMessageCheck).not.toHaveBeenCalled();

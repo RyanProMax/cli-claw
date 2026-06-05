@@ -17,10 +17,11 @@ const hoisted = vi.hoisted(() => {
       .fn()
       .mockResolvedValue(
         [
-          '🚀 已启动工作流 股票 KOL 情报工作流 (kol)',
-          'Run: wfrun_test_kol',
-          '任务：股票 KOL 情报报告',
-          '完成、失败或超时后我会继续回到这里通知你。',
+          '🚀 已启动：股票 KOL 情报工作流',
+          '🧩 Workflow：kol',
+          '🆔 Run：wfrun_test_kol',
+          '📝 任务：股票 KOL 情报报告',
+          '📬 完成、失败或超时后，我会回到这里通知你。',
         ].join('\n'),
       ),
     runAgentProcess: vi.fn(),
@@ -231,7 +232,7 @@ describe('Feishu /kol command E2E simulation', () => {
         msg_type: 'text',
       });
       expect(JSON.parse(sentTextPayload.content).text).toContain(
-        '🚀 已启动工作流 股票 KOL 情报工作流 (kol)',
+        '🚀 已启动：股票 KOL 情报工作流',
       );
     } finally {
       await connection.stop();

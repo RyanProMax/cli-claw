@@ -90,10 +90,11 @@ function formatWorkflowStarted(options: {
   prompt: string;
 }): string {
   return [
-    `🚀 已启动工作流 ${options.workflow.name} (${options.workflow.id})`,
-    `Run: ${options.runId}`,
-    ...(options.prompt ? [`任务：${options.prompt}`] : []),
-    '完成、失败或超时后我会继续回到这里通知你。',
+    `🚀 已启动：${options.workflow.name}`,
+    `🧩 Workflow：${options.workflow.id}`,
+    `🆔 Run：${options.runId}`,
+    ...(options.prompt ? [`📝 任务：${options.prompt}`] : []),
+    '📬 完成、失败或超时后，我会回到这里通知你。',
   ].join('\n');
 }
 
