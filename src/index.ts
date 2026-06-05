@@ -8390,6 +8390,8 @@ export function recoverPendingMessagesForTests(): void {
   recoverPendingMessages();
 }
 
+export const handleImCommandForTests = handleCommand;
+
 /**
  * Startup recovery for task-thread agent slots.
  * After restart, running task threads have dead processes.

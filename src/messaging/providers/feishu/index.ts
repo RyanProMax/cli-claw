@@ -649,6 +649,61 @@ export function createFeishuConnection(
   let lastOfflineBackfillAt = 0;
   let healthTimer: NodeJS.Timeout | null = null;
 
+  function createRestClient(): lark.Client {
+    return new lark.Client({
+      appId: config.appId,
+      appSecret: config.appSecret,
+      appType: lark.AppType.SelfBuild,
+    });
+  }
+
+  async function refreshBotOpenId(reason: string): Promise<void> {
+    if (!client) return;
+    try {
+      const botInfoRes = await client.request({
+        method: 'GET',
+        url: '/open-apis/bot/v3/info/',
+      });
+      const info = botInfoRes as {
+        bot?: { open_id?: string };
+        data?: { bot?: { open_id?: string } };
+      };
+      botOpenId = info?.bot?.open_id || info?.data?.bot?.open_id || '';
+      if (botOpenId) {
+        logger.info(
+          { botOpenId, reason },
+          'Fetched bot open_id for mention detection',
+        );
+      } else {
+        logger.warn(
+          { reason },
+          'Could not fetch bot open_id, mention gating will be bypassed',
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err, reason },
+        'Failed to fetch bot info, mention gating will be bypassed',
+      );
+      botOpenId = '';
+    }
+  }
+
+  async function refreshRestClient(reason: string): Promise<void> {
+    client = createRestClient();
+    logger.warn({ reason }, 'Refreshed Feishu REST client');
+    await refreshBotOpenId(reason);
+  }
+
+  function isRecoverableFeishuRestClientError(err: unknown): boolean {
+    const message = getFeishuErrorMessage(err) || '';
+    return (
+      /tenant_access_token/i.test(message) ||
+      /access_token/i.test(message) ||
+      /token/i.test(message)
+    );
+  }
+
   function rememberChatProgress(
     chatId: string,
     createTimeMs: number,
@@ -1836,6 +1891,27 @@ export function createFeishuConnection(
             retireUnavailableChatFromBackfill(chatId, err);
             continue;
           }
+          if (isRecoverableFeishuRestClientError(err)) {
+            logger.warn(
+              { err, chatId, reason },
+              'Feishu backfill hit recoverable REST client error; refreshing client and retrying chat once',
+            );
+            try {
+              await refreshRestClient(`backfill:${reason}`);
+              await backfillChatMessages(chatId, sinceMs);
+              continue;
+            } catch (retryErr) {
+              if (isFeishuChatUnavailableError(retryErr)) {
+                retireUnavailableChatFromBackfill(chatId, retryErr);
+                continue;
+              }
+              logger.warn(
+                { err: retryErr, chatId, reason },
+                'Feishu chat backfill retry failed',
+              );
+              continue;
+            }
+          }
           logger.warn({ err, chatId, reason }, 'Feishu chat backfill failed');
         }
       }
@@ -2134,41 +2210,9 @@ export function createFeishuConnection(
       backfillRunning = false;
       lastOfflineBackfillAt = 0;
 
-      // Initialize client
-      client = new lark.Client({
-        appId: config.appId,
-        appSecret: config.appSecret,
-        appType: lark.AppType.SelfBuild,
-      });
-
-      // Fetch bot open_id for mention detection (best-effort, non-blocking)
-      try {
-        const botInfoRes = await client.request({
-          method: 'GET',
-          url: '/open-apis/bot/v3/info/',
-        });
-        const info = botInfoRes as {
-          bot?: { open_id?: string };
-          data?: { bot?: { open_id?: string } };
-        };
-        botOpenId = info?.bot?.open_id || info?.data?.bot?.open_id || '';
-        if (botOpenId) {
-          logger.info(
-            { botOpenId },
-            'Fetched bot open_id for mention detection',
-          );
-        } else {
-          logger.warn(
-            'Could not fetch bot open_id, mention gating will be bypassed',
-          );
-        }
-      } catch (err) {
-        logger.warn(
-          { err },
-          'Failed to fetch bot info, mention gating will be bypassed',
-        );
-        botOpenId = '';
-      }
+      // Initialize REST client and fetch bot open_id for mention detection.
+      client = createRestClient();
+      await refreshBotOpenId('connect');
 
       // Create event dispatcher
       eventDispatcher = new lark.EventDispatcher({}).register({

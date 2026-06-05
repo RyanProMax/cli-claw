@@ -1,110 +1,97 @@
-# 当前任务：Workflow 实时进度飞书独立卡片
+# 当前任务：修复 `/kol` 无响应
 
 ## Goal
 
-- 在触发 workflow 时，额外创建一张独立飞书消息卡片，用于实时展示并更新 workflow 进度。
-- 卡片必须展示 workflow 每个节点的内容、状态和耗时，并随 workflow run / step 状态变化更新。
-- 完成卡片样式设计、代码落地、类似线上环境的 E2E 测试、sub-agent review、验证、提交、push，并在需要时安全重启服务和清理孤儿进程。
+- 排查并修复飞书输入 `/kol` 没有任何反应的问题。
+- 明确根因，补类似线上入口的 E2E，覆盖用户实际输入 `/kol` 的可见启动回执、workflow 启动分发和离线 backfill 恢复。
+- 扫描相邻 slash workflow / skill workflow 场景，避免 `/hkipo`、`/workflow kol ...` 或 repository skill workflow 再次静默。
+- 验证、review、提交、push；如影响运行服务，按 `docs/COMMAND.md` 安全重启并确认健康。
 
 ## Done when
 
-- `main` 已 push 到 `origin/main`，包括上一轮已提交修复和本轮最终实现。
-- workflow 被触发后，触发会话除启动回执 / 终态结果外，还有独立进度卡片。
-- 进度卡片能随节点 lifecycle 更新，至少覆盖 pending / running / success / failed / degraded / skipped 等状态，并显示每个节点标题、摘要内容和耗时。
-- 进度卡片与普通 Agent streaming card 分离，不污染最终回复正文、不破坏 workflow thread / context 隔离。
-- 有 in-process、类似线上环境的飞书 E2E 测试验证触发、卡片创建、节点更新、终态状态和失败场景。
-- 派生 sub-agent 做代码 review，review 无 blocking 问题。
-- 计划内验证命令通过，完成 review gate。
-- 提交、push；如影响运行服务，按 `docs/COMMAND.md` 安全重启并确认健康。
+- 已复现 `/kol` 当前失败或证明失败所在边界，并记录根因。
+- `/kol` 在 Feishu in-process E2E 中走真实 slash command / skill command 分发路径，不再只测直接 `executeWorkflowCommand`。
+- E2E 断言 `/kol` 至少产生可见启动回执，并验证真实 skill command 分发到 workflow command。
+- 相邻 workflow slash 场景已扫描并覆盖关键入口。
+- 相关测试、typecheck、review gate 通过。
+- 受当前工具约束不主动派生 subagent；以 `RUNBOOKS/Review.md` 的 review gate 加人工 diff review 确认无 blocking/important 问题。
+- 提交并 push；必要时安全重启服务并确认 `/api/health` healthy。
 
 ## Milestones
 
-### Milestone 1：上下文探索与设计确认
+### Milestone 1：复现与根因定位
 
 Objective:
-- 阅读 workflow engine、workflow run/step 审计、Feishu card builder/updater、IM command/workflow trigger 和现有 E2E 路径。
-- 给出卡片样式与数据流设计，覆盖实时更新、失败降级和测试策略。
-- 在用户确认设计前不写生产实现代码。
+- 从 Feishu slash command 真实入口复现 `/kol` 无响应。
+- 沿 `Feishu provider -> onCommand -> handleCommand -> skill command -> workflow command -> sendMessage/progress card` 跟踪断点。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- 只读检查 `src/agent/workflow/`
-- 只读检查 `src/messaging/providers/feishu/`
 - 只读检查 `src/index.ts`
+- 只读检查 `src/messaging/providers/feishu/`
+- 只读检查 `src/messaging/slash-command.ts`
+- 只读检查 `src/agent/skills/`、`.agents/skills/`
+- 只读检查 `src/agent/workflow/`
 - 只读检查 `tests/integration/messaging/feishu/`
-- 只读检查 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`、`docs/E2E.md`
+- 只读检查 `docs/COMMAND.md`、`docs/RUNTIME.md`
 
 Validation:
-- 记录现有数据流、可复用模块、缺口和推荐方案。
-- 设计得到用户确认。
+- 有可复现失败命令或可证明的代码路径断点。
 
 Status:
 - done
 
 Validation status:
-- passed
+- passed: `npx vitest run tests/integration/messaging/feishu/connection.test.ts -t "refreshes the Feishu REST client"` 先红后绿
 
 Review status:
-- passed
+- passed: 根因定位只读复核，无 scope 扩张
 
 Risks / Notes / Handoff:
-- 已完成第一项：当前 `main` 已 push 到 `origin/main`，远端从 `36c2610` 更新到 `3094e02`。
-- `docs/ARCHITECTURE.md` 当前只规定 workflow 触发回执和终态结果，没有独立实时进度卡片。
-- `docs/RUNTIME.md` 当前已有 workflow run/step 审计和 Feishu streaming card 契约；新卡片必须作为 workflow 展示层，不成为 runtime session 或记忆边界。
-- `src/agent/workflow/engine.ts` 已在 role/local task 节点运行前后调用 `recordStep`，但事件只进 `workflow_run_steps`，没有飞书展示层订阅。
-- `src/agent/workflow/command.ts` 的 background 模式只返回启动回执并通过 `onBackgroundResult` 发送终态文本，缺少 progress reporter 生命周期。
-- `src/storage/db.ts` 的 `workflow_run_steps.started_at/completed_at` 当前不会自动填充；若调用方不显式传入时间，节点耗时无法从审计数据恢复。
-- `src/index.ts` 的 `/workflow`、repository skill workflow rewrite 和 scheduler `runWorkflowCommand` 都汇入同一个 `handleWorkflowSlashCommand`，应在统一入口挂进度 reporter，避免只覆盖手动 slash。
-- 现有 `tests/integration/messaging/feishu/e2e.test.ts` 已有 CardKit mock，可捕获 `createdCards` / `updatedCards`，适合扩展为进度卡 in-process E2E。
-- 用户继续 active goal，按推荐方案 A 进入 TDD 实现：在统一 workflow command 入口挂 Feishu-only progress reporter。
-- 仓库协议禁止把 superpowers/spec 产物写到 `docs/superpowers`；本轮设计/计划统一写在 `PLANS/ACTIVE.md`，需要长期沉淀的稳定契约再同步 owner docs。
+- 根因：飞书长连接反复离线后，REST `lark.Client` 的 token 状态出现 `tenant_access_token` 空值；offline/startup backfill 捕获错误后只记录 warning，不刷新 REST client，也不重试，导致离线期间输入的 `/kol` 进不了 command handler。
+- 用户看到的“无反应”发生在接入层：live WS 未收到消息，backfill 又没有兜回来；不是 `/kol` parser 或 skill executor 本身不能工作。
+- 现有测试问题：此前飞书 `/kol` 测试把 `onCommand` 直接 mock 成成功文本，只证明 provider 会调用回调，没有覆盖真实 `handleCommand -> skill dispatch -> workflow command` 拼接层，也没有覆盖 REST token 空值后的 backfill 恢复。
 
-### Milestone 2：TDD 实现 workflow 进度卡片
+### Milestone 2：TDD 修复 `/kol` 真实入口
 
 Objective:
-- 先写失败测试，覆盖 workflow 触发时进度卡片创建、节点状态更新、耗时展示和终态更新。
-- 实现最小可维护方案，沿用现有 Feishu card / workflow 审计边界。
+- 先写失败 E2E，覆盖 `/kol` 从 Feishu inbound event 进入真实 command 分发后有可见响应。
+- 修复根因，保持 slash command、skill command、workflow run/context 和 progress card 边界清晰。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/agent/workflow/`
-- `src/messaging/providers/feishu/`
 - `src/index.ts`
-- `src/storage/`
+- `src/messaging/`
+- `src/agent/skills/`
+- `src/agent/workflow/`
+- `.agents/skills/`
 - `tests/integration/messaging/feishu/`
-- `tests/unit/` 或 `tests/integration/` 中必要新增测试
-- 必要时同步 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/COMMAND.md`
+- 必要时同步 owner docs
 
 Validation:
-- 新增定向测试先红后绿。
-- 相关 workflow / Feishu E2E 测试通过。
+- 新增测试先红后绿。
+- `/kol`、`/workflow kol ...`、至少一个相邻 workflow skill command 测试通过。
 
 Status:
 - done
 
 Validation status:
-- passed
+- passed: 新增 backfill token 恢复测试先红后绿；新增 `/kol` Feishu E2E 仿真已通过；相邻 workflow slash / skill command 测试已通过
 
 Review status:
-- passed
+- passed: diff 复核未发现 blocking 问题
 
 Risks / Notes / Handoff:
-- 不允许只靠最终静态消息假装“实时”；E2E 必须看到至少一次运行中更新和一次终态更新。
-- 不允许把节点详情塞进普通最终回复正文；进度卡片必须独立。
-- 已实现 workflow progress reporter：run 创建、run 状态更新、step lifecycle 都会驱动独立飞书 CardKit 卡片更新；普通 Agent streaming card 仍保持分离。
-- 已修复相邻可靠性风险：若 `card.create` 成功但 `message.create` 短暂失败或无 `message_id`，后续更新会继续尝试发送 card reference，不会永久更新一张用户不可见的卡。
-- 已把 `workflow_run_steps.started_at/completed_at` 在 running/terminal upsert 时自动补齐，保证节点耗时可从审计数据恢复。
-- 已提升节点摘要展示：local task artifact 优先展示 `result/summary/message/title/description`，避免 `{ status: "ok", result: ... }` 只显示 `ok`。
-- 已同步 owner docs，scheduled workflow 的飞书进度卡口径收窄为“执行会话本身是已连接飞书入口时”。
-- 验证通过：定向 workflow/Feishu 单测、完整 Feishu in-process E2E、`npm run typecheck:backend`、`git diff --check`、`./scripts/review.sh`。
-- sub-agent reviewer 初审发现 1 个 blocking 与 3 个相邻问题；修复后复审通过，无 blocking/important 问题。
+- 如果 `/kol` skill executor 依赖外部 stock-kol-intel 资源，E2E 要 mock/fixture 到 executor 边界，不能要求真实网络或真实 Feishu。
+- 新增 `handleImCommandForTests` 只作为测试导出口；E2E 中真实执行 `.agents/skills/stock-kol-intel/commands/dispatch.py`，workflow executor 用轻量 mock 避免真实网络和外部 agent。
+- 相邻入口已覆盖：`/workflow kol ...` 走 workflow slash 测试，repository skill workflow 走 `/kol` E2E，已有 `/hkipo` contract 覆盖 skill dispatch 形态。
 
-### Milestone 3：sub-agent review、完整验证、提交 push 与服务应用
+### Milestone 3：验证、review、提交与服务应用
 
 Objective:
-- 派生 sub-agent review 本轮 diff，修复 blocking/important 问题。
-- 运行完整验证和 review gate。
-- 提交、push；如影响当前服务，安全重启并确认健康，必要时清理孤儿 runner。
+- 跑相关测试、typecheck、review gate。
+- 按 `RUNBOOKS/Review.md` 做 review gate；当前 subagent 工具要求用户明确授权才可派生，因此本轮不主动派生。
+- 提交、push；若影响服务，安全重启并确认健康。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
@@ -112,37 +99,40 @@ Allowed scope:
 - 本轮已修改文件
 
 Validation:
-- 与实现相关的定向测试
+- 与 `/kol` 入口相关的 Feishu E2E
+- 相邻 workflow slash / skill command 测试
 - `npm run typecheck:backend`
 - `git diff --check`
 - `./scripts/review.sh`
-- sub-agent review 结果无 blocking 问题
-- push 后 `git status -sb` 显示本地与 `origin/main` 对齐
-- 如重启，`/api/health` 返回 healthy
+- 人工 diff review gate
+- push 后 `git status -sb` 对齐
+- 如重启，`/api/health` healthy
 
 Status:
 - done
 
 Validation status:
-- passed
+- passed:
+  - `npx vitest run tests/integration/messaging/feishu/connection.test.ts -t "refreshes the Feishu REST client"`
+  - `npx vitest run tests/integration/messaging/feishu/kol-command-e2e.test.ts`
+  - `npx vitest run tests/integration/messaging/feishu/connection.test.ts`
+  - `npx vitest run tests/integration/web/slash-command.test.ts tests/unit/skills/command-dispatch.test.ts tests/contracts/skills/stock-kol-command.test.ts`
+  - `npx vitest run tests/unit/agent/workflow/command.test.ts`
+  - `npx vitest run tests/integration/messaging/feishu/e2e.test.ts`
+  - `npm run typecheck:backend`
+  - `git diff --check`
+  - `./scripts/validate.sh`
+  - `bun src/cli.ts restart`
+  - `curl -fsS http://127.0.0.1:3000/api/health`
 
 Review status:
-- passed
+- passed: `./scripts/review.sh` 通过；按 `RUNBOOKS/Review.md` 人工复核 scope/objective/pattern/test/hygiene，未发现 blocking/important 问题
 
 Risks / Notes / Handoff:
-- 若真实 Feishu live smoke 需要发消息，遵守 `docs/E2E.md` 的 `[e2e]` 前缀和凭据安全边界。
-- 若安全重启发现真正孤儿 runner，按现有 self-restart 孤儿清理路径处理，不直接粗暴 `pkill`。
-- sub-agent 语义 review 已通过；仓库 review 脚本已通过。
-- 已通过 repo-local safe launcher `bun src/cli.ts restart` 请求安全重启；restart intent `restart-2026-06-04T16-28-59-887Z-a85aee94` 状态为 `passed`。
-- 重启后 `/api/health` 返回 healthy；旧 backend PID `28931` 已退出，当前 backend PID 为 `8932`；未发现残留 `agent-runner` 进程。
-
-## Working Rules
-
-- `PLANS/ACTIVE.md` 是本轮执行单一真相源。
-- 一次只推进一个 milestone。
-- 目标、scope、验证方式或涉及文件变化时先更新本文件。
-- 验证失败和 review 失败都留在当前 milestone 修复，不能跳过。
-- 只有 `Validation status: passed` 且 `Review status: passed` 后，milestone 才能标记为 `done`。
+- 若发现旧测试只覆盖直接函数调用，需要把原因写入 handoff，避免继续给人“测了但没测入口”的错觉。
+- `./scripts/validate.sh` 已通过；输出中仍有既有 `MaxListenersExceededWarning` 与 Vite chunk size warning，非本轮新增失败。
+- 语义 review 中发现新增 E2E 未显式 `connection.stop()`，已改为 `try/finally` 并重新跑新增 E2E、完整 validate 和 review。
+- 安全重启 intent `restart-2026-06-05T08-36-01-769Z-947442f0` 状态 `passed`；当前 backend PID `17911`；`/api/health` 返回 `healthy`。
 
 ## Handoff
 
@@ -150,40 +140,21 @@ Current milestone:
 - Milestone 3 done
 
 Current status:
-- implementation, validation, semantic review, commit, push, and safe service restart are complete
+- 根因已定位并修复：Feishu REST token 状态坏掉时刷新 REST client 并重试当前 backfill chat 一次；已补 `/kol` 真实 slash 链路仿真；完整 validate、review gate 和安全重启均已通过，等待最终提交和 push。
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `docs/ARCHITECTURE.md`
-- `docs/COMMAND.md`
-- `docs/MODULE.md`
-- `docs/RUNTIME.md`
-- `src/agent/workflow/command.ts`
-- `src/agent/workflow/engine.ts`
-- `src/agent/workflow/progress.ts`
-- `src/index.ts`
-- `src/messaging/channel.ts`
-- `src/messaging/manager.ts`
 - `src/messaging/providers/feishu/index.ts`
-- `src/messaging/providers/feishu/workflow-progress-card.ts`
-- `src/storage/db.ts`
-- `tests/integration/messaging/feishu/e2e.test.ts`
-- `tests/unit/agent/workflow/context.test.ts`
-- `tests/unit/messaging/feishu/workflow-progress-card.test.ts`
+- `src/index.ts`
+- `tests/integration/agent/restart-recovery.test.ts`
+- `tests/integration/messaging/feishu/connection.test.ts`
+- `tests/integration/messaging/feishu/kol-command-e2e.test.ts`
 
 Findings:
-- 已 push 当前 `main` 到 `origin/main`。
-- 根因：workflow run/step lifecycle 只持久化和最终文本通知，没有独立 Feishu progress card 的创建、状态订阅、更新和失败降级链路。
-- 相邻缺口已修复：step 审计时间戳自动填充，CardKit 发送失败会重试可见消息引用，artifact 摘要展示真实结果，workflow E2E 覆盖 manager/channel wiring。
-- 验证已通过：
-  - `npm test -- tests/unit/agent/workflow/context.test.ts tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts --run`
-  - `npm test -- tests/integration/messaging/feishu/e2e.test.ts --run`
-  - `npm run typecheck:backend`
-  - `git diff --check`
-  - `./scripts/review.sh`
-- sub-agent reviewer 复审通过，无 blocking/important 问题。
-- 服务已按 `docs/COMMAND.md` 走安全重启路径应用源码变更；`/api/health` healthy，current backend PID `8932`。
-- 最终实现已提交并 push 到 `origin/main`；实现提交为 `0d31a38 Add Feishu workflow progress cards`，后续仅有计划 handoff 文案更新。
+- 日志证据：当前服务存在 Feishu WS `ECONNREFUSED` / `timeout of 15000ms exceeded`，offline-health-check backfill 报 `Cannot destructure property 'tenant_access_token' from null or undefined value`。
+- 红测证据：新增 backfill token 空值测试修复前只调用一次 `message.list`，不会处理 `/kol --days=7`；修复后刷新 REST client 并重试成功。
+- E2E 证据：`/kol --days=7` 通过真实 Feishu event、真实 `handleCommand`、真实 skill discovery 和真实 `dispatch.py`，最终调用 workflow command 并发出启动回执。
+- 验证中暴露一个既有静态 fallback footer 断言漂移；测试断言已修正为当前产品行为 `Feishu（主线） | HH:MM`。
 
 Next step:
-- 无，本轮目标已完成。
+- 提交并 push。

@@ -435,9 +435,8 @@ describe('restart recovery cursor handling', () => {
     vi.stubEnv('HOME', tempHomes[tempHomes.length - 1]!);
     const { handleWebUserMessageForTests, setWebDepsForTests } =
       await import('../../../src/web/app.ts');
-    const { initDatabase, ensureChatExists, setRegisteredGroup } = await import(
-      '../../../src/storage/db.ts'
-    );
+    const { initDatabase, ensureChatExists, setRegisteredGroup } =
+      await import('../../../src/storage/db.ts');
     const chatJid = 'feishu:oc_smoke';
     const group = {
       name: 'Feishu Smoke',
@@ -1726,9 +1725,7 @@ describe('restart recovery cursor handling', () => {
       expect.objectContaining({
         sourceKind: 'sdk_final',
         finalizationReason: 'completed',
-        routeFooter: expect.stringMatching(
-          /^Feishu（主线） \| 飞书 \| \d{2}:\d{2}$/,
-        ),
+        routeFooter: expect.stringMatching(/^Feishu（主线） \| \d{2}:\d{2}$/),
       }),
     );
   });

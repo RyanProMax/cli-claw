@@ -1280,6 +1280,59 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     await connection.stop();
   });
 
+  test('refreshes the Feishu REST client and retries backfill when SDK token state is empty', async () => {
+    const baseTime = Date.parse('2026-06-05T08:20:00.000Z');
+    const tokenStateError = new TypeError(
+      "Cannot destructure property 'tenant_access_token' from null or undefined value",
+    );
+    hoisted.messageListSpy
+      .mockRejectedValueOnce(tokenStateError)
+      .mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              message_id: 'msg-token-retry-kol',
+              create_time: String(baseTime + 1_000),
+              msg_type: 'text',
+              body: {
+                content: JSON.stringify({ text: '/kol --days=7' }),
+              },
+              chat_type: 'p2p',
+              sender: {
+                sender_id: {
+                  open_id: 'user-open-id',
+                },
+              },
+            },
+          ],
+        },
+      });
+    const onCommand = vi.fn().mockResolvedValue('已启动 KOL 情报工作流');
+
+    const connection = createFeishuConnection({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+    });
+
+    await connection.connect({
+      onReady: hoisted.onReadySpy,
+      onCommand,
+      startupBackfillIgnoreMessagesBefore: baseTime,
+      startupBackfillChatIds: ['startup-chat'] as any,
+    } as any);
+
+    expect(hoisted.messageListSpy).toHaveBeenCalledTimes(2);
+    expect(onCommand).toHaveBeenCalledWith(
+      'feishu:startup-chat',
+      'kol --days=7',
+      expect.objectContaining({
+        triggerMessageId: 'msg-token-retry-kol',
+      }),
+    );
+
+    await connection.stop();
+  });
+
   test('clears every pending ack reaction when multiple requests arrive before reply delivery', async () => {
     hoisted.reactionCreateSpy
       .mockResolvedValueOnce({ data: { reaction_id: 'ack-1' } })
