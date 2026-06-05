@@ -13,3 +13,8 @@ workflow. The workflow local task reads the sibling `stock-kol-intel`
 repository, or `STOCK_KOL_INTEL_ROOT` when set, to load the KOL whitelist and
 run the X/Twitter twscrape source preflight before the report role writes the
 mobile-friendly intelligence brief.
+
+`/kol-add <@handle or X link...>` writes new X/Twitter accounts into that same
+`references/kol_whitelist.json` source, deduping by handle. It accepts direct
+handles, X/Twitter URLs, or pasted Markdown lists, with optional `--name`,
+`--focus`, and `--note` metadata for single-account additions.

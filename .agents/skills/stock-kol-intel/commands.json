@@ -9,6 +9,15 @@
         "command": "python3",
         "args": ["commands/dispatch.py"]
       }
+    },
+    "kol-add": {
+      "description": "添加股票 KOL 到默认白名单",
+      "argumentHint": "<@handle或X链接...> [--name 名称] [--focus 标签] [--note 说明]",
+      "entrypoints": ["im", "web"],
+      "executor": {
+        "command": "python3",
+        "args": ["commands/dispatch.py"]
+      }
     }
   }
 }
