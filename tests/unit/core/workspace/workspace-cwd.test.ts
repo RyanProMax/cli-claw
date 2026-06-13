@@ -22,7 +22,9 @@ afterEach(() => {
 });
 
 function makeTempWorkspace(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-workspace-cwd-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'agent-fabric-workspace-cwd-'),
+  );
   tempDirs.push(dir);
   return dir;
 }

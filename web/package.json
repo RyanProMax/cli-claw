@@ -1,5 +1,5 @@
 {
-  "name": "cli-claw-web",
+  "name": "agent-fabric-web",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -52,7 +52,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RyanProMax/cli-claw.git",
+    "url": "git+https://github.com/RyanProMax/agent-fabric.git",
     "directory": "web"
   },
   "author": "riba2534"

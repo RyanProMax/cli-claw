@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 const tempHomes: string[] = [];
 
 function createTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-history-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fabric-history-'));
   tempHomes.push(dir);
   return dir;
 }

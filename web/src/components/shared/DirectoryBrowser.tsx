@@ -1,5 +1,12 @@
 import { useState, useCallback } from 'react';
-import { Folder, FolderPlus, ChevronRight, ArrowLeft, Loader2, FolderCheck } from 'lucide-react';
+import {
+  Folder,
+  FolderPlus,
+  ChevronRight,
+  ArrowLeft,
+  Loader2,
+  FolderCheck,
+} from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '../../api/client';
@@ -23,7 +30,11 @@ interface DirectoryBrowserProps {
   placeholder?: string;
 }
 
-export function DirectoryBrowser({ value, onChange, placeholder }: DirectoryBrowserProps) {
+export function DirectoryBrowser({
+  value,
+  onChange,
+  placeholder,
+}: DirectoryBrowserProps) {
   const [browsing, setBrowsing] = useState(false);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [parentPath, setParentPath] = useState<string | null>(null);
@@ -46,7 +57,10 @@ export function DirectoryBrowser({ value, onChange, placeholder }: DirectoryBrow
       setParentPath(data.parentPath);
       setDirectories(data.directories);
     } catch (err: any) {
-      setError(err?.message || (err instanceof Error ? err.message : 'Failed to load directories'));
+      setError(
+        err?.message ||
+          (err instanceof Error ? err.message : 'Failed to load directories'),
+      );
     } finally {
       setLoading(false);
     }
@@ -94,13 +108,19 @@ export function DirectoryBrowser({ value, onChange, placeholder }: DirectoryBrow
 
     setCreateLoading(true);
     try {
-      const created = await api.post<DirectoryEntry>('/api/browse/directories', { parentPath: currentPath, name });
+      const created = await api.post<DirectoryEntry>(
+        '/api/browse/directories',
+        { parentPath: currentPath, name },
+      );
       onChange(created.path);
       setBrowsing(false);
       setCreating(false);
       setNewFolderName('');
     } catch (err: any) {
-      setError(err?.message || (err instanceof Error ? err.message : 'Failed to create folder'));
+      setError(
+        err?.message ||
+          (err instanceof Error ? err.message : 'Failed to create folder'),
+      );
     } finally {
       setCreateLoading(false);
     }
@@ -119,15 +139,13 @@ export function DirectoryBrowser({ value, onChange, placeholder }: DirectoryBrow
 
   return (
     <div>
-      <Label className="mb-1">
-        工作目录（可选）
-      </Label>
+      <Label className="mb-1">工作目录（可选）</Label>
       <div className="flex gap-2">
         <Input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder || '默认: ~/.cli-claw/groups/{folder}/'}
+          placeholder={placeholder || '默认: ~/.agent-fabric/groups/{folder}/'}
           className="flex-1 text-sm"
         />
         <button
@@ -152,7 +170,10 @@ export function DirectoryBrowser({ value, onChange, placeholder }: DirectoryBrow
                   <Folder className="w-3.5 h-3.5" />
                 </button>
                 {breadcrumbs.map((bc, i) => (
-                  <span key={bc.path} className="flex items-center gap-1 flex-shrink-0">
+                  <span
+                    key={bc.path}
+                    className="flex items-center gap-1 flex-shrink-0"
+                  >
                     <ChevronRight className="w-3 h-3 text-muted-foreground/50" />
                     <button
                       onClick={() =>
@@ -189,7 +210,9 @@ export function DirectoryBrowser({ value, onChange, placeholder }: DirectoryBrow
                 <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
               </div>
             ) : error ? (
-              <div className="px-3 py-4 text-sm text-error text-center">{error}</div>
+              <div className="px-3 py-4 text-sm text-error text-center">
+                {error}
+              </div>
             ) : (
               <>
                 {/* Go up */}

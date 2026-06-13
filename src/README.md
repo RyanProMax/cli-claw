@@ -5,7 +5,7 @@ Backend source is organized by product responsibility. New code should go into t
 ## Top-Level Entrypoints
 
 - `index.ts` starts the backend service and wires the major modules together.
-- `cli.ts` is the published `cli-claw` command entrypoint.
+- `cli.ts` is the published `agent-fabric` command entrypoint.
 - `self-restart-watchdog.ts` is the child process entrypoint used by managed restarts.
 
 ## Modules

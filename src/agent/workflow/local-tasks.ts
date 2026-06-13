@@ -46,6 +46,10 @@ const KOL_CONTEXT_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
 const KOL_CONTEXT_CACHE_MAX_ENTRIES = 16;
 const kolContextCache = new Map<string, KolContextCacheEntry>();
 
+function agentFabricCacheRootFromEnv(): string | undefined {
+  return process.env.AGENT_FABRIC_CACHE_DIR;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -283,7 +287,7 @@ async function runStockKolContextJson(
       maxBuffer: JSON_BUFFER_BYTES,
       env: {
         ...process.env,
-        CLI_CLAW_SKILL_DIR: skillRoot,
+        AGENT_FABRIC_SKILL_DIR: skillRoot,
       },
     },
   );
@@ -768,7 +772,7 @@ function createHeatScanTask(
           return buildDegradedHeatScanArtifact(ipos, reportDate, message);
         }
       },
-      { cacheRoot: process.env.CLI_CLAW_CACHE_DIR },
+      { cacheRoot: agentFabricCacheRootFromEnv() },
     );
   };
 }
@@ -781,7 +785,7 @@ function createOfficialDocsTask(
     const includeClosed = readWorkflowIncludeClosed(input);
     const ipos = getArtifactArray(input, 'ipo_pool');
     const cacheDir = ensureCacheNamespaceDir('hkipo-official-docs', {
-      cacheRoot: process.env.CLI_CLAW_CACHE_DIR,
+      cacheRoot: agentFabricCacheRootFromEnv(),
     });
     return withCacheTempDir(
       'hkipo-official-docs-input',
@@ -807,7 +811,7 @@ function createOfficialDocsTask(
           return buildDegradedOfficialDocsArtifact(ipos, reportDate, message);
         }
       },
-      { cacheRoot: process.env.CLI_CLAW_CACHE_DIR },
+      { cacheRoot: agentFabricCacheRootFromEnv() },
     );
   };
 }

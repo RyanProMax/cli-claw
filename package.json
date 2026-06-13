@@ -1,11 +1,11 @@
 {
-  "name": "cli-claw",
+  "name": "agent-fabric",
   "version": "0.0.6",
-  "description": "Single-instance self-hosted AI agent platform powered by CLI runtimes.",
+  "description": "Self-hosted orchestration fabric for local AI agent workflows.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "cli-claw": "dist/cli.js"
+    "agent-fabric": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -67,11 +67,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RyanProMax/cli-claw.git"
+    "url": "git+https://github.com/RyanProMax/agent-fabric.git"
   },
-  "homepage": "https://github.com/RyanProMax/cli-claw#readme",
+  "homepage": "https://github.com/RyanProMax/agent-fabric#readme",
   "bugs": {
-    "url": "https://github.com/RyanProMax/cli-claw/issues"
+    "url": "https://github.com/RyanProMax/agent-fabric/issues"
   },
   "author": "riba2534",
   "keywords": [

@@ -10,7 +10,7 @@ const ENV_KEYS = [
   'STOCK_ANALYSIS_API_ROOT',
   'STOCK_ANALYSIS_UV',
   'STOCK_KOL_INTEL_ROOT',
-  'CLI_CLAW_CACHE_DIR',
+  'AGENT_FABRIC_CACHE_DIR',
 ] as const;
 
 function writeExecutable(filePath: string, content: string): void {
@@ -181,11 +181,11 @@ describe('default workflow local tasks', () => {
     expect((artifact as any).output_template).toContain(
       '覆盖 KOL（2）：Sample KOL（@sample）、Second Voice（@secondvoice）',
     );
-    expect((artifact as any).output_template).not.toContain(
-      '覆盖：2 位 KOL',
-    );
+    expect((artifact as any).output_template).not.toContain('覆盖：2 位 KOL');
     expect((artifact as any).output_template).toContain('🧾 **结论/总结**');
-    expect((artifact as any).output_template).toContain('🔍 **下一步重点核验**');
+    expect((artifact as any).output_template).toContain(
+      '🔍 **下一步重点核验**',
+    );
     expect((artifact as any).output_template).toContain('🧭 **核心论点**');
     expect((artifact as any).output_template).toContain('📝 **观点摘要**');
     expect((artifact as any).output_template).toContain('🔗 **来源**');
@@ -505,7 +505,9 @@ describe('default workflow local tasks', () => {
   test('fetch_official_docs calls the stock api parser with the shared cache namespace', async () => {
     const apiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-root-'));
     const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-bin-'));
-    const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-cache-'));
+    const cacheRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-cache-'),
+    );
     tempDirs.push(apiRoot, binRoot, cacheRoot);
     fs.mkdirSync(path.join(apiRoot, 'scripts'), { recursive: true });
     fs.writeFileSync(path.join(apiRoot, 'scripts', 'futu_market_data.py'), '');
@@ -538,7 +540,7 @@ describe('default workflow local tasks', () => {
     for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
     process.env.STOCK_ANALYSIS_API_ROOT = apiRoot;
     process.env.STOCK_ANALYSIS_UV = fakeUv;
-    process.env.CLI_CLAW_CACHE_DIR = cacheRoot;
+    process.env.AGENT_FABRIC_CACHE_DIR = cacheRoot;
 
     const tasks = createDefaultWorkflowLocalTasks();
     const artifact = await tasks['stock.hkipo.fetch_official_docs']({

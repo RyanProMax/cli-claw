@@ -4,11 +4,11 @@
 
 ## 定位
 
-Cli Claw 是一个单实例、自托管的 CLI Agent 工具。它接收 Web、飞书和微信消息，通过本地 Agent 进程运行 Codex/OpenAI，并把流式结果、文件和 workflow 状态回传给操作者。
+Agent Fabric 是一个单实例、自托管的 CLI Agent 工具。它接收 Web、飞书和微信消息，通过本地 Agent 进程运行 Codex/OpenAI，并把流式结果、文件和 workflow 状态回传给操作者。
 
 ## 分层
 
-- `src/cli.ts`：外部 launcher，负责仓库自带 / 同名发布包中的 `cli-claw start` / `help` / `version` 参数分发。
+- `src/cli.ts`：外部 launcher，负责仓库自带 / 同名发布包中的 `agent-fabric start` / `help` / `version` 参数分发。
 - `src/app-root.ts`：安装包根目录、launch cwd 与应用资源定位的边界解析。
 - `src/index.ts`：主服务 bootstrap，负责接入消息、队列调度、持久化、WebSocket 推送和系统协调。
 - `src/agent/workflow/`：工作流/crew 编排层，负责发现工作区或内置 `.agents/workflows` 与 `.agents/agent-roles` 配置，并把 workflow run 映射到独立执行上下文。
@@ -19,7 +19,7 @@ Cli Claw 是一个单实例、自托管的 CLI Agent 工具。它接收 Web、�
 
 ## 核心数据流
 
-1. 操作者在 shell 中执行 `cli-claw start`，launcher 解析命令并启动 backend bootstrap。
+1. 操作者在 shell 中执行 `agent-fabric start`，launcher 解析命令并启动 backend bootstrap。
 2. backend 启动时校验当前启动目录，并为缺失 `customCwd` 的主工作区物化默认执行目录。
 3. 用户从 Web 或 IM 入口发来消息。
 4. 主进程写入数据库，并把请求按工作区路由到队列。
@@ -67,9 +67,9 @@ Web `自动化` 页面统一承载 workflow 定时计划、当前运行和 workf
 
 ## 边界
 
-- `package root`、`launch cwd`、`~/.cli-claw` 数据目录是三条不同边界：前者负责资源定位，中者负责主工作区默认执行目录，后者负责平台持久化。
+- `package root`、`launch cwd`、Agent Fabric 数据目录是三条不同边界：前者负责资源定位，中者负责主工作区默认执行目录，后者负责平台持久化。数据目录默认为 `~/.agent-fabric`，可用 `AGENT_FABRIC_HOME` 覆盖；旧命名目录不再作为 fallback。
 - 主进程拥有实例密码认证、会话、路由、持久化和 workflow 调度。
-- Cli Claw 当前是单实例模型；登录实例密码后可访问实例内工作区，Web 只维护单实例访问配置。
+- Agent Fabric 当前是单实例模型；登录实例密码后可访问实例内工作区，Web 只维护单实例访问配置。
 - `groups/{folder}` 是工作区内容边界；`registered_groups` 是入口边界，多个入口共享同一 `folder` 时不代表多个独立项目。
 - runner 拥有具体 CLI 会话、工具调用和流式事件生产。
 - 记忆机制与上下文保留见 `docs/MEMORY.md`。

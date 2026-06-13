@@ -198,10 +198,11 @@ export function cleanupCache(
   const cacheRoot = getCacheRoot(options.cacheRoot);
   const nowMs = options.nowMs ?? Date.now();
   const ttlMs =
-    options.ttlMs ?? envPositiveNumber('CLI_CLAW_CACHE_TTL_MS', DEFAULT_TTL_MS);
+    options.ttlMs ??
+    envPositiveNumber('AGENT_FABRIC_CACHE_TTL_MS', DEFAULT_TTL_MS);
   const maxBytes =
     options.maxBytes ??
-    envPositiveNumber('CLI_CLAW_CACHE_MAX_BYTES', DEFAULT_MAX_BYTES);
+    envPositiveNumber('AGENT_FABRIC_CACHE_MAX_BYTES', DEFAULT_MAX_BYTES);
   const result: CacheCleanupResult = {
     scannedFiles: 0,
     removedFiles: 0,
@@ -247,7 +248,7 @@ export function startCacheCleanupLoop(
   const intervalMs =
     options.intervalMs ??
     envPositiveNumber(
-      'CLI_CLAW_CACHE_CLEANUP_INTERVAL_MS',
+      'AGENT_FABRIC_CACHE_CLEANUP_INTERVAL_MS',
       DEFAULT_CLEANUP_INTERVAL_MS,
     );
   const run = () => {

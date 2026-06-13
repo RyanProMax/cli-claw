@@ -5,7 +5,10 @@ import { describe, expect, test } from 'vitest';
 describe('npm package manifest', () => {
   test('exposes the cli launcher and release packaging contract', () => {
     const pkg = JSON.parse(
-      fs.readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+      fs.readFileSync(
+        new URL('../../../package.json', import.meta.url),
+        'utf8',
+      ),
     ) as {
       name?: string;
       bin?: Record<string, string>;
@@ -14,9 +17,9 @@ describe('npm package manifest', () => {
       dependencies?: Record<string, string>;
     };
 
-    expect(pkg.name).toBe('cli-claw');
+    expect(pkg.name).toBe('agent-fabric');
     expect(pkg.bin).toEqual({
-      'cli-claw': 'dist/cli.js',
+      'agent-fabric': 'dist/cli.js',
     });
     expect(pkg.files).toEqual(
       expect.arrayContaining([

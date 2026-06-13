@@ -19,8 +19,8 @@ else
   PKG_PFX  = npm --prefix $(1) install
 endif
 
-CLI_CLAW_HOME := $(HOME)/.cli-claw
-CLI_CLAW ?= cli-claw
+AGENT_FABRIC_HOME := $(HOME)/.agent-fabric
+AGENT_FABRIC ?= agent-fabric
 
 # ─── Development ─────────────────────────────────────────────
 
@@ -119,8 +119,8 @@ else
 	fi; \
 	if [ "$$NEED_AR" = "1" ]; then echo "🔨 检测到 agent-runner 变更，重新编译..."; cd container/agent-runner && npm run build; else echo "✅ agent-runner 无变更，跳过编译"; fi
 endif
-	@echo "🚀 使用 cli-claw launcher 启动服务..."
-	$(CLI_CLAW) start
+	@echo "🚀 使用 agent-fabric launcher 启动服务..."
+	$(AGENT_FABRIC) start
 
 # ─── Quality ─────────────────────────────────────────────────
 
@@ -166,25 +166,25 @@ clean: ## 清理构建产物
 	rm -f .build-sentinel
 
 reset-init: ## 完全重置为首装状态（清空所有运行时数据）
-	rm -rf "$(CLI_CLAW_HOME)"
+	rm -rf "$(AGENT_FABRIC_HOME)"
 	@echo "✅ 已完全重置为首装状态（数据库、配置、工作区、记忆、会话全部清除）"
 
 # ─── Backup / Restore ────────────────────────────────────────
 
-backup: ## 备份运行时数据到 cli-claw-backup-{date}.tar.gz
-	@ROOT="$(CLI_CLAW_HOME)"; \
+backup: ## 备份运行时数据到 agent-fabric-backup-{date}.tar.gz
+	@ROOT="$(AGENT_FABRIC_HOME)"; \
 	if [ ! -d "$$ROOT" ]; then \
 	  echo "❌ 未找到运行时目录：$$ROOT"; \
 	  exit 1; \
 	fi; \
 	DATE=$$(date +%Y%m%d-%H%M%S); \
-	FILE="cli-claw-backup-$$DATE.tar.gz"; \
+	FILE="agent-fabric-backup-$$DATE.tar.gz"; \
 	echo "📦 正在打包备份到 $$FILE ..."; \
 	tar -czf "$$FILE" -C "$$ROOT" \
 	  --exclude='ipc' \
 	  --exclude='env' \
 	  --exclude='streaming-buffer' \
-	  --exclude='cli-claw.log' \
+	  --exclude='agent-fabric.log' \
 	  --exclude='db/messages.db-shm' \
 	  --exclude='db/messages.db-wal' \
 	  --exclude='groups/*/logs' \
@@ -199,20 +199,20 @@ backup: ## 备份运行时数据到 cli-claw-backup-{date}.tar.gz
 	  2>/dev/null; \
 	echo "✅ 备份完成：$$FILE ($$(du -sh $$FILE | cut -f1))"
 
-restore: ## 从 cli-claw-backup-*.tar.gz 恢复数据（用法：make restore 或 make restore FILE=xxx.tar.gz）
+restore: ## 从 agent-fabric-backup-*.tar.gz 恢复数据（用法：make restore 或 make restore FILE=xxx.tar.gz）
 	@if [ -n "$(FILE)" ]; then \
 	  BACKUP="$(FILE)"; \
-	elif [ $$(ls cli-claw-backup-*.tar.gz 2>/dev/null | wc -l) -eq 1 ]; then \
-	  BACKUP=$$(ls cli-claw-backup-*.tar.gz); \
-	elif [ $$(ls cli-claw-backup-*.tar.gz 2>/dev/null | wc -l) -gt 1 ]; then \
+	elif [ $$(ls agent-fabric-backup-*.tar.gz 2>/dev/null | wc -l) -eq 1 ]; then \
+	  BACKUP=$$(ls agent-fabric-backup-*.tar.gz); \
+	elif [ $$(ls agent-fabric-backup-*.tar.gz 2>/dev/null | wc -l) -gt 1 ]; then \
 	  echo "❌ 发现多个备份文件，请用 make restore FILE=xxx.tar.gz 指定："; \
-	  ls cli-claw-backup-*.tar.gz; \
+	  ls agent-fabric-backup-*.tar.gz; \
 	  exit 1; \
 	else \
-	  echo "❌ 未找到备份文件，请将 cli-claw-backup-*.tar.gz 放到当前目录"; \
+	  echo "❌ 未找到备份文件，请将 agent-fabric-backup-*.tar.gz 放到当前目录"; \
 	  exit 1; \
 	fi; \
-	ROOT="$(CLI_CLAW_HOME)"; \
+	ROOT="$(AGENT_FABRIC_HOME)"; \
 	echo "📂 正在从 $$BACKUP 恢复..."; \
 	if [ -d "$$ROOT" ] && [ "$$(ls -A "$$ROOT" 2>/dev/null)" ]; then \
 	  echo "⚠️  $$ROOT 已存在数据，继续将覆盖。是否继续？[y/N] "; \

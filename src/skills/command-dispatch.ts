@@ -440,9 +440,9 @@ function executeSkillCommandProcess(
       env: {
         ...skillEnv,
         ...process.env,
-        CLI_CLAW_COMMAND: command.name,
-        CLI_CLAW_SKILL_ID: command.skillId,
-        CLI_CLAW_SKILL_DIR: command.skillDir,
+        AGENT_FABRIC_COMMAND: command.name,
+        AGENT_FABRIC_SKILL_ID: command.skillId,
+        AGENT_FABRIC_SKILL_DIR: command.skillDir,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });

@@ -28,7 +28,7 @@ vi.mock('../../../src/storage/db.js', () => ({
 }));
 
 vi.mock('../../../src/core/config.js', () => ({
-  DATA_DIR: '/tmp/cli-claw-test',
+  DATA_DIR: '/tmp/agent-fabric-test',
 }));
 
 describe('resolveBoundChatTarget', () => {
@@ -196,7 +196,7 @@ describe('formatSystemStatus', () => {
           workspaceName: '主工作区',
           currentSessionName: '主线',
           sessionCount: 3,
-          cwd: '/Users/ryan/projects/cli-claw',
+          cwd: '/Users/ryan/projects/agent-fabric',
         },
       ),
     ).toBe(
@@ -219,7 +219,7 @@ describe('formatSystemStatus', () => {
         '🔢 线程数: 3',
         '⚡ 状态: 空闲',
         '📦 负载: 0/5 进程',
-        '📍 cwd: /Users/ryan/projects/cli-claw',
+        '📍 cwd: /Users/ryan/projects/agent-fabric',
       ].join('\n'),
     );
   });
@@ -322,7 +322,7 @@ describe('formatSelfStatus', () => {
       formatSelfStatus({
         pid: 1234,
         startedAt: '2026-04-12T12:00:00.000Z',
-        cwd: '/Users/ryan/projects/cli-claw',
+        cwd: '/Users/ryan/projects/agent-fabric',
         stale: true,
         backend: {
           stale: true,
@@ -339,7 +339,7 @@ describe('formatSelfStatus', () => {
           restartable: true,
           source: 'cli_start',
           displayCommand:
-            '/usr/local/bin/node /Users/ryan/projects/cli-claw/dist/cli.js start',
+            '/usr/local/bin/node /Users/ryan/projects/agent-fabric/dist/cli.js start',
           validationError: null,
         },
       } as any),
@@ -349,9 +349,9 @@ describe('formatSelfStatus', () => {
         '━━━━━━━━━━',
         '🆔 PID: 1234',
         '⏱️ 启动: 2026-04-12T12:00:00.000Z',
-        '📂 cwd: /Users/ryan/projects/cli-claw',
+        '📂 cwd: /Users/ryan/projects/agent-fabric',
         '🔁 自重启: 可用 (cli_start)',
-        '🚀 启动命令: /usr/local/bin/node /Users/ryan/projects/cli-claw/dist/cli.js start',
+        '🚀 启动命令: /usr/local/bin/node /Users/ryan/projects/agent-fabric/dist/cli.js start',
         '📦 build: 需要重启',
         '  backend: stale 2026-04-12T11:00:00.000Z → 2026-04-12T12:10:00.000Z',
         '  agent-runner: ok 2026-04-12T11:00:00.000Z',
@@ -366,7 +366,7 @@ describe('formatSelfStatus', () => {
       formatSelfStatus({
         pid: 1234,
         startedAt: '2026-04-12T12:00:00.000Z',
-        cwd: '/Users/ryan/projects/cli-claw',
+        cwd: '/Users/ryan/projects/agent-fabric',
         stale: false,
         backend: {
           stale: false,
@@ -421,7 +421,7 @@ describe('formatSelfStatus', () => {
     const status = formatSelfStatus({
       pid: 1234,
       startedAt: '2026-04-12T12:00:00.000Z',
-      cwd: '/Users/ryan/projects/cli-claw',
+      cwd: '/Users/ryan/projects/agent-fabric',
       stale: false,
       backend: {
         stale: false,
@@ -443,14 +443,16 @@ describe('formatSelfStatus', () => {
     } as any);
 
     expect(status).toContain('⚠️ 启动模式: direct_backend 是开发直启路径');
-    expect(status).toContain('✅ 推荐入口: cli-claw start / cli-claw restart');
+    expect(status).toContain(
+      '✅ 推荐入口: agent-fabric start / agent-fabric restart',
+    );
   });
 
   test('marks source-launched services without implying dist build freshness', () => {
     const status = formatSelfStatus({
       pid: 1234,
       startedAt: '2026-04-12T12:00:00.000Z',
-      cwd: '/Users/ryan/projects/cli-claw',
+      cwd: '/Users/ryan/projects/agent-fabric',
       stale: false,
       backend: {
         stale: false,
@@ -475,7 +477,9 @@ describe('formatSelfStatus', () => {
     expect(status).toContain(
       '⚠️ 启动模式: repo-local source launcher 是开发入口',
     );
-    expect(status).toContain('✅ 推荐入口: cli-claw start / cli-claw restart');
+    expect(status).toContain(
+      '✅ 推荐入口: agent-fabric start / agent-fabric restart',
+    );
     expect(status).toContain('📦 build: 源码运行，dist build 仅供打包参考');
     expect(status).not.toContain('📦 build: 已是当前 build');
   });
@@ -493,7 +497,7 @@ describe('formatSelfCheckResult', () => {
         command: 'node',
         args: ['/repo/dist/index.js'],
         cwd: '/repo',
-        tempHome: '/tmp/cli-claw-self-check-abc',
+        tempHome: '/tmp/agent-fabric-self-check-abc',
         healthUrl: 'http://127.0.0.1:3101/api/health',
         error: null,
         exitCode: null,
@@ -507,7 +511,7 @@ describe('formatSelfCheckResult', () => {
         '⏱️ 耗时: 3000ms',
         '🚀 候选命令: node /repo/dist/index.js',
         '🌐 端口: 3101',
-        '📂 隔离 HOME: /tmp/cli-claw-self-check-abc',
+        '📂 隔离 HOME: /tmp/agent-fabric-self-check-abc',
         '✅ 候选服务冷启动健康，当前服务未重启',
       ].join('\n'),
     );
@@ -524,7 +528,7 @@ describe('formatSelfCheckResult', () => {
         command: 'node',
         args: ['/repo/dist/index.js'],
         cwd: '/repo',
-        tempHome: '/tmp/cli-claw-self-check-abc',
+        tempHome: '/tmp/agent-fabric-self-check-abc',
         healthUrl: 'http://127.0.0.1:3101/api/health',
         error: 'candidate exited before health check passed',
         exitCode: 1,
@@ -538,7 +542,7 @@ describe('formatSelfCheckResult', () => {
         '⏱️ 耗时: 3000ms',
         '🚀 候选命令: node /repo/dist/index.js',
         '🌐 端口: 3101',
-        '📂 隔离 HOME: /tmp/cli-claw-self-check-abc',
+        '📂 隔离 HOME: /tmp/agent-fabric-self-check-abc',
         '❌ 原因: candidate exited before health check passed',
         '🚪 退出: code=1',
         '📜 输出:',
@@ -552,14 +556,14 @@ describe('formatSelfRestartAccepted', () => {
   test('formats the watchdog intent location and warning', () => {
     expect(
       formatSelfRestartAccepted({
-        intentPath: '/Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
+        intentPath: '/Users/ryan/.agent-fabric/ops/restarts/restart-abc.json',
         watchdogPid: 4321,
       }),
     ).toBe(
       [
         '🔁 自重启已受理',
         '━━━━━━━━━━',
-        '🧾 intent: /Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
+        '🧾 intent: /Users/ryan/.agent-fabric/ops/restarts/restart-abc.json',
         '👁️ watchdog PID: 4321',
         '💬 重启成功后会回到当前入口补发结果',
         '⚠️ 后续由独立 watchdog 执行；当前 IM 可能短暂离线',
@@ -572,7 +576,7 @@ describe('formatSelfRestartSuccess', () => {
   test('formats the restart success message with service status and residual summary', () => {
     expect(
       formatSelfRestartSuccess({
-        intentPath: '/Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
+        intentPath: '/Users/ryan/.agent-fabric/ops/restarts/restart-abc.json',
         selfStatus: '🧭 自迭代状态\n🆔 PID: 17510',
         residualSummary:
           '🧹 残留检查: backend 1 个（额外 0），runner 2 个（孤儿 0）',
@@ -581,7 +585,7 @@ describe('formatSelfRestartSuccess', () => {
       [
         '✅ 自重启成功',
         '━━━━━━━━━━',
-        '🧾 intent: /Users/ryan/.cli-claw/ops/restarts/restart-abc.json',
+        '🧾 intent: /Users/ryan/.agent-fabric/ops/restarts/restart-abc.json',
         '🧭 自迭代状态\n🆔 PID: 17510',
         '🧹 残留检查: backend 1 个（额外 0），runner 2 个（孤儿 0）',
       ].join('\n'),

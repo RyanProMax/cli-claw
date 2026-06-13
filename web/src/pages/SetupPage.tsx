@@ -77,13 +77,13 @@ export function SetupPage() {
             <div className="w-16 h-16 rounded-2xl overflow-hidden">
               <img
                 src={`${import.meta.env.BASE_URL}icons/icon-192.png`}
-                alt="cli-claw"
+                alt="agent-fabric"
                 className="w-full h-full object-cover"
               />
             </div>
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-1">
-            cli-claw 初始设置
+            agent-fabric 初始设置
           </h1>
           <p className="text-sm text-muted-foreground">
             为当前自托管实例设置一个访问密码
@@ -145,7 +145,11 @@ export function SetupPage() {
                   </button>
                 </div>
               </div>
-              <Button onClick={handleSubmit} disabled={saving} className="w-full">
+              <Button
+                onClick={handleSubmit}
+                disabled={saving}
+                className="w-full"
+              >
                 {saving && <Loader2 className="size-4 animate-spin" />}
                 {saving ? '保存中...' : '保存并进入'}
               </Button>

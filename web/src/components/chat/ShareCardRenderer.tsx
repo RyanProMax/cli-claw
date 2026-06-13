@@ -208,11 +208,11 @@ export const ShareCardRenderer = forwardRef<
       >
         <img
           src="/icons/icon-192.png"
-          alt="cli-claw"
+          alt="agent-fabric"
           style={{ width: 16, height: 16, borderRadius: 3 }}
         />
         <span style={{ fontSize: 12, color: '#94a3b8' }}>
-          Cli Claw · github.com/RyanProMax/cli-claw
+          Agent Fabric · github.com/RyanProMax/agent-fabric
         </span>
       </div>
     </div>

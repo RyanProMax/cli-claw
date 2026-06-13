@@ -9,8 +9,8 @@ describe('startup launch spec', () => {
   test('marks repo-local source launcher starts as source artifact mode', () => {
     const spec = createCliStartLaunchSpec({
       execPath: '/Users/ryan/.bun/bin/bun',
-      argvEntry: '/Users/ryan/projects/cli-claw/src/cli.ts',
-      cwd: '/Users/ryan/projects/cli-claw',
+      argvEntry: '/Users/ryan/projects/agent-fabric/src/cli.ts',
+      cwd: '/Users/ryan/projects/agent-fabric',
     });
 
     expect((spec as any).source).toBe('cli_start');
@@ -21,7 +21,7 @@ describe('startup launch spec', () => {
     const spec = createCliStartLaunchSpec({
       execPath: '/Users/ryan/.bun/bin/bun',
       argvEntry: 'src/cli.ts',
-      cwd: '/Users/ryan/projects/cli-claw',
+      cwd: '/Users/ryan/projects/agent-fabric',
     });
 
     expect(spec.restartable).toBe(true);
@@ -35,9 +35,9 @@ describe('startup launch spec', () => {
       execPath: '/Users/ryan/.bun/bin/bun',
       argv: [
         '/Users/ryan/.bun/bin/bun',
-        '/Users/ryan/projects/cli-claw/src/index.ts',
+        '/Users/ryan/projects/agent-fabric/src/index.ts',
       ],
-      cwd: '/Users/ryan/projects/cli-claw',
+      cwd: '/Users/ryan/projects/agent-fabric',
     });
 
     expect((spec as any).source).toBe('direct_backend');
@@ -48,7 +48,7 @@ describe('startup launch spec', () => {
     const spec = inferDirectBackendLaunchSpec({
       execPath: '/Users/ryan/.bun/bin/bun',
       argv: ['/Users/ryan/.bun/bin/bun', 'src/index.ts'],
-      cwd: '/Users/ryan/projects/cli-claw',
+      cwd: '/Users/ryan/projects/agent-fabric',
     });
 
     expect(spec.restartable).toBe(true);

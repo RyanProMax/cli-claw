@@ -56,8 +56,12 @@ export function CreateWorkspaceDialog({
     setLoading(true);
     try {
       const options: Record<string, string> = {};
-      if (canSetCustomCwd && customCwd.trim()) options.custom_cwd = customCwd.trim();
-      const created = await createFlow(trimmed, Object.keys(options).length ? options : undefined);
+      if (canSetCustomCwd && customCwd.trim())
+        options.custom_cwd = customCwd.trim();
+      const created = await createFlow(
+        trimmed,
+        Object.keys(options).length ? options : undefined,
+      );
       if (created) {
         onCreated(created.jid, created.folder);
         handleClose();
@@ -84,7 +88,9 @@ export function CreateWorkspaceDialog({
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleConfirm(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleConfirm();
+              }}
               placeholder="输入工作区名称"
               autoFocus
             />
@@ -93,7 +99,8 @@ export function CreateWorkspaceDialog({
           <div className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg">
             <AlertTriangle className="w-4 h-4 text-sky-500 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-sky-700 dark:text-sky-300">
-              工作区使用本地 Codex/OpenAI Agent 进程，请确认服务端已完成 <code>codex login</code>。
+              工作区使用本地 Codex/OpenAI Agent 进程，请确认服务端已完成{' '}
+              <code>codex login</code>。
             </p>
           </div>
 
@@ -104,13 +111,21 @@ export function CreateWorkspaceDialog({
                 onClick={() => setAdvancedOpen(!advancedOpen)}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-accent transition-colors cursor-pointer"
               >
-                {advancedOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                {advancedOpen ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
                 高级选项
               </button>
               {advancedOpen && (
                 <div className="px-3 pb-3 space-y-3 border-t">
                   <div className="pt-3">
-                    <DirectoryBrowser value={customCwd} onChange={setCustomCwd} placeholder="默认: ~/.cli-claw/groups/{folder}/" />
+                    <DirectoryBrowser
+                      value={customCwd}
+                      onChange={setCustomCwd}
+                      placeholder="默认: ~/.agent-fabric/groups/{folder}/"
+                    />
                   </div>
                 </div>
               )}

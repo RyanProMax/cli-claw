@@ -11,7 +11,7 @@ import { OpenAI, type ClientOptions } from 'openai/index.js';
 import { ProxyAgent, type Dispatcher } from 'undici';
 
 const CODEX_BACKEND_BASE_URL =
-  process.env.CLI_CLAW_CODEX_BASE_URL ||
+  process.env.AGENT_FABRIC_CODEX_BASE_URL ||
   'https://chatgpt.com/backend-api/codex';
 
 function normalizeText(value: string | null | undefined): string | null {
@@ -382,17 +382,19 @@ export function buildCodexCliHeaders(
   accessToken: string,
 ): Record<string, string> {
   const accountId =
-    normalizeText(process.env.CLI_CLAW_CODEX_ACCOUNT_ID) ??
+    normalizeText(process.env.AGENT_FABRIC_CODEX_ACCOUNT_ID) ??
     getChatGptAccountIdFromToken(accessToken);
   return {
-    'User-Agent': 'codex_cli_rs/0.0.0 (Cli Claw)',
+    'User-Agent': 'codex_cli_rs/0.0.0 (Agent Fabric)',
     originator: 'codex_cli_rs',
     ...(accountId ? { 'ChatGPT-Account-ID': accountId } : {}),
   };
 }
 
 export function configureCodexCliOpenAiProvider(): ModelProvider {
-  const accessToken = normalizeText(process.env.CLI_CLAW_CODEX_ACCESS_TOKEN);
+  const accessToken = normalizeText(
+    process.env.AGENT_FABRIC_CODEX_ACCESS_TOKEN,
+  );
   if (!accessToken) {
     throw new Error(
       'Codex CLI login is required. Run `codex login`, then retry.',

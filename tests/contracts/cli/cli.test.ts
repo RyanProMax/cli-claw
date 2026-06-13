@@ -129,11 +129,13 @@ describe('runCli', () => {
 
 describe('isExecutedAsCliEntry', () => {
   test('treats symlinked launcher paths as the same entry module', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-cli-test-'));
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-cli-test-'),
+    );
     tempDirs.push(tempDir);
 
     const entryPath = path.join(tempDir, 'dist', 'cli.js');
-    const launcherPath = path.join(tempDir, 'bin', 'cli-claw');
+    const launcherPath = path.join(tempDir, 'bin', 'agent-fabric');
 
     fs.mkdirSync(path.dirname(entryPath), { recursive: true });
     fs.mkdirSync(path.dirname(launcherPath), { recursive: true });
@@ -146,7 +148,9 @@ describe('isExecutedAsCliEntry', () => {
   });
 
   test('rejects unrelated launchers', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-cli-test-'));
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-cli-test-'),
+    );
     tempDirs.push(tempDir);
 
     const entryPath = path.join(tempDir, 'dist', 'cli.js');
@@ -157,8 +161,8 @@ describe('isExecutedAsCliEntry', () => {
     fs.writeFileSync(entryPath, '#!/usr/bin/env node\n');
     fs.writeFileSync(otherPath, '#!/usr/bin/env node\n');
 
-    expect(
-      isExecutedAsCliEntry(otherPath, pathToFileURL(entryPath).href),
-    ).toBe(false);
+    expect(isExecutedAsCliEntry(otherPath, pathToFileURL(entryPath).href)).toBe(
+      false,
+    );
   });
 });

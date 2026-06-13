@@ -159,7 +159,9 @@ vi.mock('../../../../src/agent/runner/container-runner.js', () => ({
 const tempHomes: string[] = [];
 
 function createTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-feishu-e2e-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'agent-fabric-feishu-e2e-'),
+  );
   tempHomes.push(dir);
   return dir;
 }
@@ -702,8 +704,8 @@ describe('Feishu in-process E2E harness', () => {
     db.storeMessageDirect(
       'old-interrupt',
       chatJid,
-      'cli-claw-agent',
-      'Cli Claw',
+      'agent-fabric-agent',
+      'Agent Fabric',
       '历史 ACTIVE 计划和 handoff 残留',
       '2026-04-20T09:01:00.000Z',
       true,
@@ -816,7 +818,7 @@ describe('Feishu in-process E2E harness', () => {
     });
     const chatMessages = db.getMessagesPage(chatJid, undefined, 10);
     const assistantMessages = chatMessages.filter(
-      (message: any) => message.sender === 'cli-claw-agent',
+      (message: any) => message.sender === 'agent-fabric-agent',
     );
     const finalAssistantMessage = assistantMessages[0];
     expectMessageWithRouteFooter(
@@ -865,7 +867,7 @@ describe('Feishu in-process E2E harness', () => {
     const userId = 'user-feishu-openai-error';
     const messageId = 'om_openai_error_no_raw_json';
     const friendlyError =
-      'OpenAI runtime request was rejected by Codex backend (400). Check the latest process log for the request id, update and restart cli-claw, then retry.';
+      'OpenAI runtime request was rejected by Codex backend (400). Check the latest process log for the request id, update and restart agent-fabric, then retry.';
     const rawError =
       '{ "name": "Error", "message": "400 status code (no body)", "status": 400, "headers": {}, "requestID": null }';
     const forbiddenSnippets = [
@@ -985,7 +987,7 @@ describe('Feishu in-process E2E harness', () => {
 
     const assistantMessages = db
       .getMessagesPage(chatJid, undefined, 10)
-      .filter((message: any) => message.sender === 'cli-claw-agent');
+      .filter((message: any) => message.sender === 'agent-fabric-agent');
     expectMessageWithRouteFooter(
       assistantMessages[0]?.content,
       friendlyError,
@@ -1176,7 +1178,7 @@ describe('Feishu in-process E2E harness', () => {
 
     const assistantMessages = db
       .getMessagesPage(chatJid, undefined, 10)
-      .filter((message: any) => message.sender === 'cli-claw-agent');
+      .filter((message: any) => message.sender === 'agent-fabric-agent');
     expectMessageWithRouteFooter(
       assistantMessages[0]?.content,
       finalText,
@@ -1328,7 +1330,7 @@ describe('Feishu in-process E2E harness', () => {
 
     const assistantMessages = db
       .getMessagesPage(chatJid, undefined, 10)
-      .filter((message: any) => message.sender === 'cli-claw-agent');
+      .filter((message: any) => message.sender === 'agent-fabric-agent');
     expectMessageWithRouteFooter(
       assistantMessages[0]?.content,
       finalText,
@@ -1458,7 +1460,7 @@ describe('Feishu in-process E2E harness', () => {
   });
 
   test('discards restart streaming residue before the first real Feishu card payload', async () => {
-    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    vi.stubEnv('AGENT_FABRIC_SELF_CHECK', '1');
     const {
       db,
       notifier,
@@ -1565,7 +1567,7 @@ describe('Feishu in-process E2E harness', () => {
         create_time: '1777070350000',
         message_type: 'text',
         content: JSON.stringify({
-          text: '检查 cli-claw PLANS，只清理已完成内容',
+          text: '检查 agent-fabric PLANS，只清理已完成内容',
         }),
         chat_type: 'p2p',
       },
@@ -1626,7 +1628,7 @@ describe('Feishu in-process E2E harness', () => {
     await expect(processGroupMessages(chatJid)).resolves.toBe(true);
 
     const prompt = hoisted.runAgentProcess.mock.calls[0][1].prompt;
-    expect(prompt).toContain('检查 cli-claw PLANS');
+    expect(prompt).toContain('检查 agent-fabric PLANS');
     for (const snippet of forbiddenSnippets) {
       expect(prompt).not.toContain(snippet);
     }
@@ -1661,7 +1663,7 @@ describe('Feishu in-process E2E harness', () => {
   });
 
   test('does not reuse an assistant-prompt polluted session for later ordinary Feishu messages', async () => {
-    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    vi.stubEnv('AGENT_FABRIC_SELF_CHECK', '1');
     const {
       db,
       notifier,
@@ -1719,8 +1721,8 @@ describe('Feishu in-process E2E harness', () => {
     db.storeMessageDirect(
       'assistant-hkipo-final',
       chatJid,
-      'cli-claw-agent',
-      'cli-claw',
+      'agent-fabric-agent',
+      'agent-fabric',
       oldSkillFinal,
       '2026-04-29T15:14:12.617Z',
       true,
@@ -1746,8 +1748,8 @@ describe('Feishu in-process E2E harness', () => {
     db.storeMessageDirect(
       'assistant-prior-normal-final',
       chatJid,
-      'cli-claw-agent',
-      'cli-claw',
+      'agent-fabric-agent',
+      'agent-fabric',
       `${oldSkillFinal}\n${currentFinal}`,
       '2026-04-29T15:37:57.193Z',
       true,

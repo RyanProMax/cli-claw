@@ -14,7 +14,9 @@ import {
 const tempDirs: string[] = [];
 
 function createTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-codex-auth-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'agent-fabric-codex-auth-'),
+  );
   tempDirs.push(dir);
   return dir;
 }
@@ -70,12 +72,15 @@ describe('Codex CLI runtime auth', () => {
     });
 
     expect(env).toMatchObject({
-      CLI_CLAW_OPENAI_AUTH_MODE: 'codex-cli',
-      CLI_CLAW_CODEX_ACCESS_TOKEN: token,
-      CLI_CLAW_CODEX_BASE_URL: CODEX_BACKEND_BASE_URL,
-      CLI_CLAW_CODEX_AUTH_SOURCE: 'codex-auth-json',
-      CLI_CLAW_CODEX_ACCOUNT_ID: 'acct_from_auth_json',
+      AGENT_FABRIC_OPENAI_AUTH_MODE: 'codex-cli',
+      AGENT_FABRIC_CODEX_ACCESS_TOKEN: token,
+      AGENT_FABRIC_CODEX_BASE_URL: CODEX_BACKEND_BASE_URL,
+      AGENT_FABRIC_CODEX_AUTH_SOURCE: 'codex-auth-json',
+      AGENT_FABRIC_CODEX_ACCOUNT_ID: 'acct_from_auth_json',
     });
+    expect(Object.keys(env).filter((key) => key.startsWith('CLI_CLAW_'))).toEqual(
+      [],
+    );
   });
 
   test('rejects expired Codex auth.json tokens instead of reusing stale login state', async () => {

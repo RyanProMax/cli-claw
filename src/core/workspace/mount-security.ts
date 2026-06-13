@@ -1,5 +1,5 @@
 /**
- * Workspace root security module for cli-claw
+ * Workspace root security module for agent-fabric
  *
  * Validates local workspace roots against an allowlist stored in the project config/ directory.
  *
@@ -29,7 +29,7 @@ const DEFAULT_BLOCKED_PATTERNS = [
   '.gcloud',
   '.kube',
   '.docker',
-  '.cli-claw',
+  '.agent-fabric',
   '.codex',
   '.agents',
   'credentials',

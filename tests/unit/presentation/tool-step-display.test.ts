@@ -25,10 +25,12 @@ describe('formatToolStepLine', () => {
       '🔎 Search runtime command in src',
     );
     expect(
-      formatToolStepLine('Edit /Users/ryan/projects/cli-claw/PLANS/ACTIVE.md'),
-    ).toBe('✏️ Edit /Users/ryan/projects/cli-claw/PLANS/ACTIVE.md');
-    expect(formatToolStepLine('List /Users/ryan/projects/cli-claw')).toBe(
-      '📂 List /Users/ryan/projects/cli-claw',
+      formatToolStepLine(
+        'Edit /Users/ryan/projects/agent-fabric/PLANS/ACTIVE.md',
+      ),
+    ).toBe('✏️ Edit /Users/ryan/projects/agent-fabric/PLANS/ACTIVE.md');
+    expect(formatToolStepLine('List /Users/ryan/projects/agent-fabric')).toBe(
+      '📂 List /Users/ryan/projects/agent-fabric',
     );
   });
 

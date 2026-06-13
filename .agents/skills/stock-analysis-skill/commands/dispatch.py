@@ -80,7 +80,7 @@ def main() -> int:
     if external_root is None:
         emit_error(
             "未找到 stock-analysis-skill 仓库。请设置 STOCK_ANALYSIS_SKILL_ROOT，"
-            "或把该仓库放在 cli-claw 同级目录。"
+            "或把该仓库放在 agent-fabric 同级目录。"
         )
         return 0
 
@@ -90,7 +90,7 @@ def main() -> int:
         return 0
 
     env = os.environ.copy()
-    env["CLI_CLAW_SKILL_DIR"] = str(external_root)
+    env["AGENT_FABRIC_SKILL_DIR"] = str(external_root)
     proc = subprocess.run(
         [python_executable(external_root), str(script)],
         input=sys.stdin.read(),

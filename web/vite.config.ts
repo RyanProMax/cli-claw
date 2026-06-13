@@ -4,8 +4,10 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-const API_PROXY_TARGET = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:3000';
-const WS_PROXY_TARGET = process.env.VITE_WS_PROXY_TARGET || 'ws://127.0.0.1:3000';
+const API_PROXY_TARGET =
+  process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:3000';
+const WS_PROXY_TARGET =
+  process.env.VITE_WS_PROXY_TARGET || 'ws://127.0.0.1:3000';
 const ENABLE_DEV_PWA = process.env.VITE_PWA_DEV === 'true';
 const MERMAID_RUNTIME_CHUNK_PATTERNS = [
   /(^|\/)assets\/mermaid(?:\.core)?-[^/]+\.js$/i,
@@ -14,7 +16,9 @@ const MERMAID_RUNTIME_CHUNK_PATTERNS = [
 ];
 
 function isMermaidRuntimeChunk(urlPath: string): boolean {
-  return MERMAID_RUNTIME_CHUNK_PATTERNS.some((pattern) => pattern.test(urlPath));
+  return MERMAID_RUNTIME_CHUNK_PATTERNS.some((pattern) =>
+    pattern.test(urlPath),
+  );
 }
 
 const APP_BASE = (() => {
@@ -44,8 +48,8 @@ export default defineConfig(({ command }) => {
             navigateFallback: `${APP_BASE}index.html`,
           },
           manifest: {
-            name: 'cli-claw',
-            short_name: 'cli-claw',
+            name: 'agent-fabric',
+            short_name: 'agent-fabric',
             description: 'Personal Codex Assistant',
             theme_color: '#0d9488',
             background_color: '#FAF9F5',
@@ -110,10 +114,14 @@ export default defineConfig(({ command }) => {
           },
           workbox: {
             navigateFallback: null,
-            manifestTransforms: [async (entries) => ({
-              manifest: entries.filter((entry) => !isMermaidRuntimeChunk(entry.url)),
-              warnings: [],
-            })],
+            manifestTransforms: [
+              async (entries) => ({
+                manifest: entries.filter(
+                  (entry) => !isMermaidRuntimeChunk(entry.url),
+                ),
+                warnings: [],
+              }),
+            ],
             runtimeCaching: [
               {
                 urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -151,9 +159,15 @@ export default defineConfig(({ command }) => {
               {
                 urlPattern: ({ url }) => {
                   const p = url.pathname;
-                  return /(^|\/)assets\/mermaid(?:\.core)?-[^/]+\.js$/i.test(p)
-                    || /(^|\/)assets\/(?:architectureDiagram|blockDiagram|c4Diagram|classDiagram(?:-v2)?|erDiagram|flowDiagram|ganttDiagram|gitGraphDiagram|infoDiagram|journeyDiagram|kanban-definition|mindmap-definition|pieDiagram|quadrantDiagram|requirementDiagram|sankeyDiagram|sequenceDiagram|stateDiagram(?:-v2)?|timeline-definition|xychartDiagram)-[^/]+\.js$/i.test(p)
-                    || /(^|\/)assets\/(?:cytoscape\.esm|cose-bilkent|dagre|katex|treemap|layout|graph)-[^/]+\.js$/i.test(p);
+                  return (
+                    /(^|\/)assets\/mermaid(?:\.core)?-[^/]+\.js$/i.test(p) ||
+                    /(^|\/)assets\/(?:architectureDiagram|blockDiagram|c4Diagram|classDiagram(?:-v2)?|erDiagram|flowDiagram|ganttDiagram|gitGraphDiagram|infoDiagram|journeyDiagram|kanban-definition|mindmap-definition|pieDiagram|quadrantDiagram|requirementDiagram|sankeyDiagram|sequenceDiagram|stateDiagram(?:-v2)?|timeline-definition|xychartDiagram)-[^/]+\.js$/i.test(
+                      p,
+                    ) ||
+                    /(^|\/)assets\/(?:cytoscape\.esm|cose-bilkent|dagre|katex|treemap|layout|graph)-[^/]+\.js$/i.test(
+                      p,
+                    )
+                  );
                 },
                 handler: 'StaleWhileRevalidate',
                 options: {

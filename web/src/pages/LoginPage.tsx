@@ -57,14 +57,14 @@ export function LoginPage() {
               <div className="w-16 h-16 rounded-2xl overflow-hidden mx-auto">
                 <img
                   src={`${import.meta.env.BASE_URL}icons/icon-192.png`}
-                  alt="cli-claw"
+                  alt="agent-fabric"
                   className="w-full h-full object-cover"
                 />
               </div>
             </div>
 
             <h1 className="text-2xl font-bold text-foreground text-center mb-2">
-              cli-claw
+              agent-fabric
             </h1>
             <p className="text-muted-foreground text-center mb-6">
               输入实例访问密码

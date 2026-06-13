@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 async function loadStorage() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-threads-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fabric-threads-'));
   vi.stubEnv('HOME', home);
   vi.resetModules();
   const db = await import('../../../src/storage/db.ts');

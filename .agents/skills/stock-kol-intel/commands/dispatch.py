@@ -191,7 +191,9 @@ def find_skill_repo_root() -> Path | None:
     if env_root:
         candidates.append(Path(env_root).expanduser())
 
-    skill_dir = Path(os.environ.get("CLI_CLAW_SKILL_DIR", "") or __file__).resolve()
+    skill_dir = Path(
+        os.environ.get("AGENT_FABRIC_SKILL_DIR", "") or __file__
+    ).resolve()
     if skill_dir.is_file():
         skill_dir = skill_dir.parent.parent
     for parent in [skill_dir, *skill_dir.parents]:

@@ -14,8 +14,8 @@ export interface IMCommandContext {
   triggerMessageId?: string | null;
 }
 
-const IM_SLASH_REWRITE_PREFIX = '__CLI_CLAW_REWRITE__\n';
-const IM_SLASH_NO_REPLY = '__CLI_CLAW_NO_REPLY__';
+const IM_SLASH_REWRITE_PREFIX = '__AGENT_FABRIC_REWRITE__\n';
+const IM_SLASH_NO_REPLY = '__AGENT_FABRIC_NO_REPLY__';
 
 export interface ResolvedImSlashCommand {
   kind: 'reply' | 'rewrite_message' | 'no_reply';

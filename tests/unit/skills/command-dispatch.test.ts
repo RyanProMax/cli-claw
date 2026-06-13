@@ -267,6 +267,68 @@ describe('skill command dispatch', () => {
     expect(reply).toBe('handled hkipo for ipo');
   });
 
+  test('passes only AGENT_FABRIC skill env vars to command executors', async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'skill-cmd-env-contract-'),
+    );
+    tempDirs.push(workspaceRoot);
+
+    writeSkill({
+      rootDir: workspaceRoot,
+      skillId: 'stock-analysis-skill',
+      commands: {
+        hkipo: {
+          description: '分析当前港股新股',
+          entrypoints: ['im', 'web'],
+          executor: {
+            command: process.execPath,
+            args: ['commands/reply.js'],
+          },
+        },
+      },
+      files: {
+        'commands/reply.js': [
+          'process.stdin.resume();',
+          "process.stdin.on('end', () => {",
+          '  const legacyKeys = Object.keys(process.env).filter((key) => key.startsWith("CLI_CLAW_")).sort();',
+          '  const content = JSON.stringify({',
+          '    command: process.env.AGENT_FABRIC_COMMAND,',
+          '    skillId: process.env.AGENT_FABRIC_SKILL_ID,',
+          '    skillDir: process.env.AGENT_FABRIC_SKILL_DIR,',
+          '    legacyKeys,',
+          '  });',
+          "  process.stdout.write(JSON.stringify({ reply: { type: 'final_markdown', content } }));",
+          '});',
+        ].join('\n'),
+      },
+    });
+
+    const discovered = await discoverSkillCommands({
+      entrypoint: 'im',
+      roots: [workspaceRoot],
+    });
+
+    const reply = await executeDiscoveredSkillCommand({
+      commandName: 'hkipo',
+      discovered,
+      entrypoint: 'im',
+      chatJid: 'feishu:chat-1',
+      argsText: '',
+      args: [],
+      workspace: {
+        jid: 'web:ipo',
+        folder: 'ipo',
+        name: 'IPO Workspace',
+      },
+    });
+
+    expect(JSON.parse(reply)).toMatchObject({
+      command: 'hkipo',
+      skillId: 'stock-analysis-skill',
+      legacyKeys: [],
+    });
+  });
+
   test('prefers a skill-local venv python for bare python executors', async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'skill-cmd-venv-'),

@@ -25,13 +25,16 @@ describe('cache manager', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
   function makeCacheRoot(): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-cache-test-'));
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-cache-test-'),
+    );
     tempDirs.push(dir);
     return dir;
   }
@@ -59,7 +62,7 @@ describe('cache manager', () => {
   });
 
   test('refuses unsafe cleanup roots', () => {
-    const cacheRoot = path.join(os.tmpdir(), 'Caches', 'cli-claw');
+    const cacheRoot = path.join(os.tmpdir(), 'Caches', 'agent-fabric');
     tempDirs.push(cacheRoot);
 
     expect(() =>
@@ -115,6 +118,22 @@ describe('cache manager', () => {
     expect(fs.existsSync(first)).toBe(false);
     expect(fs.existsSync(second)).toBe(false);
     expect(fs.existsSync(third)).toBe(true);
+  });
+
+  test('ignores legacy CLI_CLAW cache env overrides', () => {
+    const cacheRoot = makeCacheRoot();
+    const freshFile = path.join(cacheRoot, 'hkex-docs', 'fresh.pdf');
+    writeFile(freshFile, 'fresh', 9_000);
+    vi.stubEnv('CLI_CLAW_CACHE_TTL_MS', '1');
+    vi.stubEnv('CLI_CLAW_CACHE_MAX_BYTES', '1');
+
+    const result = cleanupCache({
+      cacheRoot,
+      nowMs: 10_000,
+    });
+
+    expect(result.removedFiles).toBe(0);
+    expect(fs.existsSync(freshFile)).toBe(true);
   });
 
   test('runs cleanup immediately and then on interval until stopped', async () => {

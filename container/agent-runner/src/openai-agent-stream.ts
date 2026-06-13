@@ -72,7 +72,7 @@ export function formatOpenAiRuntimeError(errorMessage: string): string {
   const normalized = errorMessage.replace(/\s+/g, ' ').trim();
   if (!normalized) return 'OpenAI runtime failed. Please retry later.';
   if (
-    /Codex CLI login|CLI_CLAW_CODEX_ACCESS_TOKEN|auth_required|login required|not logged in|unauthorized|401/i.test(
+    /Codex CLI login|AGENT_FABRIC_CODEX_ACCESS_TOKEN|auth_required|login required|not logged in|unauthorized|401/i.test(
       normalized,
     )
   ) {
@@ -96,7 +96,7 @@ export function formatOpenAiRuntimeError(errorMessage: string): string {
     return 'OpenAI runtime request referenced non-persisted response state while store is false. Retry this turn; if it repeats, clear the OpenAI runtime session and retry.';
   }
   if (/Store must be set to false/i.test(normalized)) {
-    return 'OpenAI runtime request was rejected by Codex backend because store must be false. Update and restart cli-claw, then retry.';
+    return 'OpenAI runtime request was rejected by Codex backend because store must be false. Update and restart agent-fabric, then retry.';
   }
   if (/model.*not.*found|invalid.*model|does not exist/i.test(normalized)) {
     return `OpenAI model/config is invalid: ${normalized}`;
@@ -106,7 +106,7 @@ export function formatOpenAiRuntimeError(errorMessage: string): string {
       normalized,
     )
   ) {
-    return 'OpenAI runtime request was rejected by Codex backend (400). Check the latest process log for the request id, update and restart cli-claw, then retry.';
+    return 'OpenAI runtime request was rejected by Codex backend (400). Check the latest process log for the request id, update and restart agent-fabric, then retry.';
   }
   return normalized;
 }

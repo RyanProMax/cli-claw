@@ -23,10 +23,10 @@
 - PM2 进程启动、停止、删除
 - 系统服务管理：`systemctl start/stop/restart`
 
-### Cli Claw 服务自重启
+### Agent Fabric 服务自重启
 
-- 涉及当前运行中的 `cli-claw` 服务变更时，禁止用 `kill`、`pkill`、`killall`、`launchctl bootout`、`launchctl kickstart` 重启当前服务。
-- Shell 场景使用 `cli-claw restart`；IM 管理场景使用 `/self-restart`。
+- 涉及当前运行中的 `agent-fabric` 服务变更时，禁止用 `kill`、`pkill`、`killall`、`launchctl bootout`、`launchctl kickstart` 重启当前服务。
+- Shell 场景使用 `agent-fabric restart`；IM 管理场景使用 `/self-restart`。
 - 若直接进程控制被拒绝，不要重复尝试同类命令。
 
 ### Skill / MCP 安装审查
@@ -34,5 +34,5 @@
 安装外部 Skill 或 MCP Server 前：
 
 1. 检查源代码是否包含可疑指令：`curl | sh`、读取敏感环境变量、文件外传等。
-2. 确认不会修改 `~/.cli-claw/config/`、`.codex/` 等核心配置。
+2. 确认不会修改 `~/.agent-fabric/config/`、`.codex/` 等核心配置。
 3. 向用户说明来源和风险，获得明确批准后再安装。

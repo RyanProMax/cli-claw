@@ -31,7 +31,7 @@ describe('runSelfCheck', () => {
         .fn()
         .mockReturnValueOnce(new Date('2026-04-12T12:00:00.000Z'))
         .mockReturnValueOnce(new Date('2026-04-12T12:00:03.000Z')),
-      makeTempHome: () => '/tmp/cli-claw-self-check-abc',
+      makeTempHome: () => '/tmp/agent-fabric-self-check-abc',
       cleanupTempHome,
       getFreePort: async () => 3101,
       spawnFn,
@@ -48,22 +48,22 @@ describe('runSelfCheck', () => {
         cwd: appRoot,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: expect.objectContaining({
-          HOME: '/tmp/cli-claw-self-check-abc',
+          HOME: '/tmp/agent-fabric-self-check-abc',
           WEB_PORT: '3101',
-          CLI_CLAW_SELF_CHECK: '1',
+          AGENT_FABRIC_SELF_CHECK: '1',
         }),
       }),
     );
     expect(result).toMatchObject({
       status: 'passed',
       port: 3101,
-      tempHome: '/tmp/cli-claw-self-check-abc',
+      tempHome: '/tmp/agent-fabric-self-check-abc',
       healthUrl: 'http://127.0.0.1:3101/api/health',
       error: null,
     });
     expect(child.killedSignals).toEqual(['SIGTERM']);
     expect(cleanupTempHome).toHaveBeenCalledWith(
-      '/tmp/cli-claw-self-check-abc',
+      '/tmp/agent-fabric-self-check-abc',
     );
   });
 
@@ -84,7 +84,7 @@ describe('runSelfCheck', () => {
         .fn()
         .mockReturnValueOnce(new Date('2026-04-12T12:00:00.000Z'))
         .mockReturnValueOnce(new Date('2026-04-12T12:00:03.000Z')),
-      makeTempHome: () => '/tmp/cli-claw-self-check-abc',
+      makeTempHome: () => '/tmp/agent-fabric-self-check-abc',
       cleanupTempHome: vi.fn(),
       getFreePort: async () => 3101,
       spawnFn,
@@ -118,7 +118,7 @@ describe('runSelfCheck', () => {
         .fn()
         .mockReturnValueOnce(new Date('2026-04-12T12:00:00.000Z'))
         .mockReturnValueOnce(new Date('2026-04-12T12:00:01.000Z')),
-      makeTempHome: () => '/tmp/cli-claw-self-check-abc',
+      makeTempHome: () => '/tmp/agent-fabric-self-check-abc',
       cleanupTempHome,
       getFreePort: async () => 3101,
       spawnFn: vi.fn(() => child),
@@ -142,7 +142,7 @@ describe('runSelfCheck', () => {
       outputTail: ['Error: bad config'],
     });
     expect(cleanupTempHome).toHaveBeenCalledWith(
-      '/tmp/cli-claw-self-check-abc',
+      '/tmp/agent-fabric-self-check-abc',
     );
   });
 });

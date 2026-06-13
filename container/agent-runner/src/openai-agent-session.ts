@@ -3,7 +3,8 @@ import path from 'node:path';
 import type { AgentInputItem, Session } from '@openai/agents';
 
 const SESSION_ROOT =
-  process.env.CLI_CLAW_RUNTIME_SESSION_DIR || '/workspace/.cli-claw-runtime';
+  process.env.AGENT_FABRIC_RUNTIME_SESSION_DIR ||
+  '/workspace/.agent-fabric-runtime';
 
 function sanitizeSessionId(sessionId: string): string {
   return sessionId.replace(/[^a-zA-Z0-9_.-]/g, '_');

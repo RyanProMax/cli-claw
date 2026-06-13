@@ -175,7 +175,9 @@ describe('StreamingCardController footer caching', () => {
 
   test('uses legacy card delivery without logging CardKit fallback when v1 is unavailable', async () => {
     const { client, createdCards } = createLegacyModeClient();
-    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const infoSpy = vi
+      .spyOn(logger, 'info')
+      .mockImplementation(() => undefined);
     const controller = new StreamingCardController({
       client,
       chatId: 'chat-test',
@@ -1601,7 +1603,7 @@ describe('StreamingCardController footer caching', () => {
 
     controller.appendCommentary('先检查 restart intent');
     controller.startTool('tool-1', 'exec_command');
-    controller.updateToolSummary('tool-1', 'cli-claw restart');
+    controller.updateToolSummary('tool-1', 'agent-fabric restart');
 
     await vi.waitFor(() => {
       expect(createdCards).toHaveLength(1);
@@ -1626,7 +1628,7 @@ describe('StreamingCardController footer caching', () => {
 
     expect(markdownContents).toContain('*已完成*');
     expect(markdownContents).not.toContain('...');
-    expect(JSON.stringify(finalCard)).toContain('cli-claw restart');
+    expect(JSON.stringify(finalCard)).toContain('agent-fabric restart');
     expect(JSON.stringify(finalCard)).not.toContain('💬 过程');
     expect(thinkingPanel).toMatchObject({
       tag: 'collapsible_panel',

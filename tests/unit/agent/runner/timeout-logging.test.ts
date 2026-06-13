@@ -25,7 +25,7 @@ import {
 describe('agent timeout logging', () => {
   test('logs controlled agent process timeouts as info instead of error', () => {
     const logsDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-timeout-log-'),
+      path.join(os.tmpdir(), 'agent-fabric-timeout-log-'),
     );
     let resolved: any = null;
 

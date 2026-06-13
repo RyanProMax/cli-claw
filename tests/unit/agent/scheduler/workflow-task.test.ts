@@ -120,7 +120,7 @@ describe('scheduled workflow task helpers', () => {
         queue: {} as never,
         sendMessage,
         runWorkflowCommand,
-        assistantName: 'cli-claw',
+        assistantName: 'agent-fabric',
       },
       'web:main',
     );
@@ -137,7 +137,7 @@ describe('scheduled workflow task helpers', () => {
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'web:main',
-      'cli-claw: workflow started',
+      'agent-fabric: workflow started',
       { source: 'scheduled_task' },
     );
     expect(updateTaskRunLogMock).toHaveBeenCalledWith(
@@ -178,14 +178,14 @@ describe('scheduled workflow task helpers', () => {
         queue: {} as never,
         sendMessage,
         runWorkflowCommand,
-        assistantName: 'cli-claw',
+        assistantName: 'agent-fabric',
       },
       'web:main',
     );
 
     expect(sendMessage).toHaveBeenCalledWith(
       'web:main',
-      `cli-claw: ${workflowResult}`,
+      `agent-fabric: ${workflowResult}`,
       { source: 'scheduled_task' },
     );
     expect(updateTaskRunLogMock).toHaveBeenCalledWith(
@@ -222,7 +222,7 @@ describe('scheduled workflow task helpers', () => {
         queue: {} as never,
         sendMessage: vi.fn(),
         runWorkflowCommand,
-        assistantName: 'cli-claw',
+        assistantName: 'agent-fabric',
       },
       'web:main',
       true,
@@ -243,5 +243,4 @@ describe('scheduled workflow task helpers', () => {
       'Error: workflow id is empty',
     );
   });
-
 });

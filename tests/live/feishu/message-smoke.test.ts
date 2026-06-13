@@ -168,7 +168,7 @@ describe('live Feishu smoke', () => {
         appType: lark.AppType.SelfBuild,
       });
 
-      const nonce = `cli-claw-live-${Date.now()}-${Math.random()
+      const nonce = `agent-fabric-live-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2, 8)}`;
       const text = `[e2e] ${nonce}`;

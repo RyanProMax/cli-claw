@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 describe('workflow checkpointer runtime compatibility', () => {
   test('runs a checkpointed graph under Bun without loading better-sqlite3', () => {
     const tempHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-bun-checkpoint-'),
+      path.join(os.tmpdir(), 'agent-fabric-bun-checkpoint-'),
     );
     const output = execFileSync(
       'bun',
@@ -37,7 +37,12 @@ describe('workflow checkpointer runtime compatibility', () => {
     expect(output).toContain('workflow-checkpointer-ok');
     expect(
       fs.existsSync(
-        path.join(tempHome, '.cli-claw', 'db', 'workflow-checkpoints.sqlite'),
+        path.join(
+          tempHome,
+          '.agent-fabric',
+          'db',
+          'workflow-checkpoints.sqlite',
+        ),
       ),
     ).toBe(true);
   });

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 const tempHomes: string[] = [];
 
 function createTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-runtime-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fabric-runtime-'));
   tempHomes.push(dir);
   return dir;
 }
@@ -26,7 +26,8 @@ describe('runtime config storage', () => {
     vi.stubEnv('OPENAI_REASONING_EFFORT', 'xhigh');
     vi.stubEnv('OPENAI_SERVICE_TIER', 'fast');
 
-    const runtimeConfig = await import('../../../../src/core/runtime/config.js');
+    const runtimeConfig =
+      await import('../../../../src/core/runtime/config.js');
 
     expect(runtimeConfig.getOpenAiRuntimeDefaults()).toEqual({
       model: 'gpt-5.4-mini',
@@ -38,14 +39,15 @@ describe('runtime config storage', () => {
   test('normalizes Codex backend priority service tier to OpenAI fast speed', async () => {
     vi.stubEnv('OPENAI_SERVICE_TIER', 'priority');
 
-    const runtimeConfig = await import('../../../../src/core/runtime/config.js');
+    const runtimeConfig =
+      await import('../../../../src/core/runtime/config.js');
 
     expect(runtimeConfig.getOpenAiRuntimeDefaults().speedTier).toBe('fast');
   });
 
   test('does not expose legacy provider pool APIs', async () => {
     const home = createTempHome();
-    const configDir = path.join(home, '.cli-claw', 'config');
+    const configDir = path.join(home, '.agent-fabric', 'config');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(
       path.join(configDir, 'claude-provider.json'),
@@ -66,7 +68,8 @@ describe('runtime config storage', () => {
 
     vi.stubEnv('HOME', home);
 
-    const runtimeConfig = await import('../../../../src/core/runtime/config.js');
+    const runtimeConfig =
+      await import('../../../../src/core/runtime/config.js');
 
     expect('getProviders' in runtimeConfig).toBe(false);
     expect('getBalancingConfig' in runtimeConfig).toBe(false);
@@ -77,7 +80,8 @@ describe('runtime config storage', () => {
     const home = createTempHome();
     vi.stubEnv('HOME', home);
 
-    const runtimeConfig = await import('../../../../src/core/runtime/config.js');
+    const runtimeConfig =
+      await import('../../../../src/core/runtime/config.js');
     const saved = runtimeConfig.saveFeishuProviderConfig({
       appId: 'cli_old_user_app',
       appSecret: 'old-user-secret',
@@ -85,7 +89,7 @@ describe('runtime config storage', () => {
     });
     expect(saved.appId).toBe('cli_old_user_app');
 
-    const configDir = path.join(home, '.cli-claw', 'config');
+    const configDir = path.join(home, '.agent-fabric', 'config');
     const instancePath = path.join(configDir, 'feishu-provider.json');
     const userScopedPath = path.join(
       configDir,
@@ -96,7 +100,8 @@ describe('runtime config storage', () => {
     fs.mkdirSync(path.dirname(userScopedPath), { recursive: true });
     fs.renameSync(instancePath, userScopedPath);
 
-    const { config, source } = runtimeConfig.getFeishuProviderConfigWithSource();
+    const { config, source } =
+      runtimeConfig.getFeishuProviderConfigWithSource();
 
     expect(source).toBe('runtime');
     expect(config.appId).toBe('cli_old_user_app');
@@ -110,7 +115,8 @@ describe('runtime config storage', () => {
     const home = createTempHome();
     vi.stubEnv('HOME', home);
 
-    const runtimeConfig = await import('../../../../src/core/runtime/config.js');
+    const runtimeConfig =
+      await import('../../../../src/core/runtime/config.js');
     const saved = runtimeConfig.saveWeChatProviderConfig({
       botToken: 'old-user-token',
       ilinkBotId: 'bot@im.bot',
@@ -119,7 +125,7 @@ describe('runtime config storage', () => {
     });
     expect(saved.ilinkBotId).toBe('bot@im.bot');
 
-    const configDir = path.join(home, '.cli-claw', 'config');
+    const configDir = path.join(home, '.agent-fabric', 'config');
     const instancePath = path.join(configDir, 'wechat-provider.json');
     const userScopedPath = path.join(
       configDir,

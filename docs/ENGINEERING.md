@@ -42,7 +42,7 @@
 ## 提交约定
 
 - 除非用户明确要求不要提交，完成任务时默认在验证通过并完成 review gate 后自动提交。
-- 若任务改动影响正在运行的 Cli Claw 服务，提交后默认走安全服务重启路径应用变更；使用 `cli-claw restart` 或 IM `/self-restart`，不要直接执行 `kill` / `pkill` / `launchctl bootout` 之类的停机命令。
+- 若任务改动影响正在运行的 Agent Fabric 服务，提交后默认走安全服务重启路径应用变更；使用 `agent-fabric restart` 或 IM `/self-restart`，不要直接执行 `kill` / `pkill` / `launchctl bootout` 之类的停机命令。
 - commit message 使用英文。
 - 一次 commit 聚焦一个任务，避免把无关清理混进去。
 - 若任务涉及文档入口、架构边界或运行时记忆，commit 前确认 `AGENTS.md` / `docs/` 已同步。

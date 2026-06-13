@@ -129,7 +129,7 @@ vi.mock('../../../src/messaging/manager.js', () => ({
 }));
 
 function createTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-recovery-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fabric-recovery-'));
   tempHomes.push(dir);
   return dir;
 }
@@ -286,8 +286,8 @@ describe('restart recovery cursor handling', () => {
     storeMessageDirect(
       'skill-final',
       chatJid,
-      'cli-claw-agent',
-      'cli-claw',
+      'agent-fabric-agent',
+      'agent-fabric',
       'old stock-analysis answer',
       '2026-04-29T15:14:12.617Z',
       true,
@@ -305,8 +305,8 @@ describe('restart recovery cursor handling', () => {
     storeMessageDirect(
       'normal-final',
       chatJid,
-      'cli-claw-agent',
-      'cli-claw',
+      'agent-fabric-agent',
+      'agent-fabric',
       'ordinary answer emitted from polluted session',
       '2026-04-29T15:37:57.193Z',
       true,
@@ -377,8 +377,8 @@ describe('restart recovery cursor handling', () => {
     storeMessageDirect(
       'skill-final',
       chatJid,
-      'cli-claw-agent',
-      'cli-claw',
+      'agent-fabric-agent',
+      'agent-fabric',
       'old stock-analysis answer',
       '2026-04-29T15:14:12.617Z',
       true,
@@ -1078,7 +1078,7 @@ describe('restart recovery cursor handling', () => {
 
     expect(
       isRecoverableRestartPendingMessage({
-        sender: 'cli-claw-agent',
+        sender: 'agent-fabric-agent',
         source_kind: 'interrupt_partial',
         is_from_me: true,
       }),
@@ -1126,7 +1126,7 @@ describe('restart recovery cursor handling', () => {
       },
       {
         id: 'assistant-final',
-        sender: 'cli-claw-agent',
+        sender: 'agent-fabric-agent',
         source_kind: 'sdk_final' as const,
         is_from_me: true,
       },
@@ -1156,8 +1156,8 @@ describe('restart recovery cursor handling', () => {
       {
         id: 'old-interrupt',
         chat_jid: 'feishu:chat-1',
-        sender: 'cli-claw-agent',
-        sender_name: 'Cli Claw',
+        sender: 'agent-fabric-agent',
+        sender_name: 'Agent Fabric',
         content: '旧任务执行过程',
         timestamp: '2026-04-26T10:01:00.000Z',
         source_kind: 'interrupt_partial' as const,
@@ -1228,8 +1228,8 @@ describe('restart recovery cursor handling', () => {
     db.storeMessageDirect(
       'old-interrupt',
       'web:main',
-      'cli-claw-agent',
-      'Cli Claw',
+      'agent-fabric-agent',
+      'Agent Fabric',
       '旧任务中断过程文本',
       '2026-04-28T08:02:00.000Z',
       true,
@@ -1303,7 +1303,7 @@ describe('restart recovery cursor handling', () => {
   });
 
   test('startup recovery replays accepted but uncommitted IPC messages without old interrupted context', async () => {
-    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    vi.stubEnv('AGENT_FABRIC_SELF_CHECK', '1');
     const {
       loadRouterStateForTests,
       recoverPendingMessagesForTests,
@@ -1333,8 +1333,8 @@ describe('restart recovery cursor handling', () => {
     db.storeMessageDirect(
       'old-interrupt',
       'web:main',
-      'cli-claw-agent',
-      'Cli Claw',
+      'agent-fabric-agent',
+      'Agent Fabric',
       '上一轮中断正文',
       '2026-04-28T09:01:00.000Z',
       true,
@@ -1391,7 +1391,7 @@ describe('restart recovery cursor handling', () => {
   });
 
   test('startup recovery discards stale streaming buffer before first Feishu-origin turn', async () => {
-    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    vi.stubEnv('AGENT_FABRIC_SELF_CHECK', '1');
     const {
       encodeJidForFilename,
       loadRouterStateForTests,
@@ -1549,7 +1549,7 @@ describe('restart recovery cursor handling', () => {
   });
 
   test('startup recovery does not duplicate direct Feishu final replies when streaming card completes', async () => {
-    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    vi.stubEnv('AGENT_FABRIC_SELF_CHECK', '1');
     const {
       loadRouterStateForTests,
       processGroupMessages,
@@ -1631,7 +1631,7 @@ describe('restart recovery cursor handling', () => {
   });
 
   test('startup recovery sends a static IM fallback when Feishu streaming card completion fails', async () => {
-    vi.stubEnv('CLI_CLAW_SELF_CHECK', '1');
+    vi.stubEnv('AGENT_FABRIC_SELF_CHECK', '1');
     const {
       loadRouterStateForTests,
       processGroupMessages,
@@ -1756,8 +1756,8 @@ describe('restart recovery cursor handling', () => {
     db.storeMessageDirect(
       'old-interrupt',
       'web:main',
-      'cli-claw-agent',
-      'Cli Claw',
+      'agent-fabric-agent',
+      'Agent Fabric',
       '旧任务中断过程文本',
       '2026-04-28T08:01:00.000Z',
       true,
@@ -1831,8 +1831,8 @@ describe('restart recovery cursor handling', () => {
         {
           id: 'old-interrupt',
           chat_jid: 'feishu:chat-1',
-          sender: 'cli-claw-agent',
-          sender_name: 'Cli Claw',
+          sender: 'agent-fabric-agent',
+          sender_name: 'Agent Fabric',
           content: '旧任务中断过程文本',
           timestamp: '2026-04-26T10:01:00.000Z',
           source_kind: 'interrupt_partial',

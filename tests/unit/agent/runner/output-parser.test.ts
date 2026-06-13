@@ -47,7 +47,7 @@ describe('formatUserFacingRuntimeError', () => {
     const formatted = formatUserFacingRuntimeError(stderr);
 
     expect(formatted).toBe(
-      'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新进程日志中的 request id，更新并重启 cli-claw 后重试。',
+      'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新进程日志中的 request id，更新并重启 agent-fabric 后重试。',
     );
     expect(formatted).not.toContain('"headers"');
     expect(formatted).not.toContain('"requestID"');
@@ -102,7 +102,7 @@ describe('formatUserFacingRuntimeError', () => {
     });
   });
 
-  test('legacy parsing resolves the final non-stream marker instead of the first stream marker', () => {
+  test('non-streaming parsing resolves the final non-stream marker instead of the first stream marker', () => {
     const stdoutState = createStdoutParserState();
     stdoutState.stdout = [
       OUTPUT_START_MARKER,
@@ -150,5 +150,48 @@ describe('formatUserFacingRuntimeError', () => {
       result: 'workflow node final result',
       finalizationReason: 'completed',
     });
+  });
+
+  test('does not parse legacy CLI_CLAW output markers', () => {
+    const stdoutState = createStdoutParserState();
+    stdoutState.stdout = [
+      '---CLI_CLAW_OUTPUT_START---',
+      JSON.stringify({
+        status: 'success',
+        result: 'legacy result',
+        finalizationReason: 'completed',
+      }),
+      '---CLI_CLAW_OUTPUT_END---',
+    ].join('\n');
+    let resolved: any = null;
+
+    handleSuccessClose(
+      {
+        groupName: 'main',
+        label: 'Agent Process',
+        filePrefix: 'agent',
+        identifier: '123',
+        logsDir: '/tmp',
+        input: {
+          prompt: 'hello',
+          isHome: true,
+          isAdminHome: true,
+        },
+        stdoutState,
+        stderrState: createStderrState(),
+        resolvePromise: (output) => {
+          resolved = output;
+        },
+        startTime: Date.now(),
+        timeoutMs: 30_000,
+      },
+      50,
+    );
+
+    expect(resolved).toMatchObject({
+      status: 'error',
+      result: null,
+    });
+    expect(resolved.error).toContain('Failed to parse agent output');
   });
 });

@@ -26,14 +26,14 @@
 不要因为当前 shell 没有 `FEISHU_*` 环境变量就直接判定“没有凭据”。先做只读发现，不打印 secret：
 
 ```bash
-sqlite3 ~/.cli-claw/db/messages.db \
+sqlite3 ~/.agent-fabric/db/messages.db \
   "SELECT jid, name, folder, created_by, added_at FROM registered_groups WHERE jid LIKE 'feishu:%' ORDER BY added_at DESC LIMIT 20;"
 ```
 
 如果查到 `feishu:oc_...`：
 
 - `FEISHU_LIVE_CHAT_ID` 使用去掉 `feishu:` 前缀后的 `oc_...`。
-- 飞书配置路径是 `~/.cli-claw/config/feishu-provider.json`。
+- 飞书配置路径是 `~/.agent-fabric/config/feishu-provider.json`。
 
 只允许检查是否存在、是否 enabled、是否有 encrypted secret、以及 appId 的短前缀。不要在日志、总结或测试输出里打印 `appSecret` 或解密后的 secret。
 

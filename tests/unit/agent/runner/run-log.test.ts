@@ -12,7 +12,9 @@ import {
 
 describe('writeRunLog', () => {
   test('includes agent identity and build metadata in summary', () => {
-    const logsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-run-log-'));
+    const logsDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-run-log-'),
+    );
     const stdoutState = createStdoutParserState();
     const stderrState = createStderrState();
     stderrState.stderr = '[agent-runner] sample stderr';

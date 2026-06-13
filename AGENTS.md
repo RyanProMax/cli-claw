@@ -1,8 +1,8 @@
-# Cli Claw
+# Agent Fabric
 
 > 本文负责：仓库入口、必读顺序、复杂任务执行底线、执行协议入口和文档分工入口。模块树只在 `docs/MODULE.md` 维护；架构、运行时、记忆机制、命令说明分别由 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/MEMORY.md`、`docs/COMMAND.md` 维护。
 
-Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消息接入、权限、调度、存储与 Web API；前端负责 Web / PWA 体验；`container/agent-runner/` 负责实际 Agent 执行、工具调用与流式事件。当前文档口径只维护 Codex / OpenAI 运行时。
+Agent Fabric 是一个多用户、自托管的 Agent workflow 编排基架。主服务负责消息接入、权限、调度、存储与 Web API；前端负责 Web / PWA 体验；`container/agent-runner/` 负责实际 Agent 执行、工具调用与流式事件。当前文档口径只维护 Codex / OpenAI 运行时。
 
 ## 必读顺序
 
@@ -67,7 +67,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 ## Repository Skills
 
 - 仓库内联 skill 统一放在 `.agents/skills/<skill-id>/SKILL.md`。
-- skill 命令只从当前 workspace 的 `.agents/skills` 发现；不要新增用户级 cli-claw skills、host sync 或 legacy fallback 的文档、测试或代码覆盖。
+- skill 命令只从当前 workspace 的 `.agents/skills` 发现；不要新增用户级 agent-fabric skills、host sync 或 legacy fallback 的文档、测试或代码覆盖。
 - `.agents/skills` 用于随仓库协作协议一起版本化的轻量命令 skill；Web UI 不再提供用户 Skill 管理、同步、安装、启停或删除入口。
 - skill command 的 `/help` 展示格式固定为 `- /command [argumentHint]：description`，没有参数时省略参数占位。
 - `commands.json` 的 `description` 只写命令用途，不写参数、默认值或支持选项；参数和默认值只允许放在 `argumentHint`、`argument_hint` 或 `usage`。
@@ -79,7 +79,7 @@ Cli Claw 是一个多用户、自托管的 CLI Agent 平台。主服务负责消
 - 至少运行与改动直接相关的测试；涉及构建、类型或跨子项目改动时，补跑对应 `build` / `typecheck`。
 - 未验证部分必须在收尾说明中明确指出。
 - 除非用户明确要求不要提交，任务完成后默认在 validation 和 review 都通过后自动提交。
-- 若任务改动会影响正在运行的 Cli Claw 服务，收尾时默认按 `docs/COMMAND.md` 约定走安全重启路径应用变更，不直接使用 `kill` / `pkill` / `launchctl bootout`。
+- 若任务改动会影响正在运行的 Agent Fabric 服务，收尾时默认按 `docs/COMMAND.md` 约定走安全重启路径应用变更，不直接使用 `kill` / `pkill` / `launchctl bootout`。
 - commit message 使用英文，一次 commit 聚焦一个任务。
 
 ## 文档同步触发

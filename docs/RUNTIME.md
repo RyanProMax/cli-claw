@@ -4,31 +4,31 @@
 
 ## 概览
 
-Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责实例访问、消息路由、队列和持久化；真正的 Agent 会话由本地 Agent 进程执行。当前物理包路径仍是 `container/agent-runner/`，但它只是 runner package 路径，不代表另一条执行边界。
+Agent Fabric 不把某一个 SDK 写死在主进程里。主进程负责实例访问、消息路由、队列和持久化；真正的 Agent 会话由本地 Agent 进程执行。当前物理包路径仍是 `container/agent-runner/`，但它只是 runner package 路径，不代表另一条执行边界。
 
-服务进程本身由外部 launcher `cli-claw start` 启动；源码仓库与同名 `cli-claw` 发布包复用同一个 launcher 入口，负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。源码仓库的 `bun start` / `npm start` 会委托到 `bun src/cli.ts start`，因此仍属于 launcher 入口；`bun src/index.ts` 只用于 direct backend 调试。
+服务进程本身由外部 launcher `agent-fabric start` 启动；源码仓库与同名 `agent-fabric` 发布包复用同一个 launcher 入口，负责参数分发，backend bootstrap 在 `src/index.ts` 中单独导出。源码仓库的 `bun start` / `npm start` 会委托到 `bun src/cli.ts start`，因此仍属于 launcher 入口；`bun src/index.ts` 只用于 direct backend 调试。
 
 ## 服务自检与 Shadow Start
 
-`/self-status`、`/self-check` 和 `/self-restart` 用于通过正在运行的 Cli Claw 检查仓库自身迭代风险：
+`/self-status`、`/self-check` 和 `/self-restart` 用于通过正在运行的 Agent Fabric 检查仓库自身迭代风险：
 
 - `/self-status` 输出当前 backend PID、启动时间、cwd、已加载 build 与磁盘 build 是否一致，以及最近一次 `/self-check` 结果。若当前 backend 由 TypeScript source launcher 启动，build 摘要会明确标注源码运行，dist build 只作为打包参考；agent-runner build stale 仍会保留为需要处理的运行风险。
 - `/self-status` 还会输出当前进程解析出的 self-restart launch spec：是否可安全自重启、launch source，以及 watchdog/launchd 将复用的精确启动命令。
 - `/self-check` 复用 backend 启动时捕获的 authoritative launch spec 启动候选 backend，并用临时 `WEB_PORT` 轮询候选服务的 `/api/health`；结果会展示实际候选命令，便于确认自检目标与当前服务启动入口一致。
-- 候选进程会使用隔离 `HOME`，因此数据目录落在临时 `~/.cli-claw`，不会写入生产 `~/.cli-claw`。
-- 候选进程会带上 `CLI_CLAW_SELF_CHECK=1`；backend 在该模式下启动 Web/API、DB 和队列基础能力，但跳过 CLI launch cwd 校验、workspace 默认 cwd 物化和 IM channel 连接，避免临时 HOME 的 allowlist 影响自检，也避免和线上飞书/微信连接抢占。
+- 候选进程会使用隔离 `HOME`，因此数据目录落在临时 `~/.agent-fabric`，不会写入生产 `~/.agent-fabric`。
+- 候选进程会带上 `AGENT_FABRIC_SELF_CHECK=1`；backend 在该模式下启动 Web/API、DB 和队列基础能力，但跳过 CLI launch cwd 校验、workspace 默认 cwd 物化和 IM channel 连接，避免临时 HOME 的 allowlist 影响自检，也避免和线上飞书/微信连接抢占。
 - `/self-check` 只验证“当前 build 能否冷启动并健康”，不会停止当前服务，也不会切换端口或执行真实重启。
-- `/self-restart` 不在 backend 进程内重启自身；它写入 `~/.cli-claw/ops/restarts/*.json` intent，并启动独立 watchdog 进程。watchdog 先执行 shadow self-check；失败时不停止当前服务；通过后才停止旧 PID、按同一启动命令启动新进程，并轮询生产端口 `/api/health`。
-- `/self-restart` 使用一份在 backend 启动时捕获并校验过的 authoritative launch spec；若当前进程无法解析出安全的启动命令（例如 argv 缺失 entrypoint、只剩 `bun` 空参数、或明显不是 Cli Claw 入口），命令会直接拒绝受理，而不是写出一个注定重启失败的 intent。
-- backend 启动时还会把当前 PID、端口、validated launch spec，以及可选的 `launchd` service name 持久化到 `~/.cli-claw/ops/current-backend.json`；外部 `cli-claw restart` 会复用这份状态发起同一条 safe self-restart，而不是从调用方自己的 argv 反推启动命令。
+- `/self-restart` 不在 backend 进程内重启自身；它写入 `~/.agent-fabric/ops/restarts/*.json` intent，并启动独立 watchdog 进程。watchdog 先执行 shadow self-check；失败时不停止当前服务；通过后才停止旧 PID、按同一启动命令启动新进程，并轮询生产端口 `/api/health`。
+- `/self-restart` 使用一份在 backend 启动时捕获并校验过的 authoritative launch spec；若当前进程无法解析出安全的启动命令（例如 argv 缺失 entrypoint、只剩 `bun` 空参数、或明显不是 Agent Fabric 入口），命令会直接拒绝受理，而不是写出一个注定重启失败的 intent。
+- backend 启动时还会把当前 PID、端口、validated launch spec，以及可选的 `launchd` service name 持久化到 `~/.agent-fabric/ops/current-backend.json`；外部 `agent-fabric restart` 会复用这份状态发起同一条 safe self-restart，而不是从调用方自己的 argv 反推启动命令。
 - 成功的 `/self-restart` intent 会记录发起它的 IM 会话；新进程启动并重新连上 IM 后，会向该会话补发一条“自重启成功”消息，附带当前服务状态与一次 best-effort 残留进程检查结果。
 - 若重启期间还有未完成的 direct IM 消息需要恢复处理，恢复回合仍优先使用 Feishu streaming card 承载终态；只有没有 streaming card 成功完成时，才允许补发静态 IM 兜底，避免终态只落库/Web，同时避免同一回复重复发送。
 - 若残留检查发现真正的孤儿 runner（`agent-runner` 链条已脱离 backend，表现为 `ppid = 1` 或父 PID 不存在），新进程会 best-effort 发送 `SIGTERM` 清理；正常挂在当前 backend 下的 runner 链不会被触碰。
-- 若当前服务由 repo 提供的 LaunchAgent 启动，并带有 `CLI_CLAW_LAUNCHD_SERVICE_NAME`，watchdog 在 preflight 通过后不会再手工 `spawn` 一个脱离 supervisor 的 replacement，而是执行 `launchctl kickstart -k <service>`，让 `launchd` 保持拥有者身份并继续负责后续兜底重拉。
+- 若当前服务由 repo 提供的 LaunchAgent 启动，并带有 `AGENT_FABRIC_LAUNCHD_SERVICE_NAME`，watchdog 在 preflight 通过后不会再手工 `spawn` 一个脱离 supervisor 的 replacement，而是执行 `launchctl kickstart -k <service>`，让 `launchd` 保持拥有者身份并继续负责后续兜底重拉。
 
 `/self-restart` 不是 blue-green 或 rollback 机制。它能避免“preflight 失败还杀旧进程”的 badcase，但不能保证源码/二进制级回滚；更强的生产发布仍应使用 release 目录、symlink 或系统级 supervisor。
 
-对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 默认使用 `cli-claw start`，也可以通过 `-- COMMAND [ARGS...]` 显式复用 `/self-status` 暴露的 validated launch command；不要另起一套不同的启动脚本。安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` 这类本机 runtime 依赖，同时注入 `CLI_CLAW_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
+对于本机长期运行，推荐再叠一层用户级 supervisor：仓库提供 `ops/install-launch-agent.sh` 来安装/查看/卸载一个 `launchd` LaunchAgent。该 LaunchAgent 默认使用 `agent-fabric start`，也可以通过 `-- COMMAND [ARGS...]` 显式复用 `/self-status` 暴露的 validated launch command；不要另起一套不同的启动脚本。安装脚本会把当前 shell 的 PATH 连同常见 Homebrew / Bun bin 目录一起写入 plist，避免 launchd 默认 PATH 丢失 `node` / `npx` 这类本机 runtime 依赖，同时注入 `AGENT_FABRIC_LAUNCHD_SERVICE_NAME` 供 watchdog 在自重启时回到 `launchd` 管理。
 
 ## 运行时矩阵
 
@@ -45,23 +45,24 @@ Cli Claw 不把某一个 SDK 写死在主进程里。主进程负责实例访问
   - `model`
   - `reasoningEffort`
   - `speedTier`
-- 主工作区默认使用 `cli-claw start` 的启动目录作为 `customCwd`；其他工作区默认使用 `~/.cli-claw/groups/{folder}`，除非显式设置 `customCwd`。
-- `cli-claw start` 会先校验启动目录是否满足 workspace allowlist，再把该目录物化到缺失 `customCwd` 的主工作区。
+- 主工作区默认使用 `agent-fabric start` 的启动目录作为 `customCwd`；其他工作区默认使用数据根下的 `groups/{folder}`，除非显式设置 `customCwd`。
+- `agent-fabric start` 会先校验启动目录是否满足 workspace allowlist，再把该目录物化到缺失 `customCwd` 的主工作区。
+- 数据根默认是 `~/.agent-fabric`，可用 `AGENT_FABRIC_HOME` 覆盖。Agent Fabric 不自动发现或沿用历史旧目录；所有运行时配置入口统一使用 `AGENT_FABRIC_*`。
 
 ## 缓存目录与清理
 
-Cli Claw 的可重建下载物统一落在 `~/.cli-claw/cache/<namespace>`。这个目录只用于缓存、临时下载、可重新从来源拉取的网页/PDF/附件副本；不得把数据库、workflow checkpoint、runtime session、用户上传的唯一文件或不可重建状态放进 cache。
+Agent Fabric 的可重建下载物统一落在 `~/.agent-fabric/cache/<namespace>`。这个目录只用于缓存、临时下载、可重新从来源拉取的网页/PDF/附件副本；不得把数据库、workflow checkpoint、runtime session、用户上传的唯一文件或不可重建状态放进 cache。
 
 缓存 namespace 只能使用字母、数字、`.`、`_`、`-`，不允许路径分隔符或 `..`。代码应通过 `src/core/cache.ts` 的 helper 解析目录，避免各模块自己拼路径。
 
-服务启动时会启动统一 cache cleanup loop，并立即清理一次；之后按 `CLI_CLAW_CACHE_CLEANUP_INTERVAL_MS` 定时清理。默认策略：
+服务启动时会启动统一 cache cleanup loop，并立即清理一次；之后按 `AGENT_FABRIC_CACHE_CLEANUP_INTERVAL_MS` 定时清理。默认策略：
 
-- cache root：`~/.cli-claw/cache`，可用 `CLI_CLAW_CACHE_DIR` 覆盖。
-- TTL：7 天，可用 `CLI_CLAW_CACHE_TTL_MS` 覆盖。
-- 最大容量：2GB，可用 `CLI_CLAW_CACHE_MAX_BYTES` 覆盖。
+- cache root：`~/.agent-fabric/cache`，可用 `AGENT_FABRIC_CACHE_DIR` 覆盖。
+- TTL：7 天，可用 `AGENT_FABRIC_CACHE_TTL_MS` 覆盖。
+- 最大容量：2GB，可用 `AGENT_FABRIC_CACHE_MAX_BYTES` 覆盖。
 - 清理顺序：先删除超过 TTL 的文件，再按 mtime 从旧到新删除，直到总大小低于容量上限；最后移除空目录。
 
-为避免误删，cleanup root 本身也有安全约束：不能是文件系统根目录，路径中必须有一级目录名包含 `cache` / `Caches`。若需要自定义路径，使用类似 `/var/lib/cli-claw/cache`、`~/Library/Caches/cli-claw` 或 `/tmp/cli-claw-cache` 的目录名。workflow / local task 的审计 artifact 只能保存 URL、hash、source time、短 evidence snippet 和结构化字段；不能依赖 cache 文件永久存在，也不能把大文件正文塞进 workflow state。后续 HKEX PDF、网页快照等下载解析应优先使用该 cache 机制；不可复用的单次中间文件使用 `withCacheTempDir`，让任务结束或异常时立即清理临时目录。
+为避免误删，cleanup root 本身也有安全约束：不能是文件系统根目录，路径中必须有一级目录名包含 `cache` / `Caches`。若需要自定义路径，使用类似 `/var/lib/agent-fabric/cache`、`~/Library/Caches/agent-fabric` 或 `/tmp/agent-fabric-cache` 的目录名。workflow / local task 的审计 artifact 只能保存 URL、hash、source time、短 evidence snippet 和结构化字段；不能依赖 cache 文件永久存在，也不能把大文件正文塞进 workflow state。后续 HKEX PDF、网页快照等下载解析应优先使用该 cache 机制；不可复用的单次中间文件使用 `withCacheTempDir`，让任务结束或异常时立即清理临时目录。
 
 ## 工作区级模型配置优先级
 
@@ -91,13 +92,13 @@ Cli Claw 的可重建下载物统一落在 `~/.cli-claw/cache/<namespace>`。这
 
 1. 工作区自身显式设置的 `customCwd`
 2. 同 folder 的 sibling home workspace 的 `customCwd`
-3. 不再依赖隐式内存 fallback；缺失值应在 `cli-claw start` 阶段被物化
+3. 不再依赖隐式内存 fallback；缺失值应在 `agent-fabric start` 阶段被物化
 
 该 cwd 必须是绝对路径、已存在目录，并在配置了 mount allowlist 时落在允许根目录内。
 
 这个 contract 会被本地 Agent 进程、文件 API、workflow local task 和任务线程共同使用。
 
-`customCwd` 只影响执行目录和文件访问根目录，不改变工作区 ownership，也不改变数据库或 session 在 `~/.cli-claw` 下按 `folder` 归属的持久化位置。
+`customCwd` 只影响执行目录和文件访问根目录，不改变工作区 ownership，也不改变数据库或 session 在 `~/.agent-fabric` 下按 `folder` 归属的持久化位置。
 
 ## 运行时身份
 
@@ -124,7 +125,7 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 外层 channel、工作区线程、底层 runtime session 和 runner 不是同一个概念：
 
 - 外层 channel 是消息入口，例如 Web、飞书或微信。
-- 工作区线程是 Cli Claw 的内部上下文身份，分为主线线程、任务线程和 workflow 线程。
+- 工作区线程是 Agent Fabric 的内部上下文身份，分为主线线程、任务线程和 workflow 线程。
 - Runtime session 是 Codex / OpenAI 自己的会话 ID，持久化在 `sessions` 表。主线线程使用 `(folder, 空 agent_id)`；任务线程使用自己的 runtime slot；workflow 线程使用 `workflow:<workflowContextId>`。
 - Runner 是正在处理消息的底层 CLI 进程，只在执行期间存在，并可能在 idle timeout 后退出。
 
@@ -152,8 +153,8 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 - `thinking` 必须和 tool `steps` 一样使用原生折叠面板展示；即使 runtime 只发出空 `thinking_delta`，也不能退化成顶部普通 markdown 行混入状态/正文区域。
 - 同来源新用户输入开始时会重置当前卡片展示态；`turnId` 变化或 `messageCursor.id` 变化也会清空上轮 presentation buffer、thinking 和中断状态，避免旧工具 steps 出现在新消息卡片上。
 - 主进程会丢弃 `messageCursor.id` 不属于当前待处理用户消息的 stale stream events；这是路由保护，不是上下文或 replay 判断。历史执行事件必须在 runner 源头消失，不能依赖飞书卡片层过滤。
-- 启动恢复遇到 `~/.cli-claw/streaming-buffer` 或 `active_streaming_turns` 里的中断卡片态时，只清理这些临时态；不恢复旧卡片正文、不生成 `interrupt_partial` assistant 消息、不提交该 turn 游标。
-- OpenAI Responses 输出的正式 `phase` 字段必须保留到渲染层：`phase: "commentary"` 进入 `commentaryText` / `Thinking`，`phase: "final_answer"` 进入当前 `answerText` / Web `partialText`。`StreamEvent.assistantMessagePhase` 只是 Cli Claw 在统一流式协议里的传输别名，取值只允许 `commentary` 或 `final_answer`，不得新增值、重命名语义、按中英文前缀推断或在 Feishu/Web 层二次加工。
+- 启动恢复遇到 `~/.agent-fabric/streaming-buffer` 或 `active_streaming_turns` 里的中断卡片态时，只清理这些临时态；不恢复旧卡片正文、不生成 `interrupt_partial` assistant 消息、不提交该 turn 游标。
+- OpenAI Responses 输出的正式 `phase` 字段必须保留到渲染层：`phase: "commentary"` 进入 `commentaryText` / `Thinking`，`phase: "final_answer"` 进入当前 `answerText` / Web `partialText`。`StreamEvent.assistantMessagePhase` 只是 Agent Fabric 在统一流式协议里的传输别名，取值只允许 `commentary` 或 `final_answer`，不得新增值、重命名语义、按中英文前缀推断或在 Feishu/Web 层二次加工。
 - OpenAI runner 必须从 Responses `response.output_item.added` / `response.output_item.done` 中记录 assistant message `item.id` 与 `phase`，再把后续 `response.output_text.delta` 映射为带 `messageUuid` 与 `assistantMessagePhase` 的 `text_delta`。如果某个 OpenAI `text_delta` 缺失 phase，Feishu/Web 不累计也不展示它，只等待 terminal raw/final output；这是 replay 防护，避免历史 presentation 文本污染当前卡片。
 - Feishu/Web 渲染层必须把 `thinkingText` 与 `commentaryText` 合并为同一个 `Thinking` 辅助区，不再渲染单独“过程”折叠栏。terminal raw/final output 仍经过可见性边界：若 raw/final 与 streaming `commentaryText` 完全相同，完成态保留到 `Thinking`，正文为空；若 raw/final 含强结构化最终正文边界（例如 `**/research｜...**` 或 `**港股 IPO 池｜...**`），允许作为兼容兜底把标题前内容剥离到 `Thinking`，并从该标题开始发送正文。
 - 后续可优化方向必须保持同一语义边界：优先使用 OpenAI Responses 原生 `phase` 与 `item.id`；禁止让 Feishu/Web 直接读取底层 session 文件、把 `assistantMessagePhase` 当成新分类体系扩展、或恢复任何文本前缀/关键词分类。
@@ -181,25 +182,29 @@ backend 在启动 runner 前会把 effective runtime identity 中的 `model`、`
 
 ## 外部运行时契约
 
-Cli Claw 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自原生状态：
+Agent Fabric 不维护项目内部长期记忆；外部 CLI runtime 仍保留各自原生状态：
 
 - `~/.codex/auth.json`
   - OpenAI Runtime 的 Codex CLI 登录态来源；backend 优先通过 `codex app-server` 获取/刷新 access token，仅在 app-server 不可用且 access token 仍有效时读取该文件兜底
-- `CLI_CLAW_CODEX_ACCESS_TOKEN`
+- `AGENT_FABRIC_CODEX_ACCESS_TOKEN`
   - backend 注入给 OpenAI runner 的短期运行时凭据，不需要用户手工配置
-- `CLI_CLAW_RUNTIME_SESSION_DIR/openai-agent/*.json`
-  - OpenAI Agents 的文件 session；未设置 `CLI_CLAW_RUNTIME_SESSION_DIR` 时 runner 使用工作区内的 `.cli-claw-runtime/openai-agent`
+- `AGENT_FABRIC_RUNTIME_SESSION_DIR/openai-agent/*.json`
+  - OpenAI Agents 的文件 session；未设置 `AGENT_FABRIC_RUNTIME_SESSION_DIR` 时 runner 使用工作区内的 `.agent-fabric-runtime/openai-agent`
+
+命名契约：
+
+- runner host、agent-runner、repository skills、scheduler、cache、自检与重启路径只读写 `AGENT_FABRIC_*`。旧命名环境变量不再作为 fallback，也不作为内部 IPC 或外部配置入口。
 
 仓库内还可以追踪与 agent 工作流相关的配置文件：
 
-- `.agents/workflows/*.json`：workflow/crew graph 配置，是工作流定义的 source of truth。工作区配置优先；工作区缺失时可以使用 Cli Claw 包内同路径的内置 workflow。
+- `.agents/workflows/*.json`：workflow/crew graph 配置，是工作流定义的 source of truth。工作区配置优先；工作区缺失时可以使用 Agent Fabric 包内同路径的内置 workflow。
 - `.agents/agent-roles/*.md`：runtime role card，会由 backend 解析后显式注入 workflow runner。工作区 role card 优先；内置 workflow 可以配套内置 role card。
 - `.agents/roles/*.md`：仓库协作/subagent 角色，只用于 Codex 协作协议，不注入 runtime。
 - `.agents/skills/**/SKILL.md`：仓库内联 skill 定义。
 
 这些文件属于仓库执行协议，不等同于外部 runtime 的用户级配置。workflow context 使用内部生成的 thread id / workflow context id；用户会话只触发 workflow run 并接收启动回执与终态消息，不提供 thread id，也不共享 workflow 内部 runtime session。飞书入口若已创建独立 workflow progress card，则用进度卡承担启动与节点进度展示，不再额外发送“已启动工作流”文本气泡；成功、失败或超时终态消息仍回投到触发会话。
 
-LangGraph checkpoint 使用独立 SQLite 文件 `~/.cli-claw/db/workflow-checkpoints.sqlite`，以内部 `thread_id` 作为恢复维度；workflow run/step 审计仍写入主 `messages.db` 的 `workflow_runs` / `workflow_run_steps` 表。Web `/automations?tab=workflows` 看板读取这些审计记录，并与 `scheduled_tasks` / `task_run_logs` 聚合展示当天 workflow 运行、step 进度、定时任务运行和当前 running 状态；旧 `/workflows` 路由不再保留兼容跳转。看板不读取 checkpoint、不重跑节点。看板对定时 workflow 的编辑 / 删除只作用于 `scheduled_tasks`，不会修改 `.agents/workflows/*.json` 定义，也不会强制中断已经启动的 workflow run。checkpoint SQLite 通过仓库内 `sqlite-compat` 兼容层访问：Bun 服务使用 `bun:sqlite`，Node.js 工具路径使用 `better-sqlite3`；不要在 workflow runtime 路径直接引入依赖 `better-sqlite3` 的第三方 SQLite saver。
+LangGraph checkpoint 使用独立 SQLite 文件 `~/.agent-fabric/db/workflow-checkpoints.sqlite`，以内部 `thread_id` 作为恢复维度；workflow run/step 审计仍写入主 `messages.db` 的 `workflow_runs` / `workflow_run_steps` 表。Web `/automations?tab=workflows` 看板读取这些审计记录，并与 `scheduled_tasks` / `task_run_logs` 聚合展示当天 workflow 运行、step 进度、定时任务运行和当前 running 状态；旧 `/workflows` 路由不再保留兼容跳转。看板不读取 checkpoint、不重跑节点。看板对定时 workflow 的编辑 / 删除只作用于 `scheduled_tasks`，不会修改 `.agents/workflows/*.json` 定义，也不会强制中断已经启动的 workflow run。checkpoint SQLite 通过仓库内 `sqlite-compat` 兼容层访问：Bun 服务使用 `bun:sqlite`，Node.js 工具路径使用 `better-sqlite3`；不要在 workflow runtime 路径直接引入依赖 `better-sqlite3` 的第三方 SQLite saver。
 
 Workflow role card 的 `allowedTools` 是运行时硬边界：backend 会把 role metadata 显式传入 OpenAI runner，runner tool factory 以 `role.allowedTools` 优先过滤实际可用工具。它不是只写进 prompt 的软提示。workflow role node 以 single-turn 模式运行：角色输出由 workflow engine 捕获为节点结果，不继续等待 IPC 下一轮；除非某个 workflow 明确需要中途发用户消息，否则 role card 不应开放 `send_message`，避免中间 artifact 直接泄漏到触发会话。
 
@@ -213,7 +218,7 @@ Workflow graph 支持 `local_task` 节点，但它不是 shell passthrough。wor
 
 scheduled task 支持 `execution_type='workflow'`：`script_command` 存 workflow id，`prompt` 存 workflow prompt，scheduler 到期后复用 `/workflow <id> <prompt>` 同一条 workflow command 路径。scheduled workflow 不创建独立 task workspace，也不把 prompt 注入源工作区主会话；它只创建 workflow run/context、执行 local task / role node，并把终态消息回投到 scheduled task 的执行会话；只有该执行会话本身是已连接飞书入口时，才会复用 workflow progress card 展示节点进度。
 
-scheduled workflow 在启动任何 Agent runtime 前会读取 OpenAI Codex usage snapshot。若 5h primary window 或 7d secondary window 剩余额低于 `CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT`（默认 30），scheduler 不启动 workflow，写 task run log 和 `last_result`，并把 `next_run` 延后到低额度 bucket 的 reset time；若 usage API 临时不可读，会优先复用 90 分钟内最近一次成功 snapshot，仍不可读时再按 `CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS`（默认 30 分钟）保守延后。usage guard 延期属于“未启动/已延期”，run log 记录 `Deferred: ...`，不作为任务失败；真实 workflow 命令返回 `❌ 工作流 ... 失败` 时才会落成 task run `error`。scheduler 对 workflow 命令还有运行时上限 `CLI_CLAW_SCHEDULED_WORKFLOW_TASK_TIMEOUT_MS`（默认 30 分钟），并每 5 分钟清理超过 `CLI_CLAW_SCHEDULED_WORKFLOW_STALE_TIMEOUT_MS`（默认 30 分钟）的 running task log / workflow run；服务启动时也会把上个进程遗留的 running 记录打成 watchdog error，避免日报或主控永久挂住。
+scheduled workflow 在启动任何 Agent runtime 前会读取 OpenAI Codex usage snapshot。若 5h primary window 或 7d secondary window 剩余额低于 `AGENT_FABRIC_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT`（默认 30），scheduler 不启动 workflow，写 task run log 和 `last_result`，并把 `next_run` 延后到低额度 bucket 的 reset time；若 usage API 临时不可读，会优先复用 90 分钟内最近一次成功 snapshot，仍不可读时再按 `AGENT_FABRIC_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS`（默认 30 分钟）保守延后。usage guard 延期属于“未启动/已延期”，run log 记录 `Deferred: ...`，不作为任务失败；真实 workflow 命令返回 `❌ 工作流 ... 失败` 时才会落成 task run `error`。scheduler 对 workflow 命令还有运行时上限 `AGENT_FABRIC_SCHEDULED_WORKFLOW_TASK_TIMEOUT_MS`（默认 30 分钟），并每 5 分钟清理超过 `AGENT_FABRIC_SCHEDULED_WORKFLOW_STALE_TIMEOUT_MS`（默认 30 分钟）的 running task log / workflow run；服务启动时也会把上个进程遗留的 running 记录打成 watchdog error，避免日报或主控永久挂住。
 
 `stock.hkipo.fetch_official_docs` 会调用 stock-analysis-api 内部只读 CLI `scripts/hkipo_official_docs.py`，先尝试 HKEX 标题检索，再回退解析 HKEX “新上市资料” Main Board / GEM 表格，把招股章程、配发结果、定价公告、稳定价格公告等文件下载到共享 cache namespace `hkipo-official-docs`，解析正文后只输出文件元数据、hash、短 snippet、结构化 `structure_evidence` / `valuation_evidence` 和 `source_errors`。IPO pool JSON 等一次性输入使用 `withCacheTempDir`，任务结束或失败时立即清理；可重建官方文件缓存由统一 cache cleanup loop 按 TTL / 容量清理。
 

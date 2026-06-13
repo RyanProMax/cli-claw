@@ -1,8 +1,8 @@
 {
-  "name": "cli-claw-agent-runner",
+  "name": "agent-fabric-agent-runner",
   "version": "1.0.0",
   "type": "module",
-  "description": "Agent process runner for cli-claw",
+  "description": "Agent process runner for agent-fabric",
   "main": "dist/index.js",
   "scripts": {
     "build": "npm run build:shared && npm run build:runner",
@@ -24,7 +24,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RyanProMax/cli-claw.git",
+    "url": "git+https://github.com/RyanProMax/agent-fabric.git",
     "directory": "container/agent-runner"
   },
   "author": "riba2534",
@@ -33,6 +33,6 @@
     "openai",
     "agent-runner",
     "mcp",
-    "cli-claw"
+    "agent-fabric"
   ]
 }

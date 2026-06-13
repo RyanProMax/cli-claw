@@ -20,7 +20,7 @@ function buildHeaders(auth: CodexCliRuntimeAuth): Record<string, string> {
   return {
     Authorization: `Bearer ${auth.accessToken}`,
     'Content-Type': 'application/json',
-    'User-Agent': 'codex_cli_rs/0.0.0 (Cli Claw)',
+    'User-Agent': 'codex_cli_rs/0.0.0 (Agent Fabric)',
     originator: 'codex_cli_rs',
     ...(auth.accountId ? { 'ChatGPT-Account-ID': auth.accountId } : {}),
   };

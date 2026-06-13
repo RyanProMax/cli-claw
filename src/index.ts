@@ -266,7 +266,7 @@ const DEFAULT_MAIN_JID = 'web:main';
 const DEFAULT_MAIN_NAME = 'Main';
 const SAFE_REQUEST_ID_RE = /^[A-Za-z0-9_-]+$/;
 const OOM_EXIT_RE = /code 137/;
-const SELF_CHECK_MODE = process.env.CLI_CLAW_SELF_CHECK === '1';
+const SELF_CHECK_MODE = process.env.AGENT_FABRIC_SELF_CHECK === '1';
 let lastSelfCheckResult: SelfCheckResult | null = null;
 let selfCheckRunning = false;
 let startupLaunchSpec: StartupLaunchSpec = inferStartupLaunchSpecFromProcess();
@@ -1692,7 +1692,7 @@ export function isRecoverableRestartPendingMessage(
 ): boolean {
   if (message.is_from_me === true || message.is_from_me === 1) return false;
   if (
-    message.sender === 'cli-claw-agent' ||
+    message.sender === 'agent-fabric-agent' ||
     message.sender === '__system__' ||
     message.sender === 'system'
   ) {
@@ -1732,7 +1732,7 @@ function isInterruptedPartialMessage(
       message.finalization_reason === 'interrupted') &&
     (message.is_from_me === true ||
       message.is_from_me === 1 ||
-      message.sender === 'cli-claw-agent')
+      message.sender === 'agent-fabric-agent')
   );
 }
 
@@ -3058,7 +3058,7 @@ async function handleSpawnCommand(
   const agentId = crypto.randomUUID();
   const messageId = crypto.randomUUID();
   const senderId = 'web';
-  const senderName = 'Cli Claw';
+  const senderName = 'Agent Fabric';
   const truncatedName =
     message.length > 30 ? message.slice(0, 30) + '…' : message;
   const agentName = `⚡ ${truncatedName}`;
@@ -3299,7 +3299,7 @@ function loadState(): void {
   }
 
   if (SELF_CHECK_MODE) {
-    logger.info('CLI_CLAW_SELF_CHECK=1, skipping workspace cwd defaults');
+    logger.info('AGENT_FABRIC_SELF_CHECK=1, skipping workspace cwd defaults');
   } else {
     try {
       reconcileWorkspaceDefaults(LAUNCH_CWD);
@@ -5355,7 +5355,7 @@ async function sendMessage(
     const persistedMsgId = storeMessageDirect(
       msgId,
       jid,
-      'cli-claw-agent',
+      'agent-fabric-agent',
       ASSISTANT_NAME,
       textWithRouteFooter,
       timestamp,
@@ -5371,7 +5371,7 @@ async function sendMessage(
       {
         id: persistedMsgId,
         chat_jid: jid,
-        sender: 'cli-claw-agent',
+        sender: 'agent-fabric-agent',
         sender_name: ASSISTANT_NAME,
         content: textWithRouteFooter,
         timestamp,
@@ -6153,7 +6153,7 @@ function startIpcWatcher(): void {
                   const persistedImgMsgId = storeMessageDirect(
                     imgMsgId,
                     imgChatJid,
-                    'cli-claw-agent',
+                    'agent-fabric-agent',
                     ASSISTANT_NAME,
                     displayText,
                     imgTimestamp,
@@ -6163,7 +6163,7 @@ function startIpcWatcher(): void {
                   broadcastNewMessage(imgChatJid, {
                     id: persistedImgMsgId,
                     chat_jid: imgChatJid,
-                    sender: 'cli-claw-agent',
+                    sender: 'agent-fabric-agent',
                     sender_name: ASSISTANT_NAME,
                     content: displayText,
                     timestamp: imgTimestamp,
@@ -7253,7 +7253,7 @@ async function processAgentConversation(
             const persistedMsgId = storeMessageDirect(
               msgId,
               virtualChatJid,
-              'cli-claw-agent',
+              'agent-fabric-agent',
               ASSISTANT_NAME,
               interruptedText,
               timestamp,
@@ -7275,7 +7275,7 @@ async function processAgentConversation(
               {
                 id: persistedMsgId,
                 chat_jid: virtualChatJid,
-                sender: 'cli-claw-agent',
+                sender: 'agent-fabric-agent',
                 sender_name: ASSISTANT_NAME,
                 content: interruptedText,
                 timestamp,
@@ -7420,7 +7420,7 @@ async function processAgentConversation(
         const persistedMsgId = storeMessageDirect(
           msgId,
           virtualChatJid,
-          'cli-claw-agent',
+          'agent-fabric-agent',
           ASSISTANT_NAME,
           visibleText,
           timestamp,
@@ -7451,7 +7451,7 @@ async function processAgentConversation(
           {
             id: persistedMsgId,
             chat_jid: virtualChatJid,
-            sender: 'cli-claw-agent',
+            sender: 'agent-fabric-agent',
             sender_name: ASSISTANT_NAME,
             content: visibleText,
             timestamp,
@@ -7877,7 +7877,7 @@ async function processAgentConversation(
         const persistedMsgId = storeMessageDirect(
           msgId,
           virtualChatJid,
-          'cli-claw-agent',
+          'agent-fabric-agent',
           ASSISTANT_NAME,
           interruptedText,
           timestamp,
@@ -7898,7 +7898,7 @@ async function processAgentConversation(
           {
             id: persistedMsgId,
             chat_jid: virtualChatJid,
-            sender: 'cli-claw-agent',
+            sender: 'agent-fabric-agent',
             sender_name: ASSISTANT_NAME,
             content: interruptedText,
             timestamp,
@@ -7974,7 +7974,7 @@ async function processAgentConversation(
         const persistedMsgId = storeMessageDirect(
           msgId,
           virtualChatJid,
-          'cli-claw-agent',
+          'agent-fabric-agent',
           ASSISTANT_NAME,
           partialReply,
           timestamp,
@@ -7995,7 +7995,7 @@ async function processAgentConversation(
           {
             id: persistedMsgId,
             chat_jid: virtualChatJid,
-            sender: 'cli-claw-agent',
+            sender: 'agent-fabric-agent',
             sender_name: ASSISTANT_NAME,
             content: partialReply,
             timestamp,
@@ -8086,7 +8086,7 @@ async function processAgentConversation(
         storeMessageDirect(
           injectId,
           agent.spawned_from_jid,
-          'cli-claw-agent',
+          'agent-fabric-agent',
           ASSISTANT_NAME,
           resultText,
           injectTs,
@@ -8095,7 +8095,7 @@ async function processAgentConversation(
         broadcastNewMessage(agent.spawned_from_jid, {
           id: injectId,
           chat_jid: agent.spawned_from_jid,
-          sender: 'cli-claw-agent',
+          sender: 'agent-fabric-agent',
           sender_name: ASSISTANT_NAME,
           content: resultText,
           timestamp: injectTs,
@@ -8148,7 +8148,7 @@ async function startMessageLoop(): Promise<void> {
   }
   messageLoopRunning = true;
 
-  logger.info('cli-claw running');
+  logger.info('agent-fabric running');
 
   while (!shuttingDown) {
     try {
@@ -8364,7 +8364,7 @@ function recoverStuckPendingGroups(): void {
  * that were IPC-injected but never processed because the service was
  * killed before the agent could handle them.
  *
- * Pending messages resume against the saved runtime session. Cli Claw does not
+ * Pending messages resume against the saved runtime session. Agent Fabric does not
  * inject DB history during recovery; continuity belongs to the runtime session.
  */
 function recoverPendingMessages(): void {
@@ -8936,7 +8936,7 @@ async function connectInstanceIMChannels(
   return { feishu, wechat };
 }
 
-export async function startCliClaw(
+export async function startAgentFabric(
   options: {
     startupLaunchSpec?: StartupLaunchSpec;
   } = {},
@@ -9009,7 +9009,9 @@ export async function startCliClaw(
   loadState();
 
   if (SELF_CHECK_MODE) {
-    logger.info('CLI_CLAW_SELF_CHECK=1, skipping CLI launch cwd validation');
+    logger.info(
+      'AGENT_FABRIC_SELF_CHECK=1, skipping CLI launch cwd validation',
+    );
   } else {
     const launchCwdValidation = validateWorkspaceCwd(LAUNCH_CWD, {
       fieldLabel: 'CLI launch cwd',
@@ -9384,7 +9386,7 @@ export async function startCliClaw(
   startStreamingBuffer();
 
   if (SELF_CHECK_MODE) {
-    logger.info('CLI_CLAW_SELF_CHECK=1, skipping IM channel connections');
+    logger.info('AGENT_FABRIC_SELF_CHECK=1, skipping IM channel connections');
     return;
   }
 
@@ -9521,7 +9523,7 @@ async function checkImBindingsHealth(): Promise<void> {
   }
 }
 
-export const main = startCliClaw;
+export const main = startAgentFabric;
 
 function isDirectExecution(moduleUrl: string): boolean {
   const entryPath = process.argv[1];
@@ -9530,8 +9532,8 @@ function isDirectExecution(moduleUrl: string): boolean {
 }
 
 if (isDirectExecution(import.meta.url)) {
-  void startCliClaw().catch((err) => {
-    logger.error({ err }, 'Failed to start cli-claw');
+  void startAgentFabric().catch((err) => {
+    logger.error({ err }, 'Failed to start agent-fabric');
     process.exit(1);
   });
 }

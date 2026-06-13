@@ -435,10 +435,10 @@ export function formatSelfStatus(info: SelfStatusInfo): string {
 
   if (info.restart.source === 'direct_backend') {
     lines.push('⚠️ 启动模式: direct_backend 是开发直启路径');
-    lines.push('✅ 推荐入口: cli-claw start / cli-claw restart');
+    lines.push('✅ 推荐入口: agent-fabric start / agent-fabric restart');
   } else if (sourceLaunched) {
     lines.push('⚠️ 启动模式: repo-local source launcher 是开发入口');
-    lines.push('✅ 推荐入口: cli-claw start / cli-claw restart');
+    lines.push('✅ 推荐入口: agent-fabric start / agent-fabric restart');
   }
 
   lines.push(`📦 build: ${buildState}`);

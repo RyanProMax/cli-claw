@@ -76,12 +76,25 @@ export function AppearanceSection() {
       </p>
 
       {/* ── AI Default Appearance ── */}
-      <Section icon={Bot} title="AI 默认外观" desc="所有用户看到的默认 AI 助手样式">
+      <Section
+        icon={Bot}
+        title="AI 默认外观"
+        desc="所有用户看到的默认 AI 助手样式"
+      >
         <div className="flex items-center gap-4">
-          <EmojiAvatar emoji={aiAvatarEmoji} color={aiAvatarColor} fallbackChar={aiName} size="lg" />
+          <EmojiAvatar
+            emoji={aiAvatarEmoji}
+            color={aiAvatarColor}
+            fallbackChar={aiName}
+            size="lg"
+          />
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-foreground">{aiName || 'cli-claw'}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">全局默认 · 用户可个人覆盖</div>
+            <div className="text-sm font-medium text-foreground">
+              {aiName || 'agent-fabric'}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              全局默认 · 用户可个人覆盖
+            </div>
           </div>
         </div>
 
@@ -92,24 +105,32 @@ export function AppearanceSection() {
             value={aiName}
             onChange={(e) => setAiName(e.target.value)}
             maxLength={32}
-            placeholder="cli-claw"
+            placeholder="agent-fabric"
           />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <Label className="text-[11px] text-muted-foreground mb-1.5">头像 Emoji</Label>
+            <Label className="text-[11px] text-muted-foreground mb-1.5">
+              头像 Emoji
+            </Label>
             <EmojiPicker value={aiAvatarEmoji} onChange={setAiAvatarEmoji} />
           </div>
           <div>
-            <Label className="text-[11px] text-muted-foreground mb-1.5">头像背景色</Label>
+            <Label className="text-[11px] text-muted-foreground mb-1.5">
+              头像背景色
+            </Label>
             <ColorPicker value={aiAvatarColor} onChange={setAiAvatarColor} />
           </div>
         </div>
       </Section>
 
       {/* Save */}
-      <Button onClick={handleSave} disabled={saving || !aiName.trim()} className="w-full sm:w-auto">
+      <Button
+        onClick={handleSave}
+        disabled={saving || !aiName.trim()}
+        className="w-full sm:w-auto"
+      >
         {saving && <Loader2 className="size-4 animate-spin" />}
         保存全局外观
       </Button>

@@ -8,7 +8,9 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 const tempHomes: string[] = [];
 
 function createTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-config-route-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'agent-fabric-config-route-'),
+  );
   tempHomes.push(dir);
   return dir;
 }
@@ -50,9 +52,7 @@ describe('config status route', () => {
     const home = createTempHome();
     vi.stubEnv('HOME', home);
 
-    const runtimeConfig = await import(
-      '../../../src/core/runtime/config.js'
-    );
+    const runtimeConfig = await import('../../../src/core/runtime/config.js');
     runtimeConfig.saveFeishuProviderConfig({
       appId: 'cli_configured',
       appSecret: 'configured-secret',
@@ -64,9 +64,8 @@ describe('config status route', () => {
       enabled: true,
     });
 
-    const { default: configRoutes, injectConfigDeps } = await import(
-      '../../../src/web/routes/config.js'
-    );
+    const { default: configRoutes, injectConfigDeps } =
+      await import('../../../src/web/routes/config.js');
     injectConfigDeps({
       isFeishuConnected: () => false,
       isWeChatConnected: () => false,

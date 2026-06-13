@@ -17,7 +17,9 @@ describe('web skill command filtering', () => {
   });
 
   test('includes only commands exposed to the current entrypoint in appended help output', async () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-web-help-'));
+    const home = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-web-help-'),
+    );
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'skill-cmd-help-'),
     );
@@ -71,7 +73,7 @@ describe('web skill command filtering', () => {
 
   test('handles /workflow through the web slash command path without enqueueing the main session', async () => {
     const home = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-web-workflow-'),
+      path.join(os.tmpdir(), 'agent-fabric-web-workflow-'),
     );
     tempDirs.push(home);
     vi.stubEnv('HOME', home);
@@ -132,9 +134,11 @@ describe('web skill command filtering', () => {
   });
 
   test('routes /hkipo skill workflow replies into the workflow handler without enqueueing the main session', async () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-web-hkipo-'));
+    const home = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-web-hkipo-'),
+    );
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-web-hkipo-workspace-'),
+      path.join(os.tmpdir(), 'agent-fabric-web-hkipo-workspace-'),
     );
     tempDirs.push(home, workspaceRoot);
     vi.stubEnv('HOME', home);
@@ -250,10 +254,10 @@ describe('web skill command filtering', () => {
 
   test('persists workflow start acknowledgement before async final result', async () => {
     const home = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-web-hkipo-ack-'),
+      path.join(os.tmpdir(), 'agent-fabric-web-hkipo-ack-'),
     );
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-web-hkipo-ack-workspace-'),
+      path.join(os.tmpdir(), 'agent-fabric-web-hkipo-ack-workspace-'),
     );
 
     tempDirs.push(home, workspaceRoot);

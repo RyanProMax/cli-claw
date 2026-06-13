@@ -573,7 +573,7 @@ describe('feishu connection prebuilt interactive card delivery', () => {
     expect(storeMessageDirect).toHaveBeenCalledWith(
       'msg-hkipo-reply',
       'feishu:oc_command_chat',
-      'cli-claw-agent',
+      'agent-fabric-agent',
       expect.any(String),
       '🚀 已启动：hkipo',
       expect.any(String),

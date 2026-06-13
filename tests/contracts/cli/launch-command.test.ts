@@ -38,22 +38,26 @@ function extractMakeTarget(makefile: string, targetName: string): string {
 }
 
 describe('launch command contract', () => {
-  test('make start delegates production backend startup to cli-claw start', () => {
+  test('make start delegates production backend startup to agent-fabric start', () => {
     const makefile = readRepoFile('Makefile');
     const startTarget = extractMakeTarget(makefile, 'start');
 
-    expect(makefile).toContain('CLI_CLAW ?= cli-claw');
-    expect(startTarget).toContain('$(CLI_CLAW) start');
+    expect(makefile).toContain('AGENT_FABRIC ?= agent-fabric');
+    expect(startTarget).toContain('$(AGENT_FABRIC) start');
     expect(startTarget).not.toContain('\tbun src/index.ts');
     expect(startTarget).not.toContain('\tnode dist/index.js');
   });
 
-  test('LaunchAgent default install uses cli-claw start', () => {
+  test('LaunchAgent default install uses agent-fabric start', () => {
     const script = readRepoFile('ops/install-launch-agent.sh');
 
-    expect(script).toContain('install without COMMAND uses: cli-claw start');
-    expect(script).toContain('command -v cli-claw');
-    expect(script).toContain('PROGRAM_ARGS=("$(command -v cli-claw)" "start")');
+    expect(script).toContain(
+      'install without COMMAND uses: agent-fabric start',
+    );
+    expect(script).toContain('command -v agent-fabric');
+    expect(script).toContain(
+      'PROGRAM_ARGS=("$(command -v agent-fabric)" "start")',
+    );
     expect(script).not.toContain(
       'PROGRAM_ARGS=("$(command -v bun)" "src/index.ts")',
     );

@@ -186,7 +186,7 @@ export function UnifiedSidebar({
           <div className="w-11 h-11 rounded-xl overflow-hidden mb-3 flex-shrink-0">
             <img
               src={`${import.meta.env.BASE_URL}icons/icon-192.png`}
-              alt="cli-claw"
+              alt="agent-fabric"
               className="w-full h-full object-cover"
             />
           </div>

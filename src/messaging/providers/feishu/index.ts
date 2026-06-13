@@ -1175,7 +1175,7 @@ export function createFeishuConnection(
     storeMessageDirect(
       messageId,
       chatJid,
-      'cli-claw-agent',
+      'agent-fabric-agent',
       ASSISTANT_NAME,
       content,
       timestamp,
@@ -1190,7 +1190,7 @@ export function createFeishuConnection(
         id: messageId,
         chat_jid: chatJid,
         source_jid: chatJid,
-        sender: 'cli-claw-agent',
+        sender: 'agent-fabric-agent',
         sender_name: ASSISTANT_NAME,
         content,
         timestamp,

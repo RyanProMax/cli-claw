@@ -1,5 +1,5 @@
 /**
- * Shared types for cli-claw Agent Runner.
+ * Shared types for agent-fabric Agent Runner.
  *
  * These types are used across the OpenAI/Codex agent runner.
  */

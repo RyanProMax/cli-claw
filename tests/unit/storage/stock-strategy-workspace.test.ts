@@ -20,7 +20,7 @@ afterEach(() => {
   }
 });
 
-async function loadStorage(home = tempDir('cli-claw-retired-stock-home-')) {
+async function loadStorage(home = tempDir('agent-fabric-retired-stock-home-')) {
   vi.stubEnv('HOME', home);
   const db = await import('../../../src/storage/db.ts');
   db.initDatabase();

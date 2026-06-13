@@ -1,7 +1,7 @@
 /**
  * Instance-level IM connection manager.
  *
- * Cli Claw now runs as a single self-hosted instance: each supported IM
+ * Agent Fabric now runs as a single self-hosted instance: each supported IM
  * provider has at most one connection and routes by JID prefix.
  */
 import {

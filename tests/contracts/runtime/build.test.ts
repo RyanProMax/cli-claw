@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe('runtime build status', () => {
   test('resolves artifact paths from the installed module root instead of launch cwd', async () => {
-    const launchCwd = makeTempDir('cli-claw-runtime-build-');
+    const launchCwd = makeTempDir('agent-fabric-runtime-build-');
     process.chdir(launchCwd);
     vi.resetModules();
 
@@ -67,7 +67,9 @@ describe('runtime build status', () => {
   });
 
   test('returns not stale when startup fingerprint matches current files', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-build-'));
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-build-'),
+    );
     const backendPath = path.join(tempDir, 'backend.js');
     const runnerPath = path.join(tempDir, 'agent-runner.js');
     fs.writeFileSync(backendPath, 'backend');
@@ -91,7 +93,9 @@ describe('runtime build status', () => {
   });
 
   test('returns stale when backend fingerprint changes', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-build-'));
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-build-'),
+    );
     const backendPath = path.join(tempDir, 'backend.js');
     const runnerPath = path.join(tempDir, 'agent-runner.js');
     fs.writeFileSync(backendPath, 'backend');
@@ -122,7 +126,9 @@ describe('runtime build status', () => {
   });
 
   test('returns stale when agent-runner fingerprint changes', () => {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-build-'));
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-build-'),
+    );
     const backendPath = path.join(tempDir, 'backend.js');
     const runnerPath = path.join(tempDir, 'agent-runner.js');
     fs.writeFileSync(backendPath, 'backend');

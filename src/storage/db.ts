@@ -372,7 +372,7 @@ function assertSchema(
   if (missing.length > 0 || forbidden.length > 0) {
     throw new Error(
       `Incompatible DB schema in table "${tableName}". Missing: [${missing.join(', ')}], forbidden: [${forbidden.join(', ')}]. ` +
-        'Please remove ~/.cli-claw/db/messages.db and restart.',
+        'Please remove ~/.agent-fabric/db/messages.db and restart.',
     );
   }
 }

@@ -5,14 +5,18 @@ import './styles/globals.css';
 import { shouldUseHashRouter } from './utils/url';
 
 if (typeof window !== 'undefined') {
-  window.__CLI_CLAW_HASH_ROUTER__ = shouldUseHashRouter();
+  window.__AGENT_FABRIC_HASH_ROUTER__ = shouldUseHashRouter();
 
   // Prevent pinch-to-zoom on iOS (iOS 10+ ignores user-scalable=no)
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('gesturechange', (e) => e.preventDefault());
-  document.addEventListener('touchmove', (e) => {
-    if (e.touches.length > 1) e.preventDefault();
-  }, { passive: false });
+  document.addEventListener(
+    'touchmove',
+    (e) => {
+      if (e.touches.length > 1) e.preventDefault();
+    },
+    { passive: false },
+  );
 }
 
 if (import.meta.env.DEV && typeof window !== 'undefined') {

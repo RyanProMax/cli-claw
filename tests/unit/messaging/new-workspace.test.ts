@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-im-new-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fabric-im-new-'));
   tempDirs.push(dir);
   return dir;
 }

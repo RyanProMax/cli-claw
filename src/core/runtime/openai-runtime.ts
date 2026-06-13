@@ -83,7 +83,7 @@ async function prepareOpenAiRuntime(
   fs.mkdirSync(hostSessionDir, { recursive: true });
   const env = await resolveCodexCliRuntimeEnv();
   env.OPENAI_AGENTS_DISABLE_TRACING ??= '1';
-  env.CLI_CLAW_RUNTIME_SESSION_DIR = runtimeSessionPath;
+  env.AGENT_FABRIC_RUNTIME_SESSION_DIR = runtimeSessionPath;
   return {
     env,
     hostSessionDir,

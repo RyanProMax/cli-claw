@@ -16,6 +16,7 @@ import {
   readCurrentBackendRestartState,
   requestSelfRestart,
   requestSelfRestartFromSavedState,
+  resolveSelfRestartRequestChatJidFromEnv,
   SELF_RESTART_REQUEST_CHAT_JID_ENV,
   resolveLaunchdServiceNameFromEnv,
   runSelfRestartWatchdog,
@@ -27,7 +28,9 @@ import {
 const tempDirs: string[] = [];
 
 function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-restart-test-'));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'agent-fabric-restart-test-'),
+  );
   tempDirs.push(dir);
   return dir;
 }
@@ -44,12 +47,12 @@ describe('requestSelfRestart', () => {
       inferDirectBackendLaunchSpec({
         execPath: '/Users/ryan/.bun/bin/bun',
         argv: ['/Users/ryan/.bun/bin/bun', 'src/index.ts'],
-        cwd: '/Users/ryan/projects/cli-claw',
+        cwd: '/Users/ryan/projects/agent-fabric',
       }),
     ).toMatchObject({
       command: '/Users/ryan/.bun/bin/bun',
       args: ['src/index.ts'],
-      cwd: '/Users/ryan/projects/cli-claw',
+      cwd: '/Users/ryan/projects/agent-fabric',
       source: 'direct_backend',
       restartable: true,
       validationError: null,
@@ -61,18 +64,18 @@ describe('requestSelfRestart', () => {
     expect(
       createCliStartLaunchSpec({
         execPath: '/usr/local/bin/node',
-        argvEntry: '/Users/ryan/projects/cli-claw/dist/cli.js',
-        cwd: '/Users/ryan/projects/cli-claw',
+        argvEntry: '/Users/ryan/projects/agent-fabric/dist/cli.js',
+        cwd: '/Users/ryan/projects/agent-fabric',
       }),
     ).toMatchObject({
       command: '/usr/local/bin/node',
-      args: ['/Users/ryan/projects/cli-claw/dist/cli.js', 'start'],
-      cwd: '/Users/ryan/projects/cli-claw',
+      args: ['/Users/ryan/projects/agent-fabric/dist/cli.js', 'start'],
+      cwd: '/Users/ryan/projects/agent-fabric',
       source: 'cli_start',
       restartable: true,
       validationError: null,
       displayCommand:
-        '/usr/local/bin/node /Users/ryan/projects/cli-claw/dist/cli.js start',
+        '/usr/local/bin/node /Users/ryan/projects/agent-fabric/dist/cli.js start',
     });
   });
 
@@ -80,7 +83,7 @@ describe('requestSelfRestart', () => {
     const spec = inferDirectBackendLaunchSpec({
       execPath: '/Users/ryan/.bun/bin/bun',
       argv: ['/Users/ryan/.bun/bin/bun'],
-      cwd: '/Users/ryan/projects/cli-claw',
+      cwd: '/Users/ryan/projects/agent-fabric',
     });
 
     expect(spec.restartable).toBe(false);
@@ -126,10 +129,14 @@ describe('requestSelfRestart', () => {
         detached: true,
         stdio: 'ignore',
         env: expect.objectContaining({
-          CLI_CLAW_RESTART_WATCHDOG: '1',
+          AGENT_FABRIC_RESTART_WATCHDOG: '1',
         }),
       }),
     );
+    const spawnEnv = spawnFn.mock.calls[0]?.[2]?.env ?? {};
+    expect(
+      Object.keys(spawnEnv).filter((key) => key.startsWith('CLI_CLAW_')),
+    ).toEqual([]);
 
     const intent = JSON.parse(
       fs.readFileSync(result.intentPath, 'utf8'),
@@ -207,14 +214,14 @@ describe('requestSelfRestart', () => {
           validationError: null,
           displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
         },
-        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        launchdServiceName: 'gui/501/com.ryan.agent-fabric',
       },
       { dataDir },
     );
 
     expect(readCurrentBackendRestartState({ dataDir })).toMatchObject({
       pid: 111,
-      launchdServiceName: 'gui/501/com.ryan.cli-claw',
+      launchdServiceName: 'gui/501/com.ryan.agent-fabric',
     });
 
     const result = requestSelfRestartFromSavedState({
@@ -238,17 +245,30 @@ describe('requestSelfRestart', () => {
       pid: 111,
       command: '/Users/ryan/.bun/bin/bun',
       args: ['src/index.ts'],
-      launchdServiceName: 'gui/501/com.ryan.cli-claw',
+      launchdServiceName: 'gui/501/com.ryan.agent-fabric',
     });
   });
 
   test('reads the launchd service name from env', () => {
     expect(
       resolveLaunchdServiceNameFromEnv({
+        AGENT_FABRIC_LAUNCHD_SERVICE_NAME: 'gui/501/com.ryan.agent-fabric',
+      }),
+    ).toBe('gui/501/com.ryan.agent-fabric');
+    expect(
+      resolveLaunchdServiceNameFromEnv({
         CLI_CLAW_LAUNCHD_SERVICE_NAME: 'gui/501/com.ryan.cli-claw',
       }),
-    ).toBe('gui/501/com.ryan.cli-claw');
+    ).toBeNull();
     expect(resolveLaunchdServiceNameFromEnv({})).toBeNull();
+  });
+
+  test('ignores legacy IM restart reply context env', () => {
+    expect(
+      resolveSelfRestartRequestChatJidFromEnv({
+        CLI_CLAW_REQUEST_CHAT_JID: 'feishu:chat-1',
+      }),
+    ).toBeNull();
   });
 
   test('reuses IM restart reply context from env for external restart requests', () => {
@@ -276,7 +296,7 @@ describe('requestSelfRestart', () => {
           validationError: null,
           displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
         },
-        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        launchdServiceName: 'gui/501/com.ryan.agent-fabric',
       },
       { dataDir },
     );
@@ -324,7 +344,7 @@ describe('requestSelfRestart', () => {
           validationError: null,
           displayCommand: '/Users/ryan/.bun/bin/bun src/index.ts',
         },
-        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        launchdServiceName: 'gui/501/com.ryan.agent-fabric',
       },
       { dataDir },
     );
@@ -419,7 +439,7 @@ describe('self-restart success notifications', () => {
         command: 'node',
         args: ['/repo/dist/index.js'],
         cwd: '/repo',
-        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        launchdServiceName: 'gui/501/com.ryan.agent-fabric',
         healthUrl: 'http://127.0.0.1:3000/api/health',
         newPid: null,
         requestChatJid: 'feishu:chat-old',
@@ -439,7 +459,7 @@ describe('self-restart success notifications', () => {
         command: 'node',
         args: ['/repo/dist/index.js'],
         cwd: '/repo',
-        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        launchdServiceName: 'gui/501/com.ryan.agent-fabric',
         healthUrl: 'http://127.0.0.1:3000/api/health',
         newPid: null,
         requestChatJid: 'feishu:chat-new',
@@ -451,7 +471,7 @@ describe('self-restart success notifications', () => {
         dataDir,
         pid: 8566,
         startedAt: '2026-04-22T11:33:43.450Z',
-        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        launchdServiceName: 'gui/501/com.ryan.agent-fabric',
       }),
     ).toMatchObject([
       {
@@ -508,7 +528,7 @@ describe('self-restart success notifications', () => {
       [
         ' 17510     1 /Users/ryan/.bun/bin/bun src/index.ts',
         ' 20001     1 /Users/ryan/.bun/bin/bun src/index.ts',
-        ' 18611 17510 node /Users/ryan/projects/cli-claw/container/agent-runner/dist/index.js',
+        ' 18611 17510 node /Users/ryan/projects/agent-fabric/container/agent-runner/dist/index.js',
       ].join('\n'),
       17510,
     );
@@ -525,9 +545,9 @@ describe('self-restart success notifications', () => {
   test('summarizes orphan runner process groups for detached agent runners', () => {
     const summary = summarizeResidualProcesses(
       [
-        ' 40020     1 40020 /Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/index.ts',
-        ' 43258 40020 43258 node /Users/ryan/projects/cli-claw/container/agent-runner/dist/index.js',
-        ' 5327     1  5327 node /Users/ryan/projects/cli-claw/container/agent-runner/dist/index.js',
+        ' 40020     1 40020 /Users/ryan/.bun/bin/bun /Users/ryan/projects/agent-fabric/src/index.ts',
+        ' 43258 40020 43258 node /Users/ryan/projects/agent-fabric/container/agent-runner/dist/index.js',
+        ' 5327     1  5327 node /Users/ryan/projects/agent-fabric/container/agent-runner/dist/index.js',
       ].join('\n'),
       40020,
     );
@@ -592,9 +612,9 @@ describe('self-restart success notifications', () => {
 
     const result = inspectAndCleanupResidualProcesses(
       [
-        ' 53009     1 53009 /Users/ryan/.bun/bin/bun /Users/ryan/projects/cli-claw/src/index.ts',
-        ' 5355     1  5327 node /Users/ryan/projects/cli-claw/container/agent-runner/dist/index.js',
-        ' 27978    1 27865 node /Users/ryan/projects/cli-claw/container/agent-runner/dist/index.js',
+        ' 53009     1 53009 /Users/ryan/.bun/bin/bun /Users/ryan/projects/agent-fabric/src/index.ts',
+        ' 5355     1  5327 node /Users/ryan/projects/agent-fabric/container/agent-runner/dist/index.js',
+        ' 27978    1 27865 node /Users/ryan/projects/agent-fabric/container/agent-runner/dist/index.js',
       ].join('\n'),
       53009,
       { killProcess },
@@ -602,9 +622,7 @@ describe('self-restart success notifications', () => {
 
     expect(result.summary.orphanRunnerPids).toEqual([5355, 27978]);
     expect(result.summary.orphanRunnerGroupIds).toEqual([5327, 27865]);
-    expect(result.cleanupResult.attemptedRunnerGroupIds).toEqual([
-      5327, 27865,
-    ]);
+    expect(result.cleanupResult.attemptedRunnerGroupIds).toEqual([5327, 27865]);
     expect(killProcess).toHaveBeenNthCalledWith(1, -5327, 'SIGTERM');
     expect(killProcess).toHaveBeenNthCalledWith(2, -27865, 'SIGTERM');
   });
@@ -779,7 +797,7 @@ describe('runSelfRestartWatchdog', () => {
         command: 'node',
         args: ['/repo/dist/index.js'],
         cwd: '/repo',
-        launchdServiceName: 'gui/501/com.ryan.cli-claw',
+        launchdServiceName: 'gui/501/com.ryan.agent-fabric',
         healthUrl: 'http://127.0.0.1:3000/api/health',
       }),
     );
@@ -812,7 +830,7 @@ describe('runSelfRestartWatchdog', () => {
     });
 
     expect(restartLaunchdService).toHaveBeenCalledWith(
-      'gui/501/com.ryan.cli-claw',
+      'gui/501/com.ryan.agent-fabric',
     );
     expect(killProcess).not.toHaveBeenCalled();
     expect(spawnService).not.toHaveBeenCalled();
@@ -822,7 +840,7 @@ describe('runSelfRestartWatchdog', () => {
     expect(updated).toMatchObject({
       status: 'passed',
       newPid: null,
-      launchdServiceName: 'gui/501/com.ryan.cli-claw',
+      launchdServiceName: 'gui/501/com.ryan.agent-fabric',
     });
   });
 });

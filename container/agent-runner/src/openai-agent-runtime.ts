@@ -181,7 +181,7 @@ function scheduledTaskPrompt(prompt: string): string {
 
 export function buildOpenAiInstructions(input: AgentProcessInput): string {
   const instructions: Array<string | null> = [
-    'You are running inside cli-claw as the OpenAI agent runtime.',
+    'You are running inside agent-fabric as the OpenAI agent runtime.',
     'Use available tools for messaging, files, groups, and scheduled task operations.',
     'Do not assume prior conversation context unless it is present in the persisted session.',
   ];
@@ -348,7 +348,7 @@ export async function runOpenAiAgentLoop(
     ? agentInput.role.allowedTools
     : agentInput.allowedTools;
   const agent = new Agent({
-    name: agentInput.agentName || 'Cli Claw OpenAI Agent',
+    name: agentInput.agentName || 'Agent Fabric OpenAI Agent',
     model,
     modelSettings: buildModelSettings(agentInput),
     instructions: buildOpenAiInstructions(agentInput),

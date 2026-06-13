@@ -77,7 +77,7 @@ export const RUNTIME_COMMANDS: RuntimeCommandDefinition[] = [
   {
     name: 'self-status',
     usage: '/self-status',
-    description: '查看 cli-claw 服务版本、自检与重启需求',
+    description: '查看 agent-fabric 服务版本、自检与重启需求',
     module: 'service',
     availableEntrypoints: ['im'],
     availabilityByRuntime: 'all',

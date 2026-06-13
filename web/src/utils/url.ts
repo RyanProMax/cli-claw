@@ -18,7 +18,8 @@ function isNavigatorStandalone(): boolean {
 
 export function isStandaloneMode(): boolean {
   if (typeof window === 'undefined') return false;
-  const displayStandalone = window.matchMedia?.('(display-mode: standalone)').matches ?? false;
+  const displayStandalone =
+    window.matchMedia?.('(display-mode: standalone)').matches ?? false;
   return displayStandalone || isNavigatorStandalone();
 }
 
@@ -26,7 +27,8 @@ export function isIOSDevice(): boolean {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
   const iOS = /iPad|iPhone|iPod/i.test(ua);
-  const iPadOSDesktopUA = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  const iPadOSDesktopUA =
+    navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
   return iOS || iPadOSDesktopUA;
 }
 
@@ -45,7 +47,7 @@ export function replaceInApp(path: string): void {
   if (typeof window === 'undefined') return;
   const normalized = path.startsWith('/') ? path : `/${path}`;
   const fullPath = withBasePath(normalized);
-  if (window.__CLI_CLAW_HASH_ROUTER__) {
+  if (window.__AGENT_FABRIC_HASH_ROUTER__) {
     // Hash router: 保留当前 pathname，用 hash 承载路由（含 APP_BASE）
     const target = `${window.location.origin}${window.location.pathname}#${fullPath}`;
     window.location.replace(target);

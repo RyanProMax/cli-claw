@@ -1,29 +1,29 @@
-export interface CliClawServiceControlContext {
+export interface AgentFabricServiceControlContext {
   backendPid?: number | null;
   launchdServiceName?: string | null;
   allowSafeRestartCommand?: boolean;
 }
 
-export interface UnsafeCliClawServiceControlMatch {
+export interface UnsafeAgentFabricServiceControlMatch {
   matchedText: string;
   reason: string;
   message: string;
 }
 
-export const BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE =
-  '禁止直接控制正在运行的 Cli Claw 服务；请使用 `cli-claw restart` 或 IM `/self-restart`。';
+export const BLOCKED_AGENT_FABRIC_SERVICE_CONTROL_MESSAGE =
+  '禁止直接控制正在运行的 Agent Fabric 服务；请使用 `agent-fabric restart` 或 IM `/self-restart`。';
 
 export const BLOCKED_AGENT_SAFE_RESTART_MESSAGE =
   '禁止由 agent 在 IM 会话中自主执行服务重启；只有用户显式发送 `/self-restart` 或“重启服务”这类受管命令时才能重启。';
 
 const MANAGED_SELF_RESTART_PATTERNS = [
-  /^(?:请\s*)?重启(?:一下)?(?:\s*(?:服务|项目|cli[-\s]?claw|cliclaw))?(?:\s*[吧呀啊呢])?$/i,
-  /^(?:请\s*)?(?:把\s*)?(?:服务|项目|cli[-\s]?claw|cliclaw)\s*(?:重启|重新启动)(?:一下)?(?:\s*[吧呀啊呢])?$/i,
+  /^(?:请\s*)?重启(?:一下)?(?:\s*(?:服务|项目|agent[-\s]?fabric|agentfabric))?(?:\s*[吧呀啊呢])?$/i,
+  /^(?:请\s*)?(?:把\s*)?(?:服务|项目|agent[-\s]?fabric|agentfabric)\s*(?:重启|重新启动)(?:一下)?(?:\s*[吧呀啊呢])?$/i,
 ];
 
 const GENERIC_SERVICE_REFS = [
-  'cli-claw',
-  'com.ryan.cli-claw',
+  'agent-fabric',
+  'com.ryan.agent-fabric',
   'src/index.ts',
   'dist/index.js',
   'bun src/index.ts',
@@ -46,7 +46,7 @@ function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function buildServiceRefs(context: CliClawServiceControlContext): string[] {
+function buildServiceRefs(context: AgentFabricServiceControlContext): string[] {
   const refs = new Set<string>(GENERIC_SERVICE_REFS);
   const serviceName = context.launchdServiceName?.trim();
   if (serviceName) {
@@ -74,9 +74,11 @@ function matchesBackendPid(
   return pidPattern.test(normalizedCommand);
 }
 
-function matchesCliClawSafeRestartCommand(normalizedCommand: string): boolean {
+function matchesAgentFabricSafeRestartCommand(
+  normalizedCommand: string,
+): boolean {
   return (
-    /(?:^|[;&|]\s*)(?:\S+\/)?cli-claw\s+restart(?:\s|$)/.test(
+    /(?:^|[;&|]\s*)(?:\S+\/)?agent-fabric\s+restart(?:\s|$)/.test(
       normalizedCommand,
     ) ||
     /\b(?:bun|node|tsx)\s+\S*(?:src\/cli\.ts|dist\/cli\.js)\s+restart(?:\s|$)/.test(
@@ -114,10 +116,10 @@ export function extractShellCommandText(input: unknown): string | null {
   return null;
 }
 
-export function detectUnsafeCliClawServiceControl(
+export function detectUnsafeAgentFabricServiceControl(
   commandText: string,
-  context: CliClawServiceControlContext = {},
-): UnsafeCliClawServiceControlMatch | null {
+  context: AgentFabricServiceControlContext = {},
+): UnsafeAgentFabricServiceControlMatch | null {
   const normalizedCommand = normalizeShellCommand(commandText);
   if (!normalizedCommand) return null;
 
@@ -125,11 +127,11 @@ export function detectUnsafeCliClawServiceControl(
 
   if (
     context.allowSafeRestartCommand === false &&
-    matchesCliClawSafeRestartCommand(normalizedCommand)
+    matchesAgentFabricSafeRestartCommand(normalizedCommand)
   ) {
     return {
       matchedText: commandText,
-      reason: 'agent-initiated cli-claw safe restart command',
+      reason: 'agent-initiated agent-fabric safe restart command',
       message: BLOCKED_AGENT_SAFE_RESTART_MESSAGE,
     };
   }
@@ -144,16 +146,19 @@ export function detectUnsafeCliClawServiceControl(
   if (hasDangerousLaunchctl && matchesAnyRef(normalizedCommand, refs)) {
     return {
       matchedText: commandText,
-      reason: 'direct launchctl control of the cli-claw service',
-      message: BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE,
+      reason: 'direct launchctl control of the agent-fabric service',
+      message: BLOCKED_AGENT_FABRIC_SERVICE_CONTROL_MESSAGE,
     };
   }
 
-  if (hasKillall && /\b(bun|node|cli-claw)\b/.test(normalizedCommand)) {
+  if (
+    hasKillall &&
+    /\b(bun|node|agent-fabric)\b/.test(normalizedCommand)
+  ) {
     return {
       matchedText: commandText,
       reason: 'broad killall against runtime processes',
-      message: BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE,
+      message: BLOCKED_AGENT_FABRIC_SERVICE_CONTROL_MESSAGE,
     };
   }
 
@@ -165,8 +170,8 @@ export function detectUnsafeCliClawServiceControl(
   ) {
     return {
       matchedText: commandText,
-      reason: 'pattern kill targeting cli-claw runtime processes',
-      message: BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE,
+      reason: 'pattern kill targeting agent-fabric runtime processes',
+      message: BLOCKED_AGENT_FABRIC_SERVICE_CONTROL_MESSAGE,
     };
   }
 
@@ -177,8 +182,8 @@ export function detectUnsafeCliClawServiceControl(
     ) {
       return {
         matchedText: commandText,
-        reason: 'direct kill targeting the current cli-claw backend',
-        message: BLOCKED_CLI_CLAW_SERVICE_CONTROL_MESSAGE,
+        reason: 'direct kill targeting the current agent-fabric backend',
+        message: BLOCKED_AGENT_FABRIC_SERVICE_CONTROL_MESSAGE,
       };
     }
   }
@@ -186,23 +191,23 @@ export function detectUnsafeCliClawServiceControl(
   return null;
 }
 
-export function buildAgentRunnerCliClawServiceControlContext(
+export function buildAgentRunnerAgentFabricServiceControlContext(
   chatJid: string,
-  context: CliClawServiceControlContext = {},
-): CliClawServiceControlContext {
+  context: AgentFabricServiceControlContext = {},
+): AgentFabricServiceControlContext {
   return {
     ...context,
     allowSafeRestartCommand: chatJid.trim().startsWith('web:'),
   };
 }
 
-export function detectAgentRunnerCliClawServiceControl(
+export function detectAgentRunnerAgentFabricServiceControl(
   commandText: string,
   chatJid: string,
-  context: CliClawServiceControlContext = {},
-): UnsafeCliClawServiceControlMatch | null {
-  return detectUnsafeCliClawServiceControl(
+  context: AgentFabricServiceControlContext = {},
+): UnsafeAgentFabricServiceControlMatch | null {
+  return detectUnsafeAgentFabricServiceControl(
     commandText,
-    buildAgentRunnerCliClawServiceControlContext(chatJid, context),
+    buildAgentRunnerAgentFabricServiceControlContext(chatJid, context),
   );
 }

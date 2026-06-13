@@ -123,10 +123,13 @@ function buildRunnerDeps(tempRoot: string) {
 
 async function captureOpenAiRunnerRequests(speedTiers: string[]) {
   return await withCaptureServer(async ({ baseUrl, captured }) => {
-    const tempRoot = makeTempDir('cli-claw-p0-openai-runner-');
-    vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
-    vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
-    vi.stubEnv('CLI_CLAW_RUNTIME_SESSION_DIR', path.join(tempRoot, 'sessions'));
+    const tempRoot = makeTempDir('agent-fabric-p0-openai-runner-');
+    vi.stubEnv('AGENT_FABRIC_CODEX_ACCESS_TOKEN', 'test-token');
+    vi.stubEnv('AGENT_FABRIC_CODEX_BASE_URL', baseUrl);
+    vi.stubEnv(
+      'AGENT_FABRIC_RUNTIME_SESSION_DIR',
+      path.join(tempRoot, 'sessions'),
+    );
     vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
     vi.stubEnv('no_proxy', '127.0.0.1,localhost');
 
@@ -423,7 +426,7 @@ describe('P0 OpenAI runner request contract', () => {
     });
     expect(fastRequest!.body.service_tier).not.toBe('fast');
     expect(JSON.stringify(fastRequest!.body.input)).toContain('ping fast');
-    expect(String(fastRequest!.body.instructions)).toContain('cli-claw');
+    expect(String(fastRequest!.body.instructions)).toContain('agent-fabric');
 
     expect(standardRequest!.method).toBe('POST');
     expect(standardRequest!.url).toBe('/responses');
@@ -443,11 +446,11 @@ describe('P0 OpenAI runner request contract', () => {
     const finalText = 'CLI_E2E_OK';
     await withCaptureServer(
       async ({ baseUrl, captured }) => {
-        const tempRoot = makeTempDir('cli-claw-p0-openai-loop-');
-        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
-        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        const tempRoot = makeTempDir('agent-fabric-p0-openai-loop-');
+        vi.stubEnv('AGENT_FABRIC_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('AGENT_FABRIC_CODEX_BASE_URL', baseUrl);
         vi.stubEnv(
-          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          'AGENT_FABRIC_RUNTIME_SESSION_DIR',
           path.join(tempRoot, 'sessions'),
         );
         vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
@@ -521,11 +524,11 @@ describe('P0 OpenAI runner request contract', () => {
     const finalText = 'WORKFLOW_RUNNER_OK';
     await withCaptureServer(
       async ({ baseUrl, captured }) => {
-        const tempRoot = makeTempDir('cli-claw-workflow-openai-loop-');
-        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
-        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        const tempRoot = makeTempDir('agent-fabric-workflow-openai-loop-');
+        vi.stubEnv('AGENT_FABRIC_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('AGENT_FABRIC_CODEX_BASE_URL', baseUrl);
         vi.stubEnv(
-          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          'AGENT_FABRIC_RUNTIME_SESSION_DIR',
           path.join(tempRoot, 'sessions'),
         );
         vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
@@ -588,11 +591,11 @@ describe('P0 OpenAI runner request contract', () => {
     const finalText = 'WORKFLOW_SINGLE_TURN_OK';
     await withCaptureServer(
       async ({ baseUrl, captured }) => {
-        const tempRoot = makeTempDir('cli-claw-workflow-single-turn-');
-        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
-        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        const tempRoot = makeTempDir('agent-fabric-workflow-single-turn-');
+        vi.stubEnv('AGENT_FABRIC_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('AGENT_FABRIC_CODEX_BASE_URL', baseUrl);
         vi.stubEnv(
-          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          'AGENT_FABRIC_RUNTIME_SESSION_DIR',
           path.join(tempRoot, 'sessions'),
         );
         vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
@@ -653,8 +656,7 @@ describe('P0 OpenAI runner request contract', () => {
           outputs.filter(
             (output) =>
               (output as { status?: string; result?: unknown }).status ===
-                'success' &&
-              (output as { result?: unknown }).result === null,
+                'success' && (output as { result?: unknown }).result === null,
           ),
         ).toEqual([]);
       },
@@ -666,11 +668,11 @@ describe('P0 OpenAI runner request contract', () => {
     const finalText = 'CODEX_STREAM_DONE_OK';
     await withCaptureServer(
       async ({ baseUrl, captured }) => {
-        const tempRoot = makeTempDir('cli-claw-p0-openai-codex-empty-');
-        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
-        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        const tempRoot = makeTempDir('agent-fabric-p0-openai-codex-empty-');
+        vi.stubEnv('AGENT_FABRIC_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('AGENT_FABRIC_CODEX_BASE_URL', baseUrl);
         vi.stubEnv(
-          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          'AGENT_FABRIC_RUNTIME_SESSION_DIR',
           path.join(tempRoot, 'sessions'),
         );
         vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
@@ -719,11 +721,11 @@ describe('P0 OpenAI runner request contract', () => {
     const finalText = 'CODEX_MALFORMED_TERMINAL_OK';
     await withCaptureServer(
       async ({ baseUrl }) => {
-        const tempRoot = makeTempDir('cli-claw-p0-openai-codex-malformed-');
-        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
-        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        const tempRoot = makeTempDir('agent-fabric-p0-openai-codex-malformed-');
+        vi.stubEnv('AGENT_FABRIC_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('AGENT_FABRIC_CODEX_BASE_URL', baseUrl);
         vi.stubEnv(
-          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          'AGENT_FABRIC_RUNTIME_SESSION_DIR',
           path.join(tempRoot, 'sessions'),
         );
         vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
@@ -770,11 +772,11 @@ describe('P0 OpenAI runner request contract', () => {
   test('does not replay non-persisted Codex response item ids on the next session turn', async () => {
     await withCaptureServer(
       async ({ baseUrl, captured }) => {
-        const tempRoot = makeTempDir('cli-claw-p0-openai-session-');
-        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
-        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        const tempRoot = makeTempDir('agent-fabric-p0-openai-session-');
+        vi.stubEnv('AGENT_FABRIC_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('AGENT_FABRIC_CODEX_BASE_URL', baseUrl);
         vi.stubEnv(
-          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          'AGENT_FABRIC_RUNTIME_SESSION_DIR',
           path.join(tempRoot, 'sessions'),
         );
         vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');
@@ -845,11 +847,11 @@ describe('P0 OpenAI runner request contract', () => {
     const finalText = 'TOOL_LOOP_DONE_OK';
     await withCaptureServer(
       async ({ baseUrl, captured }) => {
-        const tempRoot = makeTempDir('cli-claw-p0-openai-tool-loop-');
-        vi.stubEnv('CLI_CLAW_CODEX_ACCESS_TOKEN', 'test-token');
-        vi.stubEnv('CLI_CLAW_CODEX_BASE_URL', baseUrl);
+        const tempRoot = makeTempDir('agent-fabric-p0-openai-tool-loop-');
+        vi.stubEnv('AGENT_FABRIC_CODEX_ACCESS_TOKEN', 'test-token');
+        vi.stubEnv('AGENT_FABRIC_CODEX_BASE_URL', baseUrl);
         vi.stubEnv(
-          'CLI_CLAW_RUNTIME_SESSION_DIR',
+          'AGENT_FABRIC_RUNTIME_SESSION_DIR',
           path.join(tempRoot, 'sessions'),
         );
         vi.stubEnv('NO_PROXY', '127.0.0.1,localhost');

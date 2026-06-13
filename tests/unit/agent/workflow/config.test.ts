@@ -110,7 +110,7 @@ describe('workflow config discovery', () => {
 
   test('loads workflow definitions and runtime role cards from .agents', () => {
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-workflow-config-'),
+      path.join(os.tmpdir(), 'agent-fabric-workflow-config-'),
     );
     tempDirs.push(workspaceRoot);
 
@@ -171,7 +171,7 @@ describe('workflow config discovery', () => {
 
   test('rejects workflows that reference missing roles', () => {
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-workflow-missing-role-'),
+      path.join(os.tmpdir(), 'agent-fabric-workflow-missing-role-'),
     );
     tempDirs.push(workspaceRoot);
 
@@ -204,7 +204,7 @@ describe('workflow config discovery', () => {
 
   test('rejects role cards that request unknown tools', () => {
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-workflow-unknown-tool-'),
+      path.join(os.tmpdir(), 'agent-fabric-workflow-unknown-tool-'),
     );
     tempDirs.push(workspaceRoot);
 
@@ -232,7 +232,7 @@ describe('workflow config discovery', () => {
 
   test('rejects workflows with invalid node definitions', () => {
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-workflow-invalid-node-'),
+      path.join(os.tmpdir(), 'agent-fabric-workflow-invalid-node-'),
     );
     tempDirs.push(workspaceRoot);
 
@@ -278,7 +278,7 @@ describe('workflow config discovery', () => {
 
   test('loads local task nodes only when task ids are registered', () => {
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-workflow-local-task-'),
+      path.join(os.tmpdir(), 'agent-fabric-workflow-local-task-'),
     );
     tempDirs.push(workspaceRoot);
 
@@ -348,7 +348,7 @@ describe('workflow config discovery', () => {
 
   test('rejects workflows with malformed edges', () => {
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-workflow-invalid-edge-'),
+      path.join(os.tmpdir(), 'agent-fabric-workflow-invalid-edge-'),
     );
     tempDirs.push(workspaceRoot);
 
@@ -390,7 +390,7 @@ describe('workflow config discovery', () => {
 
   test('rejects workflow graphs with cycles or unreachable nodes', () => {
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-workflow-invalid-graph-'),
+      path.join(os.tmpdir(), 'agent-fabric-workflow-invalid-graph-'),
     );
     tempDirs.push(workspaceRoot);
 
@@ -442,7 +442,7 @@ describe('workflow config discovery', () => {
 
   test('loads one workflow by id and reports a clear not-found error', () => {
     const workspaceRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'cli-claw-workflow-load-one-'),
+      path.join(os.tmpdir(), 'agent-fabric-workflow-load-one-'),
     );
     tempDirs.push(workspaceRoot);
 

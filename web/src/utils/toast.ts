@@ -3,7 +3,7 @@
 const MAX_TOASTS = 5;
 let container: HTMLDivElement | null = null;
 const BACKGROUND_TASK_NOTICE_TTL_MS = 15_000;
-const OWNER_KEY = 'cli-claw:bg-task-notice-owner';
+const OWNER_KEY = 'agent-fabric:bg-task-notice-owner';
 const OWNER_STALE_MS = 120_000;
 const TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 let ownerTrackingBound = false;
@@ -90,11 +90,16 @@ export function notifyIfHidden(title: string, body?: string): void {
 }
 
 function claimOwnershipIfVisible(): boolean {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return true;
+  if (typeof window === 'undefined' || typeof document === 'undefined')
+    return true;
   if (document.visibilityState !== 'visible') return false;
-  if (typeof document.hasFocus === 'function' && !document.hasFocus()) return false;
+  if (typeof document.hasFocus === 'function' && !document.hasFocus())
+    return false;
   try {
-    window.localStorage.setItem(OWNER_KEY, JSON.stringify({ tabId: TAB_ID, at: Date.now() }));
+    window.localStorage.setItem(
+      OWNER_KEY,
+      JSON.stringify({ tabId: TAB_ID, at: Date.now() }),
+    );
   } catch {
     // Fall back to single-tab behavior if storage becomes unavailable mid-session.
   }
@@ -102,7 +107,12 @@ function claimOwnershipIfVisible(): boolean {
 }
 
 function bindOwnerTracking(): void {
-  if (ownerTrackingBound || typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (
+    ownerTrackingBound ||
+    typeof window === 'undefined' ||
+    typeof document === 'undefined'
+  )
+    return;
   ownerTrackingBound = true;
 
   claimOwnershipIfVisible();
@@ -111,7 +121,8 @@ function bindOwnerTracking(): void {
 }
 
 function isNoticeOwner(): boolean {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return true;
+  if (typeof window === 'undefined' || typeof document === 'undefined')
+    return true;
   bindOwnerTracking();
 
   let raw: string | null = null;
@@ -139,9 +150,9 @@ function isNoticeOwner(): boolean {
 export function shouldEmitBackgroundTaskNotice(taskId: string): boolean {
   const now = Date.now();
   if (
-    lastBackgroundTaskNotice
-    && lastBackgroundTaskNotice.taskId === taskId
-    && now - lastBackgroundTaskNotice.at < BACKGROUND_TASK_NOTICE_TTL_MS
+    lastBackgroundTaskNotice &&
+    lastBackgroundTaskNotice.taskId === taskId &&
+    now - lastBackgroundTaskNotice.at < BACKGROUND_TASK_NOTICE_TTL_MS
   ) {
     return false;
   }

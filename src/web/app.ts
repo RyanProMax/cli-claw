@@ -292,7 +292,7 @@ async function handleWebSlashCommand(options: {
   const persistReply = (text: string) => {
     persistImmediateMessage({
       chatJid: displayChatJid,
-      sender: 'cli-claw-agent',
+      sender: 'agent-fabric-agent',
       senderName: ASSISTANT_NAME,
       content: text,
       isFromMe: true,
@@ -899,7 +899,7 @@ function setupWebSocket(server: any): WebSocketServer {
       socket.destroy();
       return;
     }
-    request.__cliClawSessionId = token;
+    request.__agentFabricSessionId = token;
 
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
@@ -907,7 +907,7 @@ function setupWebSocket(server: any): WebSocketServer {
   });
 
   wss.on('connection', (ws, request: any) => {
-    const sessionId = request?.__cliClawSessionId as string | undefined;
+    const sessionId = request?.__agentFabricSessionId as string | undefined;
     logger.info('WebSocket client connected');
     wsClients.set(ws, {
       sessionId: sessionId || '',

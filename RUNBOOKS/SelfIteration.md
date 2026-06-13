@@ -1,6 +1,6 @@
 # Self Iteration Runbook
 
-This runbook describes the safe path for using a running Cli Claw service to validate changes to Cli Claw itself.
+This runbook describes the safe path for using a running Agent Fabric service to validate changes to Agent Fabric itself.
 
 ## Principle
 
@@ -14,14 +14,14 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 4. Send `/self-check` from an admin IM chat.
 5. Continue only if `/self-check` reports `通过`.
 6. If a managed restart is desired, send `/self-restart` from an admin IM chat.
-7. Inspect `~/.cli-claw/ops/restarts/*.json` if IM becomes temporarily unavailable.
+7. Inspect `~/.agent-fabric/ops/restarts/*.json` if IM becomes temporarily unavailable.
 
 ## What `/self-check` Does
 
 - Starts a candidate backend from the app root with `node dist/index.js`.
-- Uses a temporary `HOME`, so candidate data lands under an isolated `~/.cli-claw`.
+- Uses a temporary `HOME`, so candidate data lands under an isolated `~/.agent-fabric`.
 - Uses a temporary `WEB_PORT`.
-- Sets `CLI_CLAW_SELF_CHECK=1`, so the candidate skips IM channel connections.
+- Sets `AGENT_FABRIC_SELF_CHECK=1`, so the candidate skips IM channel connections.
 - Skips CLI launch cwd validation and workspace default cwd materialization, because the candidate HOME is temporary and should not validate production workspaces.
 - Polls `http://127.0.0.1:<port>/api/health`.
 - Stops the candidate process and removes the temporary HOME.
@@ -30,14 +30,14 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 ## What It Does Not Do
 
 - It does not rebuild the project.
-- It does not migrate or modify production `~/.cli-claw`.
+- It does not migrate or modify production `~/.agent-fabric`.
 - It does not stop the current service.
 - It does not promote the candidate to the production port.
 - It does not roll back a failed real restart.
 
 ## What `/self-restart` Does
 
-- Writes a restart intent JSON under `~/.cli-claw/ops/restarts/`.
+- Writes a restart intent JSON under `~/.agent-fabric/ops/restarts/`.
 - Reuses the validated launch spec captured at backend startup; if the current process cannot prove a safe restart command, `/self-restart` refuses the request immediately.
 - Starts an independent watchdog process from `dist/self-restart-watchdog.js`.
 - The watchdog runs shadow self-check first.
@@ -49,6 +49,6 @@ The live backend must not directly restart itself. It owns the IM ingress path; 
 
 Only an out-of-process supervisor or watchdog should perform a real restart. That watchdog must own the old PID, new process launch, health polling, and log capture.
 
-`/self-restart` is the built-in minimal watchdog. It is not a full release manager: it does not keep old binaries, switch symlinks, or guarantee rollback. For stronger production safety, run Cli Claw under launchd/systemd with release directories or blue-green promotion.
+`/self-restart` is the built-in minimal watchdog. It is not a full release manager: it does not keep old binaries, switch symlinks, or guarantee rollback. For stronger production safety, run Agent Fabric under launchd/systemd with release directories or blue-green promotion.
 
 For local macOS hardening, the repo ships `ops/install-launch-agent.sh`. Use it to install a user LaunchAgent with the same validated command shown by `/self-status`, then confirm `launchctl` can re-spawn the backend after a forced exit.

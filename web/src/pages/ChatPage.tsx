@@ -10,14 +10,28 @@ import { ConfirmDialog } from '../components/common';
 import { CreateWorkspaceDialog } from '../components/chat/CreateWorkspaceDialog';
 import { useSwipeBack } from '../hooks/useSwipeBack';
 import { useClearWorkspace } from '../hooks/useClearWorkspace';
-import { type GroupEntry, compareByLastActivity, groupByDate, isWorkspaceListGroup } from '../utils/group-utils';
-import { resolveWorkspaceRouteParam, toWorkspaceChatPath } from '../utils/workspace-routing';
+import {
+  type GroupEntry,
+  compareByLastActivity,
+  groupByDate,
+  isWorkspaceListGroup,
+} from '../utils/group-utils';
+import {
+  resolveWorkspaceRouteParam,
+  toWorkspaceChatPath,
+} from '../utils/workspace-routing';
 
 export function ChatPage() {
   const { workspaceRef } = useParams<{ workspaceRef?: string }>();
   const navigate = useNavigate();
   const { groups, currentGroup, selectGroup, loadGroups } = useChatStore();
-  const { clearState, clearLoading, openClear, closeClear, handleClearConfirm } = useClearWorkspace();
+  const {
+    clearState,
+    clearLoading,
+    openClear,
+    closeClear,
+    handleClearConfirm,
+  } = useClearWorkspace();
   const [createOpen, setCreateOpen] = useState(false);
   const appearance = useAuthStore((s) => s.appearance);
 
@@ -45,9 +59,14 @@ export function ChatPage() {
       else my.push(g);
     });
     pinned.sort((a, b) => (a.pinned_at || '').localeCompare(b.pinned_at || ''));
-    return { mainGroup: main, pinnedGroups: pinned, mySections: groupByDate(my) };
+    return {
+      mainGroup: main,
+      pinnedGroups: pinned,
+      mySections: groupByDate(my),
+    };
   }, [groups]);
-  const hasAnyGroup = mainGroup || pinnedGroups.length > 0 || mySections.length > 0;
+  const hasAnyGroup =
+    mainGroup || pinnedGroups.length > 0 || mySections.length > 0;
 
   // Sync URL param to store selection. No auto-redirect to the home workspace —
   // users land on the welcome screen and choose a workspace manually.
@@ -69,7 +88,15 @@ export function ChatPage() {
         }
       });
     }
-  }, [workspaceRef, routeGroupJid, hasGroups, currentGroup, selectGroup, navigate, loadGroups]);
+  }, [
+    workspaceRef,
+    routeGroupJid,
+    hasGroups,
+    currentGroup,
+    selectGroup,
+    navigate,
+    loadGroups,
+  ]);
 
   const activeGroupJid = workspaceRef ? routeGroupJid : currentGroup;
   const chatViewRef = useRef<HTMLDivElement>(null);
@@ -87,7 +114,11 @@ export function ChatPage() {
         <div className="block lg:hidden w-full overflow-y-auto">
           {/* Mobile header: horizontal logo + actions */}
           <div className="flex items-center gap-3 px-4 pt-5 pb-3">
-            <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'cli-claw'} className="h-8" />
+            <img
+              src={`${import.meta.env.BASE_URL}icons/logo-text.svg`}
+              alt={appearance?.appName || 'agent-fabric'}
+              className="h-8"
+            />
             <div className="flex-1" />
             <button
               onClick={() => setCreateOpen(true)}
@@ -104,7 +135,10 @@ export function ChatPage() {
               <Settings className="w-5 h-5" />
             </button>
             <button
-              onClick={async () => { await useAuthStore.getState().logout(); navigate('/login'); }}
+              onClick={async () => {
+                await useAuthStore.getState().logout();
+                navigate('/login');
+              }}
               className="w-9 h-9 rounded-lg flex items-center justify-center hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
               aria-label="退出访问"
             >
@@ -117,14 +151,23 @@ export function ChatPage() {
               {mainGroup && (
                 <div className="mb-1">
                   <div className="px-2 pt-1 pb-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">主工作区</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      主工作区
+                    </span>
                   </div>
                   <ChatGroupItem
-                    jid={mainGroup.jid} name={mainGroup.name} folder={mainGroup.folder}
+                    jid={mainGroup.jid}
+                    name={mainGroup.name}
+                    folder={mainGroup.folder}
                     lastMessage={mainGroup.lastMessage}
-                    isActive={currentGroup === mainGroup.jid} isHome
-                    isRunning={runnerStates[mainGroup.jid] === 'running'} editable
-                    onSelect={(jid) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); }}
+                    isActive={currentGroup === mainGroup.jid}
+                    isHome
+                    isRunning={runnerStates[mainGroup.jid] === 'running'}
+                    editable
+                    onSelect={(jid) => {
+                      selectGroup(jid);
+                      navigate(toWorkspaceChatPath(jid));
+                    }}
                     onClearHistory={openClear}
                   />
                 </div>
@@ -133,16 +176,26 @@ export function ChatPage() {
               {pinnedGroups.length > 0 && (
                 <div className="mb-1">
                   <div className="px-2 pt-2 pb-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">已固定</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      已固定
+                    </span>
                   </div>
                   {pinnedGroups.map((g) => (
                     <ChatGroupItem
-                      key={g.jid} jid={g.jid} name={g.name} folder={g.folder}
+                      key={g.jid}
+                      jid={g.jid}
+                      name={g.name}
+                      folder={g.folder}
                       lastMessage={g.lastMessage}
-                      isActive={currentGroup === g.jid} isHome={false} isPinned
+                      isActive={currentGroup === g.jid}
+                      isHome={false}
+                      isPinned
                       isRunning={runnerStates[g.jid] === 'running'}
                       editable={g.editable}
-                      onSelect={(jid) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); }}
+                      onSelect={(jid) => {
+                        selectGroup(jid);
+                        navigate(toWorkspaceChatPath(jid));
+                      }}
                       onClearHistory={openClear}
                     />
                   ))}
@@ -152,21 +205,32 @@ export function ChatPage() {
               {mySections.length > 0 && (
                 <div className="mb-1">
                   <div className="px-2 pt-2 pb-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">我的工作区</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      我的工作区
+                    </span>
                   </div>
                   {mySections.map((section) => (
                     <div key={section.label} className="mb-1">
                       <div className="px-2 pt-1 pb-1">
-                        <span className="text-[10px] text-muted-foreground/70 tracking-wide">{section.label}</span>
+                        <span className="text-[10px] text-muted-foreground/70 tracking-wide">
+                          {section.label}
+                        </span>
                       </div>
                       {section.items.map((g) => (
                         <ChatGroupItem
-                          key={g.jid} jid={g.jid} name={g.name} folder={g.folder}
+                          key={g.jid}
+                          jid={g.jid}
+                          name={g.name}
+                          folder={g.folder}
                           lastMessage={g.lastMessage}
-                          isActive={currentGroup === g.jid} isHome={false}
+                          isActive={currentGroup === g.jid}
+                          isHome={false}
                           isRunning={runnerStates[g.jid] === 'running'}
                           editable={g.editable}
-                          onSelect={(jid) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); }}
+                          onSelect={(jid) => {
+                            selectGroup(jid);
+                            navigate(toWorkspaceChatPath(jid));
+                          }}
                           onClearHistory={openClear}
                         />
                       ))}
@@ -177,7 +241,11 @@ export function ChatPage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-64 px-4">
-              <img src={`${import.meta.env.BASE_URL}icons/logo-text.svg`} alt={appearance?.appName || 'cli-claw'} className="h-12 mb-6" />
+              <img
+                src={`${import.meta.env.BASE_URL}icons/logo-text.svg`}
+                alt={appearance?.appName || 'agent-fabric'}
+                className="h-12 mb-6"
+              />
               <p className="text-muted-foreground text-sm">暂无工作区</p>
             </div>
           )}
@@ -186,21 +254,25 @@ export function ChatPage() {
 
       {/* Chat View - Desktop: visible when active group exists, Mobile: only in detail route */}
       {activeGroupJid ? (
-        <div ref={chatViewRef} className={`${workspaceRef ? 'flex-1 min-w-0 h-full overflow-hidden lg:pt-4' : 'hidden lg:block flex-1 min-w-0 h-full overflow-hidden lg:pt-4'}`}>
-          <ChatView
-            groupJid={activeGroupJid}
-            onBack={handleBackToList}
-          />
+        <div
+          ref={chatViewRef}
+          className={`${workspaceRef ? 'flex-1 min-w-0 h-full overflow-hidden lg:pt-4' : 'hidden lg:block flex-1 min-w-0 h-full overflow-hidden lg:pt-4'}`}
+        >
+          <ChatView groupJid={activeGroupJid} onBack={handleBackToList} />
         </div>
       ) : (
         <div className="hidden lg:flex flex-1 items-center justify-center bg-background rounded-t-3xl rounded-b-none mt-5 mr-5 mb-0 ml-3 relative">
           <div className="text-center max-w-sm">
             {/* Logo */}
             <div className="w-16 h-16 rounded-2xl overflow-hidden mx-auto mb-6">
-              <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="cli-claw" className="w-full h-full object-cover" />
+              <img
+                src={`${import.meta.env.BASE_URL}icons/icon-192.png`}
+                alt="agent-fabric"
+                className="w-full h-full object-cover"
+              />
             </div>
             <h2 className="text-xl font-semibold text-foreground mb-2">
-              欢迎使用 {appearance?.appName || 'cli-claw'}
+              欢迎使用 {appearance?.appName || 'agent-fabric'}
             </h2>
             <p className="text-muted-foreground text-sm">
               从左侧选择一个工作区开始对话
@@ -222,7 +294,10 @@ export function ChatPage() {
       <CreateWorkspaceDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        onCreated={(jid) => { selectGroup(jid); navigate(toWorkspaceChatPath(jid)); }}
+        onCreated={(jid) => {
+          selectGroup(jid);
+          navigate(toWorkspaceChatPath(jid));
+        }}
       />
     </div>
   );

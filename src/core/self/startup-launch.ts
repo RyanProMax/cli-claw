@@ -74,7 +74,7 @@ function looksLikeCliEntrypoint(arg: string | undefined): boolean {
   return (
     matchesPathSuffix(arg, ['dist', 'cli.js']) ||
     matchesPathSuffix(arg, ['src', 'cli.ts']) ||
-    /(?:^|[/\\])cli-claw(?:\.js)?$/.test(arg)
+    /(?:^|[/\\])agent-fabric(?:\.js)?$/.test(arg)
   );
 }
 
@@ -149,7 +149,7 @@ function validateLaunchSpec(
     return 'missing backend entrypoint';
   }
 
-  return `unrecognized cli-claw launch shape: ${args.join(' ')}`;
+  return `unrecognized agent-fabric launch shape: ${args.join(' ')}`;
 }
 
 export function createStartupLaunchSpec(

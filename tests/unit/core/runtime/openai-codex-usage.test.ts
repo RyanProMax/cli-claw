@@ -87,7 +87,7 @@ describe('OpenAI Codex usage snapshot', () => {
           Accept: 'application/json',
           Authorization: 'Bearer codex-token',
           'ChatGPT-Account-ID': 'acct_123',
-          'User-Agent': 'codex_cli_rs/0.0.0 (Cli Claw)',
+          'User-Agent': 'codex_cli_rs/0.0.0 (Agent Fabric)',
           originator: 'codex_cli_rs',
         },
       },

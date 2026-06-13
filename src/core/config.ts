@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import os from 'os';
 import { APP_ROOT } from './app-root.js';
 
-export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'cli-claw';
+export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'agent-fabric';
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
@@ -14,12 +14,28 @@ export const MOUNT_ALLOWLIST_PATH = path.resolve(
   'config',
   'mount-allowlist.json',
 );
-export const DATA_DIR = path.join(os.homedir(), '.cli-claw');
+function envText(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value || null;
+}
+
+export function resolveAgentFabricDataDir(homeDir = os.homedir()): string {
+  const explicitHome = envText('AGENT_FABRIC_HOME');
+  if (explicitHome) return path.resolve(explicitHome);
+
+  return path.join(homeDir, '.agent-fabric');
+}
+
+function resolveEnvPath(name: string): string | null {
+  const value = envText(name);
+  return value ? path.resolve(value) : null;
+}
+
+export const DATA_DIR = resolveAgentFabricDataDir();
 export const STORE_DIR = path.join(DATA_DIR, 'db');
 export const GROUPS_DIR = path.join(DATA_DIR, 'groups');
-export const CACHE_DIR = process.env.CLI_CLAW_CACHE_DIR
-  ? path.resolve(process.env.CLI_CLAW_CACHE_DIR)
-  : path.join(DATA_DIR, 'cache');
+export const CACHE_DIR =
+  resolveEnvPath('AGENT_FABRIC_CACHE_DIR') ?? path.join(DATA_DIR, 'cache');
 export const MAIN_GROUP_FOLDER = 'main';
 
 // Timezone for scheduled tasks (cron expressions, etc.)
@@ -36,8 +52,8 @@ export const WEB_PORT = parseInt(process.env.WEB_PORT || '3000', 10);
 // When accessed over HTTPS: use __Host- prefix (requires Secure; Path=/; no Domain)
 // When accessed over HTTP (localhost dev or no TLS): use plain name
 // Determined per-request via isSecureRequest(), not at startup
-export const SESSION_COOKIE_NAME_SECURE = '__Host-cli-claw-session';
-export const SESSION_COOKIE_NAME_PLAIN = 'cli-claw-session';
+export const SESSION_COOKIE_NAME_SECURE = '__Host-agent-fabric-session';
+export const SESSION_COOKIE_NAME_PLAIN = 'agent-fabric-session';
 const SESSION_SECRET_FILE = path.join(DATA_DIR, 'config', 'session-secret.key');
 
 function getOrCreateSessionSecret(): string {

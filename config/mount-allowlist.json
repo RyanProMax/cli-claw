@@ -6,6 +6,6 @@
       "description": "Development projects"
     }
   ],
-  "blockedPatterns": [".cli-claw", ".codex", ".agents"],
+  "blockedPatterns": [".agent-fabric", ".codex", ".agents"],
   "nonMainReadOnly": true
 }

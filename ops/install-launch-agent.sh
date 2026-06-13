@@ -1,11 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-LABEL="com.ryan.cli-claw"
+LABEL="com.ryan.agent-fabric"
 CWD="$(cd "$(dirname "$0")/.." && pwd)"
-LOG_DIR="${HOME}/.cli-claw/ops/launchd"
-STDOUT_PATH="${LOG_DIR}/cli-claw.stdout.log"
-STDERR_PATH="${LOG_DIR}/cli-claw.stderr.log"
+LOG_DIR="${HOME}/.agent-fabric/ops/launchd"
+STDOUT_PATH="${LOG_DIR}/agent-fabric.stdout.log"
+STDERR_PATH="${LOG_DIR}/agent-fabric.stderr.log"
 SUBCOMMAND="install"
 
 build_launch_path() {
@@ -72,7 +72,7 @@ Usage:
   ops/install-launch-agent.sh uninstall [--label LABEL]
 
 Defaults:
-  install without COMMAND uses: cli-claw start
+  install without COMMAND uses: agent-fabric start
 
 Examples:
   ops/install-launch-agent.sh install
@@ -171,16 +171,16 @@ fi
 mkdir -p "${HOME}/Library/LaunchAgents" "${LOG_DIR}"
 
 if [[ $# -eq 0 ]]; then
-  if ! command -v cli-claw >/dev/null 2>&1; then
-    echo "cli-claw not found in PATH; pass an explicit launch command after --" >&2
+  if ! command -v agent-fabric >/dev/null 2>&1; then
+    echo "agent-fabric not found in PATH; pass an explicit launch command after --" >&2
     exit 2
   fi
-  PROGRAM_ARGS=("$(command -v cli-claw)" "start")
+  PROGRAM_ARGS=("$(command -v agent-fabric)" "start")
 else
   PROGRAM_ARGS=("$@")
 fi
 
-TMP_PLIST="$(mktemp "${TMPDIR:-/tmp}/cli-claw-launchd.XXXXXX.plist")"
+TMP_PLIST="$(mktemp "${TMPDIR:-/tmp}/agent-fabric-launchd.XXXXXX.plist")"
 {
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -207,7 +207,7 @@ EOF
   <dict>
     <key>PATH</key>
     <string>$(xml_escape "${LAUNCH_PATH}")</string>
-    <key>CLI_CLAW_LAUNCHD_SERVICE_NAME</key>
+    <key>AGENT_FABRIC_LAUNCHD_SERVICE_NAME</key>
     <string>$(xml_escape "${SERVICE_NAME}")</string>
   </dict>
   <key>StandardOutPath</key>

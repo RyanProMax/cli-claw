@@ -7,7 +7,7 @@ const DEFAULT_MODE: DisplayMode = 'chat';
 const listeners = new Set<() => void>();
 
 function getStorageKey(userId: string | null | undefined): string {
-  return `cli-claw-display-mode:${userId || 'guest'}`;
+  return `agent-fabric-display-mode:${userId || 'guest'}`;
 }
 
 function readMode(storageKey: string): DisplayMode {

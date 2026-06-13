@@ -139,7 +139,7 @@ function positiveNumberFromEnv(name: string, fallback: number): number {
 
 function staleRunningTimeoutMs(): number {
   return positiveNumberFromEnv(
-    'CLI_CLAW_SCHEDULED_WORKFLOW_STALE_TIMEOUT_MS',
+    'AGENT_FABRIC_SCHEDULED_WORKFLOW_STALE_TIMEOUT_MS',
     DEFAULT_STALE_RUNNING_TIMEOUT_MS,
   );
 }
@@ -204,11 +204,11 @@ async function deferScheduledTaskIfUsageLow(
   const decision = evaluateScheduledTaskUsageGuard(snapshot, {
     nowMs: Date.now(),
     minRemainingPct: positiveNumberFromEnv(
-      'CLI_CLAW_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT',
+      'AGENT_FABRIC_SCHEDULED_AGENT_USAGE_MIN_REMAINING_PCT',
       DEFAULT_USAGE_GUARD_MIN_REMAINING_PCT,
     ),
     unavailableRetryMs: positiveNumberFromEnv(
-      'CLI_CLAW_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS',
+      'AGENT_FABRIC_SCHEDULED_AGENT_USAGE_UNAVAILABLE_RETRY_MS',
       DEFAULT_USAGE_GUARD_UNAVAILABLE_RETRY_MS,
     ),
   });
@@ -332,7 +332,7 @@ export async function runWorkflowTask(
         scheduleValue: task.schedule_value,
       }),
       positiveNumberFromEnv(
-        'CLI_CLAW_SCHEDULED_WORKFLOW_TASK_TIMEOUT_MS',
+        'AGENT_FABRIC_SCHEDULED_WORKFLOW_TASK_TIMEOUT_MS',
         DEFAULT_WORKFLOW_TASK_TIMEOUT_MS,
       ),
       `Scheduled workflow task ${task.id}`,

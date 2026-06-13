@@ -132,7 +132,8 @@ export interface SelfRestartWatchdogResult {
   error?: string | null;
 }
 
-export const SELF_RESTART_REQUEST_CHAT_JID_ENV = 'CLI_CLAW_REQUEST_CHAT_JID';
+export const SELF_RESTART_REQUEST_CHAT_JID_ENV =
+  'AGENT_FABRIC_REQUEST_CHAT_JID';
 
 export {
   createCliStartLaunchSpec,
@@ -243,7 +244,7 @@ export function readCurrentBackendRestartState(
 export function resolveLaunchdServiceNameFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
-  const serviceName = env.CLI_CLAW_LAUNCHD_SERVICE_NAME?.trim();
+  const serviceName = env.AGENT_FABRIC_LAUNCHD_SERVICE_NAME?.trim();
   return serviceName ? serviceName : null;
 }
 
@@ -265,10 +266,10 @@ function buildRestartEnv(port: number): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     WEB_PORT: String(port),
-    CLI_CLAW_RESTARTED_BY_WATCHDOG: '1',
+    AGENT_FABRIC_RESTARTED_BY_WATCHDOG: '1',
   };
-  delete env.CLI_CLAW_SELF_CHECK;
-  delete env.CLI_CLAW_RESTART_WATCHDOG;
+  delete env.AGENT_FABRIC_SELF_CHECK;
+  delete env.AGENT_FABRIC_RESTART_WATCHDOG;
   return env;
 }
 
@@ -420,7 +421,7 @@ export function requestSelfRestart(
       stdio: 'ignore',
       env: {
         ...process.env,
-        CLI_CLAW_RESTART_WATCHDOG: '1',
+        AGENT_FABRIC_RESTART_WATCHDOG: '1',
       },
     });
     proc.unref?.();

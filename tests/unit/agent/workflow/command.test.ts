@@ -84,7 +84,7 @@ afterEach(() => {
 });
 
 async function loadWorkflowCommand() {
-  const home = tempDir('cli-claw-workflow-command-home-');
+  const home = tempDir('agent-fabric-workflow-command-home-');
   vi.stubEnv('HOME', home);
   const db = await import('../../../../src/storage/db.ts');
   const command = await import('../../../../src/agent/workflow/command.ts');
@@ -94,7 +94,7 @@ async function loadWorkflowCommand() {
 
 describe('workflow command execution', () => {
   test('lists workflows from the current workspace', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-workspace-');
+    const workspaceRoot = tempDir('agent-fabric-workflow-command-workspace-');
     writeWorkflowFixture(workspaceRoot);
     const { command, db } = await loadWorkflowCommand();
 
@@ -115,7 +115,7 @@ describe('workflow command execution', () => {
   });
 
   test('creates an isolated workflow run and invokes the graph runner', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-run-');
+    const workspaceRoot = tempDir('agent-fabric-workflow-command-run-');
     writeWorkflowFixture(workspaceRoot);
     const { command, db } = await loadWorkflowCommand();
     const runGraph = vi.fn().mockResolvedValue({
@@ -163,7 +163,7 @@ describe('workflow command execution', () => {
   });
 
   test('passes structured initial input into workflow runs', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-input-');
+    const workspaceRoot = tempDir('agent-fabric-workflow-command-input-');
     writeWorkflowFixture(workspaceRoot);
     const { command, db } = await loadWorkflowCommand();
     const runGraph = vi.fn().mockResolvedValue({
@@ -203,7 +203,7 @@ describe('workflow command execution', () => {
   });
 
   test('background workflow returns a started acknowledgement before graph completion', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-background-');
+    const workspaceRoot = tempDir('agent-fabric-workflow-command-background-');
     writeWorkflowFixture(workspaceRoot);
     const { command, db } = await loadWorkflowCommand();
     const gate = deferred<void>();
@@ -264,7 +264,9 @@ describe('workflow command execution', () => {
   });
 
   test('background workflow reports failures and timeouts to the trigger session', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-background-fail-');
+    const workspaceRoot = tempDir(
+      'agent-fabric-workflow-command-background-fail-',
+    );
     writeWorkflowFixture(workspaceRoot);
     const { command, db } = await loadWorkflowCommand();
     const backgroundResults: string[] = [];
@@ -305,7 +307,7 @@ describe('workflow command execution', () => {
   });
 
   test('summarizes transient socket failures instead of exposing raw undici details', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-socket-fail-');
+    const workspaceRoot = tempDir('agent-fabric-workflow-command-socket-fail-');
     writeWorkflowFixture(workspaceRoot);
     const { command, db } = await loadWorkflowCommand();
     const runGraph = vi.fn(async () => {
@@ -336,7 +338,9 @@ describe('workflow command execution', () => {
   });
 
   test('normalizes hkipo final report before delivery', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-hkipo-report-');
+    const workspaceRoot = tempDir(
+      'agent-fabric-workflow-command-hkipo-report-',
+    );
     writeFile(
       path.join(workspaceRoot, '.agents', 'agent-roles', 'editor.md'),
       [
@@ -407,7 +411,7 @@ describe('workflow command execution', () => {
   });
 
   test('normalizes kol final report separators and removes default confidence footer', async () => {
-    const workspaceRoot = tempDir('cli-claw-workflow-command-kol-report-');
+    const workspaceRoot = tempDir('agent-fabric-workflow-command-kol-report-');
     writeFile(
       path.join(workspaceRoot, '.agents', 'agent-roles', 'editor.md'),
       [
@@ -524,7 +528,7 @@ describe('workflow command execution', () => {
 
   test('keeps kol source warnings while renaming the old confidence section', async () => {
     const workspaceRoot = tempDir(
-      'cli-claw-workflow-command-kol-warning-report-',
+      'agent-fabric-workflow-command-kol-warning-report-',
     );
     writeFile(
       path.join(workspaceRoot, '.agents', 'agent-roles', 'editor.md'),

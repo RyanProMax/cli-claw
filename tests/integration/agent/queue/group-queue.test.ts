@@ -7,7 +7,9 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 const tempHomes: string[] = [];
 
 async function loadGroupQueueModule() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-group-queue-'));
+  const home = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'agent-fabric-group-queue-'),
+  );
   tempHomes.push(home);
   vi.stubEnv('HOME', home);
   const mod = await import('../../../../src/agent/queue/group-queue.ts');
@@ -27,7 +29,8 @@ afterEach(() => {
 describe('GroupQueue shared-runner IPC recovery', () => {
   test('preserves waiting order when drainWaiting releases a slot', async () => {
     const { GroupQueue } = await loadGroupQueueModule();
-    const { saveSystemSettings } = await import('../../../../src/core/runtime/config.js');
+    const { saveSystemSettings } =
+      await import('../../../../src/core/runtime/config.js');
     saveSystemSettings({ maxConcurrentProcesses: 1 });
 
     const queue = new GroupQueue();
@@ -77,7 +80,8 @@ describe('GroupQueue shared-runner IPC recovery', () => {
 
   test('drains pending messages before low-priority background tasks', async () => {
     const { GroupQueue } = await loadGroupQueueModule();
-    const { saveSystemSettings } = await import('../../../../src/core/runtime/config.js');
+    const { saveSystemSettings } =
+      await import('../../../../src/core/runtime/config.js');
     saveSystemSettings({ maxConcurrentProcesses: 1 });
 
     const queue = new GroupQueue();

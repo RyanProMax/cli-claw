@@ -1,5 +1,5 @@
 /**
- * Agent process runner for cli-claw.
+ * Agent process runner for agent-fabric.
  * Spawns the local OpenAI/Codex runner process and handles IPC.
  */
 import { ChildProcess, spawn } from 'child_process';
@@ -321,18 +321,18 @@ export async function runAgentProcess(
       pathValue: hostEnv['PATH'],
       homeDir: hostEnv['HOME'],
     });
-    hostEnv['CLI_CLAW_BACKEND_PID'] = String(process.pid);
-    hostEnv['CLI_CLAW_SAFE_RESTART_COMMAND'] = 'cli-claw restart';
-    hostEnv['CLI_CLAW_SAFE_IM_RESTART_COMMAND'] = '/self-restart';
+    hostEnv['AGENT_FABRIC_BACKEND_PID'] = String(process.pid);
+    hostEnv['AGENT_FABRIC_SAFE_RESTART_COMMAND'] = 'agent-fabric restart';
+    hostEnv['AGENT_FABRIC_SAFE_IM_RESTART_COMMAND'] = '/self-restart';
     writeSelfRestartRequestChatJidToEnv(hostEnv, input.chatJid);
     const launchdServiceName =
-      process.env.CLI_CLAW_LAUNCHD_SERVICE_NAME?.trim();
+      process.env.AGENT_FABRIC_LAUNCHD_SERVICE_NAME?.trim();
     if (launchdServiceName) {
-      hostEnv['CLI_CLAW_LAUNCHD_SERVICE_NAME'] = launchdServiceName;
+      hostEnv['AGENT_FABRIC_LAUNCHD_SERVICE_NAME'] = launchdServiceName;
     }
 
-    hostEnv['CLI_CLAW_WORKSPACE_GROUP'] = groupDir;
-    hostEnv['CLI_CLAW_WORKSPACE_IPC'] = groupIpcDir;
+    hostEnv['AGENT_FABRIC_WORKSPACE_GROUP'] = groupDir;
+    hostEnv['AGENT_FABRIC_WORKSPACE_IPC'] = groupIpcDir;
 
     const agentRunnerRoot = resolveAppPath('container', 'agent-runner');
     const agentRunnerManifestPath = path.join(agentRunnerRoot, 'package.json');

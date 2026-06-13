@@ -145,7 +145,7 @@ vi.mock('../../../../src/agent/workflow/command.js', () => ({
 const tempHomes: string[] = [];
 
 function createTempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-kol-e2e-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fabric-kol-e2e-'));
   tempHomes.push(dir);
   return dir;
 }

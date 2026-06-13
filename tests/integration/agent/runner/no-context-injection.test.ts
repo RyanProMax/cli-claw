@@ -45,7 +45,7 @@ function walkFiles(root: string): string[] {
   return result;
 }
 
-describe('no cli-claw context injection', () => {
+describe('no agent-fabric context injection', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -71,7 +71,7 @@ describe('no cli-claw context injection', () => {
     ).toBe(false);
   });
 
-  test('runner does not expose cli-claw memory tools or transcript archives', () => {
+  test('runner does not expose agent-fabric memory tools or transcript archives', () => {
     const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
 
     expect(
@@ -86,7 +86,7 @@ describe('no cli-claw context injection', () => {
     expect(runnerSource).not.toContain('formatTranscriptMarkdown');
   });
 
-  test('production files do not retain cli-claw context injection surfaces', () => {
+  test('production files do not retain agent-fabric context injection surfaces', () => {
     const files = [
       ...walkFiles('src'),
       ...walkFiles('shared'),
@@ -133,8 +133,12 @@ describe('no cli-claw context injection', () => {
     const messageIpcPath = indexSource.slice(start, end);
 
     expect(messageIpcPath).toContain('resolveVisibleReplyParts');
-    expect(messageIpcPath).not.toMatch(/sendImWithFailTracking\([^,]+,\s*data\.text/);
-    expect(messageIpcPath).not.toMatch(/broadcastToOwnerIMChannels[\s\S]*data\.text/);
+    expect(messageIpcPath).not.toMatch(
+      /sendImWithFailTracking\([^,]+,\s*data\.text/,
+    );
+    expect(messageIpcPath).not.toMatch(
+      /broadcastToOwnerIMChannels[\s\S]*data\.text/,
+    );
   });
 
   test('agent runner no longer owns MCP settings sync or MCP tool wrappers', () => {
@@ -150,6 +154,6 @@ describe('no cli-claw context injection', () => {
     const runnerSource = readRepoFile('container/agent-runner/src/index.ts');
 
     expect(runnerSource).not.toContain('loadWorkspaceMcpServers');
-    expect(runnerSource).not.toContain("path.join(WORKSPACE_GROUP");
+    expect(runnerSource).not.toContain('path.join(WORKSPACE_GROUP');
   });
 });

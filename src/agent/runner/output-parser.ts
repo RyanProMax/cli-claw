@@ -11,8 +11,28 @@ import { logger } from '../../core/logger.js';
 import type { AgentProcessOutput } from './container-runner.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
-export const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
-export const OUTPUT_END_MARKER = '---CLI_CLAW_OUTPUT_END---';
+export const OUTPUT_START_MARKER = '---AGENT_FABRIC_OUTPUT_START---';
+export const OUTPUT_END_MARKER = '---AGENT_FABRIC_OUTPUT_END---';
+
+function findNextOutputFrame(buffer: string): {
+  startIdx: number;
+  endIdx: number;
+  startMarker: string;
+  endMarker: string;
+} | null {
+  const candidate = {
+    startIdx: buffer.indexOf(OUTPUT_START_MARKER),
+    startMarker: OUTPUT_START_MARKER,
+    endMarker: OUTPUT_END_MARKER,
+  };
+  if (candidate.startIdx < 0) return null;
+  const endIdx = buffer.indexOf(
+    candidate.endMarker,
+    candidate.startIdx + candidate.startMarker.length,
+  );
+  if (endIdx === -1) return null;
+  return { ...candidate, endIdx };
+}
 
 // ─── Stdout Stream Parser ────────────────────────────────────────────
 
@@ -92,19 +112,14 @@ export function attachStdoutHandler(
             ? state.parseBuffer.slice(lastMarkerIdx)
             : state.parseBuffer.slice(-512);
       }
-      let startIdx: number;
-      while (
-        (startIdx = state.parseBuffer.indexOf(OUTPUT_START_MARKER)) !== -1
-      ) {
-        const endIdx = state.parseBuffer.indexOf(OUTPUT_END_MARKER, startIdx);
-        if (endIdx === -1) break; // Incomplete pair, wait for more data
+      let frame = findNextOutputFrame(state.parseBuffer);
+      while (frame) {
+        const { startIdx, endIdx, startMarker, endMarker } = frame;
 
         const jsonStr = state.parseBuffer
-          .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
+          .slice(startIdx + startMarker.length, endIdx)
           .trim();
-        state.parseBuffer = state.parseBuffer.slice(
-          endIdx + OUTPUT_END_MARKER.length,
-        );
+        state.parseBuffer = state.parseBuffer.slice(endIdx + endMarker.length);
 
         try {
           const parsed: AgentProcessOutput = JSON.parse(jsonStr);
@@ -145,6 +160,7 @@ export function attachStdoutHandler(
             'Failed to parse streamed output chunk',
           );
         }
+        frame = findNextOutputFrame(state.parseBuffer);
       }
     }
   });
@@ -688,7 +704,7 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
   }
 
   if (
-    /Codex CLI login|CLI_CLAW_CODEX_ACCESS_TOKEN|OpenAI API key is missing|api key/i.test(
+    /Codex CLI login|AGENT_FABRIC_CODEX_ACCESS_TOKEN|OpenAI API key is missing|api key/i.test(
       normalized,
     ) ||
     /auth_required|login required|not logged in|unauthorized|401/i.test(
@@ -710,7 +726,7 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
   }
 
   if (/Store must be set to false/i.test(normalized)) {
-    return 'OpenAI runtime 请求被 Codex 后端拒绝：store 必须为 false。请更新并重启 cli-claw 后重试。';
+    return 'OpenAI runtime 请求被 Codex 后端拒绝：store 必须为 false。请更新并重启 agent-fabric 后重试。';
   }
 
   if (
@@ -718,7 +734,7 @@ export function formatUserFacingRuntimeError(stderr: string): string | null {
       normalized,
     )
   ) {
-    return 'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新进程日志中的 request id，更新并重启 cli-claw 后重试。';
+    return 'OpenAI runtime 请求被 Codex 后端拒绝（400）。请查看最新进程日志中的 request id，更新并重启 agent-fabric 后重试。';
   }
 
   return null;

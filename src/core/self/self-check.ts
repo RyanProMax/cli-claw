@@ -63,7 +63,7 @@ const OUTPUT_TAIL_LIMIT = 20;
 const ANSI_RE = /\u001b\[[0-9;]*m/g;
 
 function defaultMakeTempHome(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'cli-claw-self-check-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-fabric-self-check-'));
 }
 
 function defaultCleanupTempHome(dir: string): void {
@@ -191,9 +191,9 @@ export async function runSelfCheck(
         ...process.env,
         HOME: tempHome,
         WEB_PORT: String(port),
-        CLI_CLAW_SELF_CHECK: '1',
+        AGENT_FABRIC_SELF_CHECK: '1',
         WEB_SESSION_SECRET:
-          process.env.WEB_SESSION_SECRET || 'cli-claw-self-check-secret',
+          process.env.WEB_SESSION_SECRET || 'agent-fabric-self-check-secret',
       },
     });
 

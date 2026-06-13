@@ -6,7 +6,7 @@ description: Repository-level slash command bridge for stock research, HK IPO po
 # stock-analysis-skill
 
 This repository-level skill exists only to expose executable slash commands from
-Cli Claw's workspace `.agents/skills` contract.
+Agent Fabric's workspace `.agents/skills` contract.
 
 The command implementation is delegated to the sibling `stock-analysis-skill`
 repository when present, or to `STOCK_ANALYSIS_SKILL_ROOT` when that environment

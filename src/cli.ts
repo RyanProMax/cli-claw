@@ -31,7 +31,7 @@ interface SelfRestartCliResult {
 }
 
 const HELP_TEXT = [
-  'Usage: cli-claw <command>',
+  'Usage: agent-fabric <command>',
   '',
   'Commands:',
   '  start',
@@ -109,11 +109,15 @@ async function loadBackendStart(): Promise<
 > {
   const mod = (await import('./index.js')) as Record<string, unknown>;
   const candidate =
-    mod.startCliClaw ?? mod.start ?? mod.main ?? mod.runCliClaw ?? mod.default;
+    mod.startAgentFabric ??
+    mod.start ??
+    mod.main ??
+    mod.runAgentFabric ??
+    mod.default;
 
   if (typeof candidate !== 'function') {
     throw new Error(
-      'cli-claw backend start export is unavailable; expected a callable start function from src/index.ts',
+      'agent-fabric backend start export is unavailable; expected a callable start function from src/index.ts',
     );
   }
 

@@ -73,7 +73,7 @@ class CodexAppServerClient {
 
   async initialize(): Promise<void> {
     await this.request('initialize', {
-      clientInfo: { name: 'cli-claw', version: '0.0.0' },
+      clientInfo: { name: 'agent-fabric', version: '0.0.0' },
       capabilities: { experimentalApi: true },
     });
     this.notify('initialized');
@@ -372,10 +372,12 @@ export async function resolveCodexCliRuntimeEnv(
 ): Promise<Record<string, string>> {
   const auth = await resolveCodexCliRuntimeAuth(options);
   return {
-    CLI_CLAW_OPENAI_AUTH_MODE: 'codex-cli',
-    CLI_CLAW_CODEX_ACCESS_TOKEN: auth.accessToken,
-    CLI_CLAW_CODEX_BASE_URL: auth.baseURL,
-    CLI_CLAW_CODEX_AUTH_SOURCE: auth.source,
-    ...(auth.accountId ? { CLI_CLAW_CODEX_ACCOUNT_ID: auth.accountId } : {}),
+    AGENT_FABRIC_OPENAI_AUTH_MODE: 'codex-cli',
+    AGENT_FABRIC_CODEX_ACCESS_TOKEN: auth.accessToken,
+    AGENT_FABRIC_CODEX_BASE_URL: auth.baseURL,
+    AGENT_FABRIC_CODEX_AUTH_SOURCE: auth.source,
+    ...(auth.accountId
+      ? { AGENT_FABRIC_CODEX_ACCOUNT_ID: auth.accountId }
+      : {}),
   };
 }

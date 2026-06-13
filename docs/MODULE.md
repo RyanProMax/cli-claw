@@ -24,7 +24,7 @@
 │   ├── core/
 │   │   ├── app-root.ts              # 安装位置 / 包根路径 / 启动目录解析
 │   │   ├── auth.ts                  # 实例密码、session 与登录限流 helper
-│   │   ├── cache.ts                 # `~/.cli-claw/cache` 通用缓存目录、TTL/容量清理与定时清理 loop
+│   │   ├── cache.ts                 # `~/.agent-fabric/cache` 通用缓存目录、TTL/容量清理与定时清理 loop
 │   │   ├── config.ts                # 全局路径、端口、运行环境配置
 │   │   ├── logger.ts                # pino logger
 │   │   ├── schemas.ts               # API 输入 schema

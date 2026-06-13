@@ -102,13 +102,13 @@
 
 - Status: `monitoring`
 - Source: 2026-04-25 user request item `2`; `/self-status` and safe restart hardening
-- Summary: 长期运行和安全重启入口必须收敛到 `cli-claw start` / `cli-claw restart`；开发直启路径只能作为调试入口，并且状态面必须清楚标注差异。
+- Summary: 长期运行和安全重启入口必须收敛到 `agent-fabric start` / `agent-fabric restart`；开发直启路径只能作为调试入口，并且状态面必须清楚标注差异。
 - Durable contract:
   - Canonical command behavior lives in `docs/COMMAND.md`.
   - Runtime launch/source/build-state semantics live in `docs/RUNTIME.md`.
 - Next action:
   - Monitor the next `/self-status` / `/self-restart` cycle for launch-source drift.
-  - Decide whether this dev machine should install/link `cli-claw` onto PATH so operator shells do not need repo-local fallback commands.
+  - Decide whether this dev machine should install/link `agent-fabric` onto PATH so operator shells do not need repo-local fallback commands.
 
 ### P0 RM-2026-04-25-01 Feishu Message Reliability Control Plane
 
@@ -146,7 +146,7 @@
 
 - Status: `monitoring`
 - Source: 2026-04-25 user request item `5`; restart recovery and resume-gate incidents
-- Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息；连续性只由底层 agent runtime session 提供，Cli Claw 消息数据库只用于审计和溯源。
+- Summary: 激活/重启/clear 后的首轮回复必须只回答当前消息；连续性只由底层 agent runtime session 提供，Agent Fabric 消息数据库只用于审计和溯源。
 - Durable contract:
   - Memory/recovery boundaries live in `docs/MEMORY.md`.
   - Runtime session and channel/source boundaries live in `docs/RUNTIME.md`.

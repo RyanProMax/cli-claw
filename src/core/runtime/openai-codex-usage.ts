@@ -314,7 +314,7 @@ export async function getOpenAiCodexUsageSnapshot(
       const headers: Record<string, string> = {
         Accept: 'application/json',
         Authorization: `Bearer ${auth.accessToken}`,
-        'User-Agent': 'codex_cli_rs/0.0.0 (Cli Claw)',
+        'User-Agent': 'codex_cli_rs/0.0.0 (Agent Fabric)',
         originator: 'codex_cli_rs',
         ...(auth.accountId ? { 'ChatGPT-Account-ID': auth.accountId } : {}),
       };

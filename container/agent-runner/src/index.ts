@@ -1,5 +1,5 @@
 /**
- * cli-claw Agent Runner
+ * agent-fabric Agent Runner
  * Runs as the local agent process, receives config via stdin, outputs result to stdout.
  *
  * Input protocol:
@@ -31,8 +31,8 @@ import {
 } from './openai-agent-stream.js';
 
 const WORKSPACE_GROUP =
-  process.env.CLI_CLAW_WORKSPACE_GROUP || '/workspace/group';
-const WORKSPACE_IPC = process.env.CLI_CLAW_WORKSPACE_IPC || '/workspace/ipc';
+  process.env.AGENT_FABRIC_WORKSPACE_GROUP || '/workspace/group';
+const WORKSPACE_IPC = process.env.AGENT_FABRIC_WORKSPACE_IPC || '/workspace/ipc';
 
 const IPC_INPUT_DIR = path.join(WORKSPACE_IPC, 'input');
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
@@ -57,8 +57,8 @@ async function readStdin(): Promise<string> {
   });
 }
 
-const OUTPUT_START_MARKER = '---CLI_CLAW_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---CLI_CLAW_OUTPUT_END---';
+const OUTPUT_START_MARKER = '---AGENT_FABRIC_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---AGENT_FABRIC_OUTPUT_END---';
 
 function asOpenAiRuntimeIdentity(
   value: AgentProcessOutput['runtimeIdentity'] | undefined,

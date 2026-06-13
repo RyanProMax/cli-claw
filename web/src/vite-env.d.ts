@@ -6,5 +6,5 @@ declare module '*.css' {
 }
 
 interface Window {
-  __CLI_CLAW_HASH_ROUTER__?: boolean;
+  __AGENT_FABRIC_HASH_ROUTER__?: boolean;
 }

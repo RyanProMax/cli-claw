@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PACK_CACHE="${NPM_RELEASE_CACHE:-${TMPDIR:-/tmp}/cli-claw-npm-cache}"
+PACK_CACHE="${NPM_RELEASE_CACHE:-${TMPDIR:-/tmp}/agent-fabric-npm-cache}"
 
 cd "$ROOT"
 

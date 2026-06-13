@@ -1,5 +1,5 @@
 /**
- * Utility functions for cli-claw Agent Runner.
+ * Utility functions for agent-fabric Agent Runner.
  *
  * Pure utility functions with no side effects or state dependencies.
  */
