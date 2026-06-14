@@ -10,6 +10,8 @@ const ENV_KEYS = [
   'STOCK_ANALYSIS_API_ROOT',
   'STOCK_ANALYSIS_UV',
   'STOCK_KOL_INTEL_ROOT',
+  'TWSCRAPE_DB_PATH',
+  'AGENT_FABRIC_HOME',
   'AGENT_FABRIC_CACHE_DIR',
 ] as const;
 
@@ -385,6 +387,72 @@ describe('default workflow local tasks', () => {
       scope: 'memory',
       status: 'disabled',
       cacheable: false,
+    });
+  });
+
+  test('prepare_context passes the Agent Fabric twscrape account database to stock-kol-intel', async () => {
+    const stockKolRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'stock-kol-db-root-'),
+    );
+    const agentFabricHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'agent-fabric-home-'),
+    );
+    tempDirs.push(stockKolRoot, agentFabricHome);
+    fs.mkdirSync(path.join(stockKolRoot, 'commands'), { recursive: true });
+    fs.mkdirSync(path.join(stockKolRoot, 'references'), { recursive: true });
+    const accountDbPath = path.join(
+      agentFabricHome,
+      'state',
+      'stock-kol-intel',
+      'twscrape',
+      'accounts.db',
+    );
+    fs.mkdirSync(path.dirname(accountDbPath), { recursive: true });
+    fs.writeFileSync(accountDbPath, '');
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'references', 'kol_whitelist.json'),
+      JSON.stringify({
+        version: 1,
+        kols: [
+          {
+            id: 'sample',
+            display_name: 'Sample KOL',
+            primary_links: [
+              { platform: 'X/Twitter', url: 'https://x.com/sample' },
+            ],
+          },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(stockKolRoot, 'commands', 'kol.py'),
+      [
+        'import json',
+        'import os',
+        'from pathlib import Path',
+        'def load_whitelist():',
+        '    return json.loads((Path(__file__).resolve().parents[1] / "references" / "kol_whitelist.json").read_text(encoding="utf-8"))',
+        'def build_x_source_preflight(days, whitelist):',
+        '    return {"source": "twscrape", "status": "ok", "window_days": days, "db_path": os.environ.get("TWSCRAPE_DB_PATH"), "results": []}',
+      ].join('\n'),
+    );
+
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_KOL_INTEL_ROOT = stockKolRoot;
+    process.env.AGENT_FABRIC_HOME = agentFabricHome;
+    delete process.env.TWSCRAPE_DB_PATH;
+
+    const tasks = createDefaultWorkflowLocalTasks();
+    const artifact = await tasks['stock.kol.prepare_context']({
+      taskId: 'stock.kol.prepare_context',
+      nodeId: 'kol_context_preflight',
+      input: { command: 'kol', argsText: '--days=7', input: { days: 7 } },
+      artifacts: {},
+    });
+
+    expect((artifact as any).x_preflight).toMatchObject({
+      status: 'ok',
+      db_path: accountDbPath,
     });
   });
 

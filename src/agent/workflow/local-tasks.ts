@@ -44,10 +44,57 @@ interface KolContextCacheEntry {
 const KOL_CONTEXT_CACHE_MIN_DAYS = 30;
 const KOL_CONTEXT_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
 const KOL_CONTEXT_CACHE_MAX_ENTRIES = 16;
+const STOCK_KOL_TWSCRAPE_DB_RELATIVE_PATH = path.join(
+  'state',
+  'stock-kol-intel',
+  'twscrape',
+  'accounts.db',
+);
 const kolContextCache = new Map<string, KolContextCacheEntry>();
 
 function agentFabricCacheRootFromEnv(): string | undefined {
   return process.env.AGENT_FABRIC_CACHE_DIR;
+}
+
+function expandHomePath(value: string): string {
+  if (value === '~') return os.homedir();
+  if (value.startsWith(`~${path.sep}`)) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return value;
+}
+
+function agentFabricHomeFromEnv(): string {
+  return path.resolve(
+    expandHomePath(process.env.AGENT_FABRIC_HOME?.trim() || '~/.agent-fabric'),
+  );
+}
+
+function resolveStockKolTwscrapeDbPath(): string | undefined {
+  const configured = process.env.TWSCRAPE_DB_PATH?.trim();
+  if (configured) return path.resolve(expandHomePath(configured));
+
+  const candidates = [
+    path.join(agentFabricHomeFromEnv(), STOCK_KOL_TWSCRAPE_DB_RELATIVE_PATH),
+    path.join(
+      os.homedir(),
+      '.agent-fabric',
+      STOCK_KOL_TWSCRAPE_DB_RELATIVE_PATH,
+    ),
+    path.join(
+      os.homedir(),
+      '.cli-claw',
+      'state',
+      'stock-kol-intel',
+      'twscrape',
+      'accounts.db',
+    ),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -258,6 +305,7 @@ async function runStockKolContextJson(
     executionCwd: input.executionCwd,
   });
   const python = resolveStockKolPythonExecutable(skillRoot);
+  const twscrapeDbPath = resolveStockKolTwscrapeDbPath();
   const helper = [
     'import importlib.util',
     'import json',
@@ -287,6 +335,7 @@ async function runStockKolContextJson(
       maxBuffer: JSON_BUFFER_BYTES,
       env: {
         ...process.env,
+        ...(twscrapeDbPath ? { TWSCRAPE_DB_PATH: twscrapeDbPath } : {}),
         AGENT_FABRIC_SKILL_DIR: skillRoot,
       },
     },
@@ -551,7 +600,11 @@ function hashFileIfExists(filePath: string): string {
   return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-function buildKolContextCacheKey(skillRoot: string, days: number): string {
+function buildKolContextCacheKey(
+  skillRoot: string,
+  days: number,
+  twscrapeDbPath: string | undefined,
+): string {
   const payload = JSON.stringify({
     skillRoot,
     days,
@@ -559,7 +612,7 @@ function buildKolContextCacheKey(skillRoot: string, days: number): string {
       path.join(skillRoot, 'references', 'kol_whitelist.json'),
     ),
     commandHash: hashFileIfExists(path.join(skillRoot, 'commands', 'kol.py')),
-    twscrapeDbPath: process.env.TWSCRAPE_DB_PATH ?? '',
+    twscrapeDbPath: twscrapeDbPath ?? '',
     twscrapeProxy: process.env.TWSCRAPE_PROXY ?? '',
     httpsProxy: process.env.HTTPS_PROXY ?? process.env.https_proxy ?? '',
     allProxy: process.env.ALL_PROXY ?? process.env.all_proxy ?? '',
@@ -988,7 +1041,8 @@ function createKolPrepareContextTask(
       workspaceRoot: options.workspaceRoot,
       executionCwd: input.executionCwd,
     });
-    const cacheKey = buildKolContextCacheKey(skillRoot, days);
+    const twscrapeDbPath = resolveStockKolTwscrapeDbPath();
+    const cacheKey = buildKolContextCacheKey(skillRoot, days, twscrapeDbPath);
     const existing = kolContextCache.get(cacheKey);
     if (existing && existing.expiresAtMs > now) {
       existing.lastAccessedAtMs = now;

@@ -1,100 +1,95 @@
-# 当前任务：二次修复 KOL 进度卡与无效情报报告
+# 当前任务：修复 KOL X/Twitter 访问预检
 
 ## Goal
 
-- 根据真实飞书截图继续优化 `/kol` workflow 进度卡：标题字号恢复可读，只保留用户需要的状态、节点数、耗时和开始时间，删除 Run ID、更新时间和任务名等噪音。
-- 处理 KOL 终态报告“没有任何有用信息”的问题：当原文不可核验或没有高信号主题时，不再生成长篇伪报告，而是输出短失败/低信号说明和可执行修复建议。
-- 使用独立 reviewer agent 参与审查报告质量和卡片可读性，主 agent 负责最终实现、验证和提交。
+- 查清 `/kol` 结果提示 “X/Twitter 原文未完成可访问校验” 的真实原因。
+- 修复 `stock.kol.prepare_context` 与 sibling `stock-kol-intel` 的 preflight 调用/环境适配问题，让可用账号池和网络条件下能完成 X/Twitter 原文校验。
+- 保持低信号边界：如果 X 仍因真实账号池、代理或站点限制不可用，报告必须短说明原因，不输出伪主题。
 
 ## Done when
 
-- 飞书 workflow 进度卡顶部不再展示 Run ID、更新时间、任务名，标题不再被压成小号 notation/五级标题。
-- workflow 节点摘要不再把最终报告长正文塞进进度卡，只显示短状态摘要。
-- KOL 结果在 `x_preflight` 未恢复、没有可核验原文或没有高信号主题时，返回短而明确的“暂无可用情报”结果，不输出带股票代码示例的空泛长报告。
-- reviewer agent 给出结构化审查意见，并且本轮修复覆盖其 blocking 建议。
-- targeted tests、飞书 workflow E2E、typecheck、review gate、必要 build/restart 通过；结果与 handoff 回写本文件。
+- 已复现当前机器上的 `x_preflight` 失败原因，并记录根因。
+- 修复有红线测试覆盖：失败场景可诊断，可用场景不被误判为不可访问。
+- `/kol` E2E 或等价 local task smoke 能产出结构化 `x_preflight`，且最终飞书结果不再把可修复的环境/调用问题误写成笼统“原文未完成可访问校验”。
+- targeted tests、typecheck/build、review gate 和必要 live smoke / restart 通过；结果与 handoff 回写本文件。
 
 ## Milestones
 
-### Milestone 1：复现真实截图问题并锁定根因
+### Milestone 1：复现 X preflight 失败并定位根因
 
 Objective:
-- 用测试复现顶部卡片噪音/字号问题、节点内容过长问题，以及 KOL 无高信号时仍生成长伪报告的问题。
+- 在当前机器上运行真实 `stock.kol.prepare_context` / `stock-kol-intel build_x_source_preflight`，确认失败是账号池、代理、依赖、X bootstrap、队列锁，还是 Agent Fabric 调用/缓存导致。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/messaging/providers/feishu/workflow-progress-card.ts`
-- `src/agent/workflow/command.ts`
-- `src/agent/workflow/engine.ts`
 - `src/agent/workflow/local-tasks.ts`
+- `tests/unit/agent/workflow/local-tasks.test.ts`
 - `.agents/workflows/kol.json`
 - `.agents/agent-roles/kol-intel-reporter.md`
 - `docs/COMMAND.md`
-- `tests/unit/messaging/feishu/workflow-progress-card.test.ts`
-- `tests/unit/agent/workflow/command.test.ts`
-- `tests/unit/agent/workflow/engine.test.ts`
-- `tests/integration/messaging/feishu/e2e.test.ts`
+- `docs/RUNTIME.md`
+- 只读检查 sibling `/Users/ryan/projects/stock-kol-intel`；若必须修改 sibling 仓库，先在本计划记录原因和验证。
 
 Validation:
-- 先补红线测试并确认失败：
-  - `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/e2e.test.ts`
+- 真实 preflight smoke：
+  - `STOCK_KOL_INTEL_ROOT=/Users/ryan/projects/stock-kol-intel npx vitest run tests/unit/agent/workflow/local-tasks.test.ts -t prepare_context`
+- 直接 Python preflight 诊断，输出必须隐藏 cookie/secret，只保留 status/reason/queue 摘要。
 
 Status:
 - done
 
 Validation status:
 - passed
-- 2026-06-14 10:42 EDT：补充红线后运行
-  `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/e2e.test.ts`，确认失败点覆盖：
-  - workflow 进度卡标题被 `optimizeMarkdownStyle` 降成 `#####`。
-  - 头部仍展示 Run ID、更新时间、任务名，metadata 过密。
-  - role 节点把最终长报告正文塞进进度卡摘要。
-  - KOL 无高信号报告仍保留作者名单和模板标的。
+- 2026-06-14 11:35 EDT：默认 `~/.cli-claw/state/stock-kol-intel/twscrape/accounts.db` 不存在，`stock-kol-intel` 直接默认会判定账号库未配置。
+- 2026-06-14 11:35 EDT：实际账号库位于 `~/.agent-fabric/state/stock-kol-intel/twscrape/accounts.db`，含 1 个 active twscrape 账号，队列锁为空。
+- 2026-06-14 11:36 EDT：显式设置 `TWSCRAPE_DB_PATH=/Users/ryan/.agent-fabric/state/stock-kol-intel/twscrape/accounts.db` 后直接运行 `build_x_source_preflight(30, whitelist)` 成功，7 个白名单账号 `ok_results_count=7`，代理 `http://127.0.0.1:7897` 可达。
+- 2026-06-14 11:36 EDT：红线测试
+  `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts -t 'passes the Agent Fabric twscrape account database'`
+  按预期失败，`x_preflight.db_path` 为 `null`。
 
 Review status:
 - passed
-- 根因与截图一致：卡片展示边界和 KOL 低信号投递边界都缺少硬约束。
-- 独立 reviewer agent `019ec65b-5bbc-7c81-96e2-dfc9c7513a5e` 仍无法通过当前线程工具读取，最终 Milestone 3 继续记录该限制并做本地 review gate。
 
 Risks / Notes / Handoff:
-- 截图显示上一轮把顶部拆成多元素后又给 metadata 全部加了 `text_size: notation`，标题还经过 `optimizeMarkdownStyle` 被 H2 降成 H5，实际视觉偏小。
-- 截图中的最终报告并不是“情报报告”，而是 preflight 不可核验后的长说明；它还输出了 `NVDA/TSM/AVGO/...` 等模板示例，容易被误读成实际方向。
+- 截图中的终态说明来自 `x_preflight` 不可用后的低信号路径；这说明上一轮伪报告边界已经生效，但数据源访问还没有恢复。
+- 根因：Agent Fabric 调用 sibling `stock-kol-intel` 时没有为新版 Agent Fabric 状态目录自动注入 `TWSCRAPE_DB_PATH`；`stock-kol-intel` 自身默认仍指向旧 `~/.cli-claw` 路径。
 
-### Milestone 2：实现卡片与低信号报告修复
+### Milestone 2：测试先行修复调用/环境适配
 
 Objective:
-- 精简 workflow 进度卡头部和节点摘要；把无高信号 KOL 结果变成短、明确、无伪标的的低信号结果。
+- 基于 Milestone 1 根因写失败用例，修复 Agent Fabric 调用层或必要的 sibling preflight 适配。
 
 Allowed scope:
-- Milestone 1 允许范围内的实现、prompt、测试文件
-- 必要时同步 `docs/COMMAND.md` 中 `/kol` 输出契约
+- Milestone 1 允许范围内的实现、测试与必要文档。
+- 若根因在 sibling `stock-kol-intel`，允许在 `/Users/ryan/projects/stock-kol-intel` 做最小修复，并单独记录该仓库验证。
 
 Validation:
-- `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/e2e.test.ts`
-- 补跑 KOL local task/config 相关测试，如 prompt/template 被修改
+- 先补红线测试并确认失败。
+- `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts`
+- 直接 Python preflight smoke。
 
 Status:
 - done
 
 Validation status:
 - passed
-- 2026-06-14 10:45 EDT：
-  `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/integration/messaging/feishu/e2e.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`
-  通过，7 个测试文件 / 58 个用例。
+- 2026-06-14 11:38 EDT：红线测试转绿：
+  `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts -t 'passes the Agent Fabric twscrape account database'`。
+- 2026-06-14 11:38 EDT：完整 local task 单测通过：
+  `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts`，8 个用例通过。
+- 2026-06-14 11:40 EDT：真实 Agent Fabric local task smoke 通过；未显式设置 `TWSCRAPE_DB_PATH` 时，`stock.kol.prepare_context` 自动解析 `/Users/ryan/.agent-fabric/state/stock-kol-intel/twscrape/accounts.db`，`x_status=ok`，7/7 白名单账号预检成功。
 
 Review status:
 - passed
-- 2026-06-14 11:01 EDT：独立 reviewer agent `019ec6a2-d71c-74f2-abfb-a77371b13847` 返回 `blocking_findings: none`。
-- 已采纳 reviewer 非阻塞建议：把 `local-tasks.ts` 的 KOL 高信号模板从“典型股票/ETF”收敛为“来源明确支撑；没有就写暂无”。
 
 Risks / Notes / Handoff:
-- 不能因为无高信号就静默失败；用户仍需要知道“为什么没有报告”和“下一步该怎么恢复数据源”。
-- 已同步 role card、workflow prompt、local task artifact 和 `docs/COMMAND.md`，避免模型源头继续生成低信号长报告；投递层仍保留确定性归一化兜底。
+- 不把镜像、缓存或搜索结果提升成主证据；X 原文仍必须来自可核验 `x.com/.../status/...`。
+- 修复点：Agent Fabric 调用 sibling helper 前自动发现并注入 twscrape DB 路径；KOL context cache key 纳入最终 DB 路径。
 
-### Milestone 3：独立 review、E2E、自测和提交
+### Milestone 3：E2E、review、重启与提交
 
 Objective:
-- 等 reviewer agent 返回意见后做 final review，跑 E2E/真实 smoke/安全重启并提交。
+- 跑 `/kol` 相关 E2E/live smoke，确认飞书终态展示和卡片结果可接受，完成 review gate、必要重启和提交。
 
 Allowed scope:
 - 本轮修改文件
@@ -105,34 +100,34 @@ Validation:
 - `git diff --check`
 - targeted tests
 - `npm run typecheck:backend`
-- `FEISHU_LIVE_E2E=1 ... message-smoke`
-- `./scripts/review.sh`
 - `npm run build:backend`
-- `bun src/cli.ts restart`
-- `curl -fsS http://127.0.0.1:3000/api/health`
+- `./scripts/review.sh`
+- `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=<可发现私聊> npm test -- tests/live/feishu/message-smoke.test.ts`
+- 必要时 `bun src/cli.ts restart` 和 `/api/health`
 
 Status:
 - done
 
 Validation status:
 - passed
-- 2026-06-14 11:01 EDT：最终验证通过：
-  - `git diff --check`
-  - `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/integration/messaging/feishu/e2e.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`，7 个测试文件 / 58 个用例。
-  - `npm run typecheck:backend`
-  - `npm run build:backend`
-  - `./scripts/review.sh`
-  - `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=oc_98f0bb60f284627bf20f9386704f8c82 npm test -- tests/live/feishu/message-smoke.test.ts`
-  - `bun src/cli.ts restart`
-  - `curl -fsS http://127.0.0.1:3000/api/health` 返回 `{"status":"healthy","checks":{"database":true,"queue":true,"uptime":4}}`
+- 2026-06-14 11:41 EDT：KOL/workflow/飞书 targeted suite 通过：
+  `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/e2e.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`，6 个测试文件 / 56 个用例。
+- 2026-06-14 11:42 EDT：`git diff --check` 通过。
+- 2026-06-14 11:42 EDT：`npm run typecheck:backend` 通过。
+- 2026-06-14 11:43 EDT：`npm run build:backend` 通过。
+- 2026-06-14 11:43 EDT：`./scripts/review.sh` 通过。
+- 2026-06-14 11:43 EDT：真实飞书 API smoke 通过：
+  `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=oc_98f0bb60f284627bf20f9386704f8c82 npm test -- tests/live/feishu/message-smoke.test.ts`。
+- 2026-06-14 11:43 EDT：`bun src/cli.ts restart` 已创建安全重启 intent。
+- 2026-06-14 11:43 EDT：`curl -fsS http://127.0.0.1:3000/api/health` 返回 healthy。
+- 2026-06-14 11:46 EDT：重启后真实 KOL preflight smoke 通过；未显式设置 `TWSCRAPE_DB_PATH` 时，`x_status=ok`，`x_db_path=/Users/ryan/.agent-fabric/state/stock-kol-intel/twscrape/accounts.db`，7/7 白名单账号成功。
 
 Review status:
 - passed
-- `./scripts/review.sh` 通过；独立 reviewer agent 结论为无 blocking。
+- 语义 review：改动范围只覆盖 KOL local task、测试、运行时文档和 active plan；显式 `TWSCRAPE_DB_PATH` 仍优先；自动发现只在未配置时介入；cache key 纳入最终账号库路径；没有改变低信号证据边界。
 
 Risks / Notes / Handoff:
-- 用户明确要求不要只自审，必须使用独立 reviewer role 推进；最终总结需说明 reviewer 结论和采纳情况。
-- 残余风险：no-signal 归一化依赖模型输出中出现“高信号主题：暂无/未形成”等低信号措辞；已在 role prompt、workflow prompt、local task artifact 和投递层兜底多层约束。
+- 如果 GitHub push 仍受本机凭据阻塞，提交可以完成，但 push 需要用户重新认证后继续。
 
 ## Handoff
 
@@ -140,24 +135,19 @@ Current milestone:
 - Milestone 3
 
 Current status:
-- complete; validation, review, live smoke, build, safe restart and health check passed
+- complete; validation, review, live smoke, safe restart and post-restart KOL preflight smoke passed
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/messaging/providers/feishu/workflow-progress-card.ts`
-- `src/agent/workflow/command.ts`
-- `src/agent/workflow/engine.ts`
 - `src/agent/workflow/local-tasks.ts`
-- `.agents/workflows/kol.json`
-- `.agents/agent-roles/kol-intel-reporter.md`
-- `docs/COMMAND.md`
-- related unit/integration tests
+- `tests/unit/agent/workflow/local-tasks.test.ts`
+- `docs/RUNTIME.md`
 
 Last failure summary:
-- 无待处理失败；最终验证全部通过。
+- 已修复；红线测试原先显示 `x_preflight.db_path=null`，修复后自动注入新版 Agent Fabric twscrape DB 路径。
 
 Suspected cause:
-- 已修复：卡片标题不再走 markdown optimizer，头部字段收敛；role 节点正文只显示短摘要；KOL 无高信号和 runtime fallback 都输出短低信号结果。
+- 已确认：sibling `stock-kol-intel` 默认仍查旧 `~/.cli-claw/state/.../accounts.db`；真实账号池在 `~/.agent-fabric/state/.../accounts.db`。Agent Fabric 之前没有注入 `TWSCRAPE_DB_PATH`，导致 workflow 误判 X/Twitter 原文不可访问。
 
 Next step:
-- 提交本轮变更。
+- 提交本轮修复；push 仍取决于本机 GitHub 凭据是否恢复。
