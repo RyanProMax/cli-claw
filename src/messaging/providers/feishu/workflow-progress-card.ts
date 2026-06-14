@@ -19,6 +19,12 @@ interface FeishuWorkflowProgressReporterOptions {
   onCardCreated?: (messageId: string) => void;
 }
 
+interface FeishuCardMarkdownElement {
+  tag: 'markdown';
+  content: string;
+  text_size?: string;
+}
+
 type DisplayStepStatus =
   | 'pending'
   | 'running'
@@ -83,7 +89,7 @@ function formatDurationMs(ms: number): string {
   const normalized = Math.max(0, Math.round(ms));
   if (normalized < 1000) return `${normalized}ms`;
   const seconds = normalized / 1000;
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
   const remaining = Math.round(seconds % 60);
   return `${minutes}m ${remaining}s`;
@@ -248,18 +254,44 @@ function buildWorkflowProgressCard(input: {
     });
   });
   const summary = `Workflow 进度｜${workflow.name} ${runLabel}`;
-  const body = [
-    `## ${runIcon} Workflow 进度｜${workflow.name}`,
-    `🆔 Run：\`${run.id}\``,
-    `📌 状态：${runLabel}`,
-    `🧩 节点：${workflow.nodes.length}`,
-    `⏱️ 总耗时：${formatRunDuration(run)}`,
-    `🕘 开始：${formatInstant(run.started_at ?? run.created_at)}`,
-    `🔄 更新：${formatInstant(run.updated_at)}`,
-    prompt ? `📝 任务：${truncateText(prompt, 220)}` : null,
-  ]
-    .filter((part): part is string => Boolean(part))
-    .join('<br>');
+  const headerElements: Array<FeishuCardMarkdownElement | null> = [
+    {
+      tag: 'markdown',
+      content: optimizeMarkdownStyle(
+        `## ${runIcon} Workflow 进度｜${workflow.name}`,
+        2,
+      ),
+    },
+    {
+      tag: 'markdown',
+      content: `🆔 Run：\`${run.id}\``,
+      text_size: 'notation',
+    },
+    {
+      tag: 'markdown',
+      content: [
+        `📌 状态：${runLabel}`,
+        `🧩 节点：${workflow.nodes.length}`,
+        `⏱️ 总耗时：${formatRunDuration(run)}`,
+      ].join('\n'),
+      text_size: 'notation',
+    },
+    {
+      tag: 'markdown',
+      content: [
+        `🕘 开始：${formatInstant(run.started_at ?? run.created_at)}`,
+        `🔄 更新：${formatInstant(run.updated_at)}`,
+      ].join('\n'),
+      text_size: 'notation',
+    },
+    prompt
+      ? {
+          tag: 'markdown',
+          content: `📝 任务：${truncateText(prompt, 220)}`,
+          text_size: 'notation',
+        }
+      : null,
+  ].filter((element): element is FeishuCardMarkdownElement => Boolean(element));
 
   return {
     schema: '2.0',
@@ -269,10 +301,7 @@ function buildWorkflowProgressCard(input: {
     },
     body: {
       elements: [
-        {
-          tag: 'markdown',
-          content: optimizeMarkdownStyle(body, 2),
-        },
+        ...headerElements,
         {
           tag: 'markdown',
           content: '---',

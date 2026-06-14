@@ -175,6 +175,22 @@ describe('Feishu workflow progress card', () => {
     expect(payload).toContain('🧩 本地任务：`test.success`');
     expect(payload).not.toContain('3. ✅ **success_node**');
     expect(payload).not.toContain('状态：已完成 · 耗时：2s\\n内容：普通节点完成');
+
+    const finalCard = updatedCards.at(-1) ?? createdCards.at(-1);
+    const elements = finalCard.body.elements as Array<{
+      tag: string;
+      content?: string;
+    }>;
+    const titleElement = elements[0];
+    expect(titleElement.content).toContain('Workflow 进度｜状态矩阵工作流');
+    expect(titleElement.content).not.toContain('🆔 Run');
+    expect(titleElement.content).not.toContain('<br>');
+    expect(elements[1].content).toBe('🆔 Run：`wfrun_status_matrix`');
+    expect(elements[2].content).toContain('📌 状态：失败\n🧩 节点：6');
+    expect(elements[2].content).toContain('⏱️ 总耗时：5s');
+    expect(elements[3].content).toContain('🕘 开始：');
+    expect(elements[3].content).toContain('\n🔄 更新：');
+    expect(elements[4].content).toBe('📝 任务：覆盖所有状态');
   });
 
   test('retries sending the visible card message when initial message creation fails after CardKit create', async () => {

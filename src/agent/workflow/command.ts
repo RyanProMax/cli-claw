@@ -242,6 +242,31 @@ function splitKolNumberedItems(value: string): string[] {
   return parts.length > 0 ? parts : splitKolSentences(normalized);
 }
 
+function isLowValueKolText(value: string): boolean {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return true;
+  if (/不构成投资建议|仅供参考|供参考|非投资建议/.test(normalized)) {
+    return true;
+  }
+  if (
+    /(?:整体来看|总体来看|总的来看).*(?:继续观察|仍需观察|保持关注|值得关注|多因素影响)/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  return /(?:继续观察|持续关注|保持关注|值得关注)(?:市场情绪|后续变化|相关方向|多因素影响)/.test(
+    normalized,
+  );
+}
+
+function filterKolSignalItems(items: string[], limit = 3): string[] {
+  return items
+    .map((item) => item.trim())
+    .filter((item) => item && !isLowValueKolText(item))
+    .slice(0, limit);
+}
+
 function formatKolNumberedSection(title: string, items: string[]): string {
   const normalizedItems = items.length > 0 ? items : ['暂无高置信内容。'];
   return [
@@ -261,20 +286,47 @@ function normalizeKolConclusion(result: string): string {
       const sections = [
         formatKolNumberedSection(
           '🧾 **结论/总结**',
-          splitKolSentences(summaryText),
+          filterKolSignalItems(splitKolSentences(summaryText)),
         ),
       ];
       if (verificationText) {
         sections.push(
           formatKolNumberedSection(
             '🔍 **下一步重点核验**',
-            splitKolNumberedItems(verificationText),
+            filterKolSignalItems(splitKolNumberedItems(verificationText)),
           ),
         );
       }
       return `${prefix}${sections.join('\n\n')}`;
     },
   );
+}
+
+function compactKolThemeSummary(result: string): string {
+  return result.replace(
+    /(^|\n)高信号主题[：:]\s*([^\n]+)/g,
+    (_match, prefix: string, rawThemes: string) => {
+      const themes = rawThemes
+        .split(/[、，,]/)
+        .map((theme) => theme.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      return themes.length > 0
+        ? `${prefix}高信号主题：${themes.join('、')}`
+        : '';
+    },
+  );
+}
+
+function removeLowValueKolLines(result: string): string {
+  return result
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (/^📌\s*\*\*说明\*\*/.test(trimmed)) return false;
+      return !isLowValueKolText(trimmed);
+    })
+    .join('\n');
 }
 
 function insertCompactKolSeparators(result: string): string {
@@ -293,13 +345,27 @@ function compactKolFieldSpacing(result: string): string {
     .replace(/(\n-\s+\*\*[^：:\n]+[：:].+)\n{2,}(?=-\s+\*\*)/g, '$1\n');
 }
 
+function limitKolThemeSections(result: string, maxThemes = 3): string {
+  return result
+    .split(/\n---\n/)
+    .filter((section) => {
+      const heading = section.match(/^\*\*(\d+)\.\s+/m);
+      if (!heading) return true;
+      return Number(heading[1]) <= maxThemes;
+    })
+    .join('\n---\n');
+}
+
 function normalizeKolFinalReport(result: string): string {
   let normalized = removeDefaultKolConfidenceSection(result);
   normalized = mergeKolCoverageLines(normalized);
   normalized = normalizeKolSourceLinks(normalized);
   normalized = normalizeKolConclusion(normalized);
+  normalized = compactKolThemeSummary(normalized);
+  normalized = removeLowValueKolLines(normalized);
   normalized = insertCompactKolSeparators(normalized);
   normalized = compactKolSeparators(normalized);
+  normalized = limitKolThemeSections(normalized);
   normalized = compactKolFieldSpacing(normalized);
   return compactKolSeparators(normalized);
 }

@@ -597,6 +597,114 @@ describe('workflow command execution', () => {
     db.closeDatabase();
   });
 
+  test('compacts noisy kol reports to key signals and the first three themes', async () => {
+    const workspaceRoot = tempDir('agent-fabric-workflow-command-kol-compact-');
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'agent-roles', 'editor.md'),
+      [
+        '---',
+        'id: editor',
+        'name: KOL 编辑',
+        'permissionMode: readonly',
+        '---',
+        '',
+        '输出 KOL 报告。',
+      ].join('\n'),
+    );
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'workflows', 'kol.json'),
+      JSON.stringify(
+        {
+          id: 'kol',
+          name: '股票 KOL 情报工作流',
+          roles: ['editor'],
+          start: 'kol_report_editor',
+          nodes: [
+            {
+              id: 'kol_report_editor',
+              type: 'role_task',
+              roleId: 'editor',
+            },
+          ],
+          edges: [{ from: 'kol_report_editor', to: '__end__' }],
+        },
+        null,
+        2,
+      ),
+    );
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: '股票 KOL 情报报告',
+      result: [
+        '**KOL 情报报告｜默认白名单**',
+        '窗口：最近 30 天',
+        '覆盖 KOL（2）：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
+        '高信号主题：AI 算力、电力设备、医药创新、宏观情绪、消费复苏',
+        '',
+        '📌 **说明**：以下内容仅为公开信息整理，不构成投资建议，仅供参考。',
+        '🧾 **结论/总结**：整体来看市场仍需继续观察，相关方向都值得关注。AI 基础设施订单兑现仍是主线。电力设备和铜连接链条出现多位 KOL 共识。以上内容不构成投资建议，仅供参考。下一步重点核验：1）NVDA/AVGO/CredO 订单能否兑现；2）电网设备订单和毛利率能否同步上修；3）医药创新能否出现临床里程碑；4）继续观察市场情绪。',
+        '',
+        '---',
+        '**近期投资方向与高信号内容**',
+        '',
+        '**1. AI 算力：订单兑现优先于概念扩散**',
+        '🧭 **核心论点**：NVDA、AVGO、TSM 的订单和产能是更可核验的主线。',
+        '📝 **观点摘要**：',
+        '- **事实**：Dexter Yang 提到 800G/1.6T 需求继续上修。',
+        '- **推断**：光模块和交换芯片链条可能继续被交易。',
+        '🔗 **来源**：',
+        '- Dexter Yang：[AI infra checks](https://x.com/dexteryy/status/1790000000000000000) [2026-06-01]',
+        '',
+        '---',
+        '**2. 电力设备：数据中心 CapEx 外溢**',
+        '🧭 **核心论点**：电力约束正在从主题叙事变成订单约束。',
+        '🔗 **来源**：',
+        '- Serenity：[Grid bottleneck](https://x.com/aleabitoreddit/status/1790000000000000001) [2026-06-02]',
+        '',
+        '---',
+        '**3. 医药创新：大型药企管线催化**',
+        '🧭 **核心论点**：LLY、NVO 的临床和产品收入仍是可跟踪变量。',
+        '🔗 **来源**：',
+        '- Serenity：[Pharma watch](https://x.com/aleabitoreddit/status/1790000000000000002) [2026-06-03]',
+        '',
+        '---',
+        '**4. 宏观情绪：仍需等待确认**',
+        '🧭 **核心论点**：整体来看仍需保持关注，后续可能受到多因素影响。',
+        '🔗 **来源**：',
+        '- Dexter Yang：[Macro](https://x.com/dexteryy/status/1790000000000000003) [2026-06-04]',
+      ].join('\n'),
+      stepResults: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'kol 股票 KOL 情报报告',
+      workspaceRoot,
+      runGraph,
+    });
+
+    expect(reply).toContain('高信号主题：AI 算力、电力设备、医药创新');
+    expect(reply).not.toContain('宏观情绪、消费复苏');
+    expect(reply).not.toContain('📌 **说明**');
+    expect(reply).not.toContain('不构成投资建议');
+    expect(reply).not.toContain('仅供参考');
+    expect(reply).not.toContain('整体来看市场仍需继续观察');
+    expect(reply).not.toContain('继续观察市场情绪');
+    expect(reply).toContain('1. AI 基础设施订单兑现仍是主线。');
+    expect(reply).toContain('2. 电力设备和铜连接链条出现多位 KOL 共识。');
+    expect(reply).toContain('1. NVDA/AVGO/CredO 订单能否兑现；');
+    expect(reply).toContain('3. 医药创新能否出现临床里程碑；');
+    expect(reply).toContain('**3. 医药创新：大型药企管线催化**');
+    expect(reply).not.toContain('**4. 宏观情绪');
+
+    db.closeDatabase();
+  });
+
   test('does not expose retired stock strategy built-in workflows', async () => {
     const { command, db } = await loadWorkflowCommand();
 
