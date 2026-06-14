@@ -290,7 +290,7 @@ describe('skill command dispatch', () => {
         'commands/reply.js': [
           'process.stdin.resume();',
           "process.stdin.on('end', () => {",
-          '  const legacyKeys = Object.keys(process.env).filter((key) => key.startsWith("CLI_CLAW_")).sort();',
+          '  const legacyKeys = Object.keys(process.env).filter((key) => key.startsWith("OBSOLETE_AGENT_")).sort();',
           '  const content = JSON.stringify({',
           '    command: process.env.AGENT_FABRIC_COMMAND,',
           '    skillId: process.env.AGENT_FABRIC_SKILL_ID,',

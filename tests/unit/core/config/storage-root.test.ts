@@ -32,9 +32,9 @@ describe('storage root config', () => {
     expect(config.GROUPS_DIR).toBe(path.join(home, '.agent-fabric', 'groups'));
   });
 
-  test('ignores legacy ~/.cli-claw when the new root does not exist', async () => {
+  test('ignores legacy ~/.legacy-agent when the new root does not exist', async () => {
     const home = createTempHome();
-    fs.mkdirSync(path.join(home, '.cli-claw'), { recursive: true });
+    fs.mkdirSync(path.join(home, '.legacy-agent'), { recursive: true });
     vi.stubEnv('HOME', home);
 
     const config = await import('../../../../src/core/config.js');
@@ -48,18 +48,18 @@ describe('storage root config', () => {
     const legacyRoot = path.join(home, 'legacy-root');
     vi.stubEnv('HOME', home);
     vi.stubEnv('AGENT_FABRIC_HOME', currentRoot);
-    vi.stubEnv('CLI_CLAW_HOME', legacyRoot);
+    vi.stubEnv('OBSOLETE_AGENT_HOME', legacyRoot);
 
     const config = await import('../../../../src/core/config.js');
 
     expect(config.DATA_DIR).toBe(currentRoot);
   });
 
-  test('ignores legacy CLI_CLAW_HOME when AGENT_FABRIC_HOME is unset', async () => {
+  test('ignores legacy OBSOLETE_AGENT_HOME when AGENT_FABRIC_HOME is unset', async () => {
     const home = createTempHome();
     const legacyRoot = path.join(home, 'legacy-root');
     vi.stubEnv('HOME', home);
-    vi.stubEnv('CLI_CLAW_HOME', legacyRoot);
+    vi.stubEnv('OBSOLETE_AGENT_HOME', legacyRoot);
 
     const config = await import('../../../../src/core/config.js');
 

@@ -1,133 +1,151 @@
-# 当前任务：修复 KOL X/Twitter 访问预检
+# 当前任务：全量迁移旧品牌状态目录引用
 
 ## Goal
 
-- 查清 `/kol` 结果提示 “X/Twitter 原文未完成可访问校验” 的真实原因。
-- 修复 `stock.kol.prepare_context` 与 sibling `stock-kol-intel` 的 preflight 调用/环境适配问题，让可用账号池和网络条件下能完成 X/Twitter 原文校验。
-- 保持低信号边界：如果 X 仍因真实账号池、代理或站点限制不可用，报告必须短说明原因，不输出伪主题。
+- 扫描 `/Users/ryan/projects` 下所有仓库/模块对旧品牌名、旧点目录和旧环境变量前缀的引用。
+- 将仍作为默认读写位置、文档指令、测试期望或配置约定的旧目录统一迁移到 `agent-fabric` / `.agent-fabric`。
+- 不保留旧状态目录作为默认或 fallback；历史负向测试改成 generic obsolete/legacy 示例。
 
 ## Done when
 
-- 已复现当前机器上的 `x_preflight` 失败原因，并记录根因。
-- 修复有红线测试覆盖：失败场景可诊断，可用场景不被误判为不可访问。
-- `/kol` E2E 或等价 local task smoke 能产出结构化 `x_preflight`，且最终飞书结果不再把可修复的环境/调用问题误写成笼统“原文未完成可访问校验”。
-- targeted tests、typecheck/build、review gate 和必要 live smoke / restart 通过；结果与 handoff 回写本文件。
+- 扫描结果列出所有命中 repo/module，并区分生产代码、测试、文档、历史日志/构建产物。
+- 生产默认路径不再指向旧状态目录。
+- 直接相关测试先红后绿；跨仓库改动各自跑对应最小验证。
+- Agent Fabric 侧 typecheck/build/review gate 通过；必要时安全重启。
+- 结果与 handoff 回写本文件；完成后提交相关仓库改动。
 
 ## Milestones
 
-### Milestone 1：复现 X preflight 失败并定位根因
+### Milestone 1：全量扫描并锁定迁移范围
 
 Objective:
-- 在当前机器上运行真实 `stock.kol.prepare_context` / `stock-kol-intel build_x_source_preflight`，确认失败是账号池、代理、依赖、X bootstrap、队列锁，还是 Agent Fabric 调用/缓存导致。
+- 扫描 `/Users/ryan/projects`，找出所有旧品牌名、旧点目录和旧环境变量前缀引用，排除 `node_modules`、`.git`、venv、dist/cache 等生成物。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `src/agent/workflow/local-tasks.ts`
-- `tests/unit/agent/workflow/local-tasks.test.ts`
-- `.agents/workflows/kol.json`
-- `.agents/agent-roles/kol-intel-reporter.md`
-- `docs/COMMAND.md`
-- `docs/RUNTIME.md`
-- 只读检查 sibling `/Users/ryan/projects/stock-kol-intel`；若必须修改 sibling 仓库，先在本计划记录原因和验证。
+- 只读扫描 `/Users/ryan/projects/**`
 
 Validation:
-- 真实 preflight smoke：
-  - `STOCK_KOL_INTEL_ROOT=/Users/ryan/projects/stock-kol-intel npx vitest run tests/unit/agent/workflow/local-tasks.test.ts -t prepare_context`
-- 直接 Python preflight 诊断，输出必须隐藏 cookie/secret，只保留 status/reason/queue 摘要。
+- `rg` 扫描命中清单
+- 对命中 repo 分别查看 `git status --short --branch`
 
 Status:
 - done
 
 Validation status:
 - passed
-- 2026-06-14 11:35 EDT：默认 `~/.cli-claw/state/stock-kol-intel/twscrape/accounts.db` 不存在，`stock-kol-intel` 直接默认会判定账号库未配置。
-- 2026-06-14 11:35 EDT：实际账号库位于 `~/.agent-fabric/state/stock-kol-intel/twscrape/accounts.db`，含 1 个 active twscrape 账号，队列锁为空。
-- 2026-06-14 11:36 EDT：显式设置 `TWSCRAPE_DB_PATH=/Users/ryan/.agent-fabric/state/stock-kol-intel/twscrape/accounts.db` 后直接运行 `build_x_source_preflight(30, whitelist)` 成功，7 个白名单账号 `ok_results_count=7`，代理 `http://127.0.0.1:7897` 可达。
-- 2026-06-14 11:36 EDT：红线测试
-  `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts -t 'passes the Agent Fabric twscrape account database'`
-  按预期失败，`x_preflight.db_path` 为 `null`。
+- 2026-06-14 12:04 EDT：`git grep` / per-repo `rg` 扫描完成。真实命中：
+  - `stock-kol-intel`：KOL command、twscrape add/healthcheck 脚本和 provider 文档仍默认旧状态目录。
+  - `agent-fabric`：KOL local task 与运行时文档仍保留旧状态目录 fallback/说明；测试和 `.gitignore` 仍有 legacy 字面量。
+  - `stock-analysis-skill`：HKIPO、OTC、Research command 仍读取旧 skill dir 环境变量；测试仍注入旧变量。
+  - `stock-analysis-api`：文档示例中有旧 cache 路径和旧 owner id。
+  - `agent-skills/opc-idea-miner`：临时 venv 前缀仍为旧品牌前缀。
+  - 其他已扫 git repo：`runclaw`、`happyclaw`、`hermes-agent`、`daily_stock_analysis`、`deer-flow`、`edict`、`pet-tracking-app`、`awesome-claude-skills`、`balance-master`、`vscode-settings`、`financial-services-plugins`、`TradingAgents`、`ryanpromax.github.io`、`uncle-tom-miniapp`、`learn-claude-code` 无命中。
 
 Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 截图中的终态说明来自 `x_preflight` 不可用后的低信号路径；这说明上一轮伪报告边界已经生效，但数据源访问还没有恢复。
-- 根因：Agent Fabric 调用 sibling `stock-kol-intel` 时没有为新版 Agent Fabric 状态目录自动注入 `TWSCRAPE_DB_PATH`；`stock-kol-intel` 自身默认仍指向旧 `~/.cli-claw` 路径。
+- 当前 `main` 本地领先 `origin/main` 4 个提交，push 仍受 GitHub HTTPS 凭据阻塞。
 
-### Milestone 2：测试先行修复调用/环境适配
+### Milestone 2：测试先行迁移代码与文档
 
 Objective:
-- 基于 Milestone 1 根因写失败用例，修复 Agent Fabric 调用层或必要的 sibling preflight 适配。
+- 对 Milestone 1 发现的真实源码/测试/文档引用做最小迁移。
 
 Allowed scope:
-- Milestone 1 允许范围内的实现、测试与必要文档。
-- 若根因在 sibling `stock-kol-intel`，允许在 `/Users/ryan/projects/stock-kol-intel` 做最小修复，并单独记录该仓库验证。
+- `PLANS/ACTIVE.md`
+- `/Users/ryan/projects/stock-kol-intel/commands/kol.py`
+- `/Users/ryan/projects/stock-kol-intel/scripts/twscrape_add_cookie_account.py`
+- `/Users/ryan/projects/stock-kol-intel/scripts/twscrape_healthcheck.py`
+- `/Users/ryan/projects/stock-kol-intel/references/twscrape_provider.md`
+- `/Users/ryan/projects/stock-kol-intel/tests/test_kol_command.py`
+- `/Users/ryan/projects/agent-fabric/.gitignore`
+- `/Users/ryan/projects/agent-fabric/src/agent/workflow/local-tasks.ts`
+- `/Users/ryan/projects/agent-fabric/docs/RUNTIME.md`
+- `/Users/ryan/projects/agent-fabric/tests/unit/agent/workflow/local-tasks.test.ts`
+- `/Users/ryan/projects/agent-fabric/tests/contracts/runtime/codex-cli-auth.test.ts`
+- `/Users/ryan/projects/agent-fabric/tests/contracts/runtime/service-restart-guard.test.ts`
+- `/Users/ryan/projects/agent-fabric/tests/unit/agent/runner/output-parser.test.ts`
+- `/Users/ryan/projects/agent-fabric/tests/unit/app/self-restart.test.ts`
+- `/Users/ryan/projects/agent-fabric/tests/unit/core/cache.test.ts`
+- `/Users/ryan/projects/agent-fabric/tests/unit/core/config/storage-root.test.ts`
+- `/Users/ryan/projects/agent-fabric/tests/unit/skills/command-dispatch.test.ts`
+- `/Users/ryan/projects/stock-analysis-skill/commands/hkipo.py`
+- `/Users/ryan/projects/stock-analysis-skill/commands/otc.py`
+- `/Users/ryan/projects/stock-analysis-skill/commands/research.py`
+- `/Users/ryan/projects/stock-analysis-skill/tests/test_hkipo_command.py`
+- `/Users/ryan/projects/stock-analysis-skill/tests/test_otc_command.py`
+- `/Users/ryan/projects/stock-analysis-skill/tests/test_research_command.py`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-official-docs-cli.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/agentic-strategy-loop.md`
+- `/Users/ryan/projects/agent-skills/opc-idea-miner/commands/idea.py`
+- `/Users/ryan/projects/agent-skills/opc-idea-miner/tests/test_idea_command.py`
 
 Validation:
-- 先补红线测试并确认失败。
-- `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts`
-- 直接 Python preflight smoke。
+- 先补/调整红线测试并确认失败。
+- 对每个改动仓库运行最小相关测试。
 
 Status:
 - done
 
 Validation status:
 - passed
-- 2026-06-14 11:38 EDT：红线测试转绿：
-  `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts -t 'passes the Agent Fabric twscrape account database'`。
-- 2026-06-14 11:38 EDT：完整 local task 单测通过：
-  `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts`，8 个用例通过。
-- 2026-06-14 11:40 EDT：真实 Agent Fabric local task smoke 通过；未显式设置 `TWSCRAPE_DB_PATH` 时，`stock.kol.prepare_context` 自动解析 `/Users/ryan/.agent-fabric/state/stock-kol-intel/twscrape/accounts.db`，`x_status=ok`，7/7 白名单账号预检成功。
+- 红线确认：
+  - `stock-kol-intel` 新增默认 twscrape DB 路径测试后，旧默认路径实现按预期失败。
+  - `stock-analysis-skill` sibling API root 测试改为新 skill dir 环境变量后，旧实现按预期失败。
+- 绿线验证：
+  - `stock-kol-intel`: `python -m unittest tests/test_kol_command.py`，9 tests passed。
+  - `stock-analysis-skill`: `python3 -m unittest tests.test_hkipo_command tests.test_research_command tests.test_otc_command`，55 tests passed。
+  - `agent-fabric`: affected vitest，8 files / 71 tests passed。
+  - `stock-analysis-api`: docs-only，`git diff --check` passed。
+  - `agent-skills`: targeted `IdeaCommandTests.test_executor_uses_requirements_hash_cache_path` passed；完整 idea command suite 仍因既有外部 CLI/subprocess 依赖失败，未作为本轮 gate。
 
 Review status:
 - passed
+- 按 `RUNBOOKS/Review.md` 做过语义 review：迁移范围与 Milestone 1 命中一致，未保留旧状态目录默认或 fallback；测试中的旧品牌负例已改成 generic obsolete/legacy 示例。
 
 Risks / Notes / Handoff:
-- 不把镜像、缓存或搜索结果提升成主证据；X 原文仍必须来自可核验 `x.com/.../status/...`。
-- 修复点：Agent Fabric 调用 sibling helper 前自动发现并注入 twscrape DB 路径；KOL context cache key 纳入最终 DB 路径。
+- 用户要求“全量改成新文件夹”，本轮不保留旧状态目录默认或 fallback；历史负向测试改成不含旧品牌字面量的 generic legacy/unsafe 示例。
+- 本地旧状态文件已搬到 `.agent-fabric/` 对应位置，旧 sqlite 文件改名为 `agent-fabric.sqlite`；这些文件为本地 ignored state，不纳入提交。
 
-### Milestone 3：E2E、review、重启与提交
+### Milestone 3：全量复扫、验证、提交
 
 Objective:
-- 跑 `/kol` 相关 E2E/live smoke，确认飞书终态展示和卡片结果可接受，完成 review gate、必要重启和提交。
+- 复扫确认旧默认引用清零，运行验证与 review gate，提交改动。
 
 Allowed scope:
-- 本轮修改文件
+- 本轮实际改动文件
 - `PLANS/ACTIVE.md`
 - Git commit
 
 Validation:
-- `git diff --check`
-- targeted tests
-- `npm run typecheck:backend`
-- `npm run build:backend`
-- `./scripts/review.sh`
-- `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=<可发现私聊> npm test -- tests/live/feishu/message-smoke.test.ts`
-- 必要时 `bun src/cli.ts restart` 和 `/api/health`
+- 复扫旧品牌名、旧点目录和旧环境变量前缀，确认无命中。
+- Agent Fabric: `git diff --check`、targeted tests、`npm run typecheck:backend`、`npm run build:backend`、`./scripts/review.sh`
+- 其他仓库按自身测试入口验证
 
 Status:
 - done
 
 Validation status:
 - passed
-- 2026-06-14 11:41 EDT：KOL/workflow/飞书 targeted suite 通过：
-  `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/e2e.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`，6 个测试文件 / 56 个用例。
-- 2026-06-14 11:42 EDT：`git diff --check` 通过。
-- 2026-06-14 11:42 EDT：`npm run typecheck:backend` 通过。
-- 2026-06-14 11:43 EDT：`npm run build:backend` 通过。
-- 2026-06-14 11:43 EDT：`./scripts/review.sh` 通过。
-- 2026-06-14 11:43 EDT：真实飞书 API smoke 通过：
-  `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=oc_98f0bb60f284627bf20f9386704f8c82 npm test -- tests/live/feishu/message-smoke.test.ts`。
-- 2026-06-14 11:43 EDT：`bun src/cli.ts restart` 已创建安全重启 intent。
-- 2026-06-14 11:43 EDT：`curl -fsS http://127.0.0.1:3000/api/health` 返回 healthy。
-- 2026-06-14 11:46 EDT：重启后真实 KOL preflight smoke 通过；未显式设置 `TWSCRAPE_DB_PATH` 时，`x_status=ok`，`x_db_path=/Users/ryan/.agent-fabric/state/stock-kol-intel/twscrape/accounts.db`，7/7 白名单账号成功。
+- 旧品牌/旧点目录/旧环境变量前缀复扫清零：
+  - `agent-fabric`
+  - `stock-kol-intel`
+  - `stock-analysis-skill`
+  - `stock-analysis-api`
+  - `agent-skills`
+- `agent-fabric`: `./scripts/review.sh` passed。
+- `agent-fabric`: `npm run typecheck:backend && npm run build:backend` passed。
+- `agent-fabric`: `bun src/cli.ts restart` requested safe restart，`GET /api/health` returned healthy。
+- 其他改动仓库均已跑 `git diff --check` 或目标测试。
 
 Review status:
 - passed
-- 语义 review：改动范围只覆盖 KOL local task、测试、运行时文档和 active plan；显式 `TWSCRAPE_DB_PATH` 仍优先；自动发现只在未配置时介入；cache key 纳入最终账号库路径；没有改变低信号证据边界。
+- Review gate passed：未发现 scope violation、残留旧默认路径、文档/代码冲突或明显回归风险。
 
 Risks / Notes / Handoff:
-- 如果 GitHub push 仍受本机凭据阻塞，提交可以完成，但 push 需要用户重新认证后继续。
+- 当前 4 个已提交 git 仓库推送均受 GitHub HTTPS 凭据阻塞：`fatal: failed to get: -25308` / `could not read Username for 'https://github.com': terminal prompts disabled`。需要用户侧刷新 GitHub 凭据后重试 push。
 
 ## Handoff
 
@@ -135,19 +153,21 @@ Current milestone:
 - Milestone 3
 
 Current status:
-- complete; validation, review, live smoke, safe restart and post-restart KOL preflight smoke passed
+- complete
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `src/agent/workflow/local-tasks.ts`
-- `tests/unit/agent/workflow/local-tasks.test.ts`
-- `docs/RUNTIME.md`
+- `agent-fabric`: runtime fallback、runtime doc、ignore rule、legacy negative tests
+- `stock-kol-intel`: KOL command/scripts/provider doc/test
+- `stock-analysis-skill`: command skill dir env/test
+- `stock-analysis-api`: docs examples
+- `agent-skills`: OPC idea miner temp venv prefix/test
 
 Last failure summary:
-- 已修复；红线测试原先显示 `x_preflight.db_path=null`，修复后自动注入新版 Agent Fabric twscrape DB 路径。
+- None. 本轮 required validation and review passed.
 
 Suspected cause:
-- 已确认：sibling `stock-kol-intel` 默认仍查旧 `~/.cli-claw/state/.../accounts.db`；真实账号池在 `~/.agent-fabric/state/.../accounts.db`。Agent Fabric 之前没有注入 `TWSCRAPE_DB_PATH`，导致 workflow 误判 X/Twitter 原文不可访问。
+- 历史重命名后，部分 sibling skill、KOL twscrape 状态目录、文档示例和负向测试仍保留旧品牌字面量或旧默认目录。
 
 Next step:
-- 提交本轮修复；push 仍取决于本机 GitHub 凭据是否恢复。
+- Commit each modified git repo；`stock-kol-intel` 当前不是 git repo，只保留工作区文件改动。

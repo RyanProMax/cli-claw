@@ -73,7 +73,7 @@ nohup.out
 
 # local
 .local/
-.cli-claw/
+.agent-fabric/
 PLANS/*
 !PLANS/ROADMAP.md
 !PLANS/_TEMPLATE.md

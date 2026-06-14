@@ -78,7 +78,7 @@ describe('Codex CLI runtime auth', () => {
       AGENT_FABRIC_CODEX_AUTH_SOURCE: 'codex-auth-json',
       AGENT_FABRIC_CODEX_ACCOUNT_ID: 'acct_from_auth_json',
     });
-    expect(Object.keys(env).filter((key) => key.startsWith('CLI_CLAW_'))).toEqual(
+    expect(Object.keys(env).filter((key) => key.startsWith('OBSOLETE_AGENT_'))).toEqual(
       [],
     );
   });

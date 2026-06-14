@@ -120,12 +120,12 @@ describe('cache manager', () => {
     expect(fs.existsSync(third)).toBe(true);
   });
 
-  test('ignores legacy CLI_CLAW cache env overrides', () => {
+  test('ignores legacy OBSOLETE_AGENT cache env overrides', () => {
     const cacheRoot = makeCacheRoot();
     const freshFile = path.join(cacheRoot, 'hkex-docs', 'fresh.pdf');
     writeFile(freshFile, 'fresh', 9_000);
-    vi.stubEnv('CLI_CLAW_CACHE_TTL_MS', '1');
-    vi.stubEnv('CLI_CLAW_CACHE_MAX_BYTES', '1');
+    vi.stubEnv('OBSOLETE_AGENT_CACHE_TTL_MS', '1');
+    vi.stubEnv('OBSOLETE_AGENT_CACHE_MAX_BYTES', '1');
 
     const result = cleanupCache({
       cacheRoot,

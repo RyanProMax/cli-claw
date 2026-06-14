@@ -152,16 +152,16 @@ describe('formatUserFacingRuntimeError', () => {
     });
   });
 
-  test('does not parse legacy CLI_CLAW output markers', () => {
+  test('does not parse legacy OBSOLETE_AGENT output markers', () => {
     const stdoutState = createStdoutParserState();
     stdoutState.stdout = [
-      '---CLI_CLAW_OUTPUT_START---',
+      '---OBSOLETE_AGENT_OUTPUT_START---',
       JSON.stringify({
         status: 'success',
         result: 'legacy result',
         finalizationReason: 'completed',
       }),
-      '---CLI_CLAW_OUTPUT_END---',
+      '---OBSOLETE_AGENT_OUTPUT_END---',
     ].join('\n');
     let resolved: any = null;
 

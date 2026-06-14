@@ -81,14 +81,6 @@ function resolveStockKolTwscrapeDbPath(): string | undefined {
       '.agent-fabric',
       STOCK_KOL_TWSCRAPE_DB_RELATIVE_PATH,
     ),
-    path.join(
-      os.homedir(),
-      '.cli-claw',
-      'state',
-      'stock-kol-intel',
-      'twscrape',
-      'accounts.db',
-    ),
   ];
 
   for (const candidate of candidates) {

@@ -16,9 +16,9 @@ describe('resolveManagedSelfRestartCommand', () => {
     );
   });
 
-  test('does not recognize legacy cli-claw restart phrases', () => {
-    expect(resolveManagedSelfRestartCommand('请把 cli-claw 重启一下')).toBeNull();
-    expect(resolveManagedSelfRestartCommand('请把 cliclaw 重启一下')).toBeNull();
+  test('does not recognize obsolete-agent restart phrases', () => {
+    expect(resolveManagedSelfRestartCommand('请把 legacy-agent 重启一下')).toBeNull();
+    expect(resolveManagedSelfRestartCommand('请把 obsoleteagent 重启一下')).toBeNull();
   });
 
   test('does not rewrite broader task prompts that merely mention restarting', () => {
@@ -120,9 +120,9 @@ describe('detectUnsafeAgentFabricServiceControl', () => {
     });
   });
 
-  test('does not treat legacy cli-claw restart as an Agent Fabric safe restart alias', () => {
+  test('does not treat obsolete-agent restart as an Agent Fabric safe restart alias', () => {
     expect(
-      detectUnsafeAgentFabricServiceControl('cli-claw restart', {
+      detectUnsafeAgentFabricServiceControl('legacy-agent restart', {
         backendPid: 69981,
         launchdServiceName: 'gui/501/com.ryan.agent-fabric',
         allowSafeRestartCommand: false,

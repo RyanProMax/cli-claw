@@ -135,7 +135,7 @@ describe('requestSelfRestart', () => {
     );
     const spawnEnv = spawnFn.mock.calls[0]?.[2]?.env ?? {};
     expect(
-      Object.keys(spawnEnv).filter((key) => key.startsWith('CLI_CLAW_')),
+      Object.keys(spawnEnv).filter((key) => key.startsWith('OBSOLETE_AGENT_')),
     ).toEqual([]);
 
     const intent = JSON.parse(
@@ -257,7 +257,7 @@ describe('requestSelfRestart', () => {
     ).toBe('gui/501/com.ryan.agent-fabric');
     expect(
       resolveLaunchdServiceNameFromEnv({
-        CLI_CLAW_LAUNCHD_SERVICE_NAME: 'gui/501/com.ryan.cli-claw',
+        OBSOLETE_AGENT_LAUNCHD_SERVICE_NAME: 'gui/501/com.ryan.legacy-agent',
       }),
     ).toBeNull();
     expect(resolveLaunchdServiceNameFromEnv({})).toBeNull();
@@ -266,7 +266,7 @@ describe('requestSelfRestart', () => {
   test('ignores legacy IM restart reply context env', () => {
     expect(
       resolveSelfRestartRequestChatJidFromEnv({
-        CLI_CLAW_REQUEST_CHAT_JID: 'feishu:chat-1',
+        OBSOLETE_AGENT_REQUEST_CHAT_JID: 'feishu:chat-1',
       }),
     ).toBeNull();
   });
