@@ -100,6 +100,8 @@ describe('workflow config discovery', () => {
     expect(instructions).toContain('每个 emoji 字段块之间不插入空行');
     expect(instructions).toContain('每个编号主题之间必须至少保留一个空行');
     expect(instructions).toContain('🔍 **下一步重点核验**');
+    expect(instructions).toContain('KOL 情报报告｜暂无可用高信号');
+    expect(instructions).toContain('不要输出示例股票代码、ETF 或行业链');
     expect(instructions).toContain('原文标题 [YYYY-MM-DD]');
     expect(instructions).not.toContain('| x');
     expect(instructions).toContain('---');

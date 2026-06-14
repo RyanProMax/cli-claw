@@ -192,6 +192,14 @@ function describeNodeContent(
   role: WorkflowRoleDefinition | undefined,
   step: WorkflowRunStep | undefined,
 ): string | null {
+  if (
+    step?.status === 'success' &&
+    node.type !== 'local_task' &&
+    typeof step.output?.result === 'string' &&
+    step.output.result.trim()
+  ) {
+    return '报告已生成，完整内容见下方终态消息。';
+  }
   const outputSummary = extractOutputSummary(step);
   if (outputSummary) return truncateText(outputSummary, 180);
   const pieces = [node.prompt].filter((part): part is string =>
@@ -240,7 +248,7 @@ function buildWorkflowProgressCard(input: {
   run: WorkflowRun;
   steps: Map<string, WorkflowRunStep>;
 }): object {
-  const { workflow, roles, prompt } = input.snapshot;
+  const { workflow, roles } = input.snapshot;
   const run = input.run;
   const runLabel = RUN_STATUS_LABEL[run.status];
   const runIcon = RUN_STATUS_ICON[run.status];
@@ -257,15 +265,7 @@ function buildWorkflowProgressCard(input: {
   const headerElements: Array<FeishuCardMarkdownElement | null> = [
     {
       tag: 'markdown',
-      content: optimizeMarkdownStyle(
-        `## ${runIcon} Workflow 进度｜${workflow.name}`,
-        2,
-      ),
-    },
-    {
-      tag: 'markdown',
-      content: `🆔 Run：\`${run.id}\``,
-      text_size: 'notation',
+      content: `## ${runIcon} Workflow 进度｜${workflow.name}`,
     },
     {
       tag: 'markdown',
@@ -273,24 +273,9 @@ function buildWorkflowProgressCard(input: {
         `📌 状态：${runLabel}`,
         `🧩 节点：${workflow.nodes.length}`,
         `⏱️ 总耗时：${formatRunDuration(run)}`,
-      ].join('\n'),
-      text_size: 'notation',
-    },
-    {
-      tag: 'markdown',
-      content: [
         `🕘 开始：${formatInstant(run.started_at ?? run.created_at)}`,
-        `🔄 更新：${formatInstant(run.updated_at)}`,
       ].join('\n'),
-      text_size: 'notation',
     },
-    prompt
-      ? {
-          tag: 'markdown',
-          content: `📝 任务：${truncateText(prompt, 220)}`,
-          text_size: 'notation',
-        }
-      : null,
   ].filter((element): element is FeishuCardMarkdownElement => Boolean(element));
 
   return {

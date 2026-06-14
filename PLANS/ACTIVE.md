@@ -1,85 +1,100 @@
-# 当前任务：优化 KOL 工作流进度卡片与报告信息密度
+# 当前任务：二次修复 KOL 进度卡与无效情报报告
 
 ## Goal
 
-- 优化飞书 `/kol` workflow 进度卡片的顶部信息结构，避免 Run、状态、节点、耗时、时间和任务挤在同一段里。
-- 分析并精简 KOL workflow 结果中冗余、低信息密度描述，只保留结论、方向、依据、标的/行业和下一步核验等关键信息。
+- 根据真实飞书截图继续优化 `/kol` workflow 进度卡：标题字号恢复可读，只保留用户需要的状态、节点数、耗时和开始时间，删除 Run ID、更新时间和任务名等噪音。
+- 处理 KOL 终态报告“没有任何有用信息”的问题：当原文不可核验或没有高信号主题时，不再生成长篇伪报告，而是输出短失败/低信号说明和可执行修复建议。
+- 使用独立 reviewer agent 参与审查报告质量和卡片可读性，主 agent 负责最终实现、验证和提交。
 
 ## Done when
 
-- Workflow 进度卡顶部按信息分组换行展示，移动端可读，不再混成一段。
-- KOL 结果归一化会删除默认套话、空泛描述和重复标题，结论/核验拆成列表。
-- 相关单元/integration/E2E 自测通过，并记录输出样式仍可优化的观察。
-- validation 和 review gate 通过；结果与 handoff 已回写本文件。
+- 飞书 workflow 进度卡顶部不再展示 Run ID、更新时间、任务名，标题不再被压成小号 notation/五级标题。
+- workflow 节点摘要不再把最终报告长正文塞进进度卡，只显示短状态摘要。
+- KOL 结果在 `x_preflight` 未恢复、没有可核验原文或没有高信号主题时，返回短而明确的“暂无可用情报”结果，不输出带股票代码示例的空泛长报告。
+- reviewer agent 给出结构化审查意见，并且本轮修复覆盖其 blocking 建议。
+- targeted tests、飞书 workflow E2E、typecheck、review gate、必要 build/restart 通过；结果与 handoff 回写本文件。
 
 ## Milestones
 
-### Milestone 1：复现与红线测试
+### Milestone 1：复现真实截图问题并锁定根因
 
 Objective:
-- 找到进度卡头部和 KOL 结果冗余的生成链路，并用测试固化当前问题。
+- 用测试复现顶部卡片噪音/字号问题、节点内容过长问题，以及 KOL 无高信号时仍生成长伪报告的问题。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
 - `src/messaging/providers/feishu/workflow-progress-card.ts`
 - `src/agent/workflow/command.ts`
+- `src/agent/workflow/engine.ts`
+- `src/agent/workflow/local-tasks.ts`
 - `.agents/workflows/kol.json`
 - `.agents/agent-roles/kol-intel-reporter.md`
+- `docs/COMMAND.md`
 - `tests/unit/messaging/feishu/workflow-progress-card.test.ts`
 - `tests/unit/agent/workflow/command.test.ts`
-- `tests/integration/messaging/feishu/kol-command-e2e.test.ts`
-- 只读检查相关 docs / E2E 入口
+- `tests/unit/agent/workflow/engine.test.ts`
+- `tests/integration/messaging/feishu/e2e.test.ts`
 
 Validation:
-- `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`
+- 先补红线测试并确认失败：
+  - `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/e2e.test.ts`
 
 Status:
 - done
 
 Validation status:
-- passed:
-  - 红线先失败：`npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`，失败点分别命中进度卡头部单块 markdown 和 KOL 低价值内容未过滤。
-  - 修复后同一 targeted 命令通过，14 tests passed。
+- passed
+- 2026-06-14 10:42 EDT：补充红线后运行
+  `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/e2e.test.ts`，确认失败点覆盖：
+  - workflow 进度卡标题被 `optimizeMarkdownStyle` 降成 `#####`。
+  - 头部仍展示 Run ID、更新时间、任务名，metadata 过密。
+  - role 节点把最终长报告正文塞进进度卡摘要。
+  - KOL 无高信号报告仍保留作者名单和模板标的。
 
 Review status:
 - passed
+- 根因与截图一致：卡片展示边界和 KOL 低信号投递边界都缺少硬约束。
+- 独立 reviewer agent `019ec65b-5bbc-7c81-96e2-dfc9c7513a5e` 仍无法通过当前线程工具读取，最终 Milestone 3 继续记录该限制并做本地 review gate。
 
 Risks / Notes / Handoff:
-- 根因确认：进度卡把所有 run metadata join 成单个 markdown 元素并用 `<br>` 分隔，飞书渲染/移动端截图容易挤成一段；KOL 报告 prompt 与 normalize 只做格式清理，对“信息很长但无新证据”的空泛句子缺少确定性过滤。
+- 截图显示上一轮把顶部拆成多元素后又给 metadata 全部加了 `text_size: notation`，标题还经过 `optimizeMarkdownStyle` 被 H2 降成 H5，实际视觉偏小。
+- 截图中的最终报告并不是“情报报告”，而是 preflight 不可核验后的长说明；它还输出了 `NVDA/TSM/AVGO/...` 等模板示例，容易被误读成实际方向。
 
-### Milestone 2：实现样式与结果精简
+### Milestone 2：实现卡片与低信号报告修复
 
 Objective:
-- 调整卡片结构与 KOL 报告归一化/角色约束，使输出更短、更分点、更聚焦。
+- 精简 workflow 进度卡头部和节点摘要；把无高信号 KOL 结果变成短、明确、无伪标的的低信号结果。
 
 Allowed scope:
 - Milestone 1 允许范围内的实现、prompt、测试文件
 - 必要时同步 `docs/COMMAND.md` 中 `/kol` 输出契约
 
 Validation:
-- `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`
-- 运行 `/kol` 相关 in-process E2E 或 live smoke，记录真实输出观察
+- `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/e2e.test.ts`
+- 补跑 KOL local task/config 相关测试，如 prompt/template 被修改
 
 Status:
 - done
 
 Validation status:
-- passed:
-  - `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts tests/integration/messaging/feishu/e2e.test.ts`，7 files / 56 tests passed。
-  - `npm run typecheck:backend`
-  - `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=oc_98f0bb60f284627bf20f9386704f8c82 npm test -- tests/live/feishu/message-smoke.test.ts`，真实飞书 `[e2e]` 文本发送与读回通过。
+- passed
+- 2026-06-14 10:45 EDT：
+  `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/integration/messaging/feishu/e2e.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`
+  通过，7 个测试文件 / 58 个用例。
 
 Review status:
-- passed: 人工检查 diff 后确认进度卡头部已拆成独立 card elements；KOL 精简只删除免责声明、泛泛观察句和第 4 个以后主题，保留来源提醒、来源链接、日期、股票/ETF 和具体事实。
+- passed
+- 2026-06-14 11:01 EDT：独立 reviewer agent `019ec6a2-d71c-74f2-abfb-a77371b13847` 返回 `blocking_findings: none`。
+- 已采纳 reviewer 非阻塞建议：把 `local-tasks.ts` 的 KOL 高信号模板从“典型股票/ETF”收敛为“来源明确支撑；没有就写暂无”。
 
 Risks / Notes / Handoff:
-- 精简规则是保守过滤：不删带来源、日期、股票代码、行业链或具体事实的内容；来源存疑提醒仍保留。
-- 本轮观察：卡片顶部已从“标题 + `<br>` 拼接元信息”的单块 markdown 改为标题、Run、状态/节点/耗时、时间、任务五个元素；模拟 E2E payload 中首个元素不再包含 `🆔 Run` 或 `<br>`。
+- 不能因为无高信号就静默失败；用户仍需要知道“为什么没有报告”和“下一步该怎么恢复数据源”。
+- 已同步 role card、workflow prompt、local task artifact 和 `docs/COMMAND.md`，避免模型源头继续生成低信号长报告；投递层仍保留确定性归一化兜底。
 
-### Milestone 3：验证、review、提交
+### Milestone 3：独立 review、E2E、自测和提交
 
 Objective:
-- 完成本轮验证、review gate、必要服务应用与提交。
+- 等 reviewer agent 返回意见后做 final review，跑 E2E/真实 smoke/安全重启并提交。
 
 Allowed scope:
 - 本轮修改文件
@@ -89,55 +104,60 @@ Allowed scope:
 Validation:
 - `git diff --check`
 - targeted tests
+- `npm run typecheck:backend`
+- `FEISHU_LIVE_E2E=1 ... message-smoke`
 - `./scripts/review.sh`
-- 如改动影响类型或构建，补跑对应 typecheck/build
+- `npm run build:backend`
+- `bun src/cli.ts restart`
+- `curl -fsS http://127.0.0.1:3000/api/health`
 
 Status:
 - done
 
 Validation status:
-- passed:
+- passed
+- 2026-06-14 11:01 EDT：最终验证通过：
   - `git diff --check`
+  - `npx vitest run tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/engine.test.ts tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/integration/messaging/feishu/e2e.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`，7 个测试文件 / 58 个用例。
   - `npm run typecheck:backend`
-  - `npx vitest run tests/unit/messaging/feishu/workflow-progress-card.test.ts tests/unit/agent/workflow/command.test.ts tests/unit/agent/workflow/local-tasks.test.ts tests/unit/agent/workflow/config.test.ts tests/unit/agent/workflow/engine.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts tests/integration/messaging/feishu/e2e.test.ts`
-  - `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=oc_98f0bb60f284627bf20f9386704f8c82 npm test -- tests/live/feishu/message-smoke.test.ts`
   - `npm run build:backend`
-  - `bun src/cli.ts restart`，restart intent `restart-2026-06-14T07-56-41-099Z-4c0d1743` status `passed`
-  - `curl -fsS http://127.0.0.1:3000/api/health` 返回 `healthy`
   - `./scripts/review.sh`
+  - `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=oc_98f0bb60f284627bf20f9386704f8c82 npm test -- tests/live/feishu/message-smoke.test.ts`
+  - `bun src/cli.ts restart`
+  - `curl -fsS http://127.0.0.1:3000/api/health` 返回 `{"status":"healthy","checks":{"database":true,"queue":true,"uptime":4}}`
 
 Review status:
-- passed: `./scripts/review.sh` 通过；按 `RUNBOOKS/Review.md` 人工 diff review 未发现 blocking 问题。
+- passed
+- `./scripts/review.sh` 通过；独立 reviewer agent 结论为无 blocking。
 
 Risks / Notes / Handoff:
-- 测试输出仍出现既有 `MaxListenersExceededWarning`，但相关测试全部通过，非本轮新增失败。
-- 本轮没有需要同步到 `PLANS/ROADMAP.md` 的跨轮次事项。
+- 用户明确要求不要只自审，必须使用独立 reviewer role 推进；最终总结需说明 reviewer 结论和采纳情况。
+- 残余风险：no-signal 归一化依赖模型输出中出现“高信号主题：暂无/未形成”等低信号措辞；已在 role prompt、workflow prompt、local task artifact 和投递层兜底多层约束。
 
 ## Handoff
 
 Current milestone:
-- Milestone 3 done
+- Milestone 3
 
 Current status:
-- committed，backend build 已更新，安全重启已应用，服务健康
+- complete; validation, review, live smoke, build, safe restart and health check passed
 
 Changed files:
-- `.agents/agent-roles/kol-intel-reporter.md`
-- `.agents/workflows/kol.json`
 - `PLANS/ACTIVE.md`
-- `docs/COMMAND.md`
-- `src/agent/workflow/command.ts`
-- `src/agent/workflow/local-tasks.ts`
 - `src/messaging/providers/feishu/workflow-progress-card.ts`
-- `tests/integration/messaging/feishu/e2e.test.ts`
-- `tests/unit/agent/workflow/command.test.ts`
-- `tests/unit/messaging/feishu/workflow-progress-card.test.ts`
+- `src/agent/workflow/command.ts`
+- `src/agent/workflow/engine.ts`
+- `src/agent/workflow/local-tasks.ts`
+- `.agents/workflows/kol.json`
+- `.agents/agent-roles/kol-intel-reporter.md`
+- `docs/COMMAND.md`
+- related unit/integration tests
 
 Last failure summary:
-- 红线阶段进度卡/KOL 精简测试按预期失败；首次 `./scripts/review.sh` 因 `workflow-progress-card.ts` 需要 Prettier 格式化失败。格式化后所有验证与 review 通过。
+- 无待处理失败；最终验证全部通过。
 
 Suspected cause:
-- 已修复：进度卡头部结构过度依赖单个 markdown `<br>` 拼接；KOL 终态归一化缺少低价值文案过滤，role/workflow/local task 又强制填太多字段。
+- 已修复：卡片标题不再走 markdown optimizer，头部字段收敛；role 节点正文只显示短摘要；KOL 无高信号和 runtime fallback 都输出短低信号结果。
 
 Next step:
-- 无；后续观察真实 `/kol` 输出是否还出现具体信源不足导致的低信号主题。
+- 提交本轮变更。

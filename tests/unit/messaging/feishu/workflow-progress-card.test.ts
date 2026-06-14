@@ -166,15 +166,15 @@ describe('Feishu workflow progress card', () => {
     expect(payload).toContain('耗时');
     expect(payload).toContain('外部数据源失败');
     expect(payload).toContain('Workflow 进度｜状态矩阵工作流');
-    expect(payload).toContain('🆔 Run：`wfrun_status_matrix`');
     expect(payload).toContain('📌 状态：失败');
     expect(payload).toContain('🧩 节点：6');
-    expect(payload).toContain('📝 任务：覆盖所有状态');
     expect(payload).toContain('**3. ✅ success_node**<br>');
     expect(payload).toContain('🧾 内容：普通节点完成');
     expect(payload).toContain('🧩 本地任务：`test.success`');
     expect(payload).not.toContain('3. ✅ **success_node**');
-    expect(payload).not.toContain('状态：已完成 · 耗时：2s\\n内容：普通节点完成');
+    expect(payload).not.toContain(
+      '状态：已完成 · 耗时：2s\\n内容：普通节点完成',
+    );
 
     const finalCard = updatedCards.at(-1) ?? createdCards.at(-1);
     const elements = finalCard.body.elements as Array<{
@@ -183,14 +183,82 @@ describe('Feishu workflow progress card', () => {
     }>;
     const titleElement = elements[0];
     expect(titleElement.content).toContain('Workflow 进度｜状态矩阵工作流');
-    expect(titleElement.content).not.toContain('🆔 Run');
+    expect(titleElement.content).toBe('## ❌ Workflow 进度｜状态矩阵工作流');
+    expect(titleElement.content).not.toContain('#####');
     expect(titleElement.content).not.toContain('<br>');
-    expect(elements[1].content).toBe('🆔 Run：`wfrun_status_matrix`');
-    expect(elements[2].content).toContain('📌 状态：失败\n🧩 节点：6');
-    expect(elements[2].content).toContain('⏱️ 总耗时：5s');
-    expect(elements[3].content).toContain('🕘 开始：');
-    expect(elements[3].content).toContain('\n🔄 更新：');
-    expect(elements[4].content).toBe('📝 任务：覆盖所有状态');
+    const dividerIndex = elements.findIndex(
+      (element) => element.content === '---',
+    );
+    const headerContent = elements
+      .slice(0, dividerIndex)
+      .map((element) => element.content)
+      .join('\n');
+    expect(headerContent).not.toContain('🆔 Run');
+    expect(headerContent).not.toContain('🔄 更新');
+    expect(headerContent).not.toContain('📝 任务');
+    expect(elements[1].content).toContain('📌 状态：失败');
+    expect(elements[1].content).toContain('🧩 节点：6');
+    expect(elements[1].content).toContain('⏱️ 总耗时：5s');
+    expect(elements[1].content).toContain('🕘 开始：');
+    expect(payload).toContain('最后更新');
+  });
+
+  test('keeps long role report bodies out of the progress card', async () => {
+    const { client, createdCards, updatedCards } = makeClient();
+    const reporter = new FeishuWorkflowProgressReporter({
+      client: client as any,
+      chatId: 'oc_status_matrix',
+    });
+    const reportWorkflow: WorkflowDefinition = {
+      ...workflow(),
+      nodes: [
+        {
+          id: 'kol_report_editor',
+          type: 'role_task',
+          roleId: 'kol-intel-reporter',
+          outputArtifact: 'final_report',
+        },
+      ] as any,
+    };
+
+    await reporter.onRunCreated({
+      workflow: reportWorkflow,
+      roles: new Map([
+        [
+          'kol-intel-reporter',
+          {
+            id: 'kol-intel-reporter',
+            name: '股票 KOL 情报编辑',
+            description: '',
+            instructions: '',
+            allowedTools: [],
+            skillIds: [],
+            permissionMode: 'readonly',
+            sourcePath: '/workspace/.agents/agent-roles/kol.md',
+          },
+        ],
+      ]),
+      run: run(),
+      prompt: '股票 KOL 情报报告',
+    });
+    await reporter.onStep(
+      step('kol_report_editor', 'success', {
+        output: {
+          result: [
+            '**KOL 情报报告｜默认白名单**',
+            '窗口：最近 30 天',
+            '覆盖 KOL（7）：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
+            '高信号主题：暂无满足原文核验条件的高信号主题',
+          ].join('\n'),
+        },
+      }),
+    );
+    await reporter.waitForIdle();
+
+    const payload = JSON.stringify([...createdCards, ...updatedCards]);
+    expect(payload).toContain('🧾 内容：报告已生成，完整内容见下方终态消息。');
+    expect(payload).not.toContain('覆盖 KOL（7）');
+    expect(payload).not.toContain('暂无满足原文核验条件');
   });
 
   test('retries sending the visible card message when initial message creation fails after CardKit create', async () => {

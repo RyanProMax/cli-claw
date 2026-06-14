@@ -195,6 +195,63 @@ function mergeKolCoverageLines(result: string): string {
     );
 }
 
+function readKolReportWindowDays(result: string): number {
+  const match = result.match(/窗口[：:]\s*最近\s*(\d{1,3})\s*天/);
+  const days = match ? Number.parseInt(match[1], 10) : NaN;
+  return Number.isFinite(days) && days > 0 ? days : 30;
+}
+
+function readKolReportCoverageCount(result: string): number | null {
+  const coverageMatch =
+    result.match(/覆盖\s*KOL[（(]\s*(\d{1,4})\s*[）)]/) ??
+    result.match(/覆盖[：:]\s*(\d{1,4})\s*(?:位|个)?\s*KOL/);
+  if (!coverageMatch) return null;
+  const count = Number.parseInt(coverageMatch[1], 10);
+  return Number.isFinite(count) && count >= 0 ? count : null;
+}
+
+function isKolNoSignalReport(result: string): boolean {
+  const compact = result.replace(/\s+/g, ' ').trim();
+  return (
+    /高信号主题[：:]\s*(?:暂无|无|没有|未形成|未发现)/.test(compact) ||
+    /暂无(?:满足原文核验条件的)?高信号主题/.test(compact) ||
+    /未形成可纳入主报告的高信号主题/.test(compact)
+  );
+}
+
+function readKolNoSignalReason(result: string): string {
+  if (/原文.*未完成可访问校验|未完成可访问校验/.test(result)) {
+    return '原文未完成可访问校验';
+  }
+  if (/原文.*不可核验|没有可核验原文|无法核验|原文核验条件/.test(result)) {
+    return '原文未达到核验条件';
+  }
+  if (/原站不可访问|不可访问|无法访问|账号失败|抓取失败/.test(result)) {
+    return '原文不可访问或账号预检失败';
+  }
+  return '未形成满足原文核验条件的高信号主题';
+}
+
+function formatKolNoSignalReport(result: string): string {
+  const windowDays = readKolReportWindowDays(result);
+  const coverageCount = readKolReportCoverageCount(result);
+  const coverageLine =
+    coverageCount === null
+      ? '覆盖 KOL：未解析到白名单账号数量'
+      : `覆盖 KOL：${coverageCount} 个白名单账号`;
+  return [
+    '⚠️ **KOL 情报报告｜暂无可用高信号**',
+    `窗口：最近 ${windowDays} 天`,
+    coverageLine,
+    `原因：${readKolNoSignalReason(result)}，暂不生成主题报告。`,
+    '',
+    '下一步：',
+    '1. 修复 X/Twitter 原文访问或账号预检后重跑 `/kol`。',
+    '2. 确认新增内容能落到具体公司、ETF 或产业链，并有原文链接与日期。',
+    '3. 若仍无可核验证据，本轮保持低信号结论，不输出伪方向。',
+  ].join('\n');
+}
+
 function normalizeKolDate(value: string | null | undefined): string | null {
   const match = value
     ?.trim()
@@ -359,6 +416,9 @@ function limitKolThemeSections(result: string, maxThemes = 3): string {
 function normalizeKolFinalReport(result: string): string {
   let normalized = removeDefaultKolConfidenceSection(result);
   normalized = mergeKolCoverageLines(normalized);
+  if (isKolNoSignalReport(normalized)) {
+    return formatKolNoSignalReport(normalized);
+  }
   normalized = normalizeKolSourceLinks(normalized);
   normalized = normalizeKolConclusion(normalized);
   normalized = compactKolThemeSummary(normalized);

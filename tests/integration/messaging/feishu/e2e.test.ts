@@ -2072,19 +2072,30 @@ describe('Feishu in-process E2E harness', () => {
       expect(cardPayloads).toContain('耗时');
       expect(cardPayloads).toContain('报告完成：HK.01234');
     });
-    const finalCard = hoisted.updatedCards.at(-1) ?? hoisted.createdCards.at(-1);
+    const finalCard =
+      hoisted.updatedCards.at(-1) ?? hoisted.createdCards.at(-1);
     const finalCardElements = finalCard?.body?.elements ?? [];
     expect(finalCardElements[0]?.content).toContain(
       'Workflow 进度｜进度测试工作流',
     );
-    expect(finalCardElements[0]?.content).not.toContain('🆔 Run');
-    expect(finalCardElements[0]?.content).not.toContain('<br>');
-    expect(finalCardElements[1]?.content).toContain('🆔 Run：`wfrun_');
-    expect(finalCardElements[2]?.content).toContain(
-      '📌 状态：已完成\n🧩 节点：2',
+    expect(finalCardElements[0]?.content).toBe(
+      '## ✅ Workflow 进度｜进度测试工作流',
     );
-    expect(finalCardElements[4]?.content).toBe(
-      '📝 任务：生成一份进度测试报告',
+    expect(finalCardElements[0]?.content).not.toContain('🆔 Run');
+    expect(finalCardElements[0]?.content).not.toContain('#####');
+    expect(finalCardElements[0]?.content).not.toContain('<br>');
+    const headerContent = finalCardElements
+      .slice(
+        0,
+        finalCardElements.findIndex((item: any) => item.content === '---'),
+      )
+      .map((item: any) => item.content)
+      .join('\n');
+    expect(headerContent).not.toContain('🆔 Run');
+    expect(headerContent).not.toContain('🔄 更新');
+    expect(headerContent).not.toContain('📝 任务');
+    expect(finalCardElements[1]?.content).toContain(
+      '📌 状态：已完成\n🧩 节点：2',
     );
 
     const cardReferenceMessages = hoisted.createSpy.mock.calls.filter(

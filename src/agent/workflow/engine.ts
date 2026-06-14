@@ -362,43 +362,6 @@ function buildHkipoFallbackReport(
   return lines.join('\n');
 }
 
-function normalizeKolHandle(handle: string): string {
-  return handle.replace(/^@+/, '').trim();
-}
-
-function extractKolHandleFromUrl(url: string): string {
-  const match = url.match(/(?:x|twitter)\.com\/([^/?#]+)/i);
-  return match ? normalizeKolHandle(match[1]) : '';
-}
-
-function readKolHandle(item: Record<string, unknown>): string {
-  const direct =
-    readString(item.handle) ||
-    readString(item.username) ||
-    readString(item.screen_name) ||
-    readString(item.screenName);
-  if (direct) return normalizeKolHandle(direct);
-  const url = readString(item.x_url) || readString(item.url);
-  return url ? extractKolHandleFromUrl(url) : '';
-}
-
-function readKolDisplayName(item: Record<string, unknown>): string {
-  return (
-    readString(item.display_name) ||
-    readString(item.displayName) ||
-    readString(item.name) ||
-    readString(item.id) ||
-    readKolHandle(item) ||
-    'Unknown KOL'
-  );
-}
-
-function formatKolName(item: Record<string, unknown>): string {
-  const displayName = readKolDisplayName(item);
-  const handle = readKolHandle(item);
-  return handle ? `${displayName}（@${handle}）` : displayName;
-}
-
 function readKolContext(state: WorkflowGraphState): Record<string, unknown> {
   const artifact = state.artifacts.kol_context;
   return isRecord(artifact) ? artifact : {};
@@ -411,129 +374,6 @@ function readCoveredKols(
   if (covered.length > 0) return covered;
   const whitelist = isRecord(kolContext.whitelist) ? kolContext.whitelist : {};
   return asArray(whitelist.kols).filter(isRecord);
-}
-
-function buildKolIdentityMap(
-  coveredKols: Record<string, unknown>[],
-  xPreflight: Record<string, unknown>,
-): Map<string, string> {
-  const identities = new Map<string, string>();
-  const addIdentity = (item: Record<string, unknown>) => {
-    const name = formatKolName(item);
-    for (const key of [
-      readString(item.id),
-      readString(item.kol_id),
-      readKolHandle(item),
-      readString(item.username),
-    ]) {
-      if (key) identities.set(normalizeKolHandle(key), name);
-    }
-  };
-  for (const kol of coveredKols) addIdentity(kol);
-  for (const account of asArray(xPreflight.accounts).filter(isRecord)) {
-    addIdentity(account);
-  }
-  return identities;
-}
-
-function readKolIdentity(
-  item: Record<string, unknown>,
-  identities: Map<string, string>,
-): string {
-  for (const key of [
-    readString(item.kol_id),
-    readString(item.id),
-    readKolHandle(item),
-    readString(item.username),
-  ]) {
-    const normalized = normalizeKolHandle(key);
-    if (normalized && identities.has(normalized)) {
-      return identities.get(normalized) ?? formatKolName(item);
-    }
-  }
-  return formatKolName(item);
-}
-
-function formatKolSourceTitle(post: Record<string, unknown>): string {
-  const title = readString(post.title);
-  if (title) return title;
-  const text = readString(post.text).replace(/\s+/g, ' ');
-  if (text) return text.length > 42 ? `${text.slice(0, 42)}...` : text;
-  return '原文';
-}
-
-function formatKolSourceDate(post: Record<string, unknown>): string {
-  for (const key of [
-    'published_at',
-    'created_at',
-    'posted_at',
-    'date',
-    'time',
-    'timestamp',
-  ]) {
-    const rawValue = readString(post[key]);
-    const match = rawValue.match(/(20\d{2})[年\/-](\d{1,2})[月\/-](\d{1,2})/);
-    if (match) {
-      return ` [${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(
-        2,
-        '0',
-      )}]`;
-    }
-  }
-  return '';
-}
-
-function collectKolSourceLinks(
-  kolContext: Record<string, unknown>,
-  coveredKols: Record<string, unknown>[],
-): string[] {
-  const xPreflight = isRecord(kolContext.x_preflight)
-    ? kolContext.x_preflight
-    : {};
-  const identities = buildKolIdentityMap(coveredKols, xPreflight);
-  const seenUrls = new Set<string>();
-  const lines: string[] = [];
-  const pushLink = (
-    author: string,
-    title: string,
-    url: string,
-    suffix = '',
-  ) => {
-    if (!url || seenUrls.has(url)) return;
-    seenUrls.add(url);
-    lines.push(`- ${author}：[${title}](${url})${suffix}`);
-  };
-
-  for (const result of asArray(xPreflight.results).filter(isRecord)) {
-    const author = readKolIdentity(result, identities);
-    for (const post of asArray(result.posts).filter(isRecord)) {
-      const url = readString(post.url) || readString(post.link);
-      pushLink(
-        author,
-        formatKolSourceTitle(post),
-        url,
-        formatKolSourceDate(post),
-      );
-    }
-  }
-
-  for (const account of asArray(xPreflight.accounts).filter(isRecord)) {
-    const author = readKolIdentity(account, identities);
-    const url = readString(account.url) || readString(account.x_url);
-    pushLink(author, '账号主页', url, '（本轮报告编辑中断，未完成主题归因）');
-  }
-
-  for (const kol of coveredKols) {
-    const url = readString(kol.x_url) || readString(kol.url);
-    pushLink(
-      formatKolName(kol),
-      '账号主页',
-      url,
-      '（本轮报告编辑中断，未完成主题归因）',
-    );
-  }
-
-  return lines.slice(0, 8);
 }
 
 function formatKolPreflightStatus(kolContext: Record<string, unknown>): string {
@@ -554,61 +394,27 @@ function buildKolFallbackReport(
 ): string {
   const kolContext = readKolContext(state);
   const coveredKols = readCoveredKols(kolContext);
-  const coveredSummary =
-    readString(kolContext.covered_kol_summary) ||
-    coveredKols.map(formatKolName).join('、') ||
-    '未解析到白名单 KOL 名称';
   const windowDays = readNumber(kolContext.window_days) ?? 30;
-  const sourceLinks = collectKolSourceLinks(kolContext, coveredKols);
   const preflightStatus = formatKolPreflightStatus(kolContext);
   const reason = formatAgentRuntimeErrorSummary(message, 220);
   const cache = isRecord(kolContext.cache) ? kolContext.cache : {};
   const retryHint =
     cache.cacheable === true
-      ? '稍后重试可复用缓存继续生成完整报告。'
-      : '稍后重试可重新获取上下文并生成完整报告。';
+      ? '可复用缓存重跑 `/kol`。'
+      : '重新获取上下文后重跑 `/kol`。';
 
-  const lines = [
-    '⚠️ **KOL 情报报告｜降级报告**',
+  return [
+    '⚠️ **KOL 情报报告｜暂无可用高信号**',
     `窗口：最近 ${windowDays} 天`,
-    `覆盖 KOL（${coveredKols.length}）：${coveredSummary}`,
-    '高信号主题：暂无可确认主题',
+    `覆盖 KOL：${coveredKols.length} 个白名单账号`,
+    `原因：报告编辑角色因 ${reason} 中断，未完成可核验主题归因。`,
+    `来源状态：X/Twitter 预检 ${preflightStatus}`,
     '',
-    `🧾 **结论/总结**：本轮已完成白名单与 X/Twitter 来源预检，但报告编辑角色因 ${reason} 中断。为避免把未完成整合的内容包装成投资结论，本次只返回来源可用性与保守核验方向；${retryHint}`,
-    '',
-    '---',
-    '',
-    '**近期投资方向与高信号内容**',
-    '',
-    '**1. 暂无可确认高信号主题：等待完整报告角色复核**',
-    '',
-    '🧭 **核心论点**：上游 `kol_context` 已生成，但本次最终编辑未完成，因此不能把零散帖子或账号主页直接提升为股票热点方向。',
-    '',
-    '📝 **观点摘要**：',
-    '- **事实**：白名单范围与 X/Twitter 预检已完成；最终报告生成环节发生 runtime socket 中断。',
-    '- **推断**：问题更接近模型运行时网络瞬断，而不是 KOL 抓取或账号白名单失败；重试后更可能得到完整主题合并报告。',
-    '',
-    '🏷️ **关联行业/代表标的**：暂无。当前证据不足以落到具体行业链、个股或 ETF。',
-    '',
-    '📊 **行业现状**：本次不输出行业景气判断；需等待完整报告角色基于原文链接复核后再生成。',
-    '',
-    '🔮 **未来叙事**：优先观察两位白名单 KOL 的原文恢复情况、是否出现多源共识，以及是否能落到可跟踪股票方向。',
-    '',
-    '🎯 **可跟踪方向**：先跟踪来源可用性与完整报告重跑结果；不输出买卖建议。',
-    '',
-    '🔗 **来源**：',
-    ...(sourceLinks.length > 0
-      ? sourceLinks
-      : ['- 暂无可用原文链接（本轮报告编辑中断）']),
-    '',
-    '---',
-    '',
-    '**来源提醒**',
-    `- X/Twitter 预检状态：${preflightStatus}`,
-    '- 降级边界：不使用镜像、搜索缓存、截图或不可核验转述作为高信号主题主证据。',
-  ];
-
-  return lines.join('\n');
+    '下一步：',
+    `1. ${retryHint}`,
+    '2. 若原文预检仍失败，先恢复 X/Twitter 原文访问或账号预检。',
+    '3. 重跑前不输出股票代码、ETF 或行业链示例，避免把模板内容当成情报。',
+  ].join('\n');
 }
 
 export function getWorkflowCheckpointSqlitePath(): string {

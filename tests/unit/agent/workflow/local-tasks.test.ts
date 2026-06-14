@@ -171,6 +171,12 @@ describe('default workflow local tasks', () => {
     expect((artifact as any).report_requirements).toContain(
       '来源标题格式必须为“原文标题 [YYYY-MM-DD]”，不能保留旧版来源后缀',
     );
+    expect(
+      ((artifact as any).report_requirements as string[]).join('\n'),
+    ).toContain('必须使用 low_signal_template');
+    expect((artifact as any).report_requirements).toContain(
+      '低信号结果不输出示例股票代码、ETF 或行业链',
+    );
     expect((artifact as any).report_requirements).toContain(
       '只有来源存疑、低置信或不可访问时才输出来源提醒',
     );
@@ -181,6 +187,15 @@ describe('default workflow local tasks', () => {
     expect((artifact as any).output_template).toContain(
       '覆盖 KOL（2）：Sample KOL（@sample）、Second Voice（@secondvoice）',
     );
+    expect((artifact as any).low_signal_template).toContain(
+      '⚠️ **KOL 情报报告｜暂无可用高信号**',
+    );
+    expect((artifact as any).low_signal_template).toContain(
+      '覆盖 KOL：2 个白名单账号',
+    );
+    expect((artifact as any).low_signal_template).toContain('/kol');
+    expect((artifact as any).low_signal_template).not.toContain('Sample KOL');
+    expect((artifact as any).low_signal_template).not.toContain('NVDA');
     expect((artifact as any).output_template).not.toContain('覆盖：2 位 KOL');
     expect((artifact as any).output_template).toContain('🧾 **结论/总结**');
     expect((artifact as any).output_template).toContain(
@@ -204,6 +219,8 @@ describe('default workflow local tasks', () => {
     expect((artifact as any).output_template).toContain(
       '- **推断**：<由事实延伸出的市场叙事或风险>\n🏷️ **关联行业/代表标的**',
     );
+    expect((artifact as any).output_template).toContain('来源明确支撑');
+    expect((artifact as any).output_template).not.toContain('典型股票/ETF');
     expect(
       (artifact as any).output_template.indexOf('🧾 **结论/总结**'),
     ).toBeLessThan(

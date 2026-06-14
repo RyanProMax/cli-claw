@@ -705,6 +705,92 @@ describe('workflow command execution', () => {
     db.closeDatabase();
   });
 
+  test('turns no-signal kol reports into a concise low-signal result without template tickers', async () => {
+    const workspaceRoot = tempDir(
+      'agent-fabric-workflow-command-kol-no-signal-',
+    );
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'agent-roles', 'editor.md'),
+      [
+        '---',
+        'id: editor',
+        'name: KOL 编辑',
+        'permissionMode: readonly',
+        '---',
+        '',
+        '输出 KOL 报告。',
+      ].join('\n'),
+    );
+    writeFile(
+      path.join(workspaceRoot, '.agents', 'workflows', 'kol.json'),
+      JSON.stringify(
+        {
+          id: 'kol',
+          name: '股票 KOL 情报工作流',
+          roles: ['editor'],
+          start: 'kol_report_editor',
+          nodes: [
+            {
+              id: 'kol_report_editor',
+              type: 'role_task',
+              roleId: 'editor',
+            },
+          ],
+          edges: [{ from: 'kol_report_editor', to: '__end__' }],
+        },
+        null,
+        2,
+      ),
+    );
+    const { command, db } = await loadWorkflowCommand();
+    const runGraph = vi.fn().mockResolvedValue({
+      prompt: '股票 KOL 情报报告',
+      result: [
+        '**KOL 情报报告｜默认白名单**',
+        '窗口：最近 30 天',
+        '覆盖 KOL（7）：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）、前沿科技周期预言家（@qinbafrank）、AI期权实盘笔记王（@xiaomustock）、纽交所老兵复盘师（@maojietrading）、金钱心理学导师（@morganhousel）、市场数据图表帝（@charliebilello）',
+        '高信号主题：暂无满足原文核验条件的高信号主题',
+        '',
+        '🧾 **结论/总结**',
+        '1. 本窗口内未形成可纳入主报告的高信号主题，因为白名单 KOL 的 X/Twitter 原文主证据未完成可访问校验。',
+        '2. 在原站原文不可核验的情况下，相关讨论只能保留为研究线索，不能上升为高置信共识。',
+        '3. 当前可跟踪方向仍应聚焦到后续一旦出现可核验原文时能够落地的股票与行业链，例如 NVDA、TSM、AVGO、AMD、MU、SMH、SOXX、QQQ。',
+        '',
+        '🔍 **下一步重点核验**',
+        '1. 核验白名单 KOL 最近 30 天原文是否恢复可访问，并补齐准确发布时间。',
+        '2. 核验相关讨论能否落到具体公司、ETF 或产业链环节，而非停留在泛化叙事。',
+        '3. 核验后续是否出现可交叉验证的增量证据，例如公司公告、管理层表态或可靠市场数据。',
+      ].join('\n'),
+      stepResults: {},
+    });
+
+    const reply = await command.executeWorkflowCommand({
+      group: {
+        name: 'Workspace A',
+        folder: 'workspace-a',
+        added_at: '2026-05-17T10:00:00.000Z',
+      },
+      chatJid: 'web:workspace-a',
+      argsText: 'kol 股票 KOL 情报报告',
+      workspaceRoot,
+      runGraph,
+    });
+
+    expect(reply).toContain('⚠️ **KOL 情报报告｜暂无可用高信号**');
+    expect(reply).toContain('窗口：最近 30 天');
+    expect(reply).toContain('覆盖 KOL：7 个白名单账号');
+    expect(reply).toContain('原文未完成可访问校验');
+    expect(reply).toContain('/kol');
+    expect(reply).not.toContain('Dexter Yang（@dexteryy）');
+    expect(reply).not.toContain('NVDA');
+    expect(reply).not.toContain('TSM');
+    expect(reply).not.toContain('AVGO');
+    expect(reply).not.toContain('QQQ');
+    expect(reply).not.toContain('相关讨论只能保留为研究线索');
+
+    db.closeDatabase();
+  });
+
   test('does not expose retired stock strategy built-in workflows', async () => {
     const { command, db } = await loadWorkflowCommand();
 

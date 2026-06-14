@@ -751,18 +751,19 @@ describe('workflow graph engine', () => {
       },
     } as any);
 
-    expect(result.result).toContain('⚠️ **KOL 情报报告｜降级报告**');
-    expect(result.result).toContain(
-      '覆盖 KOL（2）：Dexter Yang（@dexteryy）、Serenity（@aleabitoreddit）',
-    );
+    expect(result.result).toContain('⚠️ **KOL 情报报告｜暂无可用高信号**');
+    expect(result.result).toContain('覆盖 KOL：2 个白名单账号');
     expect(result.result).not.toContain('覆盖：2 位 KOL');
     expect(result.result).toContain('Agent runtime socket 异常');
+    expect(result.result).toContain('/kol');
+    expect(result.result).not.toContain('Dexter Yang（@dexteryy）');
+    expect(result.result).not.toContain('NVDA');
     expect(result.result).not.toContain('remoteFamily');
     expect(runEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           status: 'success',
-          result: expect.stringContaining('降级报告'),
+          result: expect.stringContaining('暂无可用高信号'),
         }),
       ]),
     );
