@@ -2290,8 +2290,8 @@ export class StreamingCardController {
 
   private async createInitialCard(): Promise<void> {
     const initialText = this.accumulatedText;
-    // Prefer full-card updates so the Feishu card structure matches runclaw's
-    // collapsible thinking/tool panels during streaming.
+    // Prefer full-card updates so the Feishu card keeps collapsible
+    // thinking/tool panels during streaming.
     if (hasCardKitV1(this.client)) {
       try {
         this.multiCard = new MultiCardManager(

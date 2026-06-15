@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { formatToolStepLine } from '../../../src/presentation/tool-step-display.ts';
 
 describe('formatToolStepLine', () => {
-  test('prefixes tool names with runclaw-style emoji', () => {
+  test('prefixes tool names with compact tool emoji', () => {
     expect(formatToolStepLine('exec_command')).toBe('💻 exec_command');
   });
 

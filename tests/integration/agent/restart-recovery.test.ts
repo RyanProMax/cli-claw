@@ -1433,7 +1433,7 @@ describe('restart recovery cursor handling', () => {
       'web:main',
       'ou_user',
       'User',
-      '检查 clic-claw PLANS/ 的 ACTIVE 和 ROADMAP',
+      '检查 legacy-agent PLANS/ 的 ACTIVE 和 ROADMAP',
       currentCursor.timestamp,
       false,
       { sourceJid: 'feishu:oc_test' },
@@ -1522,7 +1522,7 @@ describe('restart recovery cursor handling', () => {
 
     expect(runnerMocks.runAgentProcess).toHaveBeenCalledOnce();
     const prompt = runnerMocks.runAgentProcess.mock.calls[0][1].prompt;
-    expect(prompt).toContain('检查 clic-claw PLANS/');
+    expect(prompt).toContain('检查 legacy-agent PLANS/');
     expect(prompt).not.toContain('港股 IPO');
     expect(prompt).not.toContain('hkexnews');
 

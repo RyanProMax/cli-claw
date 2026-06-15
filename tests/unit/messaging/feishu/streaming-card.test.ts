@@ -884,7 +884,7 @@ describe('StreamingCardController footer caching', () => {
     expect(JSON.stringify(card)).not.toContain('<details>');
   });
 
-  test('creates streaming cards with an expanded thinking collapsible panel like runclaw', async () => {
+  test('creates streaming cards with an expanded thinking collapsible panel', async () => {
     const { client, createdCards } = createStreamingModeClient();
     const controller = new StreamingCardController({
       client,
