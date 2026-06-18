@@ -16,6 +16,18 @@
 
 ## Live Items
 
+### P1 RM-2026-06-18-01 GitHub Email History Remote Push
+
+- Status: `proposed`
+- Source: 2026-06-18 user request to replace `627311610@qq.com` with the GitHub-associated email in local config and historical commits.
+- Summary: 当前设备全局 / local git author 与 committer identity 已为 `Ryan <ryan.pro.1024@gmail.com>`；`agent-skills`、`balance-master`、`ryanpromax.github.io`、`stock-analysis-api`、`vscode-settings` 已创建 bundle 备份并本地重写历史，只替换 author/committer email。远端更新仍被本机 GitHub HTTPS credential helper / SSH 连接状态阻塞，`git push --force-with-lease` 报 `failed to get: -25308` / `could not read Username for 'https://github.com': Device not configured`，SSH batch probe 无响应。
+- Durable contract:
+  - 本轮备份目录：`/tmp/agent-fabric-email-rewrite-20260618100606`
+  - rewrite 后推送必须使用 `--force-with-lease`，并以备份中的 `*.refs.before` 作为旧 refs 核对依据。
+- Next action:
+  - 恢复本机 GitHub HTTPS 凭据或 SSH 连接后，依次 force-with-lease 推送：`agent-skills main`、`balance-master main`、`balance-master develop`、`ryanpromax.github.io main`、`stock-analysis-api main`、`vscode-settings master`。
+  - 推送后重新扫描相关 repo 的远端 refs，确认 `627311610@qq.com` 不再出现在目标历史中。
+
 ### P1 RM-2026-05-24-01 Workspace Thread Router UX
 
 - Status: `monitoring`

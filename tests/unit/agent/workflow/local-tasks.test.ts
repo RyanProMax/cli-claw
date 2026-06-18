@@ -587,6 +587,42 @@ describe('default workflow local tasks', () => {
     );
   });
 
+  test('fetch_pool preserves failed stock api JSON errors', async () => {
+    const apiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-root-'));
+    const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-bin-'));
+    tempDirs.push(apiRoot, binRoot);
+    fs.mkdirSync(path.join(apiRoot, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(apiRoot, 'scripts', 'futu_market_data.py'), '');
+    const fakeUv = path.join(binRoot, 'uv');
+    writeExecutable(
+      fakeUv,
+      [
+        '#!/usr/bin/env node',
+        'const payload = {',
+        '  status: "failed",',
+        '  source: "futu_opend",',
+        '  error: "Futu OpenD call timed out after 30s"',
+        '};',
+        'process.stdout.write(JSON.stringify(payload));',
+        'process.exit(1);',
+      ].join('\n'),
+    );
+    for (const key of ENV_KEYS) previousEnv.set(key, process.env[key]);
+    process.env.STOCK_ANALYSIS_API_ROOT = apiRoot;
+    process.env.STOCK_ANALYSIS_UV = fakeUv;
+
+    const tasks = createDefaultWorkflowLocalTasks();
+
+    await expect(
+      tasks['stock.hkipo.fetch_pool']({
+        taskId: 'stock.hkipo.fetch_pool',
+        nodeId: 'ipo_pool_discovery',
+        input: { command: 'hkipo', argsText: '', input: {} },
+        artifacts: {},
+      }),
+    ).rejects.toThrow('Futu OpenD call timed out after 30s');
+  });
+
   test('fetch_official_docs calls the stock api parser with the shared cache namespace', async () => {
     const apiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-root-'));
     const binRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-api-bin-'));

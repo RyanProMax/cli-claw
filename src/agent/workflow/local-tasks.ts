@@ -108,6 +108,44 @@ function cloneJsonObject(
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
 
+function readTextOutput(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Buffer.isBuffer(value)) return value.toString('utf8');
+  return '';
+}
+
+function parseStockApiFailure(stdout: string): string | null {
+  const raw = stdout.trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isObject(parsed)) return null;
+    const status = parsed.status;
+    const error = parsed.error;
+    if (status !== 'failed' || typeof error !== 'string' || !error.trim()) {
+      return null;
+    }
+    const source =
+      typeof parsed.source === 'string' && parsed.source.trim()
+        ? parsed.source.trim()
+        : 'unknown';
+    return `stock-analysis-api ${source} 失败：${error.trim()}`;
+  } catch {
+    return null;
+  }
+}
+
+function buildStockApiProcessError(error: unknown, args: string[]): Error {
+  const record = isObject(error) ? error : {};
+  const stdout = readTextOutput(record.stdout);
+  const stderr = readTextOutput(record.stderr).trim();
+  const failedJsonMessage = parseStockApiFailure(stdout);
+  if (failedJsonMessage) return new Error(failedJsonMessage);
+  if (stderr) return new Error(stderr);
+  if (error instanceof Error && error.message.trim()) return error;
+  return new Error(`stock-analysis-api ${args[0]} 执行失败`);
+}
+
 function pruneArtifactValue(value: unknown, depth = 0): unknown {
   if (depth > 4) return '[truncated]';
   if (typeof value === 'string') {
@@ -452,16 +490,18 @@ async function runStockApiJson(
     executionCwd: input.executionCwd,
   });
   const uv = resolveUvExecutable();
-  const { stdout, stderr } = await execFileAsync(
-    uv,
-    ['run', 'python', ...args],
-    {
+  let stdout = '';
+  let stderr = '';
+  try {
+    ({ stdout, stderr } = await execFileAsync(uv, ['run', 'python', ...args], {
       cwd: apiRoot,
       timeout: runOptions.timeoutMs ?? 120_000,
       maxBuffer: JSON_BUFFER_BYTES,
       env: process.env,
-    },
-  );
+    }));
+  } catch (error) {
+    throw buildStockApiProcessError(error, args);
+  }
   const raw = stdout.trim();
   if (!raw) {
     throw new Error(stderr.trim() || `stock-analysis-api ${args[0]} 无输出`);

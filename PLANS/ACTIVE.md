@@ -1,229 +1,196 @@
-# 当前任务：全量迁移旧品牌状态目录引用
+# 当前任务：修复 git email 历史与 `/hkipo` 报错
 
 ## Goal
 
-- 扫描 `/Users/ryan/projects` 下所有仓库/模块对旧品牌名、旧点目录和旧环境变量前缀的引用。
-- 将仍作为默认读写位置、文档指令、测试期望或配置约定的旧目录统一迁移到 `agent-fabric` / `.agent-fabric`。
-- 不保留旧状态目录作为默认或 fallback；历史负向测试改成 generic obsolete/legacy 示例。
+- 将当前设备与相关本地仓库的 git author/committer email 修正为 GitHub 账号可关联的邮箱，清理本地未推送历史中误用 `627311610@qq.com` 的提交。
+- 复现并修复 `/hkipo` 报错，按根因补测试与验证，确保命令 / workflow 入口恢复可用。
 
 ## Done when
 
-- 扫描结果列出所有命中 repo/module，并区分生产代码、测试、文档、历史日志/构建产物。
-- 生产默认路径不再指向旧状态目录。
-- 直接相关测试先红后绿；跨仓库改动各自跑对应最小验证。
-- Agent Fabric 侧 typecheck/build/review gate 通过；必要时安全重启。
-- 结果与 handoff 回写本文件；完成后提交相关仓库改动。
+- 当前 shell、全局 git config、相关仓库 local git config 均不再使用 `627311610@qq.com`。
+- `/Users/ryan/projects` 下相关 git repo 的本地提交作者和提交者邮箱均不是 `627311610@qq.com`；若需要修复已发布个人 repo 历史，先创建 bundle 备份，再用 `--force-with-lease` 推送。
+- `/hkipo` 报错有明确复现证据、根因说明和回归测试；修复后相关单测 / workflow 或 live smoke 验证通过。
+- Agent Fabric 侧相关验证、review gate 通过；若影响运行中的服务，按 `docs/COMMAND.md` 安全重启。
+- 本文件回写结果与 handoff；完成后提交必要代码/文档改动。
 
 ## Milestones
 
-### Milestone 1：全量扫描并锁定迁移范围
+### Milestone 1：git email 配置与本地历史审计
 
 Objective:
-- 扫描 `/Users/ryan/projects`，找出所有旧品牌名、旧点目录和旧环境变量前缀引用，排除 `node_modules`、`.git`、venv、dist/cache 等生成物。
+- 审计当前设备、相关仓库和本地 git 历史中的 git email，确认是否仍有 `627311610@qq.com`，并修正配置 / 历史提交。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- 只读扫描 `/Users/ryan/projects/**`
+- 只读扫描 `/Users/ryan/projects/**/.git`
+- git config 修改：global 或相关仓库 local config
+- 对确认命中 `627311610@qq.com` 的个人 repo，允许先创建本地 bundle 备份，再重写 author/committer email，并使用 `--force-with-lease` 更新对应远端分支
 
 Validation:
-- `rg` 扫描命中清单
-- 对命中 repo 分别查看 `git status --short --branch`
+- `git config --list --show-origin --show-scope | rg 'user.email|627311610@qq.com'`
+- 对相关 repo 执行 `git log --all --format='%h %ae %ce %s'`，确认本地分支 / 远端跟踪历史无错误邮箱。
+- 对重写过的 repo 执行 `git ls-remote origin` 或推送后 ref 检查，确认远端分支已更新到重写后的提交。
+- 全量扫描 `/Users/ryan/projects` 下 git repo，确认当前分支 local config 与历史提交无错误邮箱。
+
+Status:
+- blocked_remote_push
+
+Validation status:
+- partial
+- 当前环境配置：
+  - `git config --global --get user.email` => `ryan.pro.1024@gmail.com`
+  - `git config --get user.email` in relevant repos => `ryan.pro.1024@gmail.com`
+  - `git var GIT_AUTHOR_IDENT` / `GIT_COMMITTER_IDENT` => `Ryan <ryan.pro.1024@gmail.com>`
+- `/Users/ryan/projects` 下 21 个 git repo 扫描完成：所有 local config 与本地未推送 ahead commits 均未使用 `627311610@qq.com`。
+- 全历史扫描命中已发布历史中的错误邮箱：
+  - `agent-skills`: 3 commits
+  - `balance-master`: 16 commits
+  - `ryanpromax.github.io`: 122 commits
+  - `stock-analysis-api`: 48 commits
+  - `vscode-settings`: 11 commits
+- 已创建 bundle 备份：`/tmp/agent-fabric-email-rewrite-20260618100606/*.bundle`，并保存 rewrite 前 refs：`*.refs.before`。
+- 已本地 rewrite 以上 5 个 repo，只替换 author/committer email 等于 `627311610@qq.com` 的字段为 `ryan.pro.1024@gmail.com`；重写后本地 `git log --all --format='%ae %ce'` 对 5 个 repo 的 bad count 均为 0。
+- 远端推送尝试失败：HTTPS `git push --force-with-lease` 报 `fatal: failed to get: -25308` / `could not read Username for 'https://github.com': Device not configured`；SSH `ssh -T -o BatchMode=yes git@github.com` 无响应并被终止。
+
+Review status:
+- pending
+
+Risks / Notes / Handoff:
+- 初步检查显示所有 repo local/global config 与未推送 ahead commits 当前均为 `ryan.pro.1024@gmail.com`。
+- 全历史扫描发现 `agent-skills`、`balance-master`、`ryanpromax.github.io`、`stock-analysis-api`、`vscode-settings` 的已发布历史中仍有 `627311610@qq.com`；若要让 GitHub 重新关联这些历史 commit，必须重写并 force-push 对应个人 repo 分支。
+- 历史重写会改变 commit SHA；执行前必须保存 bundle 备份并记录旧远端 SHA，推送使用 `--force-with-lease`。
+- 本地 rewrite 已完成；远端更新仍被 GitHub 凭据 / SSH 连接阻塞。后续凭据恢复后需要推送：
+  - `agent-skills main`
+  - `balance-master main`
+  - `balance-master develop`
+  - `ryanpromax.github.io main`
+  - `stock-analysis-api main`
+  - `vscode-settings master`
+
+### Milestone 2：复现并定位 `/hkipo` 报错
+
+Objective:
+- 找到 `/hkipo` 当前报错的真实失败点，完成 systematic debugging 的根因调查。
+
+Allowed scope:
+- `PLANS/ACTIVE.md`
+- 只读日志 / DB / workflow run 审计
+- 只读执行 `/hkipo` 相关 preflight、skill command、local task 或测试命令
+- 相关文件读取：`docs/COMMAND.md`、`docs/RUNTIME.md`、`docs/E2E.md`、`.agents/workflows/**`、`src/agent/workflow/**`、`stock-analysis-skill` 与 `stock-analysis-api` 的 `/hkipo` 相关代码
+
+Validation:
+- 记录一个可重复触发的失败命令、日志或 workflow run id。
+- 写出根因假设与证据链，说明失败发生在哪个边界：skill command、workflow dispatch、local task、stock-analysis-api CLI、Futu/OpenD、外部网页/PDF 或 final role output。
 
 Status:
 - done
 
 Validation status:
 - passed
-- 2026-06-14 12:04 EDT：`git grep` / per-repo `rg` 扫描完成。真实命中：
-  - `stock-kol-intel`：KOL command、twscrape add/healthcheck 脚本和 provider 文档仍默认旧状态目录。
-  - `agent-fabric`：KOL local task 与运行时文档仍保留旧状态目录 fallback/说明；测试和 `.gitignore` 仍有 legacy 字面量。
-  - `stock-analysis-skill`：HKIPO、OTC、Research command 仍读取旧 skill dir 环境变量；测试仍注入旧变量。
-  - `stock-analysis-api`：文档示例中有旧 cache 路径和旧 owner id。
-  - `agent-skills/opc-idea-miner`：临时 venv 前缀仍为旧品牌前缀。
-  - 其他已扫 git repo：`runclaw`、`happyclaw`、`hermes-agent`、`daily_stock_analysis`、`deer-flow`、`edict`、`pet-tracking-app`、`awesome-claude-skills`、`balance-master`、`vscode-settings`、`financial-services-plugins`、`TradingAgents`、`ryanpromax.github.io`、`uncle-tom-miniapp`、`learn-claude-code` 无命中。
+- 真实失败 run：`wfrun_4cfde923-f062-4455-b39a-e29b4468310c`，`ipo_pool_discovery` 节点 error。
+- 审计错误：`Command failed: /Users/ryan/.local/bin/uv run python scripts/futu_market_data.py ipo-list --market HK --json`，stderr 为空，耗时约 120s。
+- 本地复现：
+  - `ipo-list --market HK --json` 在 45s 内无 stdout/stderr，Python wrapper timeout exit 124。
+  - `global-state --json` 在 15s 内无 stdout/stderr，Python wrapper timeout exit 124。
+- 根因定位：失败边界是 `stock-analysis-api` 的 Futu/OpenD CLI / `FutuOpenDGateway` 调用；OpenD/Futu API 不响应时 CLI 没有内部超时，Agent Fabric 外层只拿到空 stderr 的 generic command failure。
 
 Review status:
 - passed
 
 Risks / Notes / Handoff:
-- 当前 `main` 本地领先 `origin/main` 4 个提交，push 仍受 GitHub HTTPS 凭据阻塞。
+- 不先猜修；必须先复现和定位根因。
 
-### Milestone 2：测试先行迁移代码与文档
+### Milestone 3：按 TDD 修复 `/hkipo`
 
 Objective:
-- 对 Milestone 1 发现的真实源码/测试/文档引用做最小迁移。
+- 基于 Milestone 2 根因补最小回归测试，先确认红线失败，再做最小修复并验证绿线。
 
 Allowed scope:
 - `PLANS/ACTIVE.md`
-- `/Users/ryan/projects/stock-kol-intel/commands/kol.py`
-- `/Users/ryan/projects/stock-kol-intel/scripts/twscrape_add_cookie_account.py`
-- `/Users/ryan/projects/stock-kol-intel/scripts/twscrape_healthcheck.py`
-- `/Users/ryan/projects/stock-kol-intel/references/twscrape_provider.md`
-- `/Users/ryan/projects/stock-kol-intel/tests/test_kol_command.py`
-- `/Users/ryan/projects/agent-fabric/.gitignore`
+- `PLANS/ROADMAP.md`
+- `/Users/ryan/projects/stock-analysis-api/src/services/futu_market_data_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_futu_market_data_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/pyproject.toml`
+- `/Users/ryan/projects/stock-analysis-api/README.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/futu-internal-cli-contract.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
 - `/Users/ryan/projects/agent-fabric/src/agent/workflow/local-tasks.ts`
-- `/Users/ryan/projects/agent-fabric/docs/RUNTIME.md`
 - `/Users/ryan/projects/agent-fabric/tests/unit/agent/workflow/local-tasks.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/contracts/runtime/codex-cli-auth.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/contracts/runtime/service-restart-guard.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/unit/agent/runner/output-parser.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/unit/app/self-restart.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/unit/core/cache.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/unit/core/config/storage-root.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/unit/skills/command-dispatch.test.ts`
-- `/Users/ryan/projects/stock-analysis-skill/commands/hkipo.py`
-- `/Users/ryan/projects/stock-analysis-skill/commands/otc.py`
-- `/Users/ryan/projects/stock-analysis-skill/commands/research.py`
-- `/Users/ryan/projects/stock-analysis-skill/tests/test_hkipo_command.py`
-- `/Users/ryan/projects/stock-analysis-skill/tests/test_otc_command.py`
-- `/Users/ryan/projects/stock-analysis-skill/tests/test_research_command.py`
-- `/Users/ryan/projects/stock-analysis-api/docs/specs/hkipo-official-docs-cli.md`
-- `/Users/ryan/projects/stock-analysis-api/docs/specs/agentic-strategy-loop.md`
-- `/Users/ryan/projects/agent-skills/opc-idea-miner/commands/idea.py`
-- `/Users/ryan/projects/agent-skills/opc-idea-miner/tests/test_idea_command.py`
 
 Validation:
-- 先补/调整红线测试并确认失败。
-- 对每个改动仓库运行最小相关测试。
+- 红线：新增 / 调整测试在修复前因目标 bug 失败。
+- 绿线：相关测试通过。
+- 根据影响范围补跑 `npm run typecheck:backend`、`npm run build:backend`、`./scripts/review.sh`、必要的 `/hkipo` workflow smoke 或 Feishu live smoke。
 
 Status:
 - done
 
 Validation status:
 - passed
-- 红线确认：
-  - `stock-kol-intel` 新增默认 twscrape DB 路径测试后，旧默认路径实现按预期失败。
-  - `stock-analysis-skill` sibling API root 测试改为新 skill dir 环境变量后，旧实现按预期失败。
-- 绿线验证：
-  - `stock-kol-intel`: `python -m unittest tests/test_kol_command.py`，9 tests passed。
-  - `stock-analysis-skill`: `python3 -m unittest tests.test_hkipo_command tests.test_research_command tests.test_otc_command`，55 tests passed。
-  - `agent-fabric`: affected vitest，8 files / 71 tests passed。
-  - `stock-analysis-api`: docs-only，`git diff --check` passed。
-  - `agent-skills`: targeted `IdeaCommandTests.test_executor_uses_requirements_hash_cache_path` passed；完整 idea command suite 仍因既有外部 CLI/subprocess 依赖失败，未作为本轮 gate。
+- 红线：
+  - `stock-analysis-api` 新增 hanging Futu gateway 测试后，修复前 `test_ipo_list_cli_times_out_hanging_opend_call` 按预期失败。
+  - `stock-analysis-api` 新增 cleanup hanging gateway 测试后，修复前 `test_ipo_list_cli_bounds_cleanup_after_hanging_opend_call` 耗时约 1.06s，未能在内部 deadline 后快速返回，按预期失败。
+  - `agent-fabric` 新增 `fetch_pool preserves failed stock api JSON errors` 后，修复前只得到 generic `Command failed`，按预期失败。
+- 绿线：
+  - `/Users/ryan/projects/stock-analysis-api`: `/Users/ryan/.local/bin/uv run python -m pytest tests/test_futu_market_data_cli.py -q`，15 passed。
+  - 真实 CLI smoke：`FUTU_OPEND_CALL_TIMEOUT_SECONDS=2 /Users/ryan/.local/bin/uv run python scripts/futu_market_data.py global-state --json` 与 `ipo-list --market HK --json`，均约 2.3s 内输出 `{"status":"failed","source":"futu_opend","error":"Futu OpenD call timed out after 2s"}` 并以 code 1 退出，无残留 `futu_market_data.py` 进程。
+  - `/Users/ryan/projects/stock-analysis-api`: `git diff --check` passed。
+  - `/Users/ryan/projects/agent-fabric`: `npm test -- --run tests/unit/agent/workflow/local-tasks.test.ts`，9 passed。
+  - `/Users/ryan/projects/agent-fabric`: `npm run typecheck:backend` passed；`npm run build:backend` passed。
+  - `/Users/ryan/projects/agent-fabric`: workflow / Feishu in-process E2E 相关测试，5 files / 46 tests passed。
+  - `/Users/ryan/projects/agent-fabric`: `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=<private oc_...> npm test -- --run tests/live/feishu/message-smoke.test.ts`，1 passed，真实发送并读回 `[e2e]` 消息。
+  - `/Users/ryan/projects/agent-fabric`: `./scripts/review.sh` passed。
+  - `/Users/ryan/projects/agent-fabric`: `./scripts/validate.sh --run tests/unit/agent/workflow/local-tasks.test.ts tests/integration/messaging/feishu/e2e.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts` passed，覆盖 targeted tests、`make typecheck` 和完整 `npm run build`。
+- email cleanup 验证：
+  - `/Users/ryan/projects/stock-analysis-api`: `git grep -n "627311610@qq.com" -- .` 无命中；`pyproject.toml` author email 已改为 `ryan.pro.1024@gmail.com`。
+- stock repo 协议同步：
+  - `/Users/ryan/projects/stock-analysis-api/docs/plan.md` 已按 `AGENTS.md` 更新当前目标、最近完成项、当前状态、下一步和风险，记录 Futu/OpenD timeout contract 与 package author email cleanup。
 
 Review status:
 - passed
-- 按 `RUNBOOKS/Review.md` 做过语义 review：迁移范围与 Milestone 1 命中一致，未保留旧状态目录默认或 fallback；测试中的旧品牌负例已改成 generic obsolete/legacy 示例。
+- sub-agent scope / protocol review：发现 ACTIVE 状态滞后与 stock repo `docs/plan.md` 未同步两个 P1；已修复，`PLANS/ACTIVE.md` 回写验证与 handoff，`stock-analysis-api/docs/plan.md` 按仓库协议同步当前状态。
+- sub-agent implementation review：发现 Futu/OpenD timeout 未覆盖 SDK cleanup 阶段 P1；已修复为周期性 deadline，新增 cleanup-hang 回归测试；复查未发现 blocking issue，reviewer 也重跑 `uv run python -m pytest tests/test_futu_market_data_cli.py -q`，15 passed。
 
 Risks / Notes / Handoff:
-- 用户要求“全量改成新文件夹”，本轮不保留旧状态目录默认或 fallback；历史负向测试改成不含旧品牌字面量的 generic legacy/unsafe 示例。
-- 本地旧状态文件已搬到 `.agent-fabric/` 对应位置，旧 sqlite 文件改名为 `agent-fabric.sqlite`；这些文件为本地 ignored state，不纳入提交。
+- 若报错来自外部数据源或凭据不可用，修复应降级为稳定、可解释的用户可见错误，不编造 IPO 数据。
+- Milestone 2 证据：`wfrun_4cfde923-f062-4455-b39a-e29b4468310c` 失败在 `ipo_pool_discovery`，命令 `/Users/ryan/.local/bin/uv run python scripts/futu_market_data.py ipo-list --market HK --json` 约 120s 后失败且 stderr 为空；本地复现 `ipo-list` 45s 无输出超时，`global-state` 15s 无输出超时。
+- 根因假设：`stock-analysis-api` Futu/OpenD CLI 对 `FutuOpenDGateway` 调用没有内部超时，OpenD/Futu API 不响应时进程静默卡住；Agent Fabric 外层 `execFile` 超时后只能记录空 stderr 的 generic command failure。
+- review 期间发现 `stock-analysis-api/pyproject.toml` 的 package author metadata 仍残留旧邮箱，纳入本轮 email cleanup。
+- git email 远端 force-push 阻塞已同步到 `PLANS/ROADMAP.md` 的 `RM-2026-06-18-01`。
 
-### Milestone 3：全量复扫、验证、提交
+## Working Rules
 
-Objective:
-- 复扫确认旧默认引用清零，运行验证与 review gate，提交改动。
-
-Allowed scope:
-- 本轮实际改动文件
-- `PLANS/ACTIVE.md`
-- Git commit
-
-Validation:
-- 复扫旧品牌名、旧点目录和旧环境变量前缀，确认无命中。
-- Agent Fabric: `git diff --check`、targeted tests、`npm run typecheck:backend`、`npm run build:backend`、`./scripts/review.sh`
-- 其他仓库按自身测试入口验证
-
-Status:
-- done
-
-Validation status:
-- passed
-- 旧品牌/旧点目录/旧环境变量前缀复扫清零：
-  - `agent-fabric`
-  - `stock-kol-intel`
-  - `stock-analysis-skill`
-  - `stock-analysis-api`
-  - `agent-skills`
-- `agent-fabric`: `./scripts/review.sh` passed。
-- `agent-fabric`: `npm run typecheck:backend && npm run build:backend` passed。
-- `agent-fabric`: `bun src/cli.ts restart` requested safe restart，`GET /api/health` returned healthy。
-- 其他改动仓库均已跑 `git diff --check` 或目标测试。
-
-Review status:
-- passed
-- Review gate passed：未发现 scope violation、残留旧默认路径、文档/代码冲突或明显回归风险。
-
-Risks / Notes / Handoff:
-- 当前 4 个已提交 git 仓库推送均受 GitHub HTTPS 凭据阻塞：`fatal: failed to get: -25308` / `could not read Username for 'https://github.com': terminal prompts disabled`。需要用户侧刷新 GitHub 凭据后重试 push。
-
-### Milestone 4：残留文本复扫、E2E 与提交收尾
-
-Objective:
-- 复查 Milestone 3 后仍可优化的旧品牌/旧点目录文字残留，清理非必要测试标题、注释和本地忽略项；对需要保留的第三方署名、MIT 来源或领域字段做明确分类。
-- 重新运行相关验证、subagent review 和 E2E gate，再提交本轮补充改动。
-
-Allowed scope:
-- `PLANS/ACTIVE.md`
-- `/Users/ryan/projects/agent-fabric/.gitignore`
-- `/Users/ryan/projects/agent-fabric/src/agent/queue/group-queue.ts`
-- `/Users/ryan/projects/agent-fabric/src/messaging/providers/feishu/streaming-card.ts`
-- `/Users/ryan/projects/agent-fabric/tests/unit/presentation/tool-step-display.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/unit/messaging/feishu/streaming-card.test.ts`
-- `/Users/ryan/projects/agent-fabric/tests/integration/agent/restart-recovery.test.ts`
-- `/Users/ryan/projects/stock-analysis-skill/.gitignore`
-- `/Users/ryan/projects/stock-analysis-api/.gitignore`
-- 只读复核：`README.md`、`web/src/components/settings/AboutSection.tsx`、`src/messaging/providers/feishu/markdown-style.ts`、跨仓旧引用扫描结果。
-
-Validation:
-- 复扫旧默认路径、旧点目录和旧环境变量前缀，确认生产默认与测试期望无残留。
-- 复扫旧品牌关键词，区分已清理项、第三方署名 / license 来源、领域字段和 roadmap 历史记录。
-- `npm test -- tests/unit/presentation/tool-step-display.test.ts tests/unit/messaging/feishu/streaming-card.test.ts tests/integration/agent/restart-recovery.test.ts`
-- `npm run typecheck:backend`
-- `npm run build:backend`
-- `./scripts/review.sh`
-- E2E gate：优先运行仓库 in-process E2E；如能按 `docs/E2E.md` 发现可用私聊入口和 App 凭据，再运行 Feishu live smoke。
-
-Status:
-- done
-
-Validation status:
-- passed
-- 复扫旧默认路径、旧点目录和旧环境变量前缀清零：`CLI_CLAW|\.cli-claw|cli-claw|CLAUDE_CODE|CLAUDE|claude-code|claude_code|\.claude` 在 5 个相关路径中无命中（排除生成物、lockfile 和 `PLANS/ACTIVE.md`）。
-- 旧品牌关键词复扫只剩分类保留项：
-  - `README.md`：`happyclaw` 为第三方灵感来源署名。
-  - `web/src/components/settings/AboutSection.tsx`：`openclaw` 为第三方项目叙述。
-  - `src/messaging/providers/feishu/markdown-style.ts`：`openclaw-lark` 为 MIT 改编来源说明。
-- `git diff --check` passed：`agent-fabric`、`stock-analysis-skill`、`stock-analysis-api`。
-- `npm test -- tests/unit/presentation/tool-step-display.test.ts tests/unit/messaging/feishu/streaming-card.test.ts tests/integration/agent/restart-recovery.test.ts`：3 files / 102 tests passed。
-- `npm test -- tests/integration/messaging/feishu/e2e.test.ts tests/integration/messaging/feishu/kol-command-e2e.test.ts`：2 files / 17 tests passed。
-- `npm run typecheck:backend` passed。
-- `npm run build:backend` passed。
-- `./scripts/review.sh` passed hygiene / format check。
-- `FEISHU_LIVE_E2E=1 FEISHU_LIVE_CHAT_ID=<private chat> npm test -- tests/live/feishu/message-smoke.test.ts`：1 file / 1 test passed，真实发送并读回 `[e2e]` 消息。
-
-Review status:
-- passed
-- Subagent scope / residual review：无 blocking finding；三仓 diff 均在 Milestone 4 allowed scope 内；旧默认路径、旧点目录、旧 env 前缀无残留；旧品牌残留均为计划分类保留项。
-- Subagent runtime / test review：无 blocking finding；本轮代码侧为纯文本清理，`restart-recovery` prompt 字符串成对替换，验证覆盖足够。
-- 本地语义 review：scope、objective、pattern-fit、validation、hygiene、docs/comments、regression contract 均通过；`.claude/` ignore 删除后若未来本地工具再生成该目录，提交前需留意 git status，但不影响构建或测试。
-
-Risks / Notes / Handoff:
-- `happyclaw` / `openclaw` 在 README 和 Web About 中是第三方项目叙述，不是状态目录默认或 fallback；除非 review 认为产品文案也必须去除，否则先分类保留。
-- `openclaw-lark` 是 MIT 改编来源说明，属于 license/source attribution，不作为旧默认引用清理。
-- `clawback` 是港股 IPO “回拨”字段英文名，不属于旧品牌命中。
+- `PLANS/ACTIVE.md` 是本轮单一真相源；变更 scope、目标或验证方式前先更新本文件。
+- 一次只允许一个 milestone 处于 `in_progress`。
+- `/hkipo` bugfix 必须按 TDD：先有能证明问题的失败测试，再改实现。
+- 标记 milestone done 前必须同时满足 validation passed 与 review passed。
 
 ## Handoff
 
 Current milestone:
-- Milestone 4
+- Milestone 3
 
 Current status:
-- complete
+- done_with_remote_push_blocked
 
 Changed files:
 - `PLANS/ACTIVE.md`
-- `agent-fabric`: runtime fallback、runtime doc、ignore rule、legacy negative tests；本轮继续清理非必要旧品牌文字残留
-- `stock-kol-intel`: KOL command/scripts/provider doc/test
-- `stock-analysis-skill`: command skill dir env/test；本轮继续清理旧点目录 ignore 规则
-- `stock-analysis-api`: docs examples；本轮继续清理旧点目录 ignore 规则
-- `agent-skills`: OPC idea miner temp venv prefix/test
+- `PLANS/ROADMAP.md`
+- `/Users/ryan/projects/agent-fabric/src/agent/workflow/local-tasks.ts`
+- `/Users/ryan/projects/agent-fabric/tests/unit/agent/workflow/local-tasks.test.ts`
+- `/Users/ryan/projects/stock-analysis-api/src/services/futu_market_data_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/tests/test_futu_market_data_cli.py`
+- `/Users/ryan/projects/stock-analysis-api/README.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/specs/futu-internal-cli-contract.md`
+- `/Users/ryan/projects/stock-analysis-api/docs/plan.md`
+- `/Users/ryan/projects/stock-analysis-api/pyproject.toml`
+- local git history rewritten in `agent-skills`、`balance-master`、`ryanpromax.github.io`、`stock-analysis-api`、`vscode-settings` (not a file diff)
 
 Last failure summary:
-- None. Milestone 4 validation, E2E and subagent review passed.
+- GitHub push blocked by local credential / SSH auth state: `failed to get: -25308` and SSH probe timeout.
 
 Suspected cause:
-- 历史重命名后，部分 sibling skill、KOL twscrape 状态目录、文档示例和负向测试仍保留旧品牌字面量或旧默认目录。
+- `/hkipo` 报错来自 Futu/OpenD 调用无内部 deadline，OpenD/Futu API 不响应时 CLI 静默挂起；git email 远端修复仍需要 GitHub 凭据恢复后 force-with-lease push。
 
 Next step:
-- 本轮实现已完成；提交当前三仓补充改动。远端 push 仍取决于 GitHub HTTPS 凭据恢复。
+- 提交本轮代码/文档改动。GitHub 远端历史更新仍受本机 GitHub 凭据 / SSH 连接状态阻塞；凭据恢复后按 `PLANS/ROADMAP.md` 的 `RM-2026-06-18-01` force-with-lease 推送。
