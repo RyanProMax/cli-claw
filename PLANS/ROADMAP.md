@@ -20,12 +20,18 @@
 
 - Status: `proposed`
 - Source: 2026-06-18 user request to replace `627311610@qq.com` with the GitHub-associated email in local config and historical commits.
-- Summary: 当前设备全局 / local git author 与 committer identity 已为 `Ryan <ryan.pro.1024@gmail.com>`；`agent-skills`、`balance-master`、`ryanpromax.github.io`、`stock-analysis-api`、`vscode-settings` 已创建 bundle 备份并本地重写历史，只替换 author/committer email。远端更新仍被本机 GitHub HTTPS credential helper / SSH 连接状态阻塞，`git push --force-with-lease` 报 `failed to get: -25308` / `could not read Username for 'https://github.com': Device not configured`，SSH batch probe 无响应。
+- Summary: 当前设备全局 / local git author 与 committer identity 已为 `Ryan <ryan.pro.1024@gmail.com>`；`agent-skills`、`balance-master`、`ryanpromax.github.io`、`stock-analysis-api`、`vscode-settings` 已创建 bundle 备份并本地重写历史，只替换 author/committer email。远端更新仍被本机 GitHub HTTPS credential helper / SSH 连接状态阻塞：`git push --dry-run --force-with-lease` 仍报 `failed to get: -25308` / `could not read Username for 'https://github.com': terminal prompts disabled`；`gh auth status` 显示未登录；带 `BatchMode` / `ConnectTimeout` 的 SSH probe 报 `Could not resolve hostname github.com`。
 - Durable contract:
   - 本轮备份目录：`/tmp/agent-fabric-email-rewrite-20260618100606`
   - rewrite 后推送必须使用 `--force-with-lease`，并以备份中的 `*.refs.before` 作为旧 refs 核对依据。
 - Next action:
-  - 恢复本机 GitHub HTTPS 凭据或 SSH 连接后，依次 force-with-lease 推送：`agent-skills main`、`balance-master main`、`balance-master develop`、`ryanpromax.github.io main`、`stock-analysis-api main`、`vscode-settings master`。
+  - 恢复本机 GitHub HTTPS 凭据或 SSH 连接后，依次执行以下安全推送：
+    - `/Users/ryan/projects/agent-skills`: `git push --force-with-lease=refs/heads/main:fbfd007a770acbfe16ea4706782b615804b3fbed origin main:refs/heads/main`
+    - `/Users/ryan/projects/balance-master`: `git push --force-with-lease=refs/heads/main:d37ec100aeb7e9d9e25ade91161f9269b69879f4 origin main:refs/heads/main`
+    - `/Users/ryan/projects/balance-master`: `git push --force-with-lease=refs/heads/develop:2f3b648e60a3cd092e5414c9d7a6e0e5679f6a99 origin develop:refs/heads/develop`
+    - `/Users/ryan/projects/ryanpromax.github.io`: `git push --force-with-lease=refs/heads/main:7cfb559fabe3c72344acf9d0627287bde3f8296e origin main:refs/heads/main`
+    - `/Users/ryan/projects/stock-analysis-api`: `git push --force-with-lease=refs/heads/main:0f8497c8de3376efe1ae086405661a1016bbb8e3 origin main:refs/heads/main`
+    - `/Users/ryan/projects/vscode-settings`: `git push --force-with-lease=refs/heads/master:2ece51f4b045767f58bc1d9db9a12c12fba2133b origin master:refs/heads/master`
   - 推送后重新扫描相关 repo 的远端 refs，确认 `627311610@qq.com` 不再出现在目标历史中。
 
 ### P1 RM-2026-05-24-01 Workspace Thread Router UX

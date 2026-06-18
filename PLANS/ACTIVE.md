@@ -187,10 +187,10 @@ Changed files:
 - local git history rewritten in `agent-skills`、`balance-master`、`ryanpromax.github.io`、`stock-analysis-api`、`vscode-settings` (not a file diff)
 
 Last failure summary:
-- GitHub push blocked by local credential / SSH auth state: `failed to get: -25308` and SSH probe timeout.
+- GitHub push blocked by local credential / SSH auth state: HTTPS `git push --dry-run --force-with-lease` 仍报 `failed to get: -25308` / `could not read Username for 'https://github.com': terminal prompts disabled`；`gh auth status` 显示未登录；SSH probe 报 `Could not resolve hostname github.com`。
 
 Suspected cause:
 - `/hkipo` 报错来自 Futu/OpenD 调用无内部 deadline，OpenD/Futu API 不响应时 CLI 静默挂起；git email 远端修复仍需要 GitHub 凭据恢复后 force-with-lease push。
 
 Next step:
-- 提交本轮代码/文档改动。GitHub 远端历史更新仍受本机 GitHub 凭据 / SSH 连接状态阻塞；凭据恢复后按 `PLANS/ROADMAP.md` 的 `RM-2026-06-18-01` force-with-lease 推送。
+- `/hkipo` 修复与计划更新已提交。GitHub 远端历史更新仍受本机 GitHub 凭据 / SSH 连接状态阻塞；凭据恢复后按 `PLANS/ROADMAP.md` 的 `RM-2026-06-18-01` force-with-lease 推送。
